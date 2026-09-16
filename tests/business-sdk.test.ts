@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -16,6 +16,8 @@ import {
 import { defineModuleServer } from "@suite/module-sdk/server";
 import { registerModule } from "@suite/module-catalog";
 import { moduleServers } from "@suite/module-catalog/server";
+import ordersCandidate from "../modules/orders/releases/2.0.0/module";
+import { serviceContractSource } from "../packages/module-sdk/node/service-contracts";
 import candidate from "../modules/inventory/releases/2.0.0/module";
 import { buildServerPackage } from "../packages/module-sdk/node/build-server";
 import { signPackage } from "../packages/module-sdk/node/signing";
@@ -42,6 +44,21 @@ const version = `2.0.0-acceptance.${randomUUID().slice(0, 8)}`;
 const inventory = hydrateModule(
   JSON.parse(JSON.stringify({ ...candidate, version })),
 ) as typeof candidate;
+const ordersDefinition = hydrateModule(
+  JSON.parse(
+    JSON.stringify({
+      ...ordersCandidate,
+      version,
+      dependencies: { inventory: version },
+      services: Object.fromEntries(
+        Object.entries(ordersCandidate.services).map(([key, service]) => [
+          key,
+          { ...service, version },
+        ]),
+      ),
+    }),
+  ),
+) as typeof ordersCandidate;
 const actions = ["reserve", "release", "consume", "resolve-products"] as const;
 function consumer(id: string) {
   return defineModule({
@@ -159,6 +176,43 @@ beforeAll(async () => {
   );
   await stageRelease(registry, submission, publicKey);
   await publishRelease(registry, submission, publicKey);
+  const ordersDirectory = resolve(directory, "orders");
+  await mkdir(ordersDirectory);
+  const ordersSource = resolve("modules/orders/releases/2.0.0");
+  await writeFile(
+    resolve(ordersDirectory, "module.ts"),
+    (await readFile(resolve(ordersSource, "module.ts"), "utf8"))
+      .replace('version: "2.0.0"', `version: "${version}"`)
+      .replace('inventory: "^2.0.0"', `inventory: "${version}"`),
+  );
+  await writeFile(
+    resolve(ordersDirectory, "module-server.ts"),
+    await readFile(resolve(ordersSource, "module-server.ts")),
+  );
+  await writeFile(
+    resolve(ordersDirectory, "inventory-services.ts"),
+    serviceContractSource(inventory),
+  );
+  const ordersServer = await buildServerPackage(
+    ordersDefinition,
+    ordersDirectory,
+    privateKey,
+  );
+  const ordersSubmission = await submitRelease(
+    registry,
+    signPackage(ordersDefinition, privateKey),
+    ordersServer,
+    publicKey,
+  );
+  await reviewRelease(
+    registry,
+    ordersSubmission,
+    "approved",
+    "Actual Orders SDK candidate acceptance",
+    publicKey,
+  );
+  await stageRelease(registry, ordersSubmission, publicKey);
+  await publishRelease(registry, ordersSubmission, publicKey);
   for (const module of [first, second]) registerModule(module);
   moduleServers.push(...servers);
   app = await createApp({
@@ -184,7 +238,7 @@ beforeAll(async () => {
         userId: actor.id,
         name: "Inventory SDK",
         kind: "company",
-        modules: ["inventory", first.id, second.id],
+        modules: ["inventory", "orders", first.id, second.id],
       });
       await tx
         .insertInto("suite.module_storage")
@@ -204,6 +258,33 @@ beforeAll(async () => {
           version: 1,
         })
         .execute();
+      await tx
+        .insertInto("suite.module_storage")
+        .values({
+          workspace_id: id,
+          module_id: "orders",
+          schema_version: 2,
+          release_version: version,
+        })
+        .execute();
+      await tx
+        .insertInto("suite.platform_settings")
+        .values({
+          workspace_id: id,
+          key: "pin:orders",
+          value: { version },
+          version: 1,
+        })
+        .execute();
+      await tx
+        .insertInto("suite.platform_settings")
+        .values({
+          workspace_id: id,
+          key: "grant:orders:inventory",
+          value: { services: [...actions] },
+          version: 1,
+        })
+        .execute();
       const role = await tx
         .selectFrom("suite.roles")
         .select(["id", "permissions"])
@@ -217,6 +298,7 @@ beforeAll(async () => {
             ...new Set([
               ...role.permissions,
               ...candidate.permissions,
+              ...ordersCandidate.permissions,
               ...first.permissions,
               ...second.permissions,
             ]),
@@ -275,6 +357,7 @@ const send =
       });
     return response.json();
   };
+const businessOrders = () => createModuleClient(ordersDefinition, send());
 const stock = () => createModuleClient(inventory, send());
 const orders = () => createModuleClient(first, send());
 async function product(units = 10) {
@@ -727,4 +810,437 @@ it("validates imported balances atomically and preserves archived legacy history
   ).toBe(true);
   expect(await migrate()).toMatchObject({ applied: [] });
   expect(await snapshot()).toEqual(migrated);
+});
+
+it("creates simultaneous Orders drafts with unique numbers and server-derived totals and product snapshots", async () => {
+  const p = await product(40);
+  const input = {
+    customerName: "  SDK customer  ",
+    lines: [{ productId: p.id.toUpperCase(), quantity: 3, priceMinor: 1750 }],
+  };
+  const keys = Array.from({ length: 6 }, () => randomUUID());
+  const drafts = await Promise.all(
+    keys.map((key) => businessOrders().call("draft", input, key)),
+  );
+  expect(drafts.map((o) => o.number).sort((a, b) => a - b)).toEqual([
+    1, 2, 3, 4, 5, 6,
+  ]);
+  for (const draft of drafts)
+    expect(draft).toMatchObject({
+      customerName: "SDK customer",
+      status: "draft",
+      totalMinor: 5250,
+      version: 1,
+      lines: [
+        {
+          productId: p.id,
+          sku: p.sku,
+          name: p.name,
+          quantity: 3,
+          priceMinor: 1750,
+        },
+      ],
+    });
+  const once = await snapshots();
+  expect(await businessOrders().call("draft", input, keys[0])).toEqual(
+    drafts[0],
+  );
+  expect(await snapshots()).toEqual(once);
+  const malicious = await app.app.inject({
+    method: "POST",
+    url: `/api/v1/module/orders/workspaces/${workspace}/operations/draft`,
+    headers: {
+      ...headers,
+      "idempotency-key": randomUUID(),
+      "x-module-version": version,
+    },
+    payload: { ...input, totalMinor: 1, status: "fulfilled" },
+  });
+  expect(malicious.statusCode).toBe(400);
+  expect(
+    await businessOrders().attempt("draft", {
+      ...input,
+      lines: [{ productId: p.id, quantity: 1000000, priceMinor: 100000000 }],
+    }),
+  ).toMatchObject({ ok: false, error: { code: "INVALID_DRAFT" } });
+  expect(await snapshots()).toEqual(once);
+});
+it("returns typed stock rejections during competing order confirmations and fulfills exactly once", async () => {
+  const p = await product();
+  const drafts = await Promise.all(
+    ["First", "Second"].map((customerName) =>
+      businessOrders().call("draft", {
+        customerName,
+        lines: [{ productId: p.id, quantity: 7, priceMinor: 900 }],
+      }),
+    ),
+  );
+  const confirmed = await Promise.all(
+    drafts.map((draft) =>
+      businessOrders().attempt("confirm", {
+        id: draft.id,
+        version: draft.version,
+      }),
+    ),
+  );
+  expect(confirmed.filter((r) => r.ok)).toHaveLength(1);
+  expect(confirmed.find((r) => !r.ok)).toMatchObject({
+    ok: false,
+    error: { code: "STOCK_REJECTED", stock: { code: "INSUFFICIENT_STOCK" } },
+  });
+  const accepted = confirmed.find((r) => r.ok)!;
+  if (!accepted.ok) throw Error("No accepted confirmation");
+  const rejected = drafts[confirmed.findIndex((r) => !r.ok)];
+  expect(await businessOrders().call("get", { id: rejected.id })).toMatchObject(
+    { status: "draft", version: 1 },
+  );
+  expect(await stock().call("get", { id: p.id })).toMatchObject({
+    onHand: 10,
+    reserved: 7,
+    available: 3,
+  });
+  const input = { id: accepted.value.id, version: accepted.value.version },
+    key = randomUUID();
+  const fulfilled = await businessOrders().call("fulfill", input, key);
+  expect(fulfilled).toMatchObject({
+    status: "fulfilled",
+    version: 3,
+    activity: [
+      { action: "orders.fulfilled" },
+      { action: "orders.confirmed" },
+      { action: "orders.created" },
+    ],
+  });
+  const once = await snapshots();
+  expect(await businessOrders().call("fulfill", input, key)).toEqual(fulfilled);
+  expect(await snapshots()).toEqual(once);
+  expect(
+    once.audits.filter(
+      (a) =>
+        a.target_id === input.id &&
+        ["orders.fulfilled", "inventory.consumed"].includes(a.action),
+    ),
+  ).toHaveLength(2);
+  expect(await stock().call("get", { id: p.id })).toMatchObject({
+    onHand: 3,
+    reserved: 0,
+    available: 3,
+  });
+  expect(
+    await businessOrders().attempt("cancel", {
+      id: fulfilled.id,
+      version: fulfilled.version,
+    }),
+  ).toMatchObject({ ok: false, error: { code: "INVALID_TRANSITION" } });
+});
+it("keeps snapshots until draft edits and enforces versions, state and exact inventory release", async () => {
+  const p = await product();
+  const input = {
+    customerName: "Edit proof",
+    lines: [{ productId: p.id, quantity: 4, priceMinor: 700 }],
+  };
+  const draft = await businessOrders().call("draft", input);
+  await stock().call("edit-product", {
+    id: p.id,
+    version: p.version,
+    name: "Updated product",
+    sku: p.sku,
+    priceMinor: p.priceMinor,
+    active: true,
+  });
+  expect(
+    (await businessOrders().call("get", { id: draft.id })).lines[0].name,
+  ).toBe(p.name);
+  const edited = await businessOrders().call("edit", {
+    ...input,
+    id: draft.id,
+    version: draft.version,
+  });
+  expect(edited).toMatchObject({
+    version: 2,
+    lines: [{ name: "Updated product" }],
+  });
+  expect(
+    await businessOrders().attempt("edit", {
+      ...input,
+      id: draft.id,
+      version: 1,
+    }),
+  ).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  const confirmed = await businessOrders().call("confirm", {
+    id: edited.id,
+    version: edited.version,
+  });
+  expect(
+    await businessOrders().attempt("edit", {
+      ...input,
+      id: confirmed.id,
+      version: confirmed.version,
+    }),
+  ).toMatchObject({ ok: false, error: { code: "INVALID_TRANSITION" } });
+  const cancelled = await businessOrders().call("cancel", {
+    id: confirmed.id,
+    version: confirmed.version,
+  });
+  expect(cancelled).toMatchObject({ status: "cancelled", version: 4 });
+  expect(await stock().call("get", { id: p.id })).toMatchObject({
+    onHand: 10,
+    reserved: 0,
+    available: 10,
+  });
+  const fresh = await businessOrders().call("draft", input);
+  const before = (await snapshots()).records.filter(
+    (r) => r.module_id === "inventory",
+  );
+  await businessOrders().call("cancel", {
+    id: fresh.id,
+    version: fresh.version,
+  });
+  expect(
+    (await snapshots()).records.filter((r) => r.module_id === "inventory"),
+  ).toEqual(before);
+  expect(
+    await createModuleClient(ordersDefinition, send(foreign)).attempt("get", {
+      id: fresh.id,
+    }),
+  ).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+});
+it("rolls back an entire Orders confirmation when a later product fails and rejects missing service grants", async () => {
+  const products = (await Promise.all([product(), product()])).sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  const draft = await businessOrders().call("draft", {
+    customerName: "Atomic proof",
+    lines: products.map((p, index) => ({
+      productId: p.id,
+      quantity: index ? 11 : 4,
+      priceMinor: 500,
+    })),
+  });
+  const before = await snapshots();
+  expect(
+    await businessOrders().attempt("confirm", {
+      id: draft.id,
+      version: draft.version,
+    }),
+  ).toMatchObject({
+    ok: false,
+    error: { code: "STOCK_REJECTED", stock: { code: "INSUFFICIENT_STOCK" } },
+  });
+  expect(await snapshots()).toEqual(before);
+  await inWorkspace(db, workspace, (tx) =>
+    tx
+      .updateTable("suite.platform_settings")
+      .set({ value: { services: [] } })
+      .where("workspace_id", "=", workspace)
+      .where("key", "=", "grant:orders:inventory")
+      .execute(),
+  );
+  try {
+    await expect(
+      businessOrders().call("confirm", {
+        id: draft.id,
+        version: draft.version,
+      }),
+    ).rejects.toMatchObject({ code: "GRANT_REQUIRED" });
+    expect(await snapshots()).toEqual(before);
+  } finally {
+    await inWorkspace(db, workspace, (tx) =>
+      tx
+        .updateTable("suite.platform_settings")
+        .set({ value: { services: [...actions] } })
+        .where("workspace_id", "=", workspace)
+        .where("key", "=", "grant:orders:inventory")
+        .execute(),
+    );
+  }
+  expect(
+    await businessOrders().attempt("draft", {
+      customerName: "Missing product",
+      lines: [{ productId: randomUUID(), quantity: 1, priceMinor: 1 }],
+    }),
+  ).toMatchObject({
+    ok: false,
+    error: { code: "STOCK_REJECTED", stock: { code: "NOT_FOUND" } },
+  });
+  expect(await snapshots()).toEqual(before);
+});
+it("preserves imported order versions, history and numbering, rejecting inconsistent totals or counters atomically", async () => {
+  const target = randomUUID(),
+    ids = [randomUUID(), randomUUID()].sort();
+  const counter = "00000000-0000-4000-8000-000000000001";
+  const data = {
+    orderVersion: 7,
+    number: 20,
+    customerName: "Imported customer",
+    status: "draft",
+    totalMinor: 20,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+    lines: [
+      {
+        productId: randomUUID(),
+        quantity: 2,
+        priceMinor: 10,
+        sku: "OLD",
+        name: "Historical snapshot",
+      },
+    ],
+    activity: [
+      { action: "orders.created", createdAt: "2026-09-01T00:00:00.000Z" },
+    ],
+  };
+  await inWorkspace(db, target, async (tx) => {
+    await provisionWorkspace(tx, {
+      id: target,
+      userId: authenticatedActor.id,
+      name: "Orders migration acceptance",
+      kind: "company",
+      modules: ["inventory", "orders"],
+    });
+    await tx
+      .insertInto("suite.module_storage")
+      .values([
+        {
+          workspace_id: target,
+          module_id: "inventory",
+          schema_version: 2,
+          release_version: version,
+        },
+        {
+          workspace_id: target,
+          module_id: "orders",
+          schema_version: 1,
+          release_version: "1.1.0",
+        },
+      ])
+      .execute();
+    await tx
+      .insertInto("suite.platform_settings")
+      .values([
+        {
+          workspace_id: target,
+          key: "pin:inventory",
+          value: { version },
+          version: 1,
+        },
+        {
+          workspace_id: target,
+          key: "grant:orders:inventory",
+          value: { services: [...actions] },
+          version: 1,
+        },
+      ])
+      .execute();
+    await tx
+      .insertInto("suite.module_records")
+      .values([
+        ...ids.map((id, index) => ({
+          workspace_id: target,
+          module_id: "orders",
+          resource: "$legacy-orders",
+          id,
+          data: { ...data, number: 20 + index, totalMinor: index ? 21 : 20 },
+          created_by: authenticatedActor.id,
+          version: 1,
+          archived: Boolean(index),
+        })),
+        {
+          workspace_id: target,
+          module_id: "orders",
+          resource: "$legacy-counters",
+          id: counter,
+          data: { next: 20 },
+          created_by: authenticatedActor.id,
+          version: 1,
+          archived: false,
+        },
+      ])
+      .execute();
+  });
+  const migrate = () =>
+    inWorkspace(db, target, async (tx) =>
+      migrateModuleStorage(
+        tx,
+        await authorize(tx, authenticatedActor, target, randomUUID()),
+        "orders",
+        version,
+      ),
+    );
+  const records = () =>
+    inWorkspace(db, target, (tx) =>
+      tx
+        .selectFrom("suite.module_records")
+        .selectAll()
+        .where("workspace_id", "=", target)
+        .where("module_id", "=", "orders")
+        .orderBy("resource")
+        .orderBy("id")
+        .execute(),
+    );
+  const before = await records();
+  await expect(migrate()).rejects.toThrow(
+    "Imported order lines and total are inconsistent",
+  );
+  expect(await records()).toEqual(before);
+  await inWorkspace(db, target, (tx) =>
+    tx
+      .updateTable("suite.module_records")
+      .set({ data: { ...data, number: 21 } })
+      .where("workspace_id", "=", target)
+      .where("id", "=", ids[1])
+      .execute(),
+  );
+  const fixedLines = await records();
+  await expect(migrate()).rejects.toThrow(
+    "Imported order counter is inconsistent",
+  );
+  expect(await records()).toEqual(fixedLines);
+  await inWorkspace(db, target, (tx) =>
+    tx
+      .updateTable("suite.module_records")
+      .set({ data: { next: 100 } })
+      .where("workspace_id", "=", target)
+      .where("id", "=", counter)
+      .execute(),
+  );
+  expect(await migrate()).toMatchObject({
+    applied: ["import-v1"],
+    schemaVersion: 2,
+  });
+  const imported = (await records()).filter((r) => r.resource === "$orders");
+  expect(imported).toMatchObject([
+    { id: ids[0], archived: false, data: { orderVersion: 7, number: 20 } },
+    { id: ids[1], archived: true, data: { orderVersion: 7, number: 21 } },
+  ]);
+  const after = await records();
+  expect(await migrate()).toMatchObject({ applied: [] });
+  expect(await records()).toEqual(after);
+  await inWorkspace(db, target, (tx) =>
+    tx
+      .insertInto("suite.platform_settings")
+      .values({
+        workspace_id: target,
+        key: "pin:orders",
+        value: { version },
+        version: 1,
+      })
+      .execute(),
+  );
+  const client = createModuleClient(ordersDefinition, send(target));
+  expect(await client.call("get", { id: ids[0] })).toMatchObject({
+    version: 7,
+    number: 20,
+    activity: data.activity,
+    lines: data.lines,
+  });
+  const p = await createModuleClient(inventory, send(target)).call(
+    "create-product",
+    { sku: "POST-IMPORT", name: "New product", priceMinor: 10 },
+  );
+  const fresh = await client.call("draft", {
+    customerName: "After import",
+    lines: [{ productId: p.id, quantity: 1, priceMinor: 10 }],
+  });
+  expect(fresh).toMatchObject({ number: 100, version: 1 });
 });

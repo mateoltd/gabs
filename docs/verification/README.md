@@ -229,3 +229,7 @@ All 93 unit/PostgreSQL tests, strict types/boundaries/copy checks and four build
 ## Inventory SDK candidate, 16 September 2026
 
 The [Inventory 2.0 scoped candidate](inventory-sdk/README.md) passes signed API/PostgreSQL acceptance for reservations, stock changes, counts, permissions, retry, atomic rollback and prepared-snapshot migration. All 104 unit/PostgreSQL tests, strict types/boundaries/copy checks and four builds passed; eight selected browser journeys and three minimized/unfocused Electron journeys passed. The default business releases and UI are unchanged. SDK-01 remains active for actual Orders handlers, reusable read models, relational conversion/reconciliation and coordinated rollout. This is not a complete business or framework acceptance gate.
+
+## Orders SDK candidate, 16 September 2026
+
+The [Orders candidate and typed service contracts](orders-sdk/README.md) add private numbering/order stores, authoritative totals/snapshots, Inventory transactions, typed error translation and prepared-import validation. All 112 unit/PostgreSQL tests and four builds passed; the CLI checked/exported provider contracts and built the independent Orders package. All eight selected headless browser and three minimized Electron journeys passed. The default business releases remain unchanged; SDK-01 stays active for read models, relational conversion, client adapters and coordinated rollout.

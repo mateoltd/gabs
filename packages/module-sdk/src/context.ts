@@ -57,6 +57,19 @@ export type ModuleServices<M extends ModuleDefinition> = M extends {
 }
   ? S
   : Record<string, never>;
+export type ServiceResult<
+  M extends ModuleDefinition,
+  K extends keyof ModuleServices<M>,
+> =
+  | { ok: true; value: Static<ModuleServices<M>[K]["contract"]["output"]> }
+  | {
+      ok: false;
+      error: ModuleServices<M>[K]["contract"] extends {
+        errors: infer E extends TSchema;
+      }
+        ? Static<E>
+        : never;
+    };
 export type ModuleResources<M extends ModuleDefinition> = ReturnType<
   typeof createModuleClient<M>
 >["resource"];
@@ -93,6 +106,11 @@ export interface ModuleContext<M extends ModuleDefinition> {
     name: K,
     input: Static<ModuleServices<M>[K]["contract"]["input"]>,
   ): Promise<Static<ModuleServices<M>[K]["contract"]["output"]>>;
+  /** A rejected child still aborts the transaction. Translate it with ctx.reject. */
+  serviceAttempt<K extends keyof ModuleServices<M> & string>(
+    name: K,
+    input: Static<ModuleServices<M>[K]["contract"]["input"]>,
+  ): Promise<ServiceResult<M, K>>;
 }
 export type OperationContext<
   M extends ModuleDefinition,
@@ -119,6 +137,17 @@ export function createModuleContext<M extends ModuleDefinition>(
   capabilities: ModuleCapabilities,
 ): ModuleContext<M> {
   assertSchema(module.configuration, capabilities.configuration);
+  const service = (name: string, input: unknown) => {
+    const reference = module.services?.[name];
+    if (!reference) throw Error(`Undeclared service: ${module.id}.${name}`);
+    assertSchema(reference.contract.input, input);
+    const pending = capabilities.service(name, input).then((output) => {
+      assertSchema(reference.contract.output, output);
+      return output;
+    });
+    void pending.catch(() => undefined);
+    return pending;
+  };
   return Object.freeze({
     actor: Object.freeze({ ...capabilities.actor }),
     workspaceId: capabilities.workspaceId,
@@ -151,14 +180,24 @@ export function createModuleContext<M extends ModuleDefinition>(
       void pending.catch(() => undefined);
       return pending;
     },
-    service(name: string, input: unknown) {
-      const reference = module.services?.[name];
-      if (!reference) throw Error(`Undeclared service: ${module.id}.${name}`);
-      assertSchema(reference.contract.input, input);
-      const pending = capabilities.service(name, input).then((output) => {
-        assertSchema(reference.contract.output, output);
-        return output;
-      });
+    service,
+    serviceAttempt(name: string, input: unknown) {
+      const pending = service(name, input).then(
+        (value) => ({ ok: true, value }),
+        (error: unknown) => {
+          const reference = module.services![name];
+          const schema = reference.contract.errors;
+          if (
+            !(error instanceof ModuleBusinessError) ||
+            !schema ||
+            error.moduleId !== reference.moduleId ||
+            error.operation !== reference.operation
+          )
+            throw error;
+          assertSchema(schema, error.detail);
+          return { ok: false, error: error.detail };
+        },
+      );
       void pending.catch(() => undefined);
       return pending;
     },

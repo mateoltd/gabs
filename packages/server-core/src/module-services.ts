@@ -228,7 +228,16 @@ export async function executeModuleOperation(
         });
       } catch (error) {
         failed = true;
-        failure ??= error;
+        // A caller can translate a declared provider rejection into its own typed
+        // business error. Catching a child failure can never turn it into success.
+        if (
+          failure instanceof ModuleBusinessError &&
+          error instanceof ModuleBusinessError &&
+          error.moduleId === module.id &&
+          error.operation === name
+        )
+          failure = error;
+        else failure ??= error;
       }
       // Drain child calls before the outer transaction is allowed to close.
       while (pending.size) await Promise.allSettled([...pending]);

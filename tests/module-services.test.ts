@@ -84,6 +84,7 @@ const consumer = defineModule({
         name: Type.String(),
         fail: Type.Optional(Type.Boolean()),
         swallow: Type.Optional(Type.Boolean()),
+        typed: Type.Optional(Type.Boolean()),
         detached: Type.Optional(Type.Boolean()),
       }),
       output: Type.Object({ id: Type.String() }),
@@ -102,6 +103,12 @@ const providerServer = defineModuleServer(provider)({
 const consumerServer = defineModuleServer(consumer)({
   run: async (ctx, input) => {
     await ctx.resource("items").create({ name: input.name });
+    if (input.typed) {
+      const result = await ctx.serviceAttempt("create", { name: input.name });
+      if (result.ok) return result.value;
+      if (input.swallow) return { id: "ignored-declared-rejection" };
+      return ctx.reject({ reason: "cancelled" });
+    }
     if (input.detached) {
       void ctx.service("create", { name: input.name });
       return { id: "detached" };
@@ -291,6 +298,18 @@ describe("Scoped module services", () => {
       send({ ...request, moduleVersion: "0.0.1" }),
     ).rejects.toMatchObject({ status: 409, code: "MODULE_UPDATE_REQUIRED" });
     expect(await counts()).toEqual(after);
+  });
+  it("translates declared service errors but never commits an ignored typed rejection", async () => {
+    const client = createModuleClient(consumer, send),
+      before = await counts();
+    expect(
+      await client.attempt("run", { name: "reject", typed: true }),
+    ).toEqual({ ok: false, error: { reason: "cancelled" } });
+    expect(await counts()).toEqual(before);
+    await expect(
+      client.call("run", { name: "reject", typed: true, swallow: true }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(await counts()).toEqual(before);
   });
   it("blocks direct receipt replay after an operation becomes service-only", async () => {
     const client = createModuleClient(provider, send),

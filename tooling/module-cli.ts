@@ -139,6 +139,35 @@ if (command === "keygen") {
   if (command === "test")
     execute(["exec", "vitest", "run", "tests/module-sdk.test.ts"]);
   console.log(`${selected.length} module definitions validated.`);
+} else if (command === "services") {
+  if (!name || !args[0])
+    throw Error(
+      "Usage: pnpm module services <module-id-or-directory> <output.ts>",
+    );
+  const directory = identifier.test(name)
+    ? resolve(`modules/${name}`)
+    : resolve(name);
+  const module = (
+    await import(pathToFileURL(resolve(directory, "module.ts")).href)
+  ).default as ModuleDefinition;
+  const { serviceContractSource } =
+    await import("../packages/module-sdk/node/service-contracts");
+  const { format } = await import("prettier");
+  const source = await format(serviceContractSource(module), {
+    parser: "typescript",
+  });
+  if (args.includes("--check")) {
+    if ((await readFile(resolve(args[0]), "utf8")) !== source)
+      throw Error(
+        "The service snapshot differs from the provider. Review the new contract, then regenerate with --update.",
+      );
+  } else
+    await writeFile(resolve(args[0]), source, {
+      flag: args.includes("--update") ? "w" : "wx",
+    });
+  console.log(
+    `${args.includes("--check") ? "Verified" : "Exported"} typed public services for ${module.id}@${module.version} at ${args[0]}. Declare its dependency and request administrator grants.`,
+  );
 } else if (command === "build") {
   if (!name) throw Error("Usage: pnpm module build <module-id-or-directory>");
   const directory = identifier.test(name)
@@ -147,12 +176,26 @@ if (command === "keygen") {
   const module = (
     await import(pathToFileURL(resolve(directory, "module.ts")).href)
   ).default as ModuleDefinition;
-  resolveReleases(
-    module.id,
-    [...moduleDefinitions.filter((m) => m.id !== module.id), module],
-    "1.0.0",
-    "1.0.0",
-  );
+  let available = [
+    ...moduleDefinitions.filter((m) => m.id !== module.id),
+    module,
+  ];
+  for (let index = 0; index < args.length; index += 2) {
+    if (args[index] !== "--dependency" || !args[index + 1])
+      throw Error(
+        "Usage: pnpm module build <module-id-or-directory> [--dependency <provider-directory>]...",
+      );
+    const dependency = (
+      await import(pathToFileURL(resolve(args[index + 1], "module.ts")).href)
+    ).default as ModuleDefinition;
+    if (dependency.id === module.id)
+      throw Error("A dependency cannot replace the module being built.");
+    available = [
+      ...available.filter((m) => m.id !== dependency.id),
+      dependency,
+    ];
+  }
+  resolveReleases(module.id, available, "1.0.0", "1.0.0");
   const key = await readFile(`${keys}/private.pem`, "utf8");
   const pkg = signPackage(
     module,
@@ -276,5 +319,5 @@ if (command === "keygen") {
   console.log(JSON.stringify(pkg.manifest, null, 2));
 } else
   throw Error(
-    "Commands: create, dev, check, test, keygen, build, submit, submissions, review, stage, publish, inspect, console",
+    "Commands: create, dev, check, test, services, keygen, build, submit, submissions, review, stage, publish, inspect, console",
   );

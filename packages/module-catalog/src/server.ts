@@ -8,9 +8,10 @@ import s0 from "../../../modules/inventory/module-server";
 import s1 from "../../../modules/inventory/releases/1.1.0/module-server";
 import s2 from "../../../modules/inventory/releases/2.0.0/module-server";
 import s3 from "../../../modules/orders/module-server";
+import s4 from "../../../modules/orders/releases/2.0.0/module-server";
 export const moduleServers: Array<
   ScopedModuleServer | TrustedModuleServer<{ tx: Tx; ctx: Context }>
-> = [s0, s1, s2, s3];
+> = [s0, s1, s2, s3, s4];
 const identities = new Set<string>();
 for (const server of moduleServers) {
   const key = server.module.id + "@" + server.module.version;

@@ -47,13 +47,24 @@ export default defineModule({
 
 For custom corporate operations, define schemas with `operation` and add a reviewed `module-server.ts` using `defineModuleServer(definition)({...handlers})`. Handlers receive inferred configuration, own-module resource repositories, declared events, permission checks and explicitly declared service calls. They do not receive a database transaction. `context.reject(error)` validates the operation's declared business-error schema; `client.attempt(name, input, key)` returns a typed success/error union. Authentication and transport failures still throw.
 
+Use `ctx.serviceAttempt(name, input)` to inspect a provider's declared error and translate it with `ctx.reject(...)`. Its success value and error are inferred from the service contract. A rejected child still aborts the entire transaction even if the handler ignores that result; authorization and grant failures continue to throw.
+
 Declare a provider operation with `public: true`; use `serviceReference(provider, "operation")` in a consumer's `services` map and declare the provider dependency. An administrator separately grants each public service under module configuration. The host rechecks actor permissions, activation, assignment, grant and exact service contract on every call. Custom events use `module.<id>.event.<name>` to avoid collisions with host events. All records, audit entries, outgoing events and the outer idempotency receipt share one transaction. A caught failed capability call still aborts the transaction; detached capability calls are drained before commit. Service recursion is bounded and cyclic calls fail.
 
 Set `serviceOnly: true` alongside `public: true` when only declared module consumers may invoke an operation. Direct clients are denied, including saved-receipt replay. The provider receives the immutable, host-supplied `ctx.caller` (`moduleId` and `operation`) for ownership checks. This identity never replaces the actor's permissions or the separate service grant.
 
 Declare module-local actions such as `audit: ["order.confirmed"]`; `await ctx.audit("order.confirmed", orderId)` infers the action name and writes an audit prefixed by the module ID. Audit calls are server capabilities and share the operation transaction. Invalid caught or detached audit calls still abort it.
 
-Orders and Inventory retain an explicit `defineTrustedModuleServer` migration bridge for their existing SQL-backed business services. They are reviewed host code; these two bridges still require migration to fully scoped repositories. The [Inventory 2.0 scoped candidate](verification/inventory-sdk/README.md) has signed API acceptance but is not the default release; the relational-data rollout and Orders migration remain open. Trusted code is not a hostile-code sandbox. Independently signed packages now carry reviewed client and scoped server JavaScript, as described in the release workflow.
+Default Orders and Inventory releases retain their `defineTrustedModuleServer` SQL bridges. Independently signed [Inventory](verification/inventory-sdk/README.md) and [Orders](verification/orders-sdk/README.md) 2.0 candidates now use scoped SDK capabilities. Read models, client adapters and authoritative relational-data conversion still precede their coordinated rollout. Trusted official code is not a hostile-code sandbox.
+
+Export an exact typed provider contract into the consumer package:
+
+```sh
+pnpm module services ./modules/inventory/releases/2.0.0 modules/orders/releases/2.0.0/inventory-services.ts --check
+pnpm module build ./modules/orders/releases/2.0.0 --dependency ./modules/inventory/releases/2.0.0
+```
+
+Omit `--check` when creating a new snapshot; use `--update` to explicitly regenerate an existing one after reviewing provider changes. Generated references retain input/output/error types and include only public services. Declare the dependency and request separate administrator service grants. Unsupported schema shapes fail with a field path. Build dependency directories can be supplied repeatedly; neither exporting nor building publishes a release.
 
 ### Private transactional stores
 
