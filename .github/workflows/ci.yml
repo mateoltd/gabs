@@ -1,0 +1,55 @@
+name: Verify pilot
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+      - run: pnpm install --frozen-lockfile
+      - run: cp .env.example .env
+      - run: pnpm db:up && pnpm db:migrate && pnpm db:seed
+      - run: pnpm check && pnpm format:check && pnpm build
+      - run: pnpm generate:api && pnpm generate:tokens && git diff --exit-code docs/openapi.json packages/api-client/src/schema.d.ts packages/design-tokens/src/values.ts
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - run: pnpm test:load && pnpm test:restore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification
+          path: |
+            test-results
+            docs/verification
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+      - run: pnpm install --frozen-lockfile
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg
+      - run: pnpm --filter @suite/desktop make
+        env:
+          API_ORIGIN: https://staging.example.invalid
+          SUITE_DESKTOP_PACKAGING_SMOKE: "1"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packaging-check-desktop-${{ matrix.os }}
+          path: apps/desktop/out/make

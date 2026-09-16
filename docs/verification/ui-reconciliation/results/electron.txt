@@ -1,0 +1,37 @@
+$ pnpm --filter @suite/desktop build && playwright test --config playwright.desktop.config.ts
+$ node ../../tooling/build-desktop.mjs
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 6911 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/renderer/index.html                                                0.59 kB │ gzip:   0.33 kB
+dist/renderer/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2       10.25 kB
+dist/renderer/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2        11.23 kB
+dist/renderer/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff      13.14 kB
+dist/renderer/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2     14.70 kB
+dist/renderer/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2         18.74 kB
+dist/renderer/assets/inter-greek-wght-normal-CkhJZR-_.woff2            18.99 kB
+dist/renderer/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2     25.96 kB
+dist/renderer/assets/inter-latin-wght-normal-Dx4kXJAl.woff2            48.25 kB
+dist/renderer/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2        85.06 kB
+dist/renderer/assets/common-icon-DQ3rjWZF.png                         130.76 kB
+dist/renderer/assets/sign-in-source-CdBG-UX-.png                    1,084.95 kB
+dist/renderer/assets/index-BKf6JtWK.css                                74.21 kB │ gzip:  15.26 kB
+dist/renderer/assets/rolldown-runtime-hePW80VL.js                       0.71 kB │ gzip:   0.42 kB
+dist/renderer/assets/web-sX5skO8L.js                                   11.09 kB │ gzip:   3.54 kB
+dist/renderer/assets/web-qCz3wGNc.js                                   28.09 kB │ gzip:   8.13 kB
+dist/renderer/assets/index-DsTYi82A.js                                408.10 kB │ gzip: 121.20 kB
+dist/renderer/assets/src-AcDyYzMU.js                                  444.96 kB │ gzip: 140.08 kB
+
+✓ built in 265ms
+
+Running 3 tests using 1 worker
+
+(node:48022) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/desktop/boundary.spec.ts:7:1 › native UI keeps tokens and arbitrary capabilities out of its renderer (1.2s)
+  ✓  2 tests/desktop/boundary.spec.ts:114:1 › an unconfigured desktop explains sign-in setup and cannot enable development auth in production (848ms)
+  ✓  3 tests/desktop/ui-reconciliation.spec.ts:9:1 › reconciled screens render in native Electron and retain working controls (6.3s)
+
+  3 passed (8.7s)

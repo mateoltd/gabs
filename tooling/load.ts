@@ -1,0 +1,131 @@
+import { randomUUID } from "node:crypto";
+import { writeFile, mkdir } from "node:fs/promises";
+import { cpus, totalmem } from "node:os";
+import { performance } from "node:perf_hooks";
+import { createApp } from "../apps/api/src/app";
+import {
+  identify,
+  inWorkspace,
+  provisionWorkspace,
+  authorize,
+} from "../packages/server-core/src";
+import { createProduct, changeStock } from "../modules/inventory/server";
+import { createOrder } from "../modules/orders/server";
+if (!["development", "test"].includes(process.env.NODE_ENV ?? ""))
+  throw Error("Load fixtures are restricted to local development and test.");
+const { app, db, auth } = await createApp(),
+  workspace = randomUUID();
+try {
+  const user = await identify(db, {
+    issuer: "load",
+    subject: randomUUID(),
+    email: "load@test.local",
+    name: "Load test",
+    emailVerified: true,
+  });
+  const orders = await inWorkspace(db, workspace, async (tx) => {
+    await provisionWorkspace(tx, {
+      id: workspace,
+      userId: user.id,
+      name: "Performance fixture",
+      kind: "company",
+    });
+    const ctx = await authorize(
+      tx,
+      {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        emailVerified: true,
+        mfa: true,
+      },
+      workspace,
+      randomUUID(),
+    );
+    const product = await createProduct(tx, ctx, {
+      sku: "LOAD",
+      name: "Load product",
+      priceMinor: 1250,
+    });
+    await changeStock(tx, ctx, product.id, {
+      kind: "receipt",
+      quantity: 2000,
+      reason: "Performance fixture",
+    });
+    const rows = [];
+    for (let i = 0; i < 1000; i++)
+      rows.push(
+        await createOrder(tx, ctx, {
+          customerName: `Load customer ${i}`,
+          lines: [{ productId: product.id, quantity: 1, priceMinor: 1250 }],
+        }),
+      );
+    return rows;
+  });
+  const session = await auth.issue(user.id, true),
+    origin = await app.listen({ port: 0, host: "127.0.0.1" }),
+    headers = {
+      cookie: `suite_session=${session.token}`,
+      origin: process.env.APP_ORIGIN!,
+      "x-csrf-token": session.csrfToken,
+    };
+  const sample = async (path: string, init: RequestInit = {}) => {
+    const start = performance.now(),
+      r = await fetch(`${origin}/api/v1/workspaces/${workspace}${path}`, {
+        ...init,
+        headers: { ...headers, ...init.headers },
+      });
+    await r.arrayBuffer();
+    if (!r.ok) throw Error(`Load request failed ${r.status}`);
+    return performance.now() - start;
+  };
+  await sample("/orders");
+  const reads = await Promise.all(
+    Array.from({ length: 50 }, () => sample("/orders")),
+  );
+  const confirmations = await Promise.all(
+    orders.slice(0, 50).map((o) =>
+      sample(`/orders/${o.id}/confirm`, {
+        method: "POST",
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": randomUUID(),
+          "if-match": `"${o.version}"`,
+        },
+      }),
+    ),
+  );
+  const p95 = (v: number[]) =>
+    Math.round([...v].sort((a, b) => a - b)[Math.ceil(v.length * 0.95) - 1]);
+  const report = {
+    recordedAt: new Date().toISOString(),
+    dataset: { orders: 1000, linesPerOrder: 1, products: 1 },
+    clients: 50,
+    samplesPerOperation: 50,
+    transport:
+      "HTTP loopback, 50 concurrent clients, one shared authorized actor, same stock row",
+    node: process.version,
+    host: {
+      platform: process.platform,
+      arch: process.arch,
+      cpu: cpus()[0].model,
+      cores: cpus().length,
+      memoryGiB: Math.round(totalmem() / 1024 ** 3),
+    },
+    database: "PostgreSQL 18.6 in local Docker; pool max 20",
+    p95Ms: { ordersRead: p95(reads), orderConfirmation: p95(confirmations) },
+    targetsMs: { ordersRead: 500, orderConfirmation: 1000 },
+  };
+  await mkdir("docs/verification", { recursive: true });
+  await writeFile(
+    "docs/verification/load.json",
+    JSON.stringify(report, null, 2) + "\n",
+  );
+  console.log(JSON.stringify(report, null, 2));
+  if (report.p95Ms.ordersRead >= 500 || report.p95Ms.orderConfirmation >= 1000)
+    process.exitCode = 1;
+} finally {
+  await app.close();
+  await db.destroy();
+}

@@ -1,0 +1,20 @@
+$ pnpm typecheck && pnpm lint && pnpm test
+$ node tooling/discover-modules.mjs
+Discovered 4 modules and 3 staged backends.
+$ tsc --noEmit
+$ node tooling/check-boundaries.mjs && node tooling/check-copy.mjs
+Domain, browser, and module dependency boundaries passed.
+UI copy and edge-accent checks passed.
+$ vitest run
+
+ RUN  v5.0.0 /Users/mateo/Documents/ChatGPT/gabs
+
+
+ Test Files  8 passed (8)
+      Tests  59 passed (59)
+   Start at  02:26:46
+   Duration  3.81s (tests 67%, import 27%, transform 5%)
+
+    Isolate  8 workers spawned · ~54ms startup each (spawn + environment, per file)
+             at least ~379ms faster with isolate: false — reuses workers across files instead of one per file
+

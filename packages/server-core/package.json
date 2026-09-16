@@ -1,0 +1,18 @@
+{
+  "name": "@suite/server-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@suite/contracts": "workspace:*",
+    "kysely": "0.29.5",
+    "pg": "8.23.0",
+    "jose": "6.2.12",
+    "openid-client": "6.8.8",
+    "@suite/module-sdk": "workspace:*",
+    "@suite/module-catalog": "workspace:*"
+  }
+}

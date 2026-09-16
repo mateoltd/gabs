@@ -1,0 +1,85 @@
+$ pnpm typecheck && pnpm lint && turbo run build
+$ node tooling/discover-modules.mjs
+Discovered 4 modules and 3 staged backends.
+$ tsc --noEmit
+$ node tooling/check-boundaries.mjs && node tooling/check-copy.mjs
+Domain, browser, and module dependency boundaries passed.
+UI copy and edge-accent checks passed.
+• turbo 2.10.13
+
+   • Packages in scope: @suite/api, @suite/api-client, @suite/app-web, @suite/contacts, @suite/contracts, @suite/design-tokens, @suite/desktop, @suite/inventory, @suite/module-catalog, @suite/module-sdk, @suite/orders, @suite/platform, @suite/projects, @suite/server-core, @suite/ui-web, @suite/web, @suite/worker
+   • Running build in 17 packages
+   • Remote caching disabled
+
+@suite/web:build: cache miss, executing 21fd23f0b369834d
+@suite/desktop:build: cache miss, executing 5fa34bab581a47e1
+@suite/api:build: cache hit, replaying logs e5229c4aba7913ca
+@suite/worker:build: cache hit, replaying logs 9684ec6bbe0f3dec
+@suite/api:build: $ node ../../tooling/build-server.mjs api
+@suite/worker:build: $ node ../../tooling/build-server.mjs worker
+@suite/web:build: $ vite build
+@suite/desktop:build: $ node ../../tooling/build-desktop.mjs
+@suite/web:build: vite v8.3.0 building client environment for production...
+@suite/web:build: transforming...
+@suite/desktop:build: vite v8.3.0 building client environment for production...
+@suite/desktop:build: transforming...
+@suite/web:build: ✓ 6911 modules transformed.
+@suite/desktop:build: ✓ 6911 modules transformed.
+@suite/web:build: rendering chunks...
+@suite/desktop:build: rendering chunks...
+@suite/desktop:build: computing gzip size...
+@suite/web:build: computing gzip size...
+@suite/desktop:build: dist/renderer/index.html                                                0.59 kB │ gzip:   0.33 kB
+@suite/desktop:build: dist/renderer/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2       10.25 kB
+@suite/desktop:build: dist/renderer/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2        11.23 kB
+@suite/desktop:build: dist/renderer/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff      13.14 kB
+@suite/desktop:build: dist/renderer/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2     14.70 kB
+@suite/desktop:build: dist/renderer/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2         18.74 kB
+@suite/desktop:build: dist/renderer/assets/inter-greek-wght-normal-CkhJZR-_.woff2            18.99 kB
+@suite/desktop:build: dist/renderer/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2     25.96 kB
+@suite/desktop:build: dist/renderer/assets/inter-latin-wght-normal-Dx4kXJAl.woff2            48.25 kB
+@suite/desktop:build: dist/renderer/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2        85.06 kB
+@suite/desktop:build: dist/renderer/assets/common-icon-DQ3rjWZF.png                         130.76 kB
+@suite/desktop:build: dist/renderer/assets/sign-in-source-CdBG-UX-.png                    1,084.95 kB
+@suite/desktop:build: dist/renderer/assets/index-BKf6JtWK.css                                74.21 kB │ gzip:  15.26 kB
+@suite/desktop:build: dist/renderer/assets/rolldown-runtime-hePW80VL.js                       0.71 kB │ gzip:   0.42 kB
+@suite/desktop:build: dist/renderer/assets/web-sX5skO8L.js                                   11.09 kB │ gzip:   3.54 kB
+@suite/desktop:build: dist/renderer/assets/web-qCz3wGNc.js                                   28.09 kB │ gzip:   8.13 kB
+@suite/desktop:build: dist/renderer/assets/index-DsTYi82A.js                                408.10 kB │ gzip: 121.20 kB
+@suite/desktop:build: dist/renderer/assets/src-AcDyYzMU.js                                  444.96 kB │ gzip: 140.08 kB
+@suite/desktop:build: 
+@suite/desktop:build: ✓ built in 499ms
+@suite/web:build: dist/registerSW.js                                             0.13 kB
+@suite/web:build: dist/manifest.webmanifest                                      0.17 kB
+@suite/web:build: dist/index.html                                                0.86 kB │ gzip:   0.44 kB
+@suite/web:build: dist/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2       10.25 kB
+@suite/web:build: dist/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2        11.23 kB
+@suite/web:build: dist/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff      13.14 kB
+@suite/web:build: dist/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2     14.70 kB
+@suite/web:build: dist/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2         18.74 kB
+@suite/web:build: dist/assets/inter-greek-wght-normal-CkhJZR-_.woff2            18.99 kB
+@suite/web:build: dist/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2     25.96 kB
+@suite/web:build: dist/assets/inter-latin-wght-normal-Dx4kXJAl.woff2            48.25 kB
+@suite/web:build: dist/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2        85.06 kB
+@suite/web:build: dist/assets/common-icon-DQ3rjWZF.png                         130.76 kB
+@suite/web:build: dist/assets/sign-in-source-CdBG-UX-.png                    1,084.95 kB
+@suite/web:build: dist/assets/index-BhvYxj3P.css                                74.26 kB │ gzip:  15.27 kB
+@suite/web:build: dist/assets/rolldown-runtime-hePW80VL.js                       0.71 kB │ gzip:   0.42 kB
+@suite/web:build: dist/assets/web-BkcagM4m.js                                   11.09 kB │ gzip:   3.54 kB
+@suite/web:build: dist/assets/web-C45SWCdZ.js                                   28.09 kB │ gzip:   8.13 kB
+@suite/web:build: dist/assets/index-Dem3S1td.js                                408.05 kB │ gzip: 121.19 kB
+@suite/web:build: dist/assets/src-BrAESeyP.js                                  444.92 kB │ gzip: 140.08 kB
+@suite/web:build: 
+@suite/web:build: ✓ built in 518ms
+@suite/web:build: 
+@suite/web:build: PWA v1.3.0
+@suite/web:build: mode      generateSW
+@suite/web:build: precache  19 entries (2360.43 KiB)
+@suite/web:build: files generated
+@suite/web:build:   dist/sw.js
+@suite/web:build:   dist/workbox-2fbc6a65.js
+
+ Tasks:    4 successful, 4 total
+Cached:    2 cached, 4 total
+  Time:    1.984s 
+

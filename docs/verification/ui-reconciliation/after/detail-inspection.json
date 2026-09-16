@@ -1,0 +1,17 @@
+{
+  "problems": [],
+  "archetypes": [
+    "modern-dark",
+    "chromatic-playful",
+    "executive-serious",
+    "classic-retro",
+    "neumorphic-soft",
+    "minimal-clean",
+    "industrial-technical",
+    "glassmorphic-luxe",
+    "editorial-paper",
+    "material-expressive"
+  ],
+  "modes": ["dark", "light", "high-contrast", "system"],
+  "notes": "High contrast across all archetypes is covered by the browser suite. No live provider or cross-OS claims."
+}

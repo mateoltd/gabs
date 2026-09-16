@@ -1,0 +1,14 @@
+{
+  "name": "@suite/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.52",
+    "@suite/module-sdk": "workspace:*",
+    "@suite/module-catalog": "workspace:*"
+  }
+}

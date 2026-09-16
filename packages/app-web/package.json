@@ -1,0 +1,25 @@
+{
+  "name": "@suite/app-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./styles.css": "./src/styles.css"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "8.3.1",
+    "@tanstack/react-query": "5.102.8",
+    "@suite/contracts": "workspace:*",
+    "@suite/api-client": "workspace:*",
+    "@suite/platform": "workspace:*",
+    "@suite/ui-web": "workspace:*",
+    "@suite/design-tokens": "workspace:*",
+    "@suite/orders": "workspace:*",
+    "@suite/inventory": "workspace:*",
+    "@suite/module-sdk": "workspace:*",
+    "@suite/module-catalog": "workspace:*"
+  }
+}

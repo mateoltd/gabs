@@ -1,0 +1,80 @@
+:root {
+  font: 16px/1.5 system-ui;
+  color-scheme: light dark;
+  background: Canvas;
+  color: CanvasText;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 1000px;
+  margin: auto;
+  padding: 24px;
+}
+h1 {
+  font-size: 1.7rem;
+}
+h2 {
+  font-size: 1.15rem;
+}
+section {
+  padding: 16px 0;
+}
+label {
+  display: block;
+  margin: 12px 0;
+}
+input:not([type="checkbox"]),
+select,
+textarea {
+  display: block;
+  padding: 8px;
+  width: 100%;
+  max-width: 600px;
+  font: inherit;
+}
+input[type="checkbox"] {
+  margin-right: 8px;
+}
+button {
+  font: inherit;
+  padding: 8px 12px;
+  margin: 8px 8px 8px 0;
+  cursor: pointer;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 1px solid Highlight;
+  outline-offset: -2px;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th,
+td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid GrayText;
+  overflow-wrap: anywhere;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#feedback {
+  min-height: 1.5em;
+}
+details {
+  margin: 16px 0;
+}
+#permissions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}

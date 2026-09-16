@@ -1,0 +1,19 @@
+{
+  "name": "@suite/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@suite/app-web": "workspace:*",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "vite-plugin-pwa": "1.3.0",
+    "@suite/design-tokens": "workspace:*",
+    "@suite/ui-web": "workspace:*"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4300",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4300"
+  }
+}

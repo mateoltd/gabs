@@ -1,0 +1,12 @@
+{
+  "name": "@suite/projects",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./module.ts"
+  },
+  "dependencies": {
+    "@suite/module-sdk": "workspace:*"
+  }
+}

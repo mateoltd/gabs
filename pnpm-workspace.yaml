@@ -1,0 +1,25 @@
+packages:
+  - apps/*
+  - packages/*
+  - modules/*
+allowBuilds:
+  electron: true
+  esbuild: true
+  electron-winstaller: true
+  fs-xattr: true
+  macos-alias: true
+minimumReleaseAgeExclude:
+  - "@aws-sdk/client-s3@3.1132.0"
+  - "@turbo/darwin-64@2.10.13"
+  - "@turbo/darwin-arm64@2.10.13"
+  - "@turbo/linux-64@2.10.13"
+  - "@turbo/linux-arm64@2.10.13"
+  - "@turbo/windows-64@2.10.13"
+  - "@turbo/windows-arm64@2.10.13"
+  - lucide-react@1.46.0
+  - turbo@2.10.13
+overrides:
+  "@electron/node-gyp": 10.2.0-electron.2
+# Forge is bundled; only its packaging tools need public hoisting.
+publicHoistPattern:
+  - "@electron-forge/*"

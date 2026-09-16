@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "env": [
+        "API_ORIGIN",
+        "AUTH0_ISSUER",
+        "AUTH0_DESKTOP_CLIENT_ID",
+        "AUTH0_AUDIENCE",
+        "AUTH0_DESKTOP_CALLBACK",
+        "DESKTOP_UPDATE_URL"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  },
+  "globalDependencies": ["tooling/**", "tsconfig.json", "pnpm-lock.yaml"]
+}

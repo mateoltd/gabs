@@ -1,0 +1,288 @@
+/* Shared motion scale and transitions-dev surface recipes. */
+:root {
+  --duration-stagger: 40ms;
+  --duration-micro: 80ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --distance-base: 8px;
+  --distance-medium: 12px;
+  --modal-open-dur: var(--duration-fast);
+  --modal-close-dur: var(--duration-quick);
+  --modal-scale: 0.99;
+  --modal-scale-close: 0.99;
+  --modal-ease: var(--ease-smooth-out);
+}
+
+.t-modal {
+  transform-origin: center;
+  transform: scale(var(--modal-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--modal-open-dur) var(--modal-ease),
+    opacity var(--modal-open-dur) var(--modal-ease);
+  will-change: transform, opacity;
+}
+.t-modal.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-modal.is-closing {
+  transform: scale(var(--modal-scale-close));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--modal-close-dur) var(--modal-ease),
+    opacity var(--modal-close-dur) var(--modal-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal {
+    transition: none !important;
+  }
+}
+
+:root {
+  --tabs-dur: var(--duration-fast);
+  --tabs-ease: var(--ease-smooth-out);
+  --tabs-text-muted: rgba(15, 15, 15, 0.8);
+  --tabs-text-active: #0f0f0f;
+  --tabs-bar-bg: #f1f1f1;
+  --tabs-pill-bg: #ffffff;
+}
+
+/* The bar is just a flex container with padding for the pill
+   to sit inside. Tabs sit on z-index: 1, the pill on z-index: 0,
+   so labels read above the pill background. */
+.t-tabs {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 48px;
+  background: var(--tabs-bar-bg);
+}
+.t-tab {
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  height: 30px;
+  padding: 4px 12px;
+  color: var(--tabs-text-muted);
+  cursor: pointer;
+  border-radius: 48px;
+  z-index: 1;
+  transition: color var(--tabs-dur) var(--tabs-ease);
+}
+.t-tab:not([aria-selected="true"]):hover,
+.t-tab[aria-selected="true"] {
+  color: var(--tabs-text-active);
+}
+
+/* The pill: width + transform are written inline by JS so
+   the transition tweens between the previous and next
+   measured positions. */
+.t-tabs-pill {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  height: 30px;
+  width: 0;
+  background: var(--tabs-pill-bg);
+  border-radius: 48px;
+  transform: translateX(0);
+  transition:
+    transform var(--tabs-dur) var(--tabs-ease),
+    width var(--tabs-dur) var(--tabs-ease);
+  will-change: transform, width;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-tabs-pill,
+  .t-tab {
+    transition: none !important;
+  }
+}
+
+/* transitions-dev: panel reveal, including reduced-motion behavior. */
+:root {
+  --panel-open-dur: var(--duration-slow);
+  --panel-close-dur: var(--duration-medium);
+  --panel-translate-y: var(--distance-medium);
+  --panel-blur: 2px;
+  --panel-ease: var(--ease-smooth-out);
+}
+
+.t-panel-slide {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity var(--panel-close-dur) var(--panel-ease),
+    filter var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.t-panel-slide[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity var(--panel-open-dur) var(--panel-ease),
+    filter var(--panel-open-dur) var(--panel-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-panel-slide {
+    transition: none !important;
+  }
+}
+
+/* The backdrop and dialog share one presence lifecycle. */
+.dialog-overlay {
+  opacity: 0;
+  transition: opacity var(--modal-open-dur) var(--modal-ease);
+}
+.dialog-overlay.is-open {
+  opacity: 1;
+}
+.dialog-overlay.is-closing {
+  opacity: 0;
+  transition-duration: var(--modal-close-dur);
+}
+.dialog.t-modal.is-closing {
+  pointer-events: none;
+}
+.results-motion {
+  min-width: 0;
+}
+.results-motion-content {
+  min-width: 0;
+  min-height: 0;
+  transition: opacity var(--duration-quick) ease-out;
+}
+.results-motion[aria-busy="true"] > .results-motion-content {
+  opacity: 0.5;
+}
+.results-motion:has(.content-skeleton) > .results-motion-content {
+  opacity: 1;
+}
+#order-results > .results-motion-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.content-skeleton {
+  width: 100%;
+  padding-block: 8px;
+  animation: skeleton-appear var(--duration-fast) ease-out both;
+}
+.skeleton-table {
+  width: 100%;
+}
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1fr;
+  gap: 24px;
+  align-items: center;
+  height: 48px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.content-skeleton i,
+.content-skeleton b {
+  display: block;
+  height: 9px;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  animation: skeleton-breathe 1400ms ease-in-out infinite;
+}
+.skeleton-row:nth-child(even) i:first-child {
+  width: 75%;
+}
+.skeleton-row i:last-child {
+  width: 60%;
+  justify-self: end;
+}
+.skeleton-row:nth-child(2n) i {
+  animation-delay: 120ms;
+}
+.skeleton-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.skeleton-metrics > div {
+  min-height: 174px;
+  padding: 18px 20px;
+  background: var(--surface-soft);
+  border-radius: 20px;
+}
+.skeleton-metrics i {
+  width: 65%;
+}
+.skeleton-metrics b {
+  width: 35%;
+  height: 30px;
+  margin-block: 20px;
+}
+.loading-state {
+  animation: skeleton-appear var(--duration-fast) ease-out both;
+}
+.loading-state > svg {
+  animation: loading-turn 1100ms linear infinite;
+}
+@keyframes skeleton-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes skeleton-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes loading-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 860px) {
+  .skeleton-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 700px) {
+  .skeleton-row {
+    gap: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog-overlay,
+  .results-motion-content {
+    transition: none;
+  }
+  .content-skeleton,
+  .content-skeleton i,
+  .content-skeleton b,
+  .loading-state,
+  .loading-state > svg {
+    animation: none;
+  }
+}

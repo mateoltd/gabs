@@ -1,0 +1,271 @@
+import {
+  Kysely,
+  PostgresDialect,
+  sql,
+  type Generated,
+  type Transaction,
+  type ColumnType,
+} from "kysely";
+import { Pool } from "pg";
+type Time = ColumnType<Date, Date | string | undefined, Date | string>;
+type Base = { id: string; created_at: Time };
+type Tenant = { workspace_id: string };
+export interface Database {
+  "suite.stock_counts": Tenant &
+    Base & {
+      product_id: string;
+      expected_version: number;
+      previous_on_hand: number;
+      counted_on_hand: number;
+      reason: string;
+      actor_id: string;
+    };
+  "suite.billing_routes": { customer_id: string; workspace_id: string };
+  "suite.module_records": Tenant & {
+    module_id: string;
+    resource: string;
+    id: string;
+    data: Record<string, unknown>;
+    version: number;
+    archived: boolean;
+    created_by: string;
+    updated_at: Time;
+  };
+  "suite.module_revisions": Tenant & {
+    module_id: string;
+    resource: string;
+    record_id: string;
+    version: number;
+    data: Record<string, unknown>;
+  };
+  "suite.platform_settings": Tenant & {
+    key: string;
+    value: Record<string, unknown>;
+    version: number;
+  };
+  "suite.module_installations": Tenant & {
+    user_id: string;
+    device_id: string;
+    module_id: string;
+    version: string;
+    state: string;
+    updated_at: Time;
+  };
+  "suite.module_releases": {
+    module_id: string;
+    version: string;
+    manifest: Record<string, unknown>;
+    digest: string;
+    signature: string;
+    key_id: string;
+    artifact: Record<string, unknown>;
+    published_at: Time;
+  };
+  "suite.billing_accounts": Tenant & {
+    customer_id: string;
+    subscription_id: string | null;
+    status: string;
+    last_event_at: number;
+    updated_at: Time;
+  };
+  "suite.billing_events": { id: string; type: string; processed_at: Time };
+
+  "suite.users": Base & {
+    issuer: string;
+    subject: string;
+    email: string;
+    name: string;
+    email_verified: boolean;
+    active: Generated<boolean>;
+  };
+  "suite.workspaces": Base & {
+    kind: "personal" | "company";
+    name: string;
+    owner_user_id: string;
+    currency: Generated<string>;
+    seat_limit: Generated<number>;
+    offline_hours: Generated<number>;
+    next_order_number: Generated<number>;
+    accent: Generated<"forest" | "blue" | "plum">;
+    logo_data_url: Generated<string>;
+  };
+  "suite.memberships": Base &
+    Tenant & { user_id: string; active: Generated<boolean> };
+  "suite.roles": Base &
+    Tenant & {
+      name: string;
+      permissions: string[];
+      protected: Generated<boolean>;
+    };
+  "suite.role_assignments": Tenant & { membership_id: string; role_id: string };
+  "suite.entitlements": Tenant & {
+    seat_limit: Generated<number | null>;
+    module_id: string;
+    active: Generated<boolean>;
+  };
+  "suite.module_activations": Tenant & {
+    module_id: string;
+    state: string;
+    access_policy: Generated<string>;
+    config: Generated<Record<string, unknown>>;
+  };
+  "suite.module_assignments": Tenant & {
+    membership_id: string;
+    module_id: string;
+  };
+  "suite.invitations": Base &
+    Tenant & {
+      email: string;
+      role_id: string;
+      invited_by: string;
+      state: Generated<string>;
+      expires_at: Time;
+    };
+  "suite.access_requests": Base &
+    Tenant & {
+      membership_id: string;
+      module_id: string;
+      reason: Generated<string>;
+      state: Generated<string>;
+    };
+  "suite.products": Base &
+    Tenant & {
+      sku: string;
+      name: string;
+      price_minor: number;
+      active: Generated<boolean>;
+      version: Generated<number>;
+    };
+  "suite.stock": Tenant & {
+    product_id: string;
+    on_hand: Generated<number>;
+    reserved: Generated<number>;
+    version: Generated<number>;
+  };
+  "suite.customers": Base & Tenant & { name: string };
+  "suite.orders": Base &
+    Tenant & {
+      number: number;
+      customer_id: string;
+      status: Generated<string>;
+      version: Generated<number>;
+      total_minor: ColumnType<string, number, number>;
+      created_by: string;
+      updated_at: Time;
+    };
+  "suite.order_lines": Tenant & {
+    id: string;
+    order_id: string;
+    product_id: string;
+    quantity: number;
+    price_minor: number;
+    sku_snapshot: string;
+    name_snapshot: string;
+  };
+  "suite.stock_movements": Base &
+    Tenant & {
+      product_id: string;
+      order_id?: string | null;
+      kind: string;
+      on_hand_delta: number;
+      reserved_delta: number;
+      reason: string;
+      actor_id: string;
+    };
+  "suite.audit": Base &
+    Tenant & {
+      actor_id: string;
+      action: string;
+      target_id: string;
+      outcome: Generated<string>;
+      request_id: string;
+    };
+  "suite.idempotency": Tenant & {
+    actor_id: string;
+    key: string;
+    operation: string;
+    request_hash: string;
+    response: unknown;
+    created_at: Time;
+  };
+  "suite.outbox": Base &
+    Tenant & {
+      actor_id: string;
+      event_type: string;
+      event_version: Generated<number>;
+      payload: Record<string, unknown>;
+      attempts: Generated<number>;
+      available_at: Time;
+      locked_until: Date | null;
+      claim_token: string | null;
+      completed_at: Date | null;
+      failed_at: Date | null;
+      last_error: string | null;
+    };
+  "suite.notifications": Base &
+    Tenant & {
+      user_id: string;
+      event_id: string;
+      title: string;
+      message: string;
+      read_at: Date | null;
+    };
+  "suite.exports": Base &
+    Tenant & {
+      actor_id: string;
+      state: Generated<string>;
+      object_key: string | null;
+    };
+  "suite.sessions": {
+    token_hash: string;
+    user_id: string;
+    csrf_token: string;
+    mfa: boolean;
+    expires_at: Time;
+    created_at: Time;
+  };
+  "suite.login_attempts": {
+    state_hash: string;
+    verifier: string;
+    nonce: string;
+    expires_at: Time;
+  };
+}
+export type DB = Kysely<Database>;
+export type Tx = Transaction<Database>;
+export function connectDatabase(url = process.env.DATABASE_URL) {
+  if (!url) throw Error("DATABASE_URL is required");
+  return new Kysely<Database>({
+    dialect: new PostgresDialect({
+      pool: new Pool({
+        connectionString: url,
+        max: 20,
+        connectionTimeoutMillis: 5000,
+        statement_timeout: 15000,
+      }),
+    }),
+  });
+}
+export async function inWorkspace<T>(
+  db: DB,
+  workspaceId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await db.transaction().execute(async (tx) => {
+        await sql`select set_config('app.workspace_id',${workspaceId},true)`.execute(
+          tx,
+        );
+        return fn(tx);
+      });
+    } catch (e) {
+      if (
+        attempt >= 2 ||
+        !["40P01", "40001"].includes((e as { code?: string }).code ?? "")
+      )
+        throw e;
+      await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
+    }
+  }
+}

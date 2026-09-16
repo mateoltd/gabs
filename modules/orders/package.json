@@ -1,0 +1,25 @@
+{
+  "name": "@suite/orders",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./domain": "./domain/index.ts",
+    "./contracts": "./contracts/index.ts",
+    "./server": "./server/index.ts",
+    "./web": "./web/index.tsx"
+  },
+  "dependencies": {
+    "@suite/contracts": "workspace:*",
+    "@suite/server-core": "workspace:*",
+    "@suite/inventory": "workspace:*",
+    "kysely": "0.29.5",
+    "react": "19.3.0",
+    "@suite/ui-web": "workspace:*",
+    "@suite/api-client": "workspace:*",
+    "@tanstack/react-query": "5.102.8",
+    "@suite/platform": "workspace:*",
+    "react-router": "8.3.1",
+    "@suite/module-sdk": "workspace:*"
+  }
+}

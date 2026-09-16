@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+node_modules
+**/node_modules
+**/dist
+**/out
+.local
+.turbo
+test-results
+playwright-report
+*.log

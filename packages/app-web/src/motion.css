@@ -1,0 +1,186 @@
+/* The navigation shell is an anchor; only the page participates in snapshots. */
+:root {
+  view-transition-name: none;
+}
+.route-stage {
+  min-width: 0;
+  view-transition-name: workspace-page;
+}
+.route-stage:has(> .orders-workbench) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-group(workspace-page) {
+  animation-duration: var(--duration-fast);
+  animation-timing-function: var(--ease-smooth-out);
+}
+::view-transition-old(workspace-page) {
+  animation: page-leave var(--duration-quick) var(--ease-smooth-out) both;
+}
+::view-transition-new(workspace-page) {
+  animation: page-arrive var(--duration-fast) var(--ease-smooth-out) both;
+}
+@keyframes page-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes page-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-base));
+  }
+}
+@keyframes content-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-medium));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes quiet-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* One short sequence: orientation, controls, primary data, supporting content. */
+.sidebar,
+.topbar {
+  animation: quiet-arrive var(--duration-fast) ease-out both;
+}
+.page-heading h1 {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out) both;
+}
+.page-heading p,
+.page-heading > .actions {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out)
+    var(--duration-stagger) both;
+}
+.route-stage :is(.toolbar, .orders-tabs, .orders-filters) {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out)
+    var(--duration-micro) both;
+}
+.route-stage
+  :is(
+    .overview-insight,
+    .overview-stock-panel,
+    .overview-recent,
+    .stock-panel,
+    .fulfillment-summary,
+    .settings-grid > .panel,
+    .module-grid > .panel
+  ) {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out) 120ms
+    both;
+}
+.route-stage > :is(.table-wrap, .panel, .empty),
+.route-stage > .route-reveal {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out)
+    var(--duration-micro) both;
+}
+.login-header {
+  animation: quiet-arrive var(--duration-fast) ease-out both;
+}
+.login-form-inner > h1 {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out) both;
+}
+.login-form-inner > :not(h1) {
+  animation: content-arrive var(--duration-slow) var(--ease-smooth-out)
+    var(--duration-micro) both;
+}
+.login-footer {
+  animation: quiet-arrive var(--duration-slow) ease-out 160ms both;
+}
+.login-artwork {
+  animation: quiet-arrive var(--duration-slow) ease-out both;
+}
+
+.sidebar nav > a,
+.notification-link,
+.metric,
+.queue-order,
+.stock-item {
+  transition:
+    background-color var(--duration-quick) ease-out,
+    color var(--duration-quick) ease-out;
+}
+.nav-label {
+  transition:
+    opacity var(--duration-quick) ease-out,
+    visibility var(--duration-quick);
+}
+.sidebar a:is(:hover, :focus-visible) .nav-label {
+  transition-delay: var(--duration-micro);
+}
+
+/* Reserve both grid tracks so opening and closing the inspector resizes the list. */
+@media (min-width: 1101px) {
+  .route-stage > .orders-workbench {
+    grid-template-columns: minmax(0, 1fr) 0px;
+    transition: grid-template-columns var(--panel-close-dur)
+      var(--ease-smooth-out);
+  }
+  .orders-workbench:has(.detail-panel[data-open="true"]) {
+    grid-template-columns: minmax(0, 1fr) 308px;
+    transition-duration: var(--panel-open-dur);
+  }
+  .orders-workbench:has(.detail-panel[data-open="false"]) {
+    grid-template-columns: minmax(0, 1fr) 0px;
+  }
+  .detail-panel {
+    overflow-x: hidden;
+  }
+  .detail-panel-inner {
+    min-width: 298px;
+  }
+}
+@media (min-width: 1500px) {
+  .orders-workbench:has(.detail-panel[data-open="true"]) {
+    grid-template-columns: minmax(0, 1fr) 348px;
+  }
+  .detail-panel-inner {
+    min-width: 338px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* Snapshot navigation already animates the page. Its captured content must be opaque. */
+.route-stage[data-entrance="snapshot"]
+  :is(
+    .page-heading h1,
+    .page-heading p,
+    .page-heading > .actions,
+    .toolbar,
+    .orders-tabs,
+    .orders-filters,
+    .overview-insight,
+    .overview-stock-panel,
+    .overview-recent,
+    .stock-panel,
+    .fulfillment-summary,
+    .settings-grid > .panel,
+    .module-grid > .panel
+  ),
+.route-stage[data-entrance="snapshot"]
+  > :is(.table-wrap, .panel, .empty, .route-reveal) {
+  animation: none;
+}

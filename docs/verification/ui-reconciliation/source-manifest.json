@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-16",
+  "scope": "UI reconciliation; feature parity remains paused",
+  "archives": [
+    {
+      "path": ".local/ui-reconciliation/source-before.tar.gz",
+      "sha256": "e81a51745ef4842073ad6dd4074b9d569c101abdcc560fabdc365f53d7f4eb1d",
+      "bytes": 1313285
+    },
+    {
+      "path": ".local/ui-reconciliation/source-after.tar.gz",
+      "sha256": "c0147c248f151728525daaf0cb1a5f56e6262b29461a06a49e105553c5ab8adb",
+      "bytes": 1321792
+    }
+  ],
+  "changedSourceAndTests": [
+    {
+      "path": "packages/app-web/src/admin.tsx",
+      "sha256": "f437a6f04ddd671b721d8f601161e63eb8a06042e99a5fe5f53928d4e72e8a12"
+    },
+    {
+      "path": "packages/app-web/src/index.tsx",
+      "sha256": "ac5b2b912a119641199e39fa7e7033608f6963e8db5687d54b63d5181dcc4a33"
+    },
+    {
+      "path": "packages/app-web/src/local-workspace.tsx",
+      "sha256": "fc7c916b319d75b1578cf3899fea04de97b574d7e186e1ec3fe04b53860a16c3"
+    },
+    {
+      "path": "packages/app-web/src/login.tsx",
+      "sha256": "b817ddeb53ccd9cc838e49c0488e3630f0237f340ad8bd71d65af0d8a2520497"
+    },
+    {
+      "path": "packages/app-web/src/module-view.tsx",
+      "sha256": "735683880746b0946703858c129f77b5f0edb36578845c6c21040a4638dc84cd"
+    },
+    {
+      "path": "packages/app-web/src/platform-admin.tsx",
+      "sha256": "6a2eb9e7901627828ca575fbd6b566f8a73d48b0507549c5823fcdf16a21d6b0"
+    },
+    {
+      "path": "packages/app-web/src/styles.css",
+      "sha256": "4626e044a8dca3287d43aa3c162b18a6c71c8977a8962f90c030856106c02a10"
+    },
+    {
+      "path": "packages/ui-web/src/navigation-icons.tsx",
+      "sha256": "f53107655ab0fe0d03b84218adb17da5a4cfa053a0a02fec6a6605e0fd58c3ef"
+    },
+    {
+      "path": "packages/ui-web/src/schema-form.tsx",
+      "sha256": "78853e23632ff7fe5be4a557e3860b679205ec8aae4adef641b11d19958de747"
+    },
+    {
+      "path": "tests/e2e/platform.spec.ts",
+      "sha256": "bbdba49e23a2d073972a9087dcdf7f1b3a03ae984f7592398e8eb0943f6ce450"
+    },
+    {
+      "path": "tests/e2e/ui-reconciliation.spec.ts",
+      "sha256": "5d0f2b754ce2817f79dbc2e05046bde04f83ebf5dae315183014425476733648"
+    },
+    {
+      "path": "tests/desktop/ui-reconciliation.spec.ts",
+      "sha256": "4b3b5eb7260ab198121d8255a0a40fad56081665ebe848fcdf35a0e26353e3d0"
+    }
+  ]
+}
