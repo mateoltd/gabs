@@ -28,3 +28,5 @@ All 74 unit/PostgreSQL tests, type/boundary/copy checks and four builds passed. 
 ## Subsequent remote results
 
 The candidate did not close OPS-07: [run 35087408586](https://github.com/mateoltd/gabs/actions/runs/35087408586) measured 678/679 ms, and [run 35087635112](https://github.com/mateoltd/gabs/actions/runs/35087635112) measured 689/698 ms. Both missed the unchanged 500 ms read budget. The latter passed confirmation, restore, code/build checks, all 59 browser journeys and three unsigned packaging jobs. Both runners reported AMD EPYC 7763. Fewer authorization round trips are verified, but remote latency acceptance remains open.
+
+The subsequent rollout commit `dbb13cd` / [run 35091584839](https://github.com/mateoltd/gabs/actions/runs/35091584839) measured 637/692 ms on an AMD EPYC 7763 runner. Code/build checks, all 60 browser journeys, three unsigned packaging jobs and restore passed. Read latency still exceeds 500 ms; OPS-07 stays open.

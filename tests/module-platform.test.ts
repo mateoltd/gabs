@@ -77,7 +77,7 @@ afterAll(async () => {
   await db.destroy();
 });
 describe("Public module runtime", () => {
-  it("rejects stale client contracts before writes and idempotent replay", async () => {
+  it("rejects stale new writes and attempts to relabel an idempotent request", async () => {
     const id = randomUUID(),
       key = randomUUID();
     const input = {
@@ -131,7 +131,7 @@ describe("Public module runtime", () => {
     expect(
       (await call("contacts", "contacts", "create", input, key, "0.0.1")).body
         .code,
-    ).toBe("MODULE_UPDATE_REQUIRED");
+    ).toBe("IDEMPOTENCY_CONFLICT");
     expect(
       (await call("contacts", "contacts", "create", input, key)).body.code,
     ).toBe("IDEMPOTENCY_CONFLICT");

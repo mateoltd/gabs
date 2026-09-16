@@ -1,3 +1,4 @@
+import { verifyPackage } from "../../module-sdk/node/signing";
 import { sql } from "kysely";
 import {
   assertSchema,
@@ -7,7 +8,11 @@ import {
 import { canonical, satisfies } from "@suite/module-sdk/registry";
 import type { Tx } from "./database";
 import { found, requireCondition } from "./errors";
-import { resolveWorkspaceRelease, workspaceModule } from "./module-releases";
+import {
+  registryPublicKey,
+  resolveWorkspaceRelease,
+  workspaceModule,
+} from "./module-releases";
 import { assertModuleStorage } from "./module-storage";
 import { stagedModuleServer } from "./staged-module-server";
 import type { InstalledModuleServer } from "./module-services";
@@ -80,6 +85,42 @@ export async function compatibleClientRelease(
     );
   }
   return module;
+}
+
+/** Resolve historical permissions for receipt recovery, never authority to execute. */
+export async function receiptContract(
+  tx: Tx,
+  workspaceId: string,
+  moduleId: string,
+  requested: string | string[] | undefined,
+) {
+  const current = await workspaceModule(tx, workspaceId, moduleId);
+  if (requested === undefined || requested === current.version)
+    return { current, original: current };
+  requireCondition(
+    typeof requested === "string" &&
+      /^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/.test(requested),
+    400,
+    "INVALID_MODULE_VERSION",
+    "Provide one valid module release version.",
+  );
+  const release = await tx
+    .selectFrom("suite.module_releases")
+    .selectAll()
+    .where("module_id", "=", moduleId)
+    .where("version", "=", requested)
+    .executeTakeFirst();
+  requireCondition(
+    release,
+    409,
+    "MODULE_UPDATE_REQUIRED",
+    `This module release is unavailable. Update ${current.name} before retrying.`,
+  );
+  verifyPackage(release, await registryPublicKey());
+  return {
+    current,
+    original: hydrateModule(release.artifact as unknown as ModuleDefinition),
+  };
 }
 
 /** Client version selects a reviewed contract; current authorization is still mandatory. */

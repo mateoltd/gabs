@@ -1,6 +1,7 @@
 import { ModuleRolloutSchema } from "@suite/module-sdk/platform";
 import {
   clientModule,
+  receiptContract,
   compatibleClientRelease,
   validateConfiguredRollouts,
 } from "../../../packages/server-core/src/module-rollout";
@@ -162,18 +163,21 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           undefined,
           req.params.moduleId,
         );
-        const definition = await clientModule(
+        const { current, original: definition } = await receiptContract(
           tx,
           ctx.workspaceId,
           req.params.moduleId,
           req.headers["x-module-version"],
-          moduleServers,
         );
         const operation = found(
           definition.operations[req.params.operationName],
         );
         requireCondition(
-          ctx.permissions.includes(operation.permission),
+          ctx.permissions.includes(operation.permission) &&
+            (!current.operations[req.params.operationName] ||
+              ctx.permissions.includes(
+                current.operations[req.params.operationName].permission,
+              )),
           403,
           "FORBIDDEN",
           "Your role does not allow this action.",
@@ -196,15 +200,25 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 moduleVersion: req.headers["x-module-version"],
                 input: req.body,
               },
-          () =>
-            executeModuleOperation(
+          async () => {
+            // A saved receipt settles an earlier effect. Only a new execution
+            // must satisfy today's rollout, storage and backend policy.
+            const executable = await clientModule(
+              tx,
+              ctx.workspaceId,
+              definition.id,
+              req.headers["x-module-version"],
+              moduleServers,
+            );
+            return executeModuleOperation(
               tx,
               ctx,
-              definition,
+              executable,
               req.params.operationName,
               req.body,
               moduleServers,
-            ),
+            );
+          },
         );
       }),
   );
@@ -449,14 +463,14 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           req.params.moduleId,
         );
         const clientVersion = req.headers["x-module-version"];
-        const definition = await clientModule(
-          tx,
-          ctx.workspaceId,
-          req.params.moduleId,
-          clientVersion,
-          moduleServers,
-        );
         const execute = async () => {
+          const definition = await clientModule(
+            tx,
+            ctx.workspaceId,
+            req.params.moduleId,
+            clientVersion,
+            moduleServers,
+          );
           try {
             return await executeResource(
               tx,

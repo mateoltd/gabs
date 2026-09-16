@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { selectValue } from "./controls.helpers";
-async function workspace(page: Page) {
+async function workspace(page: Page, assignedModules?: string[]) {
   await page.goto("/");
   await selectValue(page, "Local demonstration account", "owner@demo.local");
   await page
@@ -21,6 +21,29 @@ async function workspace(page: Page) {
     data: { id, name: "Platform acceptance", currency: "EUR" },
   });
   expect(result.ok()).toBeTruthy();
+  if (assignedModules) {
+    const members = await (
+      await page.request.get(`/api/v1/workspaces/${id}/members`)
+    ).json();
+    const member = members.find(
+      (m: { userId: string }) => m.userId === me.user.id,
+    );
+    const assigned = await page.request.patch(
+      `/api/v1/workspaces/${id}/members/${member.id}`,
+      {
+        headers: {
+          origin: new URL(page.url()).origin,
+          "x-csrf-token": me.csrfToken,
+        },
+        data: {
+          active: true,
+          roleIds: member.roles.map((r: { id: string }) => r.id),
+          modules: assignedModules,
+        },
+      },
+    );
+    expect(assigned.ok(), await assigned.text()).toBeTruthy();
+  }
   await page.reload();
   await selectValue(page, "Workspace", id);
   return id;
@@ -504,7 +527,10 @@ test("an uncertain create response retries the same operation instead of duplica
 test("assigned modules install in the background before they are opened", async ({
   page,
 }) => {
-  const workspaceId = await workspace(page);
+  // Establish this company's actual assignments before entering it. Unrelated
+  // signed fixtures from earlier runs must not change this acceptance workload.
+  const modules = ["contacts", "inventory", "orders", "projects"];
+  const workspaceId = await workspace(page, modules);
   const bootstrap = await (
     await page.request.get(`/api/v1/workspaces/${workspaceId}/bootstrap`)
   ).json();
@@ -515,9 +541,7 @@ test("assigned modules install in the background before they are opened", async 
     )
     .map((m: { moduleId: string }) => m.moduleId)
     .sort();
-  expect(assigned).toEqual(
-    expect.arrayContaining(["contacts", "projects", "orders", "inventory"]),
-  );
+  expect(assigned).toEqual(modules);
   await expect
     .poll(
       async () => {

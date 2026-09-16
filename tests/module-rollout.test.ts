@@ -9,7 +9,7 @@ import {
   provisionWorkspace,
 } from "../packages/server-core/src";
 
-it("dispatches accepted pinned client contracts and enforces mandatory updates before receipts", async () => {
+it("recovers committed receipts after mandatory updates while enforcing current authority and new execution policy", async () => {
   const db = connectDatabase();
   const server = await createApp({
     db,
@@ -104,13 +104,80 @@ it("dispatches accepted pinned client contracts and enforces mandatory updates b
       (await operation("create-product", "1.1.0", input, key)).json(),
     ).toEqual(created.json());
     expect((await policy(true, [])).statusCode).toBe(200);
+    const recovered = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        operation("create-product", "1.1.0", input, key),
+      ),
+    );
     expect(
-      (await operation("create-product", "1.1.0", input, key)).json().code,
+      recovered.every(
+        (r) => r.statusCode === 200 && r.json().id === created.json().id,
+      ),
+    ).toBe(true);
+    expect(
+      (await operation("create-product", "1.1.0", input)).json().code,
     ).toBe("MODULE_UPDATE_REQUIRED");
+    expect(
+      (
+        await operation(
+          "create-product",
+          "1.1.0",
+          { ...input, name: "Altered retry" },
+          key,
+        )
+      ).json().code,
+    ).toBe("IDEMPOTENCY_CONFLICT");
+    await inWorkspace(db, workspace, async (tx) => {
+      const roles = await tx
+        .selectFrom("suite.roles")
+        .select(["id", "permissions"])
+        .execute();
+      for (const role of roles)
+        await tx
+          .updateTable("suite.roles")
+          .set({
+            permissions: role.permissions.filter(
+              (p) => p !== "inventory.products.manage",
+            ),
+          })
+          .where("id", "=", role.id)
+          .execute();
+    });
+    expect(
+      (await operation("create-product", "1.1.0", input, key)).statusCode,
+    ).toBe(403);
+    await inWorkspace(db, workspace, async (tx) => {
+      const role = await tx
+        .selectFrom("suite.roles")
+        .select(["id", "permissions"])
+        .where("name", "=", "Owner")
+        .executeTakeFirstOrThrow();
+      await tx
+        .updateTable("suite.roles")
+        .set({
+          permissions: [...role.permissions, "inventory.products.manage"],
+        })
+        .where("id", "=", role.id)
+        .execute();
+    });
+    expect(
+      (await operation("create-product", "1.1.0", input, key)).json(),
+    ).toEqual(created.json());
     expect(
       (await operation("create-product", "1.2.0", input, key)).json().code,
     ).toBe("IDEMPOTENCY_CONFLICT");
     expect((await operation("products", "1.2.0")).statusCode).toBe(200);
+    const hostKey = randomUUID();
+    const hostInput = { ...input, sku: `HOST-${randomUUID().slice(0, 8)}` };
+    const hostCreate = (requestKey: string) =>
+      server.app.inject({
+        method: "POST",
+        url: `/api/v1/workspaces/${workspace}/products`,
+        headers: { ...headers, "idempotency-key": requestKey },
+        payload: hostInput,
+      });
+    const hostCreated = await hostCreate(hostKey);
+    expect(hostCreated.statusCode).toBe(200);
     // An old host route must report the contract it actually executes, regardless of caller headers.
     expect((await policy(true, [], "1.1.0")).statusCode).toBe(200);
     const host = await server.app.inject({
@@ -120,6 +187,10 @@ it("dispatches accepted pinned client contracts and enforces mandatory updates b
     });
     expect(host.statusCode).toBe(409);
     expect(host.json().code).toBe("MODULE_UPDATE_REQUIRED");
+    expect((await hostCreate(hostKey)).json()).toEqual(hostCreated.json());
+    expect((await hostCreate(randomUUID())).json().code).toBe(
+      "MODULE_UPDATE_REQUIRED",
+    );
     expect((await operation("products", "1.1.0")).statusCode).toBe(200);
     expect((await policy(false, ["1.1.0"])).statusCode).toBe(200);
     expect(
@@ -140,6 +211,10 @@ it("dispatches accepted pinned client contracts and enforces mandatory updates b
     });
     expect((await operation("products", "1.1.0")).statusCode).toBe(403);
     expect((await operation("products", "1.2.0")).statusCode).toBe(403);
+    expect(
+      (await operation("create-product", "1.1.0", input, key)).statusCode,
+    ).toBe(403);
+    expect((await hostCreate(hostKey)).statusCode).toBe(403);
   } finally {
     await server.app.close();
     await db.destroy();

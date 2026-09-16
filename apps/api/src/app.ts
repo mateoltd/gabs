@@ -586,16 +586,18 @@ export async function createApp(
               : options.permission,
             options.module,
           );
-          if (options.module === "orders" || options.module === "inventory")
-            await assertHostModuleRollout(
-              tx,
-              ctx.workspaceId,
-              options.module === "orders"
-                ? ordersDefinition
-                : inventoryDefinition,
-              moduleServers,
-            );
-          const execute = () => options.handler(tx, ctx, req, reply);
+          const execute = async () => {
+            if (options.module === "orders" || options.module === "inventory")
+              await assertHostModuleRollout(
+                tx,
+                ctx.workspaceId,
+                options.module === "orders"
+                  ? ordersDefinition
+                  : inventoryDefinition,
+                moduleServers,
+              );
+            return options.handler(tx, ctx, req, reply);
+          };
           if (
             op.method === "POST" ||
             (op.method === "PUT" && req.headers["idempotency-key"])

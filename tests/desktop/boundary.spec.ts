@@ -124,9 +124,52 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
         moduleVersion: "1.1.0",
         body: { action: "list", resource: "contacts", input: {} },
       });
+      const policy = async (mandatory: boolean, version: number) =>
+        window.suiteDesktop!.execute({
+          operation: "platformCommand",
+          params: { workspaceId },
+          body: {
+            action: "rollout",
+            version,
+            value: {
+              moduleId: "inventory",
+              version: "1.2.0",
+              mandatory,
+              acceptedVersions: mandatory ? [] : ["1.1.0"],
+            },
+          },
+          idempotencyKey: crypto.randomUUID(),
+        });
+      if ((await policy(false, 0)).status !== 200)
+        throw Error("Could not accept the native older contract");
+      const key = crypto.randomUUID();
+      const create = (idempotencyKey: string) =>
+        window.suiteDesktop!.execute({
+          operation: "moduleOperation",
+          params: {
+            workspaceId,
+            moduleId: "inventory",
+            operationName: "create-product",
+          },
+          moduleVersion: "1.1.0",
+          idempotencyKey,
+          body: {
+            sku: `NATIVE-${key.slice(0, 8)}`,
+            name: "Native receipt recovery",
+            priceMinor: 100,
+          },
+        });
+      const first = await create(key);
+      if ((await policy(true, 1)).status !== 200)
+        throw Error("Could not require the native current contract");
+      const recovered = await create(key);
+      const refused = await create(crypto.randomUUID());
       return {
         stale,
         current,
+        first,
+        recovered,
+        refused,
         security: await window.suiteDesktop!.securityStatus(),
       };
     });
@@ -135,6 +178,15 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
       body: { code: "MODULE_UPDATE_REQUIRED" },
     });
     expect(moduleRelease.current.status).toBe(200);
+    expect(moduleRelease.first.status).toBe(200);
+    expect(moduleRelease.recovered).toMatchObject({
+      status: 200,
+      body: moduleRelease.first.body,
+    });
+    expect(moduleRelease.refused).toMatchObject({
+      status: 409,
+      body: { code: "MODULE_UPDATE_REQUIRED" },
+    });
     expect(moduleRelease.security.updateRequired).toBe(false);
     const persisted = await page.evaluate(async () => {
       const me = (await window.suiteDesktop!.execute({ operation: "me" }))
