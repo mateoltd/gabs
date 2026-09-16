@@ -20,7 +20,16 @@ jobs:
       - run: pnpm generate:api && pnpm generate:tokens && git diff --exit-code docs/openapi.json packages/api-client/src/schema.d.ts packages/design-tokens/src/values.ts
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
-      - run: pnpm test:load && pnpm test:restore
+      - name: Load acceptance
+        id: load
+        run: pnpm test:load
+      - name: Restore acceptance
+        if: ${{ !cancelled() && steps.load.outcome != 'skipped' }}
+        run: pnpm test:restore
+      - name: Profile failed load acceptance
+        if: ${{ failure() && steps.load.outcome == 'failure' }}
+        continue-on-error: true
+        run: pnpm test:load --profile
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -8,12 +8,19 @@ import {
   inWorkspace,
   provisionWorkspace,
   authorize,
+  connectDatabase,
 } from "../packages/server-core/src";
 import { createProduct, changeStock } from "../modules/inventory/server";
 import { createOrder } from "../modules/orders/server";
+import { createLoadDiagnostics } from "./load-diagnostics";
 if (!["development", "test"].includes(process.env.NODE_ENV ?? ""))
   throw Error("Load fixtures are restricted to local development and test.");
-const { app, db, auth } = await createApp(),
+const diagnostics = process.argv.includes("--profile")
+  ? createLoadDiagnostics()
+  : undefined;
+const { app, db, auth } = await createApp({
+    db: connectDatabase(undefined, diagnostics?.log),
+  }),
   workspace = randomUUID();
 try {
   const user = await identify(db, {
@@ -80,9 +87,11 @@ try {
     return performance.now() - start;
   };
   await sample("/orders");
+  await diagnostics?.start();
   const reads = await Promise.all(
     Array.from({ length: 50 }, () => sample("/orders")),
   );
+  await diagnostics?.stop();
   const confirmations = await Promise.all(
     orders.slice(0, 50).map((o) =>
       sample(`/orders/${o.id}/confirm`, {
@@ -99,6 +108,7 @@ try {
   const p95 = (v: number[]) =>
     Math.round([...v].sort((a, b) => a - b)[Math.ceil(v.length * 0.95) - 1]);
   const report = {
+    diagnostic: Boolean(diagnostics),
     recordedAt: new Date().toISOString(),
     dataset: { orders: 1000, linesPerOrder: 1, products: 1 },
     clients: 50,
@@ -117,15 +127,20 @@ try {
     p95Ms: { ordersRead: p95(reads), orderConfirmation: p95(confirmations) },
     targetsMs: { ordersRead: 500, orderConfirmation: 1000 },
   };
-  await mkdir("docs/verification", { recursive: true });
+  const directory = diagnostics?.directory ?? "docs/verification";
+  await mkdir(directory, { recursive: true });
   await writeFile(
-    "docs/verification/load.json",
+    `${directory}/load.json`,
     JSON.stringify(report, null, 2) + "\n",
   );
   console.log(JSON.stringify(report, null, 2));
   if (report.p95Ms.ordersRead >= 500 || report.p95Ms.orderConfirmation >= 1000)
     process.exitCode = 1;
 } finally {
-  await app.close();
-  await db.destroy();
+  try {
+    await diagnostics?.stop();
+  } finally {
+    await app.close();
+    await db.destroy();
+  }
 }

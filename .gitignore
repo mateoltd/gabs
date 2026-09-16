@@ -9,5 +9,6 @@ coverage/
 test-results/
 playwright-report/
 .local/
+docs/verification/load-diagnostics/
 *.log
 .DS_Store

@@ -157,3 +157,9 @@ All 68 unit/PostgreSQL tests, 59 Chromium journeys, 6 Electron journeys, builds,
 ## 16 September 2026: order-list latency correction awaiting remote acceptance
 
 A fresh-workspace query plan exposed 499,500 customer/order join comparisons before pagination. The list now uses tenant-scoped indexed customer lookups, while search and cursor filters retain their semantics. Local plans fell from 21.422 ms to 0.122 ms. The unchanged uninstrumented load fixture passed at p95 104/172 ms for reads/confirmation; all 69 unit/PostgreSQL tests, 17 selected browser journeys, builds and formatting passed. [Plans, profiling limits and evidence](performance/README.md). OPS-07 stays in verification until the candidate passes the unchanged remote CI budgets and restore gate.
+
+## 16 September 2026: module release identity and remote load diagnostics
+
+Typed clients, generated screens and offline journals carry their authoring release through browser/native transports. The API rejects mismatches before writes and receipt replay; legacy retries retain their original hash. Verified 72 unit/PostgreSQL tests, 14 focused Chromium journeys, all six distinct Electron journeys and four builds. [Scope and limitations](client-module-version/README.md). EXT-05 remains active for accepted-version policies, rollout controls and observability.
+
+Remote run `35056056304` still failed reads at 670 ms while confirmation passed at 726 ms. CI now captures CPU/query diagnostics after a failed gate and independently runs restore. Targets are unchanged; [OPS-07 remains open](performance/README.md).

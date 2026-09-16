@@ -5,6 +5,7 @@ import {
   type Generated,
   type Transaction,
   type ColumnType,
+  type LogConfig,
 } from "kysely";
 import { Pool } from "pg";
 type Time = ColumnType<Date, Date | string | undefined, Date | string>;
@@ -266,7 +267,10 @@ export interface Database {
 }
 export type DB = Kysely<Database>;
 export type Tx = Transaction<Database>;
-export function connectDatabase(url = process.env.DATABASE_URL) {
+export function connectDatabase(
+  url = process.env.DATABASE_URL,
+  log?: LogConfig,
+) {
   if (!url) throw Error("DATABASE_URL is required");
   const pool = new Pool({
     connectionString: url,
@@ -289,7 +293,7 @@ export function connectDatabase(url = process.env.DATABASE_URL) {
   pool.on("error", () => {
     /* Already reported by the client listener; pg removes the idle connection. */
   });
-  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }), log });
 }
 export async function inWorkspace<T>(
   db: DB,
