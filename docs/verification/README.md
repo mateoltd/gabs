@@ -309,3 +309,7 @@ Verified packages now persist before full installation staging, with account/wor
 ## Retained local versions and lifecycle history
 
 Schema-aware planning, offline retained-release selection and atomic local history passed 155 unit/PostgreSQL tests, four builds, nine distinct headless browser journeys and three minimized native cases. Wide/narrow/native layouts were inspected after replacing cramped columns with existing stacked lists. [Evidence and the SDK-02 acceptance map](local-versions/README.md) close SDK-02 locally; SDK-03 is next, and all broader SDK/identity/synchronization/application/release gates remain open.
+
+## Module-owned development scenarios
+
+[SDK-03 scenario acceptance](module-scenarios/README.md) verifies actual module-owned CLI execution, isolated fixtures, named failures, inferred authoring types and independent-directory dependency checks. Eight focused tests, strict types/boundaries/copy rules, Contacts CLI scenarios and a real temporary scaffold/test/cleanup cycle passed. No application UI changed; browser/native suites were not repeated. Custom React preview and cross-module fixtures remain active SDK-03 work.

@@ -9,7 +9,11 @@ import {
   publishRelease,
 } from "./registry-review";
 import type { ServerPackage } from "../packages/module-sdk/node/server-package";
-import { validateFixtures } from "@suite/module-sdk/simulator";
+import {
+  checkModuleSources,
+  loadModuleWorkspace,
+  moduleDirectory,
+} from "./module-workspace";
 import "dotenv/config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -30,8 +34,15 @@ import {
 const [command, name, ...args] = process.argv.slice(2);
 const keys = process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys";
 const execute = (args: string[]) => {
-  const result = spawnSync("pnpm", args, { stdio: "inherit" });
-  if (result.status) process.exit(result.status);
+  const result = spawnSync("pnpm", args, {
+    stdio: "inherit",
+  });
+  if (result.error) throw result.error;
+  if (result.signal)
+    throw Error(
+      `Command terminated by ${result.signal}: pnpm ${args.join(" ")}`,
+    );
+  if (result.status !== 0) process.exit(result.status ?? 1);
 };
 if (command === "keygen") {
   await mkdir(keys, { recursive: true, mode: 0o700 });
@@ -113,34 +124,73 @@ if (command === "keygen") {
     `modules/${name}/fixtures.json`,
     JSON.stringify({ items: [{ name: "Example record" }] }, null, 2) + "\n",
   );
+  await writeFile(
+    `modules/${name}/module.scenarios.ts`,
+    `import assert from 'node:assert/strict';\nimport {defineModuleScenarios} from '@suite/module-sdk/scenarios';\nimport module from './module';\nexport default defineModuleScenarios(module, {scenarios: {\n  'reads the example fixture': async ({client}) => {\n    const page = await client.resource('items').list();\n    assert.equal(page.items[0]?.data.name, 'Example record');\n  },\n  'denies writes after permission revocation': async (simulation) => {\n    simulation.setPermissions(['${name}.items.read']);\n    await assert.rejects(simulation.client.resource('items').create({name:'Denied'}), {code:'FORBIDDEN'});\n    assert.equal((await simulation.client.resource('items').list()).items.length, 1);\n  },\n}});\n`,
+  );
   execute(["modules:discover"]);
   console.log(
-    `Created ${name}. Run pnpm install, then pnpm module check ${name}.`,
+    `Created ${name}. Run pnpm install, then pnpm module check ${name} and pnpm module test ${name}. Edit module.scenarios.ts to exercise your module's behavior.`,
   );
 } else if (command === "dev") {
   execute(["exec", "tsx", "watch", "tooling/module-dev.ts", name ?? ""]);
 } else if (command === "check" || command === "test") {
-  if (name && !moduleDefinitions.some((m) => m.id === name))
-    throw Error("Module not discovered. Run pnpm modules:discover.");
-  const selected = name
-    ? moduleDefinitions.filter((m) => m.id === name)
-    : moduleDefinitions;
-  for (const module of selected) {
-    resolveReleases(module.id, moduleDefinitions, "1.0.0", "1.0.0");
-    try {
-      const fixtures = JSON.parse(
-        await readFile(`modules/${module.id}/fixtures.json`, "utf8"),
+  if (command === "test" && !name)
+    throw Error(
+      "Usage: pnpm module test <module-id-or-directory> [--dependency <provider-directory>]...",
+    );
+  const directories = name
+    ? [moduleDirectory(name)]
+    : moduleDefinitions.map((module) => moduleDirectory(module.id));
+  const available = [...moduleDefinitions];
+  for (let index = 0; index < args.length; index += 2) {
+    if (args[index] !== "--dependency" || !args[index + 1])
+      throw Error(
+        "Use --dependency <provider-directory> for each development dependency.",
       );
-      validateFixtures(module, fixtures);
-      console.log(`Validated fixtures for ${module.id}.`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const directory = resolve(args[index + 1]);
+    await checkModuleSources(directory);
+    const { module } = await loadModuleWorkspace(directory);
+    const previous = available.findIndex(
+      (candidate) => candidate.id === module.id,
+    );
+    if (previous >= 0) available.splice(previous, 1);
+    available.push(module);
+  }
+  for (const directory of directories) {
+    await checkModuleSources(directory);
+    const { module } = await loadModuleWorkspace(directory);
+    resolveReleases(
+      module.id,
+      [...available.filter((candidate) => candidate.id !== module.id), module],
+      "1.0.0",
+      "1.0.0",
+    );
+    await buildClientViews(module, directory);
+    console.log(
+      `Validated ${module.id}@${module.version}: types, dependencies, fixtures and client bundles.`,
+    );
+    if (command === "test") {
+      // Run outside the CLI process and bound stuck promises or infinite author loops.
+      const result = spawnSync(
+        process.execPath,
+        ["--import", "tsx", "tooling/module-test.ts", directory],
+        {
+          stdio: "inherit",
+          timeout: 120_000,
+          killSignal: "SIGKILL",
+        },
+      );
+      if (result.error)
+        throw Error(
+          `Module scenarios failed or exceeded 120 seconds: ${result.error.message}`,
+        );
+      if (result.signal)
+        throw Error(`Module scenarios terminated by ${result.signal}.`);
+      if (result.status !== 0) process.exit(result.status ?? 1);
     }
   }
-  execute(["typecheck"]);
-  if (command === "test")
-    execute(["exec", "vitest", "run", "tests/module-sdk.test.ts"]);
-  console.log(`${selected.length} module definitions validated.`);
+  console.log(`${directories.length} module definitions validated.`);
 } else if (command === "services") {
   if (!name || !args[0])
     throw Error(
