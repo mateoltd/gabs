@@ -623,6 +623,55 @@ it("atomically converts authoritative legacy commitments, preserves identities/h
   expect(await orders.call("draft", f.input)).toMatchObject({
     number: f.confirmed.number + 5,
   });
+  const read = async (path: string, target = f.target) => {
+    const response = await app.app.inject({
+      method: "GET",
+      url: `/api/v1/workspaces/${target}/${path}`,
+      headers,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    return response.json();
+  };
+  const overview = await read("overview");
+  expect(overview.orders).toMatchObject({
+    draft: 2,
+    confirmed: 0,
+    fulfilled: 2,
+    cancelled: 2,
+  });
+  expect(overview.inventory).toEqual(await stock.call("overview", {}));
+  expect(await read(`orders/${f.confirmed.id}`)).toMatchObject({
+    status: "fulfilled",
+    version: f.confirmed.version + 1,
+  });
+  const page = await read("orders?limit=2");
+  expect(page.items).toHaveLength(2);
+  expect(page.nextCursor.length).toBeGreaterThan(36);
+  const next = await read(
+    `orders?limit=2&cursor=${encodeURIComponent(page.nextCursor)}`,
+  );
+  expect(next.items).toHaveLength(2);
+  expect(
+    next.items.every(
+      (row: { id: string }) =>
+        !page.items.some((prior: { id: string }) => prior.id === row.id),
+    ),
+  ).toBe(true);
+  const rejectedCursor = await app.app.inject({
+    method: "GET",
+    url: `/api/v1/workspaces/${foreign}/orders?limit=2&cursor=${encodeURIComponent(page.nextCursor)}`,
+    headers,
+  });
+  expect(rejectedCursor.statusCode).toBe(400);
+  expect((await read("products")).items).toContainEqual(
+    expect.objectContaining({ id: f.product.id, onHand: 45, reserved: 0 }),
+  );
+  expect(
+    (await read("movements")).items.filter(
+      (m: { kind: string }) => m.kind === "fulfillment",
+    ),
+  ).toHaveLength(2);
   await expect(
     f.orders.call("confirm", { id: draft.id, version: draft.version }),
   ).rejects.toMatchObject({ code: "MODULE_UPDATE_REQUIRED" });

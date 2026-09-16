@@ -1,3 +1,4 @@
+import type { ModuleDefinition } from "@suite/module-sdk";
 import { Table } from "@suite/ui-web";
 import moduleDefinition from "../module";
 import { useToast, Tooltip } from "@suite/ui-web";
@@ -49,6 +50,16 @@ import {
   canUse,
 } from "@suite/platform";
 import type { DraftInput, Order } from "@suite/contracts";
+function isOrderConflict(error: ApiError) {
+  const detail = error.detail as
+    { moduleId?: string; error?: { code?: string } } | undefined;
+  return (
+    error.status === 412 ||
+    (error.code === "MODULE_BUSINESS_ERROR" &&
+      detail?.moduleId === "orders" &&
+      detail.error?.code === "VERSION_CONFLICT")
+  );
+}
 type OrderAction = "confirm" | "fulfill" | "cancel";
 const orderOperations = {
   confirm: "orderConfirm",
@@ -68,7 +79,9 @@ const actionEffects = {
     "These orders will be cancelled and any reserved stock released. This cannot be undone.",
 };
 
-export default function Orders(props: FeatureProps) {
+export default function Orders(
+  props: FeatureProps & { definition: ModuleDefinition },
+) {
   const {
     client,
     scope,
@@ -79,7 +92,9 @@ export default function Orders(props: FeatureProps) {
     offlineEnabled,
     onError,
   } = props;
-  const api = client.module(moduleDefinition, scope.workspaceId);
+  // The host verifies the installed package; this view consumes its stable command contract.
+  const apiFor = (version = props.definition.version) =>
+    client.module({ ...moduleDefinition, version }, scope.workspaceId);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const status = searchParams.get("status") ?? "all";
@@ -100,6 +115,9 @@ export default function Orders(props: FeatureProps) {
   const [search, setSearch] = useState(""),
     [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursors.at(-1);
+  useEffect(() => {
+    setCursors([undefined]);
+  }, [props.definition.version]);
   const [selected, setSelected] = useState<Order | null>(null),
     [editor, setEditor] = useState<LocalDraft | null>(null),
     [drafts, setDrafts] = useState<LocalDraft[]>([]),
@@ -256,6 +274,7 @@ export default function Orders(props: FeatureProps) {
     setConflictVersion(null);
     setEditor({
       id: crypto.randomUUID(),
+      moduleVersion: props.definition.version,
       uploadKey: crypto.randomUUID(),
       input: {
         customerName: "",
@@ -279,6 +298,7 @@ export default function Orders(props: FeatureProps) {
       id: crypto.randomUUID(),
       remoteId: order.id,
       baseVersion: order.version,
+      moduleVersion: props.definition.version,
       uploadKey: crypto.randomUUID(),
       input: {
         customerName: order.customerName,
@@ -298,6 +318,7 @@ export default function Orders(props: FeatureProps) {
         ...editor,
         input,
         uploadKey: crypto.randomUUID(),
+        moduleVersion: props.definition.version,
         updatedAt: Date.now(),
         state: "local",
       });
@@ -326,7 +347,12 @@ export default function Orders(props: FeatureProps) {
     if (!editor) return;
     setBusy(true);
     setError(undefined);
-    const attempt = { ...editor, state: "uploading" as const };
+    const attempt = {
+      ...editor,
+      moduleVersion: editor.moduleVersion ?? "1.1.0",
+      state: "uploading" as const,
+    };
+    const api = apiFor(attempt.moduleVersion);
     setEditor(attempt);
     try {
       if (offlineEnabled) await updateDraft(attempt);
@@ -354,11 +380,13 @@ export default function Orders(props: FeatureProps) {
       if (e instanceof ApiError) {
         const next = {
           ...attempt,
-          state: e.status === 412 ? ("conflict" as const) : ("local" as const),
+          state: isOrderConflict(e)
+            ? ("conflict" as const)
+            : ("local" as const),
         };
         setEditor(next);
         if (offlineEnabled) await updateDraft(next).catch(setError);
-        if (e.status === 412 && editor.remoteId) {
+        if (isOrderConflict(e) && editor.remoteId) {
           const latest = await client.request({
             operation: "orderGet",
             params: { ...params, id: editor.remoteId },
@@ -379,6 +407,7 @@ export default function Orders(props: FeatureProps) {
     if (existing && existing.operation !== operation)
       throw Error("Resolve the pending operation before starting another.");
     const attempt = existing ?? {
+      moduleVersion: props.definition.version,
       operation,
       orderId: order.id,
       version: order.version,
@@ -393,7 +422,7 @@ export default function Orders(props: FeatureProps) {
         orderFulfill: "fulfill",
         orderCancel: "cancel",
       } as const;
-      const result = await api.call(
+      const result = await apiFor(attempt.moduleVersion ?? "1.1.0").call(
         action[operation],
         { id: order.id, version: attempt.version },
         attempt.key,
@@ -1459,6 +1488,7 @@ export default function Orders(props: FeatureProps) {
                         setEditor({
                           ...editor,
                           baseVersion: conflictVersion.version,
+                          moduleVersion: props.definition.version,
                           state: "local",
                           uploadKey: crypto.randomUUID(),
                         });

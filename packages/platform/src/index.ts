@@ -29,6 +29,8 @@ export interface Snapshot {
   cachedAt: number;
 }
 export interface LocalDraft {
+  /** Exact release used by a submitted attempt; absent for a new, unsubmitted draft. */
+  moduleVersion?: string;
   id: string;
   input: DraftInput;
   remoteId?: string;
@@ -38,6 +40,8 @@ export interface LocalDraft {
   state: "local" | "conflict" | "uploading";
 }
 export interface PendingCommand {
+  /** Older saved commands used the bundled Orders 1.1 contract. */
+  moduleVersion?: string;
   operation: "orderConfirm" | "orderFulfill" | "orderCancel";
   orderId: string;
   version: number;

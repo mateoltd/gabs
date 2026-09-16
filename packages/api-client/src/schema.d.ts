@@ -1081,15 +1081,14 @@ export interface operations {
                                 version: number;
                                 totalMinor: number;
                                 createdAt: string;
-                                lines?: ({
+                                lines?: {
                                     /** Format: uuid */
                                     productId: string;
                                     quantity: number;
                                     priceMinor: number;
-                                } & {
                                     sku: string;
                                     name: string;
-                                })[];
+                                }[];
                                 activity?: {
                                     action: string;
                                     createdAt: string;
@@ -1104,15 +1103,14 @@ export interface operations {
                                 version: number;
                                 totalMinor: number;
                                 createdAt: string;
-                                lines?: ({
+                                lines?: {
                                     /** Format: uuid */
                                     productId: string;
                                     quantity: number;
                                     priceMinor: number;
-                                } & {
                                     sku: string;
                                     name: string;
-                                })[];
+                                }[];
                                 activity?: {
                                     action: string;
                                     createdAt: string;
@@ -1939,15 +1937,14 @@ export interface operations {
                             version: number;
                             totalMinor: number;
                             createdAt: string;
-                            lines?: ({
+                            lines?: {
                                 /** Format: uuid */
                                 productId: string;
                                 quantity: number;
                                 priceMinor: number;
-                            } & {
                                 sku: string;
                                 name: string;
-                            })[];
+                            }[];
                             activity?: {
                                 action: string;
                                 createdAt: string;
@@ -2089,15 +2086,14 @@ export interface operations {
                         version: number;
                         totalMinor: number;
                         createdAt: string;
-                        lines?: ({
+                        lines?: {
                             /** Format: uuid */
                             productId: string;
                             quantity: number;
                             priceMinor: number;
-                        } & {
                             sku: string;
                             name: string;
-                        })[];
+                        }[];
                         activity?: {
                             action: string;
                             createdAt: string;
@@ -2226,15 +2222,14 @@ export interface operations {
                         version: number;
                         totalMinor: number;
                         createdAt: string;
-                        lines?: ({
+                        lines?: {
                             /** Format: uuid */
                             productId: string;
                             quantity: number;
                             priceMinor: number;
-                        } & {
                             sku: string;
                             name: string;
-                        })[];
+                        }[];
                         activity?: {
                             action: string;
                             createdAt: string;
@@ -2374,15 +2369,14 @@ export interface operations {
                         version: number;
                         totalMinor: number;
                         createdAt: string;
-                        lines?: ({
+                        lines?: {
                             /** Format: uuid */
                             productId: string;
                             quantity: number;
                             priceMinor: number;
-                        } & {
                             sku: string;
                             name: string;
-                        })[];
+                        }[];
                         activity?: {
                             action: string;
                             createdAt: string;
@@ -2515,15 +2509,14 @@ export interface operations {
                         version: number;
                         totalMinor: number;
                         createdAt: string;
-                        lines?: ({
+                        lines?: {
                             /** Format: uuid */
                             productId: string;
                             quantity: number;
                             priceMinor: number;
-                        } & {
                             sku: string;
                             name: string;
-                        })[];
+                        }[];
                         activity?: {
                             action: string;
                             createdAt: string;
@@ -2656,15 +2649,14 @@ export interface operations {
                         version: number;
                         totalMinor: number;
                         createdAt: string;
-                        lines?: ({
+                        lines?: {
                             /** Format: uuid */
                             productId: string;
                             quantity: number;
                             priceMinor: number;
-                        } & {
                             sku: string;
                             name: string;
-                        })[];
+                        }[];
                         activity?: {
                             action: string;
                             createdAt: string;
@@ -2797,15 +2789,14 @@ export interface operations {
                         version: number;
                         totalMinor: number;
                         createdAt: string;
-                        lines?: ({
+                        lines?: {
                             /** Format: uuid */
                             productId: string;
                             quantity: number;
                             priceMinor: number;
-                        } & {
                             sku: string;
                             name: string;
-                        })[];
+                        }[];
                         activity?: {
                             action: string;
                             createdAt: string;

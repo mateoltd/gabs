@@ -1147,7 +1147,14 @@ function Workspace({
                     path="/orders"
                     element={
                       <ModuleGate {...routeFeatures} moduleId="orders">
-                        <Orders {...routeFeatures} />
+                        {({ pkg }) => (
+                          <Orders
+                            {...routeFeatures}
+                            definition={hydrateModule(
+                              pkg.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+                            )}
+                          />
+                        )}
                       </ModuleGate>
                     }
                   />
@@ -1155,7 +1162,14 @@ function Workspace({
                     path="/inventory"
                     element={
                       <ModuleGate {...routeFeatures} moduleId="inventory">
-                        <Inventory {...routeFeatures} />
+                        {({ pkg }) => (
+                          <Inventory
+                            {...routeFeatures}
+                            definition={hydrateModule(
+                              pkg.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+                            )}
+                          />
+                        )}
                       </ModuleGate>
                     }
                   />

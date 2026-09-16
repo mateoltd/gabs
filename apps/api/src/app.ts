@@ -1,3 +1,4 @@
+import { businessQuery } from "./business-queries";
 import { registerWorkspacePolicy } from "./workspace-policy";
 import ordersDefinition from "../../../modules/orders/module";
 import { moduleServers } from "@suite/module-catalog/server";
@@ -230,9 +231,11 @@ export async function createApp(
       message =
         "The operation could not be completed. Try again using the same request.";
     if (e instanceof ModuleBusinessError) {
+      const detail = e.detail as { message?: unknown } | null;
       reply.status(422).send({
         code: e.code,
-        message: e.message,
+        message:
+          typeof detail?.message === "string" ? detail.message : e.message,
         requestId: req.id,
         detail: {
           moduleId: e.moduleId,
@@ -547,6 +550,7 @@ export async function createApp(
       // Export metadata is host-owned; its worker selects and validates the current business backend.
       hostStorageBridge?: boolean;
       query?: boolean;
+      businessRead?: boolean;
       handler: (
         tx: Tx,
         ctx: Context,
@@ -563,7 +567,16 @@ export async function createApp(
         operationId: operation,
         params: Params,
         ...(options.body ? { body: options.body } : {}),
-        ...(options.query ? { querystring: S.PageQuery } : {}),
+        ...(options.query
+          ? {
+              querystring: options.businessRead
+                ? T.Object({
+                    ...S.PageQuery.properties,
+                    cursor: T.Optional(T.String({ maxLength: 24576 })),
+                  })
+                : S.PageQuery,
+            }
+          : {}),
         response: {
           200: options.response,
           400: S.ErrorSchema,
@@ -578,57 +591,63 @@ export async function createApp(
       },
       handler: async (request, reply) => {
         const req = request as Request<S.Static<B>>;
-        return inWorkspace(db, req.params.workspaceId, async (tx) => {
-          if (operation === "bootstrap")
-            await tx
-              .selectFrom("suite.workspace_policy")
-              .select("revision")
-              .where("workspace_id", "=", req.params.workspaceId)
-              .forShare()
-              .executeTakeFirst();
-          const ctx = await authorize(
-            tx,
-            request.actor,
-            req.params.workspaceId,
-            request.id,
-            typeof options.permission === "function"
-              ? options.permission(req)
-              : options.permission,
-            options.module,
-          );
-          const execute = async () => {
-            if (
-              options.hostStorageBridge !== false &&
-              (options.module === "orders" || options.module === "inventory")
-            )
-              await assertHostModuleRollout(
-                tx,
-                ctx.workspaceId,
-                options.module === "orders"
-                  ? ordersDefinition
-                  : inventoryDefinition,
-                moduleServers,
-              );
-            return options.handler(tx, ctx, req, reply);
-          };
-          if (
-            op.method === "POST" ||
-            (op.method === "PUT" && req.headers["idempotency-key"])
-          )
-            return idempotent(
+        if (options.businessRead) reply.header("cache-control", "no-store");
+        return inWorkspace(
+          db,
+          req.params.workspaceId,
+          async (tx) => {
+            if (operation === "bootstrap")
+              await tx
+                .selectFrom("suite.workspace_policy")
+                .select("revision")
+                .where("workspace_id", "=", req.params.workspaceId)
+                .forShare()
+                .executeTakeFirst();
+            const ctx = await authorize(
               tx,
-              ctx,
-              req.headers["idempotency-key"] as string | undefined,
-              operation,
-              {
-                params: req.params,
-                body: req.body,
-                version: req.headers["if-match"],
-              },
-              execute,
+              request.actor,
+              req.params.workspaceId,
+              request.id,
+              typeof options.permission === "function"
+                ? options.permission(req)
+                : options.permission,
+              options.module,
             );
-          return execute();
-        });
+            const execute = async () => {
+              if (
+                options.hostStorageBridge !== false &&
+                (options.module === "orders" || options.module === "inventory")
+              )
+                await assertHostModuleRollout(
+                  tx,
+                  ctx.workspaceId,
+                  options.module === "orders"
+                    ? ordersDefinition
+                    : inventoryDefinition,
+                  moduleServers,
+                );
+              return options.handler(tx, ctx, req, reply);
+            };
+            if (
+              op.method === "POST" ||
+              (op.method === "PUT" && req.headers["idempotency-key"])
+            )
+              return idempotent(
+                tx,
+                ctx,
+                req.headers["idempotency-key"] as string | undefined,
+                operation,
+                {
+                  params: req.params,
+                  body: req.body,
+                  version: req.headers["if-match"],
+                },
+                execute,
+              );
+            return execute();
+          },
+          { readOnly: options.businessRead },
+        );
       },
     });
   }
@@ -637,6 +656,7 @@ export async function createApp(
     handler: (tx, ctx) => bootstrap(tx, ctx),
   });
   route("overview", {
+    businessRead: true,
     response: S.OverviewSchema,
     handler: async (tx, ctx) => {
       const visible = async (module: S.ModuleId, permissions: string[]) => {
@@ -655,19 +675,28 @@ export async function createApp(
       };
       return {
         orders: (await visible("orders", ["orders.read"]))
-          ? await ordersOverview(tx, ctx.workspaceId)
+          ? await businessQuery(tx, ctx, "orders", "overview", {}, () =>
+              ordersOverview(tx, ctx.workspaceId),
+            )
           : null,
         inventory: (await visible("inventory", [
           "inventory.read",
           "inventory.availability.read",
         ]))
-          ? await inventoryOverview(tx, ctx.workspaceId)
+          ? await businessQuery(tx, ctx, "inventory", "overview", {}, () =>
+              inventoryOverview(tx, ctx.workspaceId),
+            )
           : null,
       };
     },
   });
   route("products", {
-    response: S.page(S.ProductSchema),
+    businessRead: true,
+    hostStorageBridge: false,
+    response: T.Object({
+      items: T.Array(S.ProductSchema),
+      nextCursor: T.Union([T.String(), T.Null()]),
+    }),
     module: "inventory",
     query: true,
     handler: async (tx, ctx, req) => {
@@ -678,7 +707,16 @@ export async function createApp(
         "FORBIDDEN",
         "Your role does not allow viewing inventory.",
       );
-      return listProducts(tx, ctx, req.query);
+      return businessQuery(
+        tx,
+        ctx,
+        "inventory",
+        "products",
+        req.query,
+        async () => {
+          return listProducts(tx, ctx, req.query);
+        },
+      );
     },
   });
   const ProductInput = inventoryDefinition.operations["create-product"].input;
@@ -716,60 +754,79 @@ export async function createApp(
     handler: (tx, ctx, req) => changeStock(tx, ctx, req.params.id, req.body),
   });
   route("movements", {
-    response: S.page(S.MovementSchema),
+    businessRead: true,
+    hostStorageBridge: false,
+    response: T.Object({
+      items: T.Array(S.MovementSchema),
+      nextCursor: T.Union([T.String(), T.Null()]),
+    }),
     permission: "inventory.read",
     module: "inventory",
     query: true,
-    handler: async (tx, ctx, req) => {
-      let q = tx
-        .selectFrom("suite.stock_movements as m")
-        .innerJoin("suite.products as p", (j) =>
-          j
-            .onRef("m.product_id", "=", "p.id")
-            .onRef("m.workspace_id", "=", "p.workspace_id"),
-        )
-        .select([
-          "m.id",
-          "m.product_id",
-          "p.sku",
-          "m.kind",
-          "m.on_hand_delta",
-          "m.reserved_delta",
-          "m.reason",
-          "m.created_at",
-        ])
-        .where("m.workspace_id", "=", ctx.workspaceId)
-        .orderBy("m.id");
-      if (req.query.cursor) q = q.where("m.id", ">", req.query.cursor);
-      const limit = req.query.limit ?? 50;
-      const rows = await q.limit(limit + 1).execute();
-      return {
-        items: rows.slice(0, limit).map((m) => ({
-          id: m.id,
-          productId: m.product_id,
-          sku: m.sku,
-          kind: m.kind,
-          onHandDelta: m.on_hand_delta,
-          reservedDelta: m.reserved_delta,
-          reason: m.reason,
-          createdAt: iso(m.created_at),
-        })),
-        nextCursor: rows.length > limit ? rows[limit - 1].id : null,
-      };
-    },
+    handler: async (tx, ctx, req) =>
+      businessQuery(tx, ctx, "inventory", "movements", req.query, async () => {
+        let q = tx
+          .selectFrom("suite.stock_movements as m")
+          .innerJoin("suite.products as p", (j) =>
+            j
+              .onRef("m.product_id", "=", "p.id")
+              .onRef("m.workspace_id", "=", "p.workspace_id"),
+          )
+          .select([
+            "m.id",
+            "m.product_id",
+            "p.sku",
+            "m.kind",
+            "m.on_hand_delta",
+            "m.reserved_delta",
+            "m.reason",
+            "m.created_at",
+          ])
+          .where("m.workspace_id", "=", ctx.workspaceId)
+          .orderBy("m.id");
+        if (req.query.cursor) q = q.where("m.id", ">", req.query.cursor);
+        const limit = req.query.limit ?? 50;
+        const rows = await q.limit(limit + 1).execute();
+        return {
+          items: rows.slice(0, limit).map((m) => ({
+            id: m.id,
+            productId: m.product_id,
+            sku: m.sku,
+            kind: m.kind,
+            onHandDelta: m.on_hand_delta,
+            reservedDelta: m.reserved_delta,
+            reason: m.reason,
+            createdAt: iso(m.created_at),
+          })),
+          nextCursor: rows.length > limit ? rows[limit - 1].id : null,
+        };
+      }),
   });
   route("orders", {
-    response: S.page(S.OrderSchema),
+    businessRead: true,
+    hostStorageBridge: false,
+    response: T.Object({
+      items: T.Array(S.OrderSchema),
+      nextCursor: T.Union([T.String(), T.Null()]),
+    }),
     permission: "orders.read",
     module: "orders",
     query: true,
-    handler: (tx, ctx, req) => listOrders(tx, ctx.workspaceId, req.query),
+    handler: (tx, ctx, req) =>
+      businessQuery(tx, ctx, "orders", "list", req.query, async () => {
+        return listOrders(tx, ctx.workspaceId, req.query);
+      }),
   });
   route("orderGet", {
+    businessRead: true,
+    hostStorageBridge: false,
     response: S.OrderSchema,
     permission: "orders.read",
     module: "orders",
-    handler: (tx, ctx, req) => getOrder(tx, ctx.workspaceId, req.params.id),
+    handler: (tx, ctx, req) =>
+      businessQuery(tx, ctx, "orders", "get", { id: req.params.id }, () =>
+        getOrder(tx, ctx.workspaceId, req.params.id),
+      ),
   });
   route("orderCreate", {
     body: S.DraftInput,

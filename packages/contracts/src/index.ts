@@ -154,10 +154,14 @@ export const OrderLineInput = Type.Object(
 );
 export const DraftInput = ordersDefinition.operations.draft.input;
 export type DraftInput = Static<typeof DraftInput>;
-export const OrderLineSchema = Type.Intersect([
-  OrderLineInput,
-  Type.Object({ sku: Type.String(), name: Type.String() }),
-]);
+export const OrderLineSchema = Type.Object(
+  {
+    ...OrderLineInput.properties,
+    sku: Type.String(),
+    name: Type.String(),
+  },
+  { additionalProperties: false },
+);
 export const OrderSchema = Type.Object({
   id: Id,
   number: Type.Integer(),

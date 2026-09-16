@@ -249,3 +249,7 @@ The [Orders candidate and typed service contracts](orders-sdk/README.md) add pri
 ## 16 September 2026: SDK-01 business exports and worker delivery
 
 [Snapshot export evidence](business-exports/README.md): 130 tests, four builds, final 42 affected tests, one headless browser creation/download journey and a six-second logical restore. SDK exports include all pages from one authorized snapshot; concurrent edits, formula escaping, retries, scoped notifications, revoked access and worker RLS/write denial are exercised. Business-screen adapters and administrator cutover remain open; no UI acceptance or overall parity claim.
+
+## 16 September 2026: SDK-01 selected-contract business screens
+
+[Business-screen evidence](business-screens/README.md): selected SDK reads and version-bound commands preserve current UI behavior after migration. Covered migrated stock, counts, product edits, fulfillment, conflict review, offline reload and exact-key/version recovery after a lost accepted response. 130 tests, four builds, three browser journeys and three hidden Electron checks passed, with a further expanded migrated journey and inspected wide/narrow/native captures. Administrator cutover and default scoped releases remain open.

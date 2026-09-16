@@ -52,3 +52,9 @@ The subsequent rollout commit `dbb13cd` / [run 35091584839](https://github.com/m
 [Run 35119858250](https://github.com/mateoltd/gabs/actions/runs/35119858250) (`891fd14`) passed functional/build checks, all browser journeys, three unsigned packaging jobs and logical restore. Read/confirmation p95 was 653/675 ms on AMD EPYC 7763 against unchanged 500/1000 ms limits. OPS-07 remains open for read latency. This run predates the read-only operation dispatcher in `eaf5308`; it does not verify that later checkpoint.
 
 [Run 35121357831](https://github.com/mateoltd/gabs/actions/runs/35121357831) (`eaf5308`) passed functional/build, all browser journeys, three unsigned packaging jobs, logical restore and load at 471/528 ms read/confirmation p95 on Intel Xeon Platinum 8573C. Earlier failed measurements remain recorded. This verifies the read-only dispatcher checkpoint, not the subsequent legacy-conversion changes; OPS-07 remains open for current-candidate/deployed acceptance and runner variation.
+
+### Subsequent migration and export checkpoints
+
+- `35124732655` / `33ca122`: read p95 **691 ms**, confirmation **721 ms**. AMD EPYC 7763, two cores. Functional/build, browser, three unsigned desktop packages and restore passed; load failed the unchanged 500 ms read target. Log: `/tmp/gabs-ci-35124732655-failed.log`.
+- `35125719424` / `a906842`: read p95 **644 ms**, confirmation **800 ms** on the same reported CPU class. The same functional/browser/package/restore steps passed; read acceptance failed again. Log: `/tmp/gabs-ci-35125719424-failed.log`.
+- Confirmation target remains 1000 ms. These results predate the business-screen adapter checkpoint and do not supersede earlier failures or establish stable performance. OPS-07 remains open.

@@ -1002,49 +1002,37 @@
                                   "lines": {
                                     "type": "array",
                                     "items": {
+                                      "additionalProperties": false,
                                       "type": "object",
-                                      "allOf": [
-                                        {
-                                          "additionalProperties": false,
-                                          "type": "object",
-                                          "required": [
-                                            "productId",
-                                            "quantity",
-                                            "priceMinor"
-                                          ],
-                                          "properties": {
-                                            "productId": {
-                                              "format": "uuid",
-                                              "type": "string"
-                                            },
-                                            "quantity": {
-                                              "minimum": 1,
-                                              "maximum": 1000000,
-                                              "type": "integer"
-                                            },
-                                            "priceMinor": {
-                                              "minimum": 0,
-                                              "maximum": 100000000,
-                                              "type": "integer"
-                                            }
-                                          }
+                                      "required": [
+                                        "productId",
+                                        "quantity",
+                                        "priceMinor",
+                                        "sku",
+                                        "name"
+                                      ],
+                                      "properties": {
+                                        "productId": {
+                                          "format": "uuid",
+                                          "type": "string"
                                         },
-                                        {
-                                          "type": "object",
-                                          "required": [
-                                            "sku",
-                                            "name"
-                                          ],
-                                          "properties": {
-                                            "sku": {
-                                              "type": "string"
-                                            },
-                                            "name": {
-                                              "type": "string"
-                                            }
-                                          }
+                                        "quantity": {
+                                          "minimum": 1,
+                                          "maximum": 1000000,
+                                          "type": "integer"
+                                        },
+                                        "priceMinor": {
+                                          "minimum": 0,
+                                          "maximum": 100000000,
+                                          "type": "integer"
+                                        },
+                                        "sku": {
+                                          "type": "string"
+                                        },
+                                        "name": {
+                                          "type": "string"
                                         }
-                                      ]
+                                      }
                                     }
                                   },
                                   "activity": {
@@ -1132,49 +1120,37 @@
                                   "lines": {
                                     "type": "array",
                                     "items": {
+                                      "additionalProperties": false,
                                       "type": "object",
-                                      "allOf": [
-                                        {
-                                          "additionalProperties": false,
-                                          "type": "object",
-                                          "required": [
-                                            "productId",
-                                            "quantity",
-                                            "priceMinor"
-                                          ],
-                                          "properties": {
-                                            "productId": {
-                                              "format": "uuid",
-                                              "type": "string"
-                                            },
-                                            "quantity": {
-                                              "minimum": 1,
-                                              "maximum": 1000000,
-                                              "type": "integer"
-                                            },
-                                            "priceMinor": {
-                                              "minimum": 0,
-                                              "maximum": 100000000,
-                                              "type": "integer"
-                                            }
-                                          }
+                                      "required": [
+                                        "productId",
+                                        "quantity",
+                                        "priceMinor",
+                                        "sku",
+                                        "name"
+                                      ],
+                                      "properties": {
+                                        "productId": {
+                                          "format": "uuid",
+                                          "type": "string"
                                         },
-                                        {
-                                          "type": "object",
-                                          "required": [
-                                            "sku",
-                                            "name"
-                                          ],
-                                          "properties": {
-                                            "sku": {
-                                              "type": "string"
-                                            },
-                                            "name": {
-                                              "type": "string"
-                                            }
-                                          }
+                                        "quantity": {
+                                          "minimum": 1,
+                                          "maximum": 1000000,
+                                          "type": "integer"
+                                        },
+                                        "priceMinor": {
+                                          "minimum": 0,
+                                          "maximum": 100000000,
+                                          "type": "integer"
+                                        },
+                                        "sku": {
+                                          "type": "string"
+                                        },
+                                        "name": {
+                                          "type": "string"
                                         }
-                                      ]
+                                      }
                                     }
                                   },
                                   "activity": {
@@ -1496,7 +1472,7 @@
           },
           {
             "schema": {
-              "format": "uuid",
+              "maxLength": 24576,
               "type": "string"
             },
             "in": "query",
@@ -1625,7 +1601,6 @@
                     "nextCursor": {
                       "anyOf": [
                         {
-                          "format": "uuid",
                           "type": "string"
                         },
                         {
@@ -2831,7 +2806,7 @@
           },
           {
             "schema": {
-              "format": "uuid",
+              "maxLength": 24576,
               "type": "string"
             },
             "in": "query",
@@ -2952,7 +2927,6 @@
                     "nextCursor": {
                       "anyOf": [
                         {
-                          "format": "uuid",
                           "type": "string"
                         },
                         {
@@ -3200,7 +3174,7 @@
           },
           {
             "schema": {
-              "format": "uuid",
+              "maxLength": 24576,
               "type": "string"
             },
             "in": "query",
@@ -3338,49 +3312,37 @@
                           "lines": {
                             "type": "array",
                             "items": {
+                              "additionalProperties": false,
                               "type": "object",
-                              "allOf": [
-                                {
-                                  "additionalProperties": false,
-                                  "type": "object",
-                                  "required": [
-                                    "productId",
-                                    "quantity",
-                                    "priceMinor"
-                                  ],
-                                  "properties": {
-                                    "productId": {
-                                      "format": "uuid",
-                                      "type": "string"
-                                    },
-                                    "quantity": {
-                                      "minimum": 1,
-                                      "maximum": 1000000,
-                                      "type": "integer"
-                                    },
-                                    "priceMinor": {
-                                      "minimum": 0,
-                                      "maximum": 100000000,
-                                      "type": "integer"
-                                    }
-                                  }
+                              "required": [
+                                "productId",
+                                "quantity",
+                                "priceMinor",
+                                "sku",
+                                "name"
+                              ],
+                              "properties": {
+                                "productId": {
+                                  "format": "uuid",
+                                  "type": "string"
                                 },
-                                {
-                                  "type": "object",
-                                  "required": [
-                                    "sku",
-                                    "name"
-                                  ],
-                                  "properties": {
-                                    "sku": {
-                                      "type": "string"
-                                    },
-                                    "name": {
-                                      "type": "string"
-                                    }
-                                  }
+                                "quantity": {
+                                  "minimum": 1,
+                                  "maximum": 1000000,
+                                  "type": "integer"
+                                },
+                                "priceMinor": {
+                                  "minimum": 0,
+                                  "maximum": 100000000,
+                                  "type": "integer"
+                                },
+                                "sku": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
                                 }
-                              ]
+                              }
                             }
                           },
                           "activity": {
@@ -3407,7 +3369,6 @@
                     "nextCursor": {
                       "anyOf": [
                         {
-                          "format": "uuid",
                           "type": "string"
                         },
                         {
@@ -3761,49 +3722,37 @@
                     "lines": {
                       "type": "array",
                       "items": {
+                        "additionalProperties": false,
                         "type": "object",
-                        "allOf": [
-                          {
-                            "additionalProperties": false,
-                            "type": "object",
-                            "required": [
-                              "productId",
-                              "quantity",
-                              "priceMinor"
-                            ],
-                            "properties": {
-                              "productId": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "minimum": 1,
-                                "maximum": 1000000,
-                                "type": "integer"
-                              },
-                              "priceMinor": {
-                                "minimum": 0,
-                                "maximum": 100000000,
-                                "type": "integer"
-                              }
-                            }
+                        "required": [
+                          "productId",
+                          "quantity",
+                          "priceMinor",
+                          "sku",
+                          "name"
+                        ],
+                        "properties": {
+                          "productId": {
+                            "format": "uuid",
+                            "type": "string"
                           },
-                          {
-                            "type": "object",
-                            "required": [
-                              "sku",
-                              "name"
-                            ],
-                            "properties": {
-                              "sku": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              }
-                            }
+                          "quantity": {
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "type": "integer"
+                          },
+                          "priceMinor": {
+                            "minimum": 0,
+                            "maximum": 100000000,
+                            "type": "integer"
+                          },
+                          "sku": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
                           }
-                        ]
+                        }
                       }
                     },
                     "activity": {
@@ -4121,49 +4070,37 @@
                     "lines": {
                       "type": "array",
                       "items": {
+                        "additionalProperties": false,
                         "type": "object",
-                        "allOf": [
-                          {
-                            "additionalProperties": false,
-                            "type": "object",
-                            "required": [
-                              "productId",
-                              "quantity",
-                              "priceMinor"
-                            ],
-                            "properties": {
-                              "productId": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "minimum": 1,
-                                "maximum": 1000000,
-                                "type": "integer"
-                              },
-                              "priceMinor": {
-                                "minimum": 0,
-                                "maximum": 100000000,
-                                "type": "integer"
-                              }
-                            }
+                        "required": [
+                          "productId",
+                          "quantity",
+                          "priceMinor",
+                          "sku",
+                          "name"
+                        ],
+                        "properties": {
+                          "productId": {
+                            "format": "uuid",
+                            "type": "string"
                           },
-                          {
-                            "type": "object",
-                            "required": [
-                              "sku",
-                              "name"
-                            ],
-                            "properties": {
-                              "sku": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              }
-                            }
+                          "quantity": {
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "type": "integer"
+                          },
+                          "priceMinor": {
+                            "minimum": 0,
+                            "maximum": 100000000,
+                            "type": "integer"
+                          },
+                          "sku": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
                           }
-                        ]
+                        }
                       }
                     },
                     "activity": {
@@ -4530,49 +4467,37 @@
                     "lines": {
                       "type": "array",
                       "items": {
+                        "additionalProperties": false,
                         "type": "object",
-                        "allOf": [
-                          {
-                            "additionalProperties": false,
-                            "type": "object",
-                            "required": [
-                              "productId",
-                              "quantity",
-                              "priceMinor"
-                            ],
-                            "properties": {
-                              "productId": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "minimum": 1,
-                                "maximum": 1000000,
-                                "type": "integer"
-                              },
-                              "priceMinor": {
-                                "minimum": 0,
-                                "maximum": 100000000,
-                                "type": "integer"
-                              }
-                            }
+                        "required": [
+                          "productId",
+                          "quantity",
+                          "priceMinor",
+                          "sku",
+                          "name"
+                        ],
+                        "properties": {
+                          "productId": {
+                            "format": "uuid",
+                            "type": "string"
                           },
-                          {
-                            "type": "object",
-                            "required": [
-                              "sku",
-                              "name"
-                            ],
-                            "properties": {
-                              "sku": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              }
-                            }
+                          "quantity": {
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "type": "integer"
+                          },
+                          "priceMinor": {
+                            "minimum": 0,
+                            "maximum": 100000000,
+                            "type": "integer"
+                          },
+                          "sku": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
                           }
-                        ]
+                        }
                       }
                     },
                     "activity": {
@@ -4902,49 +4827,37 @@
                     "lines": {
                       "type": "array",
                       "items": {
+                        "additionalProperties": false,
                         "type": "object",
-                        "allOf": [
-                          {
-                            "additionalProperties": false,
-                            "type": "object",
-                            "required": [
-                              "productId",
-                              "quantity",
-                              "priceMinor"
-                            ],
-                            "properties": {
-                              "productId": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "minimum": 1,
-                                "maximum": 1000000,
-                                "type": "integer"
-                              },
-                              "priceMinor": {
-                                "minimum": 0,
-                                "maximum": 100000000,
-                                "type": "integer"
-                              }
-                            }
+                        "required": [
+                          "productId",
+                          "quantity",
+                          "priceMinor",
+                          "sku",
+                          "name"
+                        ],
+                        "properties": {
+                          "productId": {
+                            "format": "uuid",
+                            "type": "string"
                           },
-                          {
-                            "type": "object",
-                            "required": [
-                              "sku",
-                              "name"
-                            ],
-                            "properties": {
-                              "sku": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              }
-                            }
+                          "quantity": {
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "type": "integer"
+                          },
+                          "priceMinor": {
+                            "minimum": 0,
+                            "maximum": 100000000,
+                            "type": "integer"
+                          },
+                          "sku": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
                           }
-                        ]
+                        }
                       }
                     },
                     "activity": {
@@ -5274,49 +5187,37 @@
                     "lines": {
                       "type": "array",
                       "items": {
+                        "additionalProperties": false,
                         "type": "object",
-                        "allOf": [
-                          {
-                            "additionalProperties": false,
-                            "type": "object",
-                            "required": [
-                              "productId",
-                              "quantity",
-                              "priceMinor"
-                            ],
-                            "properties": {
-                              "productId": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "minimum": 1,
-                                "maximum": 1000000,
-                                "type": "integer"
-                              },
-                              "priceMinor": {
-                                "minimum": 0,
-                                "maximum": 100000000,
-                                "type": "integer"
-                              }
-                            }
+                        "required": [
+                          "productId",
+                          "quantity",
+                          "priceMinor",
+                          "sku",
+                          "name"
+                        ],
+                        "properties": {
+                          "productId": {
+                            "format": "uuid",
+                            "type": "string"
                           },
-                          {
-                            "type": "object",
-                            "required": [
-                              "sku",
-                              "name"
-                            ],
-                            "properties": {
-                              "sku": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              }
-                            }
+                          "quantity": {
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "type": "integer"
+                          },
+                          "priceMinor": {
+                            "minimum": 0,
+                            "maximum": 100000000,
+                            "type": "integer"
+                          },
+                          "sku": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
                           }
-                        ]
+                        }
                       }
                     },
                     "activity": {
@@ -5646,49 +5547,37 @@
                     "lines": {
                       "type": "array",
                       "items": {
+                        "additionalProperties": false,
                         "type": "object",
-                        "allOf": [
-                          {
-                            "additionalProperties": false,
-                            "type": "object",
-                            "required": [
-                              "productId",
-                              "quantity",
-                              "priceMinor"
-                            ],
-                            "properties": {
-                              "productId": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "minimum": 1,
-                                "maximum": 1000000,
-                                "type": "integer"
-                              },
-                              "priceMinor": {
-                                "minimum": 0,
-                                "maximum": 100000000,
-                                "type": "integer"
-                              }
-                            }
+                        "required": [
+                          "productId",
+                          "quantity",
+                          "priceMinor",
+                          "sku",
+                          "name"
+                        ],
+                        "properties": {
+                          "productId": {
+                            "format": "uuid",
+                            "type": "string"
                           },
-                          {
-                            "type": "object",
-                            "required": [
-                              "sku",
-                              "name"
-                            ],
-                            "properties": {
-                              "sku": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              }
-                            }
+                          "quantity": {
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "type": "integer"
+                          },
+                          "priceMinor": {
+                            "minimum": 0,
+                            "maximum": 100000000,
+                            "type": "integer"
+                          },
+                          "sku": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
                           }
-                        ]
+                        }
                       }
                     },
                     "activity": {

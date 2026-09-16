@@ -1,4 +1,5 @@
-import { moduleDefinition as installedDefinition } from "@suite/module-catalog";
+import type { ModuleDefinition } from "@suite/module-sdk";
+import scopedDefinition from "../releases/2.0.0/module";
 import moduleDefinition from "../module";
 import { useToast } from "@suite/ui-web";
 import {
@@ -55,8 +56,8 @@ export default function Inventory({
   online,
   snapshot,
   onError,
-}: FeatureProps) {
-  const api = client.module(moduleDefinition, scope.workspaceId);
+  definition,
+}: FeatureProps & { definition: ModuleDefinition }) {
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const lowStock = searchParams.get("stock") === "low";
@@ -67,7 +68,7 @@ export default function Inventory({
   useEffect(() => {
     setSearch(urlSearch);
     setCursors([undefined]);
-  }, [urlSearch]);
+  }, [urlSearch, definition.version]);
   const [editor, setEditor] = useState<Product | "new" | null>(null),
     [stock, setStock] = useState<Product | null>(null),
     [error, setError] = useState<unknown>(),
@@ -79,7 +80,23 @@ export default function Inventory({
     [kind, setKind] = useState<"receipt" | "adjustment" | "count">("receipt"),
     [quantity, setQuantity] = useState(""),
     [reason, setReason] = useState("");
-  const [attempt, setAttempt] = useState<string>();
+  const [attempt, setAttempt] = useState<{
+    key: string;
+    definition: ModuleDefinition;
+  }>();
+  const apiFor = (definition: ModuleDefinition) => ({
+    api: client.module(
+      { ...moduleDefinition, version: definition.version },
+      scope.workspaceId,
+    ),
+    scoped:
+      (definition.storage?.version ?? 1) >= 2
+        ? client.module(
+            { ...scopedDefinition, version: definition.version },
+            scope.workspaceId,
+          )
+        : undefined,
+  });
   const qc = useQueryClient();
   const cursor = cursors.at(-1);
   const allowed =
@@ -163,14 +180,29 @@ export default function Inventory({
     event.preventDefault();
     setBusy(true);
     setError(undefined);
-    const key = attempt ?? crypto.randomUUID();
-    setAttempt(key);
+    const current = attempt ?? { key: crypto.randomUUID(), definition };
+    const { key } = current;
+    const { api, scoped } = apiFor(current.definition);
+    setAttempt(current);
     try {
       const priceMinor = Math.round(Number(price) * 100);
       if (!Number.isFinite(priceMinor) || priceMinor < 0)
         throw Error("Enter a valid price.");
       if (editor === "new")
         await api.call("create-product", { sku, name, priceMinor }, key);
+      else if (editor && scoped)
+        await scoped.call(
+          "edit-product",
+          {
+            id: editor.id,
+            version: editor.version,
+            sku,
+            name,
+            priceMinor,
+            active,
+          },
+          key,
+        );
       else if (editor)
         await client.request({
           operation: "productEdit",
@@ -193,8 +225,10 @@ export default function Inventory({
     if (!stock) return;
     setBusy(true);
     setError(undefined);
-    const key = attempt ?? crypto.randomUUID();
-    setAttempt(key);
+    const current = attempt ?? { key: crypto.randomUUID(), definition };
+    const { key } = current;
+    const { api, scoped } = apiFor(current.definition);
+    setAttempt(current);
     try {
       if (kind === "count") {
         if (stock.stockVersion === undefined)
@@ -209,7 +243,13 @@ export default function Inventory({
           },
           key,
         );
-      } else
+      } else if (scoped)
+        await scoped.call(
+          kind === "receipt" ? "receipt" : "adjustment",
+          { id: stock.id, quantity: Number(quantity), reason },
+          key,
+        );
+      else
         await api.call(
           "stock",
           { id: stock.id, kind, quantity: Number(quantity), reason },
@@ -637,7 +677,10 @@ export default function Inventory({
             <label className="check-row">
               <Checkbox
                 checked={active}
-                onCheckedChange={(e) => setActive(e)}
+                onCheckedChange={(e) => {
+                  setActive(e);
+                  setAttempt(undefined);
+                }}
               />
               Active product
             </label>
@@ -682,7 +725,7 @@ export default function Inventory({
                   <>
                     <SelectOption value="adjustment">Adjust stock</SelectOption>
                     {stock?.stockVersion !== undefined &&
-                      installedDefinition("inventory")?.operations.count && (
+                      definition.operations.count && (
                         <SelectOption value="count">
                           Record physical count
                         </SelectOption>
