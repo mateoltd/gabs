@@ -2,6 +2,7 @@ import { supportsStorage } from "./storage";
 import { compare, satisfies } from "semver";
 export interface ReleaseManifest {
   storage?: import("./storage").StorageContract;
+  localStorage?: import("./storage").StorageContract;
   id: string;
   version: string;
   publisher: string;

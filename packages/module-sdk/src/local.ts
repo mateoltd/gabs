@@ -1,3 +1,4 @@
+import { localStorageContract } from "./storage";
 import {
   assertSchema,
   createModuleClient,
@@ -84,6 +85,7 @@ export interface LocalContext<
 }
 export interface LocalModule {
   readonly module: ModuleDefinition;
+  migrate?(name: string, context: LocalMigrationContext): Promise<void>;
   execute(
     name: string,
     input: unknown,
@@ -109,12 +111,42 @@ function fail(code: string, message: string): never {
 }
 /** Local handlers have no corporate service, credential, SQL or desktop capabilities. */
 export function defineLocalModule<const M extends ModuleDefinition>(module: M) {
-  return (handlers: {
-    [K in LocalOperation<M>]: (
-      context: LocalContext<M, K>,
-      input: Static<M["operations"][K]["input"]>,
-    ) => Promise<Static<M["operations"][K]["output"]>>;
-  }): LocalModule => {
+  return (
+    handlers: {
+      [K in LocalOperation<M>]: (
+        context: LocalContext<M, K>,
+        input: Static<M["operations"][K]["input"]>,
+      ) => Promise<Static<M["operations"][K]["output"]>>;
+    },
+    ...migrationHandlers: M extends {
+      localStorage: { migrations: infer Steps };
+    }
+      ? [
+          migrations: {
+            [K in keyof Steps]: (
+              context: LocalMigrationContext<M>,
+            ) => Promise<void>;
+          },
+        ]
+      : [
+          migrations?: Record<
+            string,
+            (context: LocalMigrationContext<M>) => Promise<void>
+          >,
+        ]
+  ): LocalModule => {
+    const migrations = (migrationHandlers[0] ?? {}) as Record<
+      string,
+      (context: LocalMigrationContext) => Promise<void>
+    >;
+    const declared = localStorageContract(module).migrations;
+    if (
+      Object.keys(declared).some((name) => !Object.hasOwn(migrations, name)) ||
+      Object.keys(migrations).some((name) => !Object.hasOwn(declared, name))
+    )
+      throw Error(
+        "Local migration handlers must match the declared local storage migrations.",
+      );
     const expected = Object.entries(module.operations)
       .filter(([, op]) => op.policy === "local")
       .map(([name]) => name);
@@ -125,6 +157,12 @@ export function defineLocalModule<const M extends ModuleDefinition>(module: M) {
       throw Error("Local handlers must match the declared local operations.");
     return {
       module,
+      async migrate(name, context) {
+        const step = declared[name];
+        if (!step || step.from !== context.from || step.to !== context.to)
+          throw Error(`Undeclared local migration: ${module.id}.${name}`);
+        await migrations[name](Object.freeze(context));
+      },
       async execute(name, input, capabilities) {
         const op = module.operations[name];
         if (op?.policy !== "local" || !Object.hasOwn(handlers, name))
@@ -177,6 +215,8 @@ export interface LocalRequest {
   snapshot: LocalSnapshot;
 }
 export interface LocalResult {
+  schemaVersion?: number;
+  migrations?: string[];
   result: unknown;
   snapshot: LocalSnapshot;
 }
@@ -381,4 +421,240 @@ export async function executeLocalCall(
       configurable: true,
     });
   return { result, snapshot };
+}
+
+/** Historical fields remain unknown until the migration validates its source data. */
+export interface LocalMigrationContext<
+  M extends ModuleDefinition = ModuleDefinition,
+> {
+  readonly profileId: string;
+  readonly from: number;
+  readonly to: number;
+  readonly configuration: Readonly<Configuration<M>>;
+  resource(name: string): {
+    scan(after?: string): Promise<ResourcePage<Record<string, unknown>>>;
+    create(
+      data: Record<string, unknown>,
+      id?: string,
+    ): Promise<ResourceRecord<Record<string, unknown>>>;
+    archive(id: string, expectedVersion: number): Promise<void>;
+    write(
+      id: string,
+      data: Record<string, unknown>,
+      expectedVersion: number,
+    ): Promise<void>;
+  };
+  renameResource(
+    from: string,
+    to: string extends keyof M["resources"] ? string : LocalResource<M>,
+  ): Promise<void>;
+}
+
+/** A private snapshot is returned only after every forward step and final schema check succeeds. */
+export async function migrateLocalSnapshot(
+  module: ModuleDefinition,
+  request: LocalRequest,
+  fromVersion: number,
+  implementation?: LocalModule,
+): Promise<LocalResult> {
+  if (
+    !request.profileId ||
+    request.call.moduleId !== module.id ||
+    request.call.moduleVersion !== module.version
+  )
+    fail(
+      "LOCAL_CONTRACT_MISMATCH",
+      "The local migration does not match this profile's module.",
+    );
+  if (!Number.isSafeInteger(fromVersion) || fromVersion < 1)
+    fail("INVALID_LOCAL_SCHEMA", "The stored local schema version is invalid.");
+  assertSchema(module.configuration, request.configuration);
+  const contract = localStorageContract(module),
+    snapshot = structuredClone(request.snapshot),
+    migrations: string[] = [];
+  let version = fromVersion;
+  while (version < contract.version) {
+    const step = Object.entries(contract.migrations).find(
+      ([, step]) => step.from === version,
+    );
+    if (
+      !step ||
+      !implementation?.migrate ||
+      canonical(implementation.module) !== canonical(module)
+    )
+      fail(
+        "LOCAL_MIGRATION_MISSING",
+        "This release does not include the complete reviewed local migration path. Your current installation is preserved.",
+      );
+    const [name, transition] = step;
+    let closed = false,
+      failure: unknown;
+    const pending = new Set<Promise<unknown>>();
+    const track = <T>(run: () => T) => {
+      const task = Promise.resolve().then(() => {
+        if (closed)
+          fail(
+            "LOCAL_TRANSACTION_CLOSED",
+            "This local migration has finished.",
+          );
+        return run();
+      });
+      pending.add(task);
+      void task.then(
+        () => pending.delete(task),
+        (error) => {
+          failure ??= error;
+          pending.delete(task);
+        },
+      );
+      return task;
+    };
+    const resource = (name: string) => {
+      if (
+        !Object.hasOwn(snapshot.records, name) &&
+        !module.resources[name]?.standalone
+      )
+        fail(
+          "LOCAL_SCOPE_DENIED",
+          "A local migration can only access this module's standalone resources.",
+        );
+      return snapshot.records[name] ?? (snapshot.records[name] = []);
+    };
+    const context: LocalMigrationContext = {
+      profileId: request.profileId,
+      from: version,
+      to: transition.to,
+      configuration: structuredClone(request.configuration),
+      resource(name) {
+        return {
+          scan(after) {
+            return track(() => {
+              const rows = resource(name)
+                .filter((row) => !after || row.id > after)
+                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+              return structuredClone({
+                items: rows.slice(0, 100),
+                nextCursor: rows.length > 100 ? rows[99].id : null,
+              });
+            });
+          },
+          create(value, id = crypto.randomUUID()) {
+            return track(() => {
+              if (
+                !value ||
+                typeof value !== "object" ||
+                Array.isArray(value) ||
+                typeof id !== "string" ||
+                !id ||
+                id.length > 200
+              )
+                fail(
+                  "INVALID_INPUT",
+                  "Provide migration record data and a valid record identifier.",
+                );
+              const rows = resource(name);
+              if (rows.some((row) => row.id === id))
+                fail(
+                  "VERSION_CONFLICT",
+                  "A migration record with this identifier already exists.",
+                );
+              const row: ResourceRecord = {
+                id,
+                data: structuredClone(value),
+                version: 1,
+                archived: false,
+                updatedAt: new Date().toISOString(),
+              };
+              rows.push(row);
+              return structuredClone(row);
+            });
+          },
+          archive(id, expectedVersion) {
+            return track(() => {
+              const row = resource(name).find((row) => row.id === id);
+              if (!row)
+                fail("NOT_FOUND", "The local migration record was not found.");
+              if (row.version !== expectedVersion)
+                fail(
+                  "VERSION_CONFLICT",
+                  "The local migration record version changed.",
+                );
+              row.archived = true;
+              row.version++;
+              row.updatedAt = new Date().toISOString();
+            });
+          },
+          write(id, value, expectedVersion) {
+            return track(() => {
+              const row = resource(name).find((row) => row.id === id);
+              if (!row)
+                fail("NOT_FOUND", "The local migration record was not found.");
+              if (row.version !== expectedVersion)
+                fail(
+                  "VERSION_CONFLICT",
+                  "The local migration record version changed.",
+                );
+              if (!value || typeof value !== "object" || Array.isArray(value))
+                fail("INVALID_INPUT", "Migration records must be objects.");
+              row.data = structuredClone(value);
+              row.version++;
+              row.updatedAt = new Date().toISOString();
+            });
+          },
+        };
+      },
+      renameResource(from, to) {
+        return track(() => {
+          if (
+            !Object.hasOwn(module.resources, to) ||
+            !module.resources[to].standalone ||
+            from === to
+          )
+            fail(
+              "LOCAL_SCOPE_DENIED",
+              "Choose a declared standalone target resource.",
+            );
+          const rows = resource(from),
+            target = resource(to);
+          if (rows.some((row) => target.some((other) => other.id === row.id)))
+            fail(
+              "VERSION_CONFLICT",
+              "Renamed resources have conflicting record identifiers.",
+            );
+          snapshot.records[to] = [...target, ...rows];
+          delete snapshot.records[from];
+        });
+      },
+    };
+    try {
+      await implementation.migrate(name, context);
+    } finally {
+      while (pending.size) await Promise.allSettled([...pending]);
+      closed = true;
+    }
+    if (failure) throw failure;
+    migrations.push(name);
+    version = transition.to;
+  }
+  if (
+    version < contract.compatible.minimum ||
+    version > contract.compatible.maximum
+  )
+    fail(
+      "LOCAL_SCHEMA_INCOMPATIBLE",
+      "This release cannot use the stored local schema. Install a compatible release; downgrading data is not supported.",
+    );
+  for (const [name, rows] of Object.entries(snapshot.records)) {
+    const resource = module.resources[name];
+    if (
+      rows.length &&
+      (!Object.hasOwn(module.resources, name) || !resource.standalone)
+    )
+      fail(
+        "LOCAL_SCHEMA_INCOMPATIBLE",
+        "This release cannot read an existing standalone resource.",
+      );
+    for (const row of rows) assertSchema(resource.schema, row.data);
+  }
+  return { result: null, snapshot, schemaVersion: version, migrations };
 }

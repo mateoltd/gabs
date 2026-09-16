@@ -249,3 +249,163 @@ test("a reviewed local executable installs, runs offline, upgrades and retains e
   expect(result.invalid).toMatch(/text.*(length|3)/i);
   expect(result.corrupt).toMatch(/checksum/);
 });
+
+test("signed local migrations commit atomically and retain compatible rollback, receipts and recovery", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  const first = await publishLocalPackage();
+  const localStorage = {
+    version: 2,
+    compatible: { minimum: 2, maximum: 2 },
+    migrations: { rename: { from: 1, to: 2 } },
+  };
+  const failed = await publishLocalPackage({
+    id: first.pkg.module_id,
+    version: "2.0.0",
+    field: "body",
+    localStorage,
+    migrationError: true,
+  });
+  const next = await publishLocalPackage({
+    id: first.pkg.module_id,
+    version: "2.1.0",
+    field: "body",
+    localStorage,
+    migrationDelayMs: 1000,
+  });
+  const compatible = await publishLocalPackage({
+    id: first.pkg.module_id,
+    version: "1.1.0",
+    field: "body",
+    localStorage: {
+      version: 1,
+      compatible: { minimum: 1, maximum: 2 },
+      migrations: {},
+    },
+  });
+  await fixture(page);
+  await page.goto("/");
+  await page.context().setOffline(true);
+  const result = await page.evaluate(
+    async ({ first, failed, next, compatible }) => {
+      const path = "/local-profile-proof.mjs";
+      type SDK = typeof import("../../packages/platform/src/local-profiles") &
+        typeof import("@suite/module-sdk");
+      const sdk = (await import(path)) as SDK;
+      const password = "correct horse battery staple";
+      let session = await sdk.createLocalProfile("Schema recovery", password);
+      const profile = session.id;
+      const module = sdk.hydrateModule(
+        first.pkg
+          .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+      );
+      await session.install(first.pkg, first.publicKey);
+      const key = crypto.randomUUID();
+      const client = () =>
+        sdk.createModuleClient(module, (call) => session.execute(module, call));
+      const original = await client().call(
+        "capture",
+        { text: "Retained note" },
+        key,
+      );
+      const before = session.data;
+      let failure = "",
+        cancelled = "",
+        incompatible = "",
+        stale = "";
+      try {
+        await session.install(failed.pkg, failed.publicKey);
+      } catch (e) {
+        failure = (e as Error).message;
+      }
+      const failurePreserved =
+        JSON.stringify(session.data) === JSON.stringify(before);
+      const controller = new AbortController();
+      const pending = session.install(
+        next.pkg,
+        next.publicKey,
+        {},
+        { signal: controller.signal },
+      );
+      setTimeout(() => controller.abort(), 100);
+      try {
+        await pending;
+      } catch (e) {
+        cancelled = (e as { code: string }).code;
+      }
+      const cancellationPreserved =
+        JSON.stringify(session.data) === JSON.stringify(before);
+      // A concurrent session commits while the worker computes a migration snapshot.
+      const competitor = await sdk.unlockLocalProfile(profile, password);
+      const migrating = session.install(next.pkg, next.publicKey);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await sdk
+        .createModuleClient(module, (call) => competitor.execute(module, call))
+        .call("capture", { text: "Concurrent note" });
+      try {
+        await migrating;
+      } catch (e) {
+        stale = (e as { code: string }).code;
+      }
+      competitor.lock();
+      session.lock();
+      session = await sdk.unlockLocalProfile(profile, password);
+      const beforeRetry = session.data.modules![module.id].version;
+      await session.install(next.pkg, next.publicKey);
+      const migrated = session.data;
+      session.lock();
+      session = await sdk.unlockLocalProfile(profile, password);
+      const historical = await client().call(
+        "capture",
+        { text: "Retained note" },
+        key,
+      );
+      try {
+        await session.install(first.pkg, first.publicKey);
+      } catch (e) {
+        incompatible = (e as { code: string }).code;
+      }
+      await session.install(compatible.pkg, compatible.publicKey);
+      const restored = session.data;
+      // Reinstalling the same executable does not re-run the data migration.
+      await session.install(compatible.pkg, compatible.publicKey);
+      const repeat = session.data;
+      session.lock();
+      return {
+        failure,
+        cancelled,
+        incompatible,
+        stale,
+        beforeRetry,
+        failurePreserved,
+        cancellationPreserved,
+        same: original === historical,
+        rows: migrated.records[module.id + "/items"],
+        stored: restored.modules![module.id],
+        history: repeat.modules![module.id].migrations,
+      };
+    },
+    { first, failed, next, compatible },
+  );
+  expect(result.failure).toContain("Migration fixture failure");
+  expect(result.failurePreserved).toBe(true);
+  expect(result.cancellationPreserved).toBe(true);
+  expect(result.cancelled).toBe("LOCAL_CANCELLED");
+  expect(result.stale).toBe("PROFILE_CHANGED");
+  expect(result.beforeRetry).toBe("1.0.0");
+  expect(result.incompatible).toBe("LOCAL_SCHEMA_INCOMPATIBLE");
+  expect(result.same).toBe(true);
+  expect(result.rows.map((row) => row.data)).toEqual([
+    { body: "Retained note" },
+    { body: "Concurrent note" },
+  ]);
+  expect(result.stored).toMatchObject({ version: "1.1.0", schemaVersion: 2 });
+  expect(result.history).toHaveLength(1);
+  expect(result.history![0]).toMatchObject({
+    name: "rename",
+    from: 1,
+    to: 2,
+    release: "2.1.0",
+  });
+});

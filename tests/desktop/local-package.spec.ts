@@ -11,6 +11,16 @@ const require = createRequire(resolve("apps/desktop/package.json"));
 test("minimized Electron executes a signed local package in its packaged worker and recovers after restart", async () => {
   test.setTimeout(60000);
   const published = await publishLocalPackage();
+  const upgraded = await publishLocalPackage({
+    id: published.pkg.module_id,
+    version: "2.0.0",
+    field: "body",
+    localStorage: {
+      version: 2,
+      compatible: { minimum: 2, maximum: 2 },
+      migrations: { rename: { from: 1, to: 2 } },
+    },
+  });
   const profile = await mkdtemp(resolve(tmpdir(), "suite-local-package-"));
   const worker = (await readdir("apps/desktop/dist/renderer/assets")).find(
     (name) => /^local-worker-entry-.*\.js$/.test(name),
@@ -68,7 +78,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
       await page.context().setOffline(true);
       const workerStarted = page.waitForEvent("worker");
       const result = await page.evaluate(
-        async ({ javascript, published, saved }) => {
+        async ({ javascript, published, upgraded, saved }) => {
           const url = URL.createObjectURL(
             new Blob([javascript], { type: "text/javascript" }),
           );
@@ -94,19 +104,26 @@ test("minimized Electron executes a signed local package in its packaged worker 
               { text: "Native signed local execution" },
               key,
             )) as string;
+          if (!saved) await session.install(upgraded.pkg, upgraded.publicKey);
           const rows = session.data.records[module.id + "/items"];
+          const stored = session.data.modules![module.id];
           const profileId = session.id;
           session.lock();
-          return { profileId, key, rowId, rows };
+          return { profileId, key, rowId, rows, stored };
         },
-        { javascript, published, saved },
+        { javascript, published, upgraded, saved },
       );
       expect((await workerStarted).url()).toBe(`suite://app/assets/${worker}`);
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0]).toMatchObject({
         id: result.rowId,
-        data: { text: "Native signed local execution" },
+        data: { body: "Native signed local execution" },
       });
+      expect(result.stored).toMatchObject({
+        version: "2.0.0",
+        schemaVersion: 2,
+      });
+      expect(result.stored.migrations).toHaveLength(1);
       expect(
         await app.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows().every(

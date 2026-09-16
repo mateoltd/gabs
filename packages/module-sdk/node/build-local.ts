@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { resolve, relative, isAbsolute, dirname } from "node:path";
 import type { ModuleDefinition } from "../src/index";
 import {
-  hasLocalOperations,
+  requiresLocalCode,
   validateLocalArtifact,
   type LocalBundle,
 } from "../src/local-artifact";
@@ -11,7 +11,7 @@ export async function buildLocalBundle(
   module: ModuleDefinition,
   directory: string,
 ): Promise<LocalBundle | undefined> {
-  if (!hasLocalOperations(module)) return;
+  if (!requiresLocalCode(module)) return;
   const root = await realpath(directory);
   const inside = (path: string) => {
     const part = relative(root, path);

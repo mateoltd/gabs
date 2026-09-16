@@ -93,3 +93,10 @@ export interface MigrationContext {
   ): Promise<void>;
 }
 export type MigrationHandler = (context: MigrationContext) => Promise<void>;
+
+/** Personal profiles never inherit corporate database schema revisions. */
+export function localStorageContract(module: {
+  localStorage?: StorageContract;
+}): StorageContract {
+  return storageContract({ storage: module.localStorage });
+}

@@ -6,6 +6,12 @@ export interface LocalBundle {
 export function hasLocalOperations(module: ModuleDefinition) {
   return Object.values(module.operations).some((op) => op.policy === "local");
 }
+export function requiresLocalCode(module: ModuleDefinition) {
+  return (
+    hasLocalOperations(module) ||
+    Object.keys(module.localStorage?.migrations ?? {}).length > 0
+  );
+}
 export function requiresServer(module: ModuleDefinition) {
   return (
     Object.values(module.operations).some((op) => op.policy !== "local") ||
@@ -15,11 +21,13 @@ export function requiresServer(module: ModuleDefinition) {
 export function validateLocalArtifact(
   artifact: Record<string, unknown>,
 ): LocalBundle | undefined {
-  const needed = hasLocalOperations(artifact as unknown as ModuleDefinition);
+  const needed = requiresLocalCode(artifact as unknown as ModuleDefinition);
   const value = artifact.local as LocalBundle | undefined;
   if (!needed) {
     if (value !== undefined)
-      throw Error("A local bundle requires declared local operations.");
+      throw Error(
+        "A local bundle requires declared local operations or migrations.",
+      );
     return;
   }
   if (

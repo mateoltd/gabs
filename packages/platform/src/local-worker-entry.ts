@@ -2,6 +2,7 @@ import { bundledModuleDefinitions } from "@suite/module-catalog";
 import { localModules } from "@suite/module-catalog/local";
 import {
   executeLocalCall,
+  migrateLocalSnapshot,
   type LocalRequest,
   type LocalModule,
 } from "@suite/module-sdk/local";
@@ -20,6 +21,7 @@ self.addEventListener(
       request: LocalRequest;
       artifact?: { package: SignedArtifact; publicKey: string };
       inspect?: boolean;
+      migrateFrom?: number;
     }>,
   ) => {
     try {
@@ -68,9 +70,21 @@ self.addEventListener(
         throw Error(
           "The installed local module contract does not match this request.",
         );
-      const value = event.data.inspect
-        ? { result: null, snapshot: event.data.request.snapshot }
-        : await executeLocalCall(module, event.data.request, implementation);
+      const value =
+        event.data.migrateFrom !== undefined
+          ? await migrateLocalSnapshot(
+              module,
+              event.data.request,
+              event.data.migrateFrom,
+              implementation,
+            )
+          : event.data.inspect
+            ? { result: null, snapshot: event.data.request.snapshot }
+            : await executeLocalCall(
+                module,
+                event.data.request,
+                implementation,
+              );
       self.postMessage({ ok: true, value });
     } catch (error) {
       const failure = error as {

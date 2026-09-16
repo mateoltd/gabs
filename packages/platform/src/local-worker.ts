@@ -28,6 +28,7 @@ export class LocalWorkerHost {
       timeoutMs?: number;
       artifact?: { package: SignedArtifact; publicKey: string };
       inspect?: boolean;
+      migrateFrom?: number;
     } = {},
   ): Promise<LocalResult> {
     if (this.closed)
@@ -126,6 +127,7 @@ export class LocalWorkerHost {
           request,
           artifact: options.artifact,
           inspect: options.inspect,
+          migrateFrom: options.migrateFrom,
         });
       } catch (error) {
         finish(error);

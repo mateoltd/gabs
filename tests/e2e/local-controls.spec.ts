@@ -267,9 +267,54 @@ test("personal registry installation, local action cancellation and restart reco
     await expect(
       page.getByRole("cell", { name: "Personal: Rejected note", exact: true }),
     ).toHaveCount(0);
+    await publishLocalPackage({
+      id: fixture.pkg.module_id,
+      name,
+      version: "2.0.0",
+      field: "body",
+      migrationDelayMs: 1200,
+      localStorage: {
+        version: 2,
+        compatible: { minimum: 2, maximum: 2 },
+        migrations: { rename: { from: 1, to: 2 } },
+      },
+    });
+    await context.setOffline(false);
     await page
       .getByRole("button", { name: "Manage local modules", exact: true })
       .click();
+    await page
+      .getByRole("button", { name: "Browse personal modules", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: `Install ${name}`, exact: true })
+      .click();
+    await expect(page.getByLabel("Prefix", { exact: true })).toHaveValue(
+      "Personal: ",
+    );
+    await expect(
+      page.getByText("This update changes how saved records are stored.", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    const migrationWorker = page.waitForEvent("worker");
+    await page
+      .getByRole("button", { name: "Save local installation", exact: true })
+      .click();
+    await migrationWorker;
+    await page
+      .getByRole("button", { name: "Cancel installation", exact: true })
+      .click();
+    await expect(page.getByRole("alert")).toContainText("cancelled");
+    await page
+      .getByRole("button", { name: "Save local installation", exact: true })
+      .click();
+    await expect(
+      page.getByText(`${name} is ready in this local profile.`, {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await context.setOffline(true);
     const row = page
       .getByRole("table", { name: "Local modules", exact: true })
       .getByRole("row")
@@ -278,12 +323,15 @@ test("personal registry installation, local action cancellation and restart reco
       .getByRole("button", { name: "Uninstall locally", exact: true })
       .click();
     await expect(row).toHaveCount(0);
-    await context.setOffline(false);
+    await mkdir("docs/verification/local-migrations", { recursive: true });
+    await page.screenshot({
+      path: "docs/verification/local-migrations/retained.png",
+    });
     await page
-      .getByRole("button", { name: "Browse personal modules", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: `Install ${name}`, exact: true })
+      .getByRole("table", { name: "Retained local modules", exact: true })
+      .getByRole("row")
+      .filter({ hasText: name })
+      .getByRole("button", { name: "Restore locally", exact: true })
       .click();
     await page
       .getByRole("button", { name: "Save local installation", exact: true })
@@ -314,8 +362,14 @@ test("personal registry installation, local action cancellation and restart reco
       fixture.pkg.module_id + "/items",
     );
     await expect(
+      page.getByRole("columnheader", { name: "Body", exact: true }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("cell", { name: "Personal: Restart note", exact: true }),
     ).toHaveCount(1);
+    await page.screenshot({
+      path: "docs/verification/local-migrations/restored-narrow.png",
+    });
   } finally {
     if (workspace)
       await pool.query(

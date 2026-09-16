@@ -167,7 +167,44 @@ The journal stores stable operation IDs, inputs, base versions, dependencies and
 
 Standalone profiles use a separate encrypted IndexedDB vault with AES-GCM and a PBKDF2-derived key. They can create/edit supported local resources, lock, unlock, export and remove a profile. Backgrounding locks the local profile. Local authority is indefinite and separate from company records. Native biometric unlock, saved online-profile management and validated company import remain unfinished. Standalone record writes now run in a dedicated worker and commit their data plus retry receipts atomically to the encrypted profile; concurrent sessions use revision checks.
 
-`@suite/module-sdk/local` exposes `defineLocalModule(module)({ ...handlers })` and `createLocalModuleClient(module, transport)`. Only operations with `policy: "local"` belong in `module-local.ts`; `defineModuleServer` handles corporate operations. Handler context supplies `profileId`, `requestId`, configuration, typed standalone resources and `reject`, without corporate services or native capabilities. Reviewed bundled handlers are discovered into a worker-only catalog. The CLI bundles `module-local.ts` into signed `suite-local-v1` artifacts. Local-only releases use the normal review/publication workflow without server staging; mixed corporate operations and migrations still require a server. `LocalSession.install(package, trustedRegistryKey, configuration)` preflights signed code in a worker, checks dependencies and retained data, then commits the selected release into the encrypted profile. Compatible upgrades retain historical receipts and releases; new calls must use the active version. `uninstall(moduleId)` preserves records and refuses active dependents. The registry key must come from the trusted host, never the package itself. Local schema changes requiring migration are rejected until a reviewed migration path is implemented. Open Local profiles from the account menu, then Manage local modules to install an authorized standalone release from the personal registry. Configuration remains local; company records and settings are not imported. Local actions derives forms from operation inputs and exposes cancellation plus pending/rejected/interrupted/accepted requests. Before custom operation execution, the host encrypts the exact request, release and configuration; accepted changes and receipts commit atomically. `LocalSession.retry(attemptId, { signal })` recovers the saved request and `dismiss(attemptId)` removes its recovery entry without removing records or receipts. Incompatible configuration/release changes are blocked while unresolved requests remain. Local schema migrations, coordinated dependencies and local-profile fleet reporting remain open. See [interface recovery acceptance](verification/local-controls/README.md). See [independent local executable acceptance](verification/local-executables/README.md). Use a stable key when retrying `LocalSession.execute`; records and results share one durable transaction. Cancellation before commit discards the worker result; once commit has begun, retry after unlock recovers its outcome. See [acceptance and limits](verification/local-worker/README.md).
+`@suite/module-sdk/local` exposes `defineLocalModule(module)({ ...handlers })` and `createLocalModuleClient(module, transport)`. Only operations with `policy: "local"` belong in `module-local.ts`; `defineModuleServer` handles corporate operations. Handler context supplies `profileId`, `requestId`, configuration, typed standalone resources and `reject`, without corporate services or native capabilities. Reviewed bundled handlers are discovered into a worker-only catalog. The CLI bundles `module-local.ts` into signed `suite-local-v1` artifacts. Local-only releases use the normal review/publication workflow without server staging; mixed corporate operations and migrations still require a server. `LocalSession.install(package, trustedRegistryKey, configuration)` preflights signed code in a worker, checks dependencies and retained data, then commits the selected release into the encrypted profile. Compatible upgrades retain historical receipts and releases; new calls must use the active version. `uninstall(moduleId)` preserves records and refuses active dependents. The registry key must come from the trusted host, never the package itself. Personal schema changes use the reviewed `localStorage` migration path described below; missing paths and incompatible rollback are refused without changing the current installation. Open Local profiles from the account menu, then Manage local modules to install an authorized standalone release from the personal registry. Configuration remains local; company records and settings are not imported. Local actions derives forms from operation inputs and exposes cancellation plus pending/rejected/interrupted/accepted requests. Before custom operation execution, the host encrypts the exact request, release and configuration; accepted changes and receipts commit atomically. `LocalSession.retry(attemptId, { signal })` recovers the saved request and `dismiss(attemptId)` removes its recovery entry without removing records or receipts. Incompatible configuration/release changes are blocked while unresolved requests remain. Durable installation attempts, coordinated dependencies and local-profile fleet reporting remain open. Removed modules can be restored offline from their retained signed release through **Restore locally**. See [interface recovery acceptance](verification/local-controls/README.md). See [independent local executable acceptance](verification/local-executables/README.md). Use a stable key when retrying `LocalSession.execute`; records and results share one durable transaction. Cancellation before commit discards the worker result; once commit has begun, retry after unlock recovers its outcome. See [acceptance and limits](verification/local-worker/README.md).
+
+### Personal schema migrations
+
+Declare `localStorage` separately from corporate `storage`. It defaults to version 1 and uses the same forward-only version/compatibility contract. Each declared step requires a handler in `module-local.ts`, even when there are no custom operations:
+
+```ts
+// In the module definition:
+localStorage: {
+  version: 2,
+  compatible: { minimum: 2, maximum: 2 },
+  migrations: { rename: { from: 1, to: 2 } },
+}
+
+// In module-local.ts, after importing the definition and defineLocalModule:
+export default defineLocalModule(module)({}, {
+  rename: async (ctx) => {
+    let after: string | undefined;
+    do {
+      const page = await ctx.resource("notes").scan(after);
+      for (const row of page.items) {
+        if (typeof row.data.text !== "string")
+          throw Error("The existing note has invalid text.");
+        await ctx.resource("notes").write(
+          row.id, { body: row.data.text }, row.version,
+        );
+      }
+      after = page.nextCursor ?? undefined;
+    } while (after);
+  },
+});
+```
+
+`scan` includes archived records in pages of 100, ordered by record identifier. Historical fields remain unknown until checked. Handlers can create derived records, write or archive records with version checks, or rename a historical resource to a declared standalone target. Access is restricted to the module's profile snapshot; no corporate or privileged desktop context is provided. Handler names, configuration and rename targets are inferred from the public contract. Caught capability errors and detached writes cannot escape transaction validation.
+
+`LocalSession.install(package, trustedRegistryKey, configuration, { signal, timeoutMs })` executes the signed path in a disposable worker, validates every resulting record, then atomically saves the release, records, schema version and migration history. Cancellation, worker failure, missing migration paths and competing profile changes preserve the previous installation. Fresh empty installations start at the release's target schema. Historical retry receipts are retained unchanged. Executable rollback requires the stored schema to fall within the older executable's declared compatibility range and all retained records to validate; data is never downgraded. See [migration and offline restoration acceptance](verification/local-migrations/README.md).
+
+The new candidate itself is not yet durably journaled before migration: a crash preserves the old installation but can require downloading the candidate again. Coordinated dependency updates and profile fleet reporting remain incomplete.
 
 ## Governance and commerce
 

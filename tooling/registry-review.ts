@@ -74,6 +74,7 @@ function verifySubmission(
       dependencies: module.dependencies,
       permissions: module.permissions,
       ...(module.storage ? { storage: module.storage } : {}),
+      ...(module.localStorage ? { localStorage: module.localStorage } : {}),
     })
   )
     throw Error("Manifest metadata differs from the signed module contract.");

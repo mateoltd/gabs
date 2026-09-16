@@ -9,6 +9,7 @@ export {
 } from "./store";
 export {
   storageContract,
+  localStorageContract,
   supportsStorage,
   type StorageContract,
   type MigrationContext,
@@ -123,6 +124,8 @@ export function operation<const O extends Operation>(
 }
 export interface ModuleDefinition {
   storage?: StorageContract;
+  /** Standalone profile schemas evolve independently from corporate storage. */
+  localStorage?: StorageContract;
   stores?: Record<string, import("./store").Store>;
   id: string;
   name: string;
@@ -168,6 +171,7 @@ export function defineModule<const M extends ModuleDefinition>(
   },
 ): M {
   if (definition.storage) validateStorageContract(definition.storage);
+  if (definition.localStorage) validateStorageContract(definition.localStorage);
   if (!identifier.test(definition.id))
     throw new Error("Module IDs must be lowercase slugs.");
   if (definition.navigation) {

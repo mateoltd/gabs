@@ -4,7 +4,7 @@ import { canonical, resolveReleases } from "@suite/module-sdk/registry";
 import {
   hydrateModule,
   assertSchema,
-  storageContract,
+  localStorageContract,
 } from "@suite/module-sdk";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import { bundledModuleDefinitions } from "@suite/module-catalog";
@@ -34,6 +34,14 @@ export interface LocalRelease {
   configuration: unknown;
 }
 export interface LocalInstallation {
+  schemaVersion?: number;
+  migrations?: {
+    name: string;
+    release: string;
+    from: number;
+    to: number;
+    appliedAt: number;
+  }[];
   active: boolean;
   version: string;
   releases: Record<string, LocalRelease>;
@@ -98,6 +106,7 @@ export interface LocalSession {
     pkg: SignedArtifact,
     publicKey: string,
     configuration?: unknown,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
   ): Promise<void>;
   uninstall(moduleId: string): Promise<void>;
   execute(
@@ -207,7 +216,8 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     get data() {
       return structuredClone(data);
     },
-    install(pkg, publicKey, configuration = {}) {
+    install(pkg, publicKey, configuration = {}, options = {}) {
+      options = { ...options };
       pkg = structuredClone(pkg);
       configuration = structuredClone(configuration);
       return enqueue(async () => {
@@ -253,27 +263,23 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             "1.0.0",
             pins,
           );
-        if (
-          prior &&
-          storageContract(module).version !==
-            storageContract(
-              moduleContract(prior.releases[prior.version].package.artifact),
-            ).version
-        )
-          throw Error(
-            "This local schema upgrade requires a reviewed local migration. Your existing release and data are preserved.",
-          );
-        for (const [key, rows] of Object.entries(data.records).filter(([key]) =>
-          key.startsWith(module.id + "/"),
-        )) {
-          const resource = module.resources[key.slice(module.id.length + 1)];
-          if (rows.length && !resource?.standalone)
-            throw Error(
-              "The new release cannot read an existing standalone resource.",
-            );
-          for (const row of rows) assertSchema(resource.schema, row.data);
-        }
-        await worker.run(
+        const previousModule = prior
+          ? moduleContract(prior.releases[prior.version].package.artifact)
+          : bundledModuleDefinitions.find((m) => m.id === module.id);
+        const prefix = module.id + "/";
+        const records = Object.fromEntries(
+          Object.entries(data.records)
+            .filter(([key]) => key.startsWith(prefix))
+            .map(([key, rows]) => [key.slice(prefix.length), rows]),
+        );
+        const fromVersion =
+          prior?.schemaVersion ??
+          (previousModule
+            ? localStorageContract(previousModule).version
+            : Object.values(records).some((rows) => rows.length)
+              ? 1
+              : localStorageContract(module).version);
+        const migrated = await worker.run(
           module,
           {
             profileId: vault.id,
@@ -284,24 +290,60 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
               input: {},
             },
             configuration,
-            snapshot: { records: {}, receipts: {} },
+            snapshot: { records, receipts: data.receipts?.[module.id] ?? {} },
           },
-          { artifact: { package: pkg, publicKey }, inspect: true },
+          {
+            ...options,
+            artifact: { package: pkg, publicKey },
+            migrateFrom: fromVersion,
+          },
         );
-        await commit({
-          ...data,
-          modules: {
-            ...data.modules,
-            [module.id]: {
-              active: true,
-              version: module.version,
-              releases: {
-                ...prior?.releases,
-                [module.version]: { package: pkg, publicKey, configuration },
+        const retained = Object.fromEntries(
+          Object.entries(data.records).filter(
+            ([key]) => !key.startsWith(prefix),
+          ),
+        );
+        let migratedFrom = fromVersion;
+        const history = (migrated.migrations ?? []).map((name) => {
+          const to = localStorageContract(module).migrations[name].to;
+          const entry = {
+            name,
+            release: module.version,
+            from: migratedFrom,
+            to,
+            appliedAt: Date.now(),
+          };
+          migratedFrom = to;
+          return entry;
+        });
+        await commit(
+          {
+            ...data,
+            records: {
+              ...retained,
+              ...Object.fromEntries(
+                Object.entries(migrated.snapshot.records).map(([key, rows]) => [
+                  prefix + key,
+                  rows,
+                ]),
+              ),
+            },
+            modules: {
+              ...data.modules,
+              [module.id]: {
+                schemaVersion: migrated.schemaVersion,
+                migrations: [...(prior?.migrations ?? []), ...history],
+                active: true,
+                version: module.version,
+                releases: {
+                  ...prior?.releases,
+                  [module.version]: { package: pkg, publicKey, configuration },
+                },
               },
             },
           },
-        });
+          options.signal,
+        );
       });
     },
     uninstall(moduleId) {

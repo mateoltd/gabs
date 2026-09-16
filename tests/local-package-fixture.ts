@@ -5,6 +5,11 @@ import { randomUUID } from "node:crypto";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 export async function publishLocalPackage(
   options: {
+    localStorage?: import("@suite/module-sdk").StorageContract;
+    field?: "text" | "body";
+    migrationOnly?: boolean;
+    migrationDelayMs?: number;
+    migrationError?: boolean;
     name?: string;
     id?: string;
     version?: string;
@@ -16,15 +21,32 @@ export async function publishLocalPackage(
   const directory = await mkdtemp(resolve(".local/standalone-package-"));
   const id = options.id ?? `local-notes-${randomUUID().slice(0, 8)}`,
     version = options.version ?? "1.0.0";
+  const field = options.field ?? "text";
+  const operations = options.migrationOnly
+    ? "{}"
+    : `{capture:operation({title:'Capture note',policy:'local',permission:'${id}.capture',input:Type.Object({text:Type.String(),delayMs:Type.Optional(Type.Integer({minimum:0,maximum:30000})),reject:Type.Optional(Type.Boolean())}),output:Type.String(),errors:Type.Object({reason:Type.Literal('blocked')})})}`;
+  const handlers = options.migrationOnly
+    ? "{}"
+    : `{async capture(ctx,input){if(input.delayMs)await new Promise(resolve=>setTimeout(resolve,input.delayMs));if(input.reject)ctx.reject({reason:'blocked'});const row=await ctx.resource('items').create({${field}:${JSON.stringify(options.prefix ?? "")}+(ctx.configuration.prefix??'')+input.text});return row.id;}}`;
+  const migrations = options.localStorage
+    ? ",{" +
+      Object.keys(options.localStorage.migrations)
+        .map(
+          (name) =>
+            `${JSON.stringify(name)}:async(ctx)=>{if(${options.migrationDelayMs ?? 0})await new Promise(resolve=>setTimeout(resolve,${options.migrationDelayMs ?? 0}));let after;do{const page=await ctx.resource('items').scan(after);for(const row of page.items)await ctx.resource('items').write(row.id,{${field}:row.data.text??row.data.body},row.version);after=page.nextCursor??undefined;}while(after);${options.migrationError ? 'throw Error("Migration fixture failure");' : ""}}`,
+        )
+        .join(",") +
+      "}"
+    : "";
   try {
     await writeFile(
       resolve(directory, "module.ts"),
       `import {defineModule,resource,field,operation,Type} from '@suite/module-sdk';
-export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "Local package notes")},version:'${version}',description:'Independent local handler acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.items.read','${id}.items.write','${id}.capture'],configuration:Type.Object({prefix:Type.Optional(Type.String())},{additionalProperties:false}),resources:{items:resource({text:field.text({maxLength:${options.maxLength ?? 500}})},{title:'Notes',standalone:true})},operations:{capture:operation({title:'Capture note',policy:'local',permission:'${id}.capture',input:Type.Object({text:Type.String(),delayMs:Type.Optional(Type.Integer({minimum:0,maximum:30000})),reject:Type.Optional(Type.Boolean())}),output:Type.String(),errors:Type.Object({reason:Type.Literal('blocked')})})}});`,
+export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "Local package notes")},version:'${version}',description:'Independent local handler acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.items.read','${id}.items.write','${id}.capture'],configuration:Type.Object({prefix:Type.Optional(Type.String())},{additionalProperties:false}),${options.localStorage ? "localStorage:" + JSON.stringify(options.localStorage) + "," : ""}resources:{items:resource({${field}:field.text({maxLength:${options.maxLength ?? 500}})},{title:'Notes',standalone:true,policy:'local'})},operations:${operations}});`,
     );
     await writeFile(
       resolve(directory, "module-local.ts"),
-      `import {defineLocalModule} from '@suite/module-sdk/local';import module from './module';export default defineLocalModule(module)({async capture(ctx,input){if(input.delayMs)await new Promise(resolve=>setTimeout(resolve,input.delayMs));if(input.reject)ctx.reject({reason:'blocked'});const row=await ctx.resource('items').create({text:${JSON.stringify(options.prefix ?? "")}+(ctx.configuration.prefix??'')+input.text});return row.id;}});`,
+      `import {defineLocalModule} from '@suite/module-sdk/local';import module from './module';export default defineLocalModule(module)(${handlers}${migrations});`,
     );
     execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });
     const path = `.local/modules/${id}-${version}.json`;

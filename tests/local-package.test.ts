@@ -74,7 +74,7 @@ it("builds, reviews and publishes an independent local-only package without a se
         ),
       ).rejects.toThrow(
         mode === "missing-local"
-          ? /Local operations require/
+          ? /signed local executable bundle/
           : /require a staged server/,
       );
     }
@@ -268,5 +268,47 @@ it("keeps local defaults independent from dynamically registered corporate relea
     ).toBe(original.version);
   } finally {
     registerModule(original);
+  }
+});
+
+it("publishes local migration-only releases without a corporate server and rejects unsigned migration payloads", async () => {
+  const release = await publishLocalPackage({
+    migrationOnly: true,
+    field: "body",
+    version: "2.0.0",
+    localStorage: {
+      version: 2,
+      compatible: { minimum: 2, maximum: 2 },
+      migrations: { rename: { from: 1, to: 2 } },
+    },
+  });
+  expect(release.pkg.manifest.localStorage).toEqual(
+    release.pkg.artifact.localStorage,
+  );
+  expect(
+    requiresServer(hydrateModule(moduleContract(release.pkg.artifact))),
+  ).toBe(false);
+  await expect(
+    readFile(release.path.replace(".json", ".server.json")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+  const pool = new Pool({
+    connectionString: process.env.MIGRATION_DATABASE_URL,
+  });
+  try {
+    const corrupt = structuredClone(release.pkg);
+    delete corrupt.artifact.local;
+    await expect(
+      pool.query(
+        "insert into suite.module_submissions(id,module_id,version,publisher_id,client_package,backend_kind) values($1,$2,$3,'suite',$4,'none')",
+        [
+          crypto.randomUUID(),
+          release.pkg.module_id,
+          release.pkg.version,
+          corrupt,
+        ],
+      ),
+    ).rejects.toThrow(/signed local executable/);
+  } finally {
+    await pool.end();
   }
 });

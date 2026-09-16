@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SuiteClient } from "@suite/api-client";
-import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
+import {
+  hydrateModule,
+  localStorageContract,
+  type ModuleDefinition,
+} from "@suite/module-sdk";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import {
   availableLocalModules,
@@ -42,21 +46,29 @@ export function LocalModules({
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(),
     [notice, setNotice] = useState("");
+  const controller = useRef<AbortController>(undefined);
+  useEffect(() => () => controller.current?.abort(), []);
+  const retained = Object.entries(session.data.modules ?? {}).filter(
+    ([, installation]) => !installation.active,
+  );
   const modules = availableLocalModules(session.data).filter(
     (m) =>
       Object.values(m.resources).some((r) => r.standalone) ||
       Object.values(m.operations).some((op) => op.policy === "local"),
   );
-  const action = async (fn: () => Promise<void>) => {
+  const action = async (fn: (signal: AbortSignal) => Promise<void>) => {
+    const current = new AbortController();
+    controller.current = current;
     setBusy(true);
     setError(undefined);
     setNotice("");
     try {
-      await fn();
+      await fn(current.signal);
       changed();
     } catch (e) {
       setError(e);
     } finally {
+      controller.current = undefined;
       setBusy(false);
     }
   };
@@ -83,11 +95,12 @@ export function LocalModules({
               className="form-stack"
               onSubmit={(event) => {
                 event.preventDefault();
-                void action(async () => {
+                void action(async (signal) => {
                   await session.install(
                     selected.pkg,
                     selected.publicKey,
                     configuration,
+                    { signal },
                   );
                   setNotice(
                     `${selected.module.name} is ready in this local profile.`,
@@ -98,6 +111,17 @@ export function LocalModules({
             >
               <h3>{selected.module.name}</h3>
               <p>Version {selected.module.version}</p>
+              {(session.data.modules?.[selected.module.id]?.schemaVersion ??
+                1) < localStorageContract(selected.module).version &&
+                Object.keys(session.data.records).some((key) =>
+                  key.startsWith(selected.module.id + "/"),
+                ) && (
+                  <p>
+                    This update changes how saved records are stored. If the
+                    update cannot finish, your current version and records
+                    remain available.
+                  </p>
+                )}
               <SchemaForm
                 schema={selected.module.configuration as FormSchema}
                 value={configuration}
@@ -106,6 +130,14 @@ export function LocalModules({
               <Button type="submit" variant="primary" disabled={busy}>
                 Save local installation
               </Button>
+              {busy && (
+                <Button
+                  type="button"
+                  onClick={() => controller.current?.abort()}
+                >
+                  Cancel installation
+                </Button>
+              )}
               <Button
                 type="button"
                 disabled={busy}
@@ -178,6 +210,62 @@ export function LocalModules({
                   </tbody>
                 </Table>
               </div>
+              {retained.length > 0 && (
+                <>
+                  <h3>Retained modules</h3>
+                  <p className="small">
+                    Restore a removed module from this profile without
+                    connecting. Its saved records and requests are retained.
+                  </p>
+                  <div className="table-scroll">
+                    <Table aria-label="Retained local modules">
+                      <thead>
+                        <tr>
+                          <th>Module</th>
+                          <th>Version</th>
+                          <th>Recovery</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {retained.map(([id, installation]) => {
+                          const release =
+                            installation.releases[installation.version];
+                          const module = hydrateModule(
+                            release.package
+                              .artifact as unknown as ModuleDefinition,
+                          );
+                          return (
+                            <tr key={id}>
+                              <td>{module.name}</td>
+                              <td>{module.version}</td>
+                              <td>
+                                <Button
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setSelected({
+                                      module,
+                                      pkg: release.package,
+                                      publicKey: release.publicKey,
+                                    });
+                                    setConfiguration(
+                                      release.configuration as Record<
+                                        string,
+                                        unknown
+                                      >,
+                                    );
+                                  }}
+                                >
+                                  Restore locally
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </Table>
+                  </div>
+                </>
+              )}
               {registry?.online ? (
                 <Button
                   disabled={busy}
@@ -270,13 +358,13 @@ export function LocalModules({
                               pkg,
                               publicKey: trust.publicKey,
                             });
+                            const installed = session.data.modules?.[module.id];
                             setConfiguration(
-                              (session.data.modules?.[module.id]?.releases[
-                                pkg.version
-                              ]?.configuration ?? {}) as Record<
-                                string,
-                                unknown
-                              >,
+                              (installed?.releases[pkg.version]
+                                ?.configuration ??
+                                installed?.releases[installed.version]
+                                  ?.configuration ??
+                                {}) as Record<string, unknown>,
                             );
                           })
                         }
