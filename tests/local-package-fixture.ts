@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 export async function publishLocalPackage(
   options: {
+    name?: string;
     id?: string;
     version?: string;
     prefix?: string;
@@ -19,11 +20,11 @@ export async function publishLocalPackage(
     await writeFile(
       resolve(directory, "module.ts"),
       `import {defineModule,resource,field,operation,Type} from '@suite/module-sdk';
-export default defineModule({id:'${id}',name:'Local package notes',version:'${version}',description:'Independent local handler acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.items.read','${id}.items.write','${id}.capture'],configuration:Type.Object({},{additionalProperties:false}),resources:{items:resource({text:field.text({maxLength:${options.maxLength ?? 500}})},{title:'Notes',standalone:true})},operations:{capture:operation({title:'Capture note',policy:'local',permission:'${id}.capture',input:Type.Object({text:Type.String()}),output:Type.String()})}});`,
+export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "Local package notes")},version:'${version}',description:'Independent local handler acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.items.read','${id}.items.write','${id}.capture'],configuration:Type.Object({prefix:Type.Optional(Type.String())},{additionalProperties:false}),resources:{items:resource({text:field.text({maxLength:${options.maxLength ?? 500}})},{title:'Notes',standalone:true})},operations:{capture:operation({title:'Capture note',policy:'local',permission:'${id}.capture',input:Type.Object({text:Type.String(),delayMs:Type.Optional(Type.Integer({minimum:0,maximum:30000})),reject:Type.Optional(Type.Boolean())}),output:Type.String(),errors:Type.Object({reason:Type.Literal('blocked')})})}});`,
     );
     await writeFile(
       resolve(directory, "module-local.ts"),
-      `import {defineLocalModule} from '@suite/module-sdk/local';import module from './module';export default defineLocalModule(module)({async capture(ctx,input){const row=await ctx.resource('items').create({text:${JSON.stringify(options.prefix ?? "")}+input.text});return row.id;}});`,
+      `import {defineLocalModule} from '@suite/module-sdk/local';import module from './module';export default defineLocalModule(module)({async capture(ctx,input){if(input.delayMs)await new Promise(resolve=>setTimeout(resolve,input.delayMs));if(input.reject)ctx.reject({reason:'blocked'});const row=await ctx.resource('items').create({text:${JSON.stringify(options.prefix ?? "")}+(ctx.configuration.prefix??'')+input.text});return row.id;}});`,
     );
     execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });
     const path = `.local/modules/${id}-${version}.json`;

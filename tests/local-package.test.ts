@@ -1,3 +1,8 @@
+import { availableLocalModules } from "../packages/platform/src/local-profiles";
+import {
+  bundledModuleDefinitions,
+  registerModule,
+} from "@suite/module-catalog";
 import "dotenv/config";
 import { it, expect } from "vitest";
 import { Pool } from "pg";
@@ -250,5 +255,18 @@ it("requires local bytes at signing and rejects privileged imports and escaping 
     ).toBe(true);
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("keeps local defaults independent from dynamically registered corporate releases", () => {
+  const original = bundledModuleDefinitions.find((m) => m.id === "contacts")!;
+  try {
+    registerModule({ ...original, version: "99.0.0" });
+    expect(
+      availableLocalModules({ records: {} }).find((m) => m.id === "contacts")
+        ?.version,
+    ).toBe(original.version);
+  } finally {
+    registerModule(original);
   }
 });

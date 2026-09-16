@@ -1,4 +1,4 @@
-import { moduleDefinitions } from "@suite/module-catalog";
+import { bundledModuleDefinitions } from "@suite/module-catalog";
 import { localModules } from "@suite/module-catalog/local";
 import {
   executeLocalCall,
@@ -59,7 +59,9 @@ self.addEventListener(
             );
         }
       } else {
-        module = moduleDefinitions.find((m) => m.id === event.data.module.id);
+        module = bundledModuleDefinitions.find(
+          (m) => m.id === event.data.module.id,
+        );
         implementation = localModules.find((m) => m.module.id === module?.id);
       }
       if (!module || canonical(module) !== canonical(event.data.module))

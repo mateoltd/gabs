@@ -1019,6 +1019,11 @@ function Workspace({
                   },
                 },
                 {
+                  label: "Local profiles",
+                  onSelect: () =>
+                    window.dispatchEvent(new Event("suite-local-mode")),
+                },
+                {
                   label: "Sign out",
                   icon: <LogOut size={16} />,
                   onSelect: () => {
@@ -1388,7 +1393,21 @@ function Session() {
     if (!online) window.location.reload();
     else await me.refetch();
   }
-  if (localMode) return <LocalWorkspace onExit={() => setLocalMode(false)} />;
+  if (localMode) {
+    const personal = me.data?.workspaces.find(
+      (workspace) => workspace.kind === "personal",
+    );
+    return (
+      <LocalWorkspace
+        onExit={() => setLocalMode(false)}
+        registry={
+          personal
+            ? { client, workspaceId: personal.id, online: online && !!me.data }
+            : undefined
+        }
+      />
+    );
+  }
   if (online && me.isLoading && !identity)
     return <Loading label="Opening your workspace" />;
   if (online && me.error instanceof ApiError && me.error.status === 426)

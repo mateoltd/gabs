@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -36,7 +36,25 @@ test("administration sees a partial device installation failure and its real rec
       })
     ).ok(),
   ).toBe(true);
+  const report = (target: Page, phase: string, action = "install") =>
+    target.waitForResponse((response) => {
+      if (
+        !response
+          .url()
+          .endsWith(`/workspaces/${workspaceId}/installation-reports`) ||
+        response.request().method() !== "POST" ||
+        !response.ok()
+      )
+        return false;
+      const body = response.request().postDataJSON();
+      return (
+        body.moduleId === "contacts" &&
+        body.phase === phase &&
+        body.action === action
+      );
+    });
   await page.reload();
+  const firstReady = report(page, "ready");
   await selectValue(page, "Workspace", workspaceId);
   await page.getByRole("link", { name: "Modules", exact: true }).click();
   const card = page.locator(".module-install-card").filter({
@@ -45,6 +63,7 @@ test("administration sees a partial device installation failure and its real rec
   await expect(
     card.getByText("Installed 1.1.0", { exact: true }),
   ).toBeVisible();
+  await firstReady;
   const context = await browser.newContext({
     baseURL: new URL(page.url()).origin,
     reducedMotion: "reduce",
@@ -55,6 +74,7 @@ test("administration sees a partial device installation failure and its real rec
       `**/module/contacts/workspaces/${workspaceId}/artifact`,
       (route) => route.abort("failed"),
     );
+    const failureReported = report(second, "failed");
     await second.goto("/");
     await second
       .getByRole("button", { name: "Open workspace", exact: true })
@@ -70,6 +90,9 @@ test("administration sees a partial device installation failure and its real rec
     await expect(
       otherCard.getByText("Installation pending.", { exact: false }),
     ).toBeVisible();
+    // Local pending state appears before the failure report is acknowledged.
+    // Open the fleet only after the server has the observation being asserted.
+    await failureReported;
     await card
       .getByRole("button", { name: "View devices", exact: true })
       .click();
@@ -121,12 +144,14 @@ test("administration sees a partial device installation failure and its real rec
     await second.unroute(
       `**/module/contacts/workspaces/${workspaceId}/artifact`,
     );
+    const recoveredReport = report(second, "ready");
     await otherCard
       .getByRole("button", { name: "Resume installation", exact: true })
       .click();
     await expect(
       otherCard.getByText("Installed 1.1.0", { exact: true }),
     ).toBeVisible();
+    await recoveredReport;
     await dialog
       .getByRole("button", { name: "Refresh devices", exact: true })
       .click();
@@ -143,12 +168,14 @@ test("administration sees a partial device installation failure and its real rec
     await page.screenshot({
       path: "docs/verification/module-fleet/recovered.png",
     });
+    const removalFailedReport = report(second, "failed", "uninstall");
     await otherCard
       .getByRole("button", { name: "Uninstall", exact: true })
       .click();
     await expect(
       second.getByRole("alert").filter({ hasText: "Uninstall projects" }),
     ).toBeVisible();
+    await removalFailedReport;
     await dialog
       .getByRole("button", { name: "Refresh devices", exact: true })
       .click();
@@ -174,12 +201,14 @@ test("administration sees a partial device installation failure and its real rec
     await expect(
       projects.getByText("Not installed on this device", { exact: true }),
     ).toBeVisible();
+    const removedReport = report(second, "removed", "uninstall");
     await otherCard
       .getByRole("button", { name: "Uninstall", exact: true })
       .click();
     await expect(
       otherCard.getByText("Not installed on this device", { exact: true }),
     ).toBeVisible();
+    await removedReport;
     await dialog
       .getByRole("button", { name: "Refresh devices", exact: true })
       .click();

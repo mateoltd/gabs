@@ -2785,3 +2785,10 @@ body:has(.local-workspace),
   height: 44px;
   -webkit-app-region: drag;
 }
+
+.local-action-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

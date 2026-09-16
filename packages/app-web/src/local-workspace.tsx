@@ -1,3 +1,5 @@
+import { LocalActions } from "./local-actions";
+import { LocalModules, type LocalRegistry } from "./local-modules";
 import { Table } from "@suite/ui-web";
 import { useEffect, useState } from "react";
 import { createModuleClient, type ResourceRecord } from "@suite/module-sdk";
@@ -24,7 +26,13 @@ import {
   fieldLabel,
 } from "@suite/ui-web";
 import { BrandIcon } from "./brand";
-export function LocalWorkspace({ onExit }: { onExit: () => void }) {
+export function LocalWorkspace({
+  onExit,
+  registry,
+}: {
+  onExit: () => void;
+  registry?: LocalRegistry;
+}) {
   const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]),
     [id, setId] = useState(""),
     [name, setName] = useState(""),
@@ -47,7 +55,14 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
     [form, setForm] = useState<Record<string, unknown>>({}),
     [editing, setEditing] = useState<ResourceRecord | null | undefined>(),
     [revision, setRevision] = useState(0);
-  const selected = resources.find((r) => r.key === key)!;
+  const selected = resources.find((r) => r.key === key) ?? resources[0];
+  useEffect(() => {
+    if (selected && selected.key !== key) {
+      setKey(selected.key);
+      setEditing(undefined);
+      setForm({});
+    }
+  }, [selected?.key, key]);
   useEffect(() => {
     void listLocalProfiles().then(setProfiles).catch(setError);
   }, []);
@@ -170,6 +185,7 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
             </Field>
             <Button
               variant="primary"
+              disabled={!selected}
               onClick={() => {
                 setEditing(null);
                 setForm({});
@@ -203,18 +219,39 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
             >
               Export data
             </Button>
+            <LocalModules
+              session={session}
+              registry={registry}
+              changed={() => setRevision((r) => r + 1)}
+              onlineWorkspaces={onExit}
+            />
+            <LocalActions
+              key={session.id}
+              session={session}
+              changed={() => setRevision((r) => r + 1)}
+            />
           </div>
-          {!(session.data.records[key] ?? []).some((r) => !r.archived) && (
+          {!(selected ? (session.data.records[selected.key] ?? []) : []).some(
+            (r) => !r.archived,
+          ) && (
             <Empty
-              title="No records yet"
-              description="Create your first record. Your work stays on this device."
+              title={
+                selected
+                  ? "No records yet"
+                  : "No standalone resources installed"
+              }
+              description={
+                selected
+                  ? "Create your first record. Your work stays on this device."
+                  : "Install a module with standalone resources to view its records. Retained records remain in this profile."
+              }
             />
           )}
           <div className="table-scroll">
             <Table className="module-table">
               <thead>
                 <tr>
-                  {selected.resource.columns.map((c) => (
+                  {selected?.resource.columns.map((c) => (
                     <th key={c}>
                       {selected.resource.schema.properties[c]?.title ??
                         fieldLabel(c)}
@@ -224,11 +261,11 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {(session.data.records[key] ?? [])
+                {(selected ? (session.data.records[selected.key] ?? []) : [])
                   .filter((r) => !r.archived)
                   .map((r) => (
                     <tr key={r.id}>
-                      {selected.resource.columns.map((c) => (
+                      {selected?.resource.columns.map((c) => (
                         <td key={c}>{String(r.data[c] ?? "")}</td>
                       ))}
                       <td>
@@ -262,6 +299,7 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
           className="form-stack"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (!selected || !session) return;
             setBusy(true);
             try {
               const client = createModuleClient(selected.module, (call) =>
@@ -282,8 +320,8 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
           }}
         >
           <SchemaForm
-            schema={selected.resource.schema as FormSchema}
-            fieldOrder={selected.resource.columns}
+            schema={(selected?.resource.schema ?? {}) as FormSchema}
+            fieldOrder={selected?.resource.columns}
             value={form}
             onChange={setForm}
           />

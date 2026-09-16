@@ -1,13 +1,13 @@
 import { verifyArtifact } from "@suite/module-sdk/verification";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
-import { resolveReleases } from "@suite/module-sdk/registry";
+import { canonical, resolveReleases } from "@suite/module-sdk/registry";
 import {
   hydrateModule,
   assertSchema,
   storageContract,
 } from "@suite/module-sdk";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
-import { moduleDefinitions } from "@suite/module-catalog";
+import { bundledModuleDefinitions } from "@suite/module-catalog";
 import { openDB } from "idb";
 import type {
   ResourceRecord,
@@ -38,7 +38,18 @@ export interface LocalInstallation {
   version: string;
   releases: Record<string, LocalRelease>;
 }
+export interface LocalAttempt {
+  moduleId: string;
+  moduleVersion: string;
+  title: string;
+  call: ModuleCall;
+  configuration: unknown;
+  createdAt: number;
+  state: "pending" | "accepted" | "rejected" | "interrupted";
+  error?: string;
+}
 export interface LocalData {
+  attempts?: Record<string, LocalAttempt>;
   modules?: Record<string, LocalInstallation>;
   records: Record<string, ResourceRecord[]>;
   receipts?: Record<string, Record<string, LocalReceipt>>;
@@ -98,6 +109,11 @@ export interface LocalSession {
       configuration?: unknown;
     },
   ): Promise<unknown>;
+  retry(
+    attemptId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<unknown>;
+  dismiss(attemptId: string): Promise<void>;
   lock(): void;
 }
 function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
@@ -204,6 +220,18 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           throw Error("This module does not support standalone profiles.");
         assertSchema(module.configuration, configuration);
         const prior = data.modules?.[module.id];
+        if (
+          Object.values(data.attempts ?? {}).some(
+            (a) =>
+              a.moduleId === module.id &&
+              a.state !== "accepted" &&
+              (a.moduleVersion !== module.version ||
+                canonical(a.configuration) !== canonical(configuration)),
+          )
+        )
+          throw Error(
+            "Resolve or dismiss pending local requests before changing this module's release or configuration. Their input is preserved.",
+          );
         const same = prior?.releases[module.version];
         if (same && same.package.digest !== pkg.digest)
           throw Error(
@@ -332,6 +360,53 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         const receiptConfiguration = receipt
           ? JSON.parse(receipt.request).configuration
           : undefined;
+        const configuration =
+          options.configuration ??
+          receiptConfiguration ??
+          release?.configuration ??
+          {};
+        const attemptId =
+          call.action === "operation" && call.key
+            ? module.id + "/" + call.key
+            : undefined;
+        const previous = attemptId ? data.attempts?.[attemptId] : undefined;
+        if (
+          previous &&
+          (canonical(previous.call) !== canonical(call) ||
+            canonical(previous.configuration) !== canonical(configuration))
+        )
+          throw new LocalExecutionError(
+            "IDEMPOTENCY_CONFLICT",
+            "This request identifier belongs to different input. Recover the original request or start a new operation.",
+          );
+        if (
+          call.action === "operation" &&
+          module.operations[call.operation!]?.policy !== "local"
+        )
+          throw new LocalExecutionError(
+            "LOCAL_ONLY",
+            "This operation requires server execution.",
+          );
+        if (attemptId && !receipt) {
+          await commit(
+            {
+              ...data,
+              attempts: {
+                ...data.attempts,
+                [attemptId]: {
+                  moduleId: module.id,
+                  moduleVersion: module.version,
+                  title: module.operations[call.operation!].title,
+                  call,
+                  configuration,
+                  createdAt: previous?.createdAt ?? Date.now(),
+                  state: "pending",
+                },
+              },
+            },
+            options.signal,
+          );
+        }
         const prefix = module.id + "/";
         const snapshot = {
           records: Object.fromEntries(
@@ -341,63 +416,140 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           ),
           receipts: data.receipts?.[module.id] ?? {},
         };
-        const result = await worker.run(
-          module,
-          {
-            profileId: vault.id,
-            call,
-            configuration:
-              options.configuration ??
-              receiptConfiguration ??
-              release?.configuration ??
-              {},
-            snapshot,
-          },
-          {
-            ...options,
-            artifact: release
-              ? { package: release.package, publicKey: release.publicKey }
-              : undefined,
-          },
-        );
-        if (!unlocked)
-          throw new LocalExecutionError(
-            "PROFILE_LOCKED",
-            "Unlock the local profile.",
-          );
-        if (options.signal?.aborted)
-          throw new LocalExecutionError(
-            "LOCAL_CANCELLED",
-            "The local operation was cancelled.",
-          );
-        if (!["get", "list"].includes(call.action)) {
-          const next: LocalData = {
-            ...data,
-            records: {
-              ...data.records,
-              ...Object.fromEntries(
-                Object.entries(result.snapshot.records).map(([name, rows]) => [
-                  prefix + name,
-                  rows,
-                ]),
-              ),
+        try {
+          const result = await worker.run(
+            module,
+            {
+              profileId: vault.id,
+              call,
+              configuration,
+              snapshot,
             },
-            receipts: {
-              ...data.receipts,
-              [module.id]: result.snapshot.receipts,
+            {
+              ...options,
+              artifact: release
+                ? { package: release.package, publicKey: release.publicKey }
+                : undefined,
             },
-          };
-          await commit(next, options.signal);
+          );
+          if (!unlocked)
+            throw new LocalExecutionError(
+              "PROFILE_LOCKED",
+              "Unlock the local profile.",
+            );
+          if (options.signal?.aborted)
+            throw new LocalExecutionError(
+              "LOCAL_CANCELLED",
+              "The local operation was cancelled.",
+            );
+          if (!["get", "list"].includes(call.action)) {
+            const next: LocalData = {
+              ...data,
+              ...(attemptId && data.attempts?.[attemptId]
+                ? {
+                    attempts: {
+                      ...data.attempts,
+                      [attemptId]: {
+                        ...data.attempts[attemptId],
+                        state: "accepted",
+                        error: undefined,
+                      },
+                    },
+                  }
+                : {}),
+              records: {
+                ...data.records,
+                ...Object.fromEntries(
+                  Object.entries(result.snapshot.records).map(
+                    ([name, rows]) => [prefix + name, rows],
+                  ),
+                ),
+              },
+              receipts: {
+                ...data.receipts,
+                [module.id]: result.snapshot.receipts,
+              },
+            };
+            await commit(next, options.signal);
+          }
+          if (!unlocked)
+            throw new LocalExecutionError(
+              "PROFILE_LOCKED",
+              "Unlock the profile and retry the same request to recover its outcome.",
+            );
+          return result.result;
+        } catch (error) {
+          if (
+            attemptId &&
+            unlocked &&
+            data.attempts?.[attemptId]?.state === "pending"
+          ) {
+            const code = (error as { code?: string }).code;
+            const rejected = [
+              "MODULE_BUSINESS_ERROR",
+              "INVALID_INPUT",
+              "VERSION_CONFLICT",
+              "NOT_FOUND",
+              "RECORD_ARCHIVED",
+              "APPEND_ONLY",
+              "LOCAL_ONLY",
+              "LOCAL_SCOPE_DENIED",
+              "IDEMPOTENCY_CONFLICT",
+              "INVALID_LOCAL_ACTION",
+            ].includes(code ?? "");
+            // Preserve pending input if storage itself fails. Never conceal the original error.
+            await commit({
+              ...data,
+              attempts: {
+                ...data.attempts,
+                [attemptId]: {
+                  ...data.attempts[attemptId],
+                  state: rejected ? "rejected" : "interrupted",
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : "The local operation could not finish.",
+                },
+              },
+            }).catch(() => {});
+          }
+          throw error;
         }
-        if (!unlocked)
-          throw new LocalExecutionError(
-            "PROFILE_LOCKED",
-            "Unlock the profile and retry the same request to recover its outcome.",
-          );
-        return result.result;
       });
       tail = task.catch(() => {});
       return task;
+    },
+    retry(attemptId, options) {
+      const attempt = data.attempts?.[attemptId];
+      if (!attempt)
+        return Promise.reject(
+          Error("This local request is no longer available."),
+        );
+      const release =
+        data.modules?.[attempt.moduleId]?.releases[attempt.moduleVersion];
+      const module = release
+        ? hydrateModule(moduleContract(release.package.artifact))
+        : bundledModuleDefinitions.find(
+            (m) =>
+              m.id === attempt.moduleId && m.version === attempt.moduleVersion,
+          );
+      if (!module)
+        return Promise.reject(
+          Error(
+            "Restore this request's module release before retrying. Its input is preserved.",
+          ),
+        );
+      return current.execute(module, attempt.call, {
+        ...options,
+        configuration: attempt.configuration,
+      });
+    },
+    dismiss(attemptId) {
+      return enqueue(async () => {
+        const attempts = { ...data.attempts };
+        delete attempts[attemptId];
+        await commit({ ...data, attempts });
+      });
     },
     lock() {
       unlocked = undefined;
@@ -470,7 +622,7 @@ export function installedLocalModules(data: LocalData): ModuleDefinition[] {
 
 /** Bundled defaults and installed releases, excluding explicit removals. */
 export function availableLocalModules(data: LocalData): ModuleDefinition[] {
-  const available = new Map(moduleDefinitions.map((m) => [m.id, m]));
+  const available = new Map(bundledModuleDefinitions.map((m) => [m.id, m]));
   for (const [id, installation] of Object.entries(data.modules ?? {}))
     if (!installation.active) available.delete(id);
   for (const module of installedLocalModules(data))

@@ -4,7 +4,11 @@ import m0 from "../../../modules/contacts/module";
 import m1 from "../../../modules/inventory/module";
 import m2 from "../../../modules/orders/module";
 import m3 from "../../../modules/projects/module";
-export const moduleDefinitions: ModuleDefinition[] = [m0, m1, m2, m3];
+export const bundledModuleDefinitions: readonly ModuleDefinition[] =
+  Object.freeze([m0, m1, m2, m3]);
+export const moduleDefinitions: ModuleDefinition[] = [
+  ...bundledModuleDefinitions,
+];
 export const bundledModuleIds: readonly string[] = Object.freeze(
   moduleDefinitions.map((m) => m.id),
 );
