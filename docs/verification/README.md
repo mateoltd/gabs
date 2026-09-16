@@ -333,3 +333,7 @@ Prior `a7a346c` / [CI 35154833179](https://github.com/mateoltd/gabs/actions/runs
 ## Typed structured schema forms, 17 September 2026
 
 [SDK-04 form evidence](schema-forms/README.md) records public inferred draft/validation contracts, recursive form controls, invalid-input preservation, contained custom-view dropdowns, and exact nested data accepted through Electron into PostgreSQL. 25 focused tests, strict checks/four builds, 21 distinct headless journeys across correction runs and four minimized native cases passed. Wide/narrow/native captures and scoped Axe checks were reviewed. Lifecycle setup and staged-update waits were corrected after tracing failures; load budgets and business assertions were not changed. SDK-04 remains active for generated documentation, tables/filtering/pagination, references and further composability. Full remote acceptance, parity and final UI approval remain open.
+
+## Schema-derived module references, 17 September 2026
+
+[SDK-04 documentation evidence](module-documentation/README.md) covers complete contract references, CLI/build output parity, drift detection and metadata escaping. 20 focused tests, strict checks and four builds passed; final documentation checks passed after section-navigation and escaping review. Generated examples for all four applications and an independent service consumer compile against their real definitions. No application UI changed. SDK-04 remains active for generated tables/filtering/pagination, references and wider composability.

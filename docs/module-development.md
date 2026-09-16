@@ -7,6 +7,8 @@ pnpm module dev ./path/to/module --dependency ./path/to/provider
 
 The command prints a loopback URL, normally `http://127.0.0.1:4321`. Set `MODULE_DEV_PORT` to select a different port. An independent directory needs no catalog, navigation or host edits.
 
+Use [typed schema forms](module-forms.md) in custom views and [generated module references](module-documentation.md) to review schemas, permissions, services and compatibility. `pnpm module docs <module-id-or-directory>` prints the complete reference without requiring a signed build.
+
 ## Authoring loop
 
 The workspace checks the module's own TypeScript graph, validates fixture/configuration schemas and dependency compatibility, and builds custom React views with the same public bundle builder used for module releases. Views share the host React instance and public UI kit. Choose any manifest-declared view from the preview selector; styles stay in the existing Shadow DOM container.

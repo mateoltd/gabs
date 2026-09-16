@@ -1,5 +1,6 @@
 import { buildLocalBundle } from "../packages/module-sdk/node/build-local";
 import { requiresServer } from "@suite/module-sdk/local-artifact";
+import { renderModuleDocumentation } from "@suite/module-sdk/documentation";
 import { buildClientViews } from "../packages/module-sdk/node/build-client";
 import { buildServerPackage } from "../packages/module-sdk/node/build-server";
 import {
@@ -16,7 +17,7 @@ import {
 } from "./module-workspace";
 import "dotenv/config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { generateKeyPairSync } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -206,6 +207,58 @@ if (command === "keygen") {
     }
   }
   console.log(`${directories.length} module definitions validated.`);
+} else if (command === "docs") {
+  const output = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
+  const flags = output ? args.slice(1) : args;
+  if (
+    !name ||
+    flags.length > 1 ||
+    flags.some((flag) => !["--check", "--update"].includes(flag)) ||
+    (flags.length && !output)
+  )
+    throw Error(
+      "Usage: pnpm module docs <module-id-or-directory> [output.md [--check|--update]]",
+    );
+  const directory = moduleDirectory(name);
+  await checkModuleSources(directory);
+  const { module } = await loadModuleWorkspace(directory);
+  const reference = renderModuleDocumentation(module);
+  if (!output) process.stdout.write(reference);
+  else if (flags.includes("--check")) {
+    let saved: string;
+    try {
+      saved = await readFile(resolve(output), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw Error(
+          "No module documentation exists at this path. Generate it without --check first.",
+        );
+      throw error;
+    }
+    if (saved !== reference)
+      throw Error(
+        "Module documentation is stale. Review the contract change, then regenerate with --update.",
+      );
+    console.log(
+      `Verified module documentation for ${module.id}@${module.version}.`,
+    );
+  } else {
+    await mkdir(dirname(resolve(output)), { recursive: true });
+    try {
+      await writeFile(resolve(output), reference, {
+        flag: flags.includes("--update") ? "w" : "wx",
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST")
+        throw Error(
+          "Module documentation already exists. Use --check to verify it or --update after reviewing the contract change.",
+        );
+      throw error;
+    }
+    console.log(
+      `Generated module documentation for ${module.id}@${module.version} at ${output}.`,
+    );
+  }
 } else if (command === "services") {
   if (!name || !args[0])
     throw Error(
@@ -293,14 +346,7 @@ if (command === "keygen") {
   }
   await writeFile(
     path.replace(".json", ".md"),
-    `# ${module.name}\n\n${module.description}\n\nVersion: ${module.version}\n\n## Resources\n${Object.entries(
-      module.resources,
-    )
-      .map(
-        ([id, r]) =>
-          `- ${id}: ${r.policy}, fields ${Object.keys(r.schema.properties).join(", ")}`,
-      )
-      .join("\n")}\n`,
+    renderModuleDocumentation(module),
   );
   console.log(path);
 } else if (
@@ -384,5 +430,5 @@ if (command === "keygen") {
   console.log(JSON.stringify(pkg.manifest, null, 2));
 } else
   throw Error(
-    "Commands: create, dev, check, test, services, keygen, build, submit, submissions, review, stage, publish, inspect, console",
+    "Commands: create, dev, check, test, docs, services, keygen, build, submit, submissions, review, stage, publish, inspect, console",
   );
