@@ -27,7 +27,7 @@ export async function resolveWorkspaceRelease(
 ) {
   const releases = await tx
     .selectFrom("suite.module_releases")
-    .selectAll()
+    .select(["module_id", "version", "manifest"])
     .execute();
   if (allowUnpublishedBuiltin && !releases.some((r) => r.module_id === id))
     return [];
@@ -54,11 +54,27 @@ export async function resolveWorkspaceRelease(
   } catch (error) {
     throw new AppError(409, "RELEASE_INCOMPATIBLE", (error as Error).message);
   }
+  // Resolve with compact metadata; unrelated executable bundles must never be
+  // transferred and parsed on a business request's authorization path.
+  const packages = await tx
+    .selectFrom("suite.module_releases")
+    .selectAll()
+    .where((eb) =>
+      eb.or(
+        plan.map((item) =>
+          eb.and([
+            eb("module_id", "=", item.id),
+            eb("version", "=", item.version),
+          ]),
+        ),
+      ),
+    )
+    .execute();
   const publicKey = await registryPublicKey();
   return plan.map((item) =>
     verifyPackage(
       found(
-        releases.find(
+        packages.find(
           (r) => r.module_id === item.id && r.version === item.version,
         ),
       ),

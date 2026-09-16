@@ -135,3 +135,7 @@ Final local verification: 63 unit/integration tests, 55 Chromium journeys, 5 Ele
 ## 16 September 2026: administrator activation of new modules
 
 The existing-company activation journey now verifies configuration, entitlement rejection, employee visibility, dynamic permissions, member assignment and independently deployed server behavior. Full local acceptance passed 63 unit/PostgreSQL tests, 56 Chromium journeys, 5 Electron journeys, all builds and formatting. [Scope, screenshots and limits](module-activation/README.md). EXT-02 and the overall parity goal remain active; the publisher review interface, migration recovery and other release gates are still open.
+
+## 16 September 2026: registry resolution query scope
+
+Release resolution now fetches selected executable packages after resolving metadata. Local load, integrity and authorization regression evidence is recorded in [registry resolution](registry-resolution/README.md). Remote CI performance remains unverified; targets were not relaxed.

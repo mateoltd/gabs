@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-09-16T02:34:16.457Z",
+  "dataset": {
+    "orders": 1000,
+    "linesPerOrder": 1,
+    "products": 1
+  },
+  "clients": 50,
+  "samplesPerOperation": 50,
+  "transport": "HTTP loopback, 50 concurrent clients, one shared authorized actor, same stock row",
+  "node": "v24.19.0",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "cores": 11,
+    "memoryGiB": 18
+  },
+  "database": "PostgreSQL 18.6 in local Docker; pool max 20",
+  "p95Ms": {
+    "ordersRead": 168,
+    "orderConfirmation": 300
+  },
+  "targetsMs": {
+    "ordersRead": 500,
+    "orderConfirmation": 1000
+  }
+}

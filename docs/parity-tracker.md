@@ -179,3 +179,8 @@ Future entries: task IDs, user-visible outcome, exact verification and limitatio
 - EXT-02 remains active for the protected publisher review interface and remaining release acceptance. Per-module migrations remain next under EXT-03; the later UI-refinement goal remains queued.
 
 - Final activation milestone verification: 63 unit/PostgreSQL tests, 56 browser journeys, 5 Electron journeys, all four builds and formatting passed. Wide/narrow assignment and custom-view evidence was inspected. Remote CI must still confirm the changes; the prior latency gate remains open.
+
+### 16 September 2026: bounded executable reads during authorization
+
+- Investigated the outstanding CI latency gate. Release selection fetched the whole executable registry on each module authorization. It now resolves compact manifests and loads only exact selected packages, retaining checksum/signature verification and current permission/entitlement checks.
+- Local 50-client p95 order reads changed from 318 to 168 ms; confirmation changed from 372 to 300 ms. All 63 unit/PostgreSQL tests, four builds, two focused signed-installation/activation browser journeys and formatting passed. [Reports and limits](verification/registry-resolution/README.md). These measurements do not close the remote latency gate.
