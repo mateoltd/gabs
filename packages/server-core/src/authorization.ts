@@ -6,6 +6,7 @@ import { moduleDependencies, moduleDefinition } from "@suite/module-catalog";
 import { sql } from "kysely";
 import type { Tx } from "./database";
 import { requireCondition } from "./errors";
+import { resolveWorkspaceRelease } from "./module-releases";
 import type { Permission, ModuleId } from "@suite/contracts";
 export interface Actor {
   id: string;
@@ -43,11 +44,17 @@ export async function authorize(
     "Sign in to continue.",
   );
   const membership = await tx
-    .selectFrom("suite.memberships")
-    .selectAll()
-    .where("workspace_id", "=", workspaceId)
-    .where("user_id", "=", actor.id)
-    .where("active", "=", true)
+    .selectFrom("suite.memberships as m")
+    .innerJoin("suite.workspaces as w", "w.id", "m.workspace_id")
+    .leftJoin("suite.platform_settings as p", (j) =>
+      j
+        .onRef("p.workspace_id", "=", "m.workspace_id")
+        .on("p.key", "=", "organization"),
+    )
+    .select(["m.id", "w.kind", "p.value as policy"])
+    .where("m.workspace_id", "=", workspaceId)
+    .where("m.user_id", "=", actor.id)
+    .where("m.active", "=", true)
     .executeTakeFirst();
   requireCondition(
     membership,
@@ -55,41 +62,27 @@ export async function authorize(
     "MEMBERSHIP_REVOKED",
     "You no longer have access to this workspace.",
   );
-  const roles = await tx
-    .selectFrom("suite.role_assignments as a")
-    .innerJoin("suite.roles as r", (j) =>
+  // Read grants and assignments together, with no cross-request permission cache.
+  const allRoles = await tx
+    .selectFrom("suite.roles as r")
+    .leftJoin("suite.role_assignments as a", (j) =>
       j
         .onRef("a.role_id", "=", "r.id")
-        .onRef("a.workspace_id", "=", "r.workspace_id"),
+        .onRef("a.workspace_id", "=", "r.workspace_id")
+        .on("a.membership_id", "=", membership.id),
     )
-    .select(["r.id", "r.name", "r.permissions"])
-    .where("a.membership_id", "=", membership.id)
-    .where("a.workspace_id", "=", workspaceId)
+    .select(["r.id", "r.name", "r.permissions", "a.membership_id"])
+    .where("r.workspace_id", "=", workspaceId)
     .execute();
-  const policyRow = await tx
-    .selectFrom("suite.platform_settings")
-    .select("value")
-    .where("workspace_id", "=", workspaceId)
-    .where("key", "=", "organization")
-    .executeTakeFirst();
-  const allRoles = await tx
-    .selectFrom("suite.roles")
-    .select(["id", "permissions"])
-    .where("workspace_id", "=", workspaceId)
-    .execute();
+  const roles = allRoles.filter((r) => r.membership_id !== null);
   const permissions = effectivePermissions(
     roles.map((r) => r.id),
     Object.fromEntries(allRoles.map((r) => [r.id, r.permissions])),
-    policyRow?.value as unknown as OrganizationPolicy | undefined,
+    membership.policy as unknown as OrganizationPolicy | undefined,
   ).permissions;
   const roleNames = roles.map((r) => r.name);
-  const workspace = await tx
-    .selectFrom("suite.workspaces")
-    .select("kind")
-    .where("id", "=", workspaceId)
-    .executeTakeFirstOrThrow();
   if (
-    workspace.kind === "company" &&
+    membership.kind === "company" &&
     roleNames.some((n) => n === "Owner" || n === "Administrator")
   )
     requireCondition(
@@ -121,34 +114,42 @@ export async function checkModule(
   membershipId: string,
   moduleId: ModuleId,
 ) {
-  const ids = moduleDependencies(moduleId);
+  const releases = await resolveWorkspaceRelease(
+    tx,
+    workspaceId,
+    moduleId,
+    true,
+  );
+  const ids = releases.length
+    ? releases.map((r) => r.module_id)
+    : moduleDependencies(moduleId);
+  const modules = await tx
+    .selectFrom("suite.module_activations as m")
+    .innerJoin("suite.entitlements as e", (j) =>
+      j
+        .onRef("m.workspace_id", "=", "e.workspace_id")
+        .onRef("m.module_id", "=", "e.module_id"),
+    )
+    .leftJoin("suite.module_assignments as a", (j) =>
+      j
+        .onRef("a.workspace_id", "=", "m.workspace_id")
+        .onRef("a.module_id", "=", "m.module_id")
+        .on("a.membership_id", "=", membershipId),
+    )
+    .select(["m.module_id", "m.state", "e.active", "a.membership_id"])
+    .where("m.workspace_id", "=", workspaceId)
+    .where("m.module_id", "in", ids)
+    .execute();
   for (const id of ids) {
-    const module = await tx
-      .selectFrom("suite.module_activations as m")
-      .innerJoin("suite.entitlements as e", (j) =>
-        j
-          .onRef("m.workspace_id", "=", "e.workspace_id")
-          .onRef("m.module_id", "=", "e.module_id"),
-      )
-      .select(["m.state", "e.active"])
-      .where("m.workspace_id", "=", workspaceId)
-      .where("m.module_id", "=", id)
-      .executeTakeFirst();
+    const module = modules.find((m) => m.module_id === id);
     requireCondition(
       module?.active && module.state === "enabled",
       403,
       "MODULE_UNAVAILABLE",
       `${moduleDefinition(id)?.name ?? id} must be enabled for this action.`,
     );
-    const assignment = await tx
-      .selectFrom("suite.module_assignments")
-      .select("module_id")
-      .where("workspace_id", "=", workspaceId)
-      .where("membership_id", "=", membershipId)
-      .where("module_id", "=", id)
-      .executeTakeFirst();
     requireCondition(
-      assignment,
+      module.membership_id,
       403,
       "MODULE_NOT_ASSIGNED",
       `Request access to ${id} before using this action.`,

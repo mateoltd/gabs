@@ -125,3 +125,9 @@ EXT-01 passed local acceptance: a fifth typed TSX module built/published outside
 ### Registry publication authority, 16 September 2026
 
 Migration 013 revokes registry writes from ordinary application/worker roles. The existing real PostgreSQL distribution test now verifies SQL permission denial before privileged fixture publication and normal API installation. Migration, seed, strict types/boundaries and all 62 tests passed after the change. No UI code changed in this follow-up; the preceding browser/native evidence remains scoped to EXT-01. Reviewed staging/promotion remains open under EXT-02.
+
+## Reviewed independent server releases, 16 September 2026
+
+EXT-02 now has an official CLI submission/review/stage/publish workflow and independently signed server loading. PostgreSQL acceptance verifies immutable review, restricted publication, failed staging, retry deduplication, atomic rejection, current permissions and pinned executable versions. The fifth module exercises client and server publication through the CLI and actual web/native UIs against the compiled API.
+
+Final local verification: 63 unit/integration tests, 55 Chromium journeys, 5 Electron journeys, all builds and formatting; fresh migrations/seed and local logical restore passed. Local p95 reads/confirmation: 212/258 ms against unchanged 500/1000 ms targets. The preceding remote commit failed the read latency target despite passing its browser and all unsigned packaging jobs. [Detailed evidence and remaining limits](module-server-releases/README.md).

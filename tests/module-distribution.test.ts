@@ -1,4 +1,9 @@
 import "dotenv/config";
+import {
+  submitRelease,
+  reviewRelease,
+  publishRelease,
+} from "../tooling/registry-review";
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -50,11 +55,22 @@ describe("Independent module distribution", () => {
       throw Error(
         "The test requires an explicit fixture publisher connection.",
       );
-    const publisher = connectDatabase(process.env.MIGRATION_DATABASE_URL);
+    const publisher = new Pool({
+      connectionString: process.env.MIGRATION_DATABASE_URL,
+    });
     try {
-      await publisher.insertInto("suite.module_releases").values(pkg).execute();
+      const publicKey = await readFile(`${keyDirectory}/public.pem`, "utf8");
+      const submission = await submitRelease(publisher, pkg, null, publicKey);
+      await reviewRelease(
+        publisher,
+        submission,
+        "approved",
+        "Reviewed test fixture",
+        publicKey,
+      );
+      await publishRelease(publisher, submission, publicKey);
     } finally {
-      await publisher.destroy();
+      await publisher.end();
     }
     const server = await createApp({
       db,
@@ -148,6 +164,14 @@ describe("Independent module distribution", () => {
       });
       await admin.query(
         "delete from suite.module_releases where module_id=$1",
+        [id],
+      );
+      await admin.query(
+        "delete from suite.module_review_events where submission_id in (select id from suite.module_submissions where module_id=$1)",
+        [id],
+      );
+      await admin.query(
+        "delete from suite.module_submissions where module_id=$1",
         [id],
       );
       await admin.end();

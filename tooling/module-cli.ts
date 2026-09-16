@@ -1,7 +1,13 @@
 import { buildClientViews } from "../packages/module-sdk/node/build-client";
-import { moduleContract } from "@suite/module-sdk/client-artifact";
+import { buildServerPackage } from "../packages/module-sdk/node/build-server";
+import {
+  submitRelease,
+  reviewRelease,
+  stageRelease,
+  publishRelease,
+} from "./registry-review";
+import type { ServerPackage } from "../packages/module-sdk/node/server-package";
 import { validateFixtures } from "@suite/module-sdk/simulator";
-import { moduleServers } from "@suite/module-catalog/server";
 import "dotenv/config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -10,14 +16,16 @@ import { generateKeyPairSync } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { Pool } from "pg";
 import { identifier, type ModuleDefinition } from "@suite/module-sdk";
-import { canonical, resolveReleases } from "@suite/module-sdk/registry";
+import { resolveReleases } from "@suite/module-sdk/registry";
 import { moduleDefinitions } from "@suite/module-catalog";
+import { moduleServers } from "@suite/module-catalog/server";
+import { canonical } from "@suite/module-sdk/registry";
 import {
   signPackage,
   verifyPackage,
   type SignedPackage,
 } from "../packages/module-sdk/node/signing";
-const [command, name] = process.argv.slice(2);
+const [command, name, ...args] = process.argv.slice(2);
 const keys = process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys";
 const execute = (args: string[]) => {
   const result = spawnSync("pnpm", args, { stdio: "inherit" });
@@ -117,6 +125,24 @@ if (command === "keygen") {
   await mkdir(".local/modules", { recursive: true });
   const path = `.local/modules/${module.id}-${module.version}.json`;
   await writeFile(path, JSON.stringify(pkg, null, 2));
+  if (Object.keys(module.operations).length) {
+    const builtin = moduleServers.find(
+      (server) =>
+        server.kind === "trusted" &&
+        canonical(server.module) === canonical(module),
+    );
+    if (builtin)
+      console.warn(
+        "Built the client package. This legacy trusted backend ships with the host; migrate it to scoped SDK capabilities before independent server publication.",
+      );
+    else {
+      const server = await buildServerPackage(module, directory, key);
+      await writeFile(
+        path.replace(".json", ".server.json"),
+        JSON.stringify(server, null, 2),
+      );
+    }
+  }
   await writeFile(
     path.replace(".json", ".md"),
     `# ${module.name}\n\n${module.description}\n\nVersion: ${module.version}\n\n## Resources\n${Object.entries(
@@ -129,69 +155,79 @@ if (command === "keygen") {
       .join("\n")}\n`,
   );
   console.log(path);
-} else if (command === "publish") {
-  const pkg = JSON.parse(await readFile(name, "utf8")) as SignedPackage;
-  verifyPackage(pkg, await readFile(`${keys}/public.pem`, "utf8"));
-  if (
-    Object.keys((pkg.artifact as unknown as ModuleDefinition).operations)
-      .length &&
-    !moduleServers.some(
-      (server) =>
-        server.module.id === pkg.module_id &&
-        server.module.version === pkg.version &&
-        canonical(server.module) === canonical(moduleContract(pkg.artifact)),
-    )
-  )
+} else if (
+  ["submit", "review", "stage", "publish", "submissions"].includes(command)
+) {
+  const url =
+    process.env.REGISTRY_DATABASE_URL ||
+    (["development", "test"].includes(process.env.NODE_ENV ?? "")
+      ? process.env.MIGRATION_DATABASE_URL
+      : undefined);
+  if (!url)
     throw Error(
-      "Stage a reviewed module-server.ts with the exact signed contract before publication.",
+      "REGISTRY_DATABASE_URL is required for protected release tooling.",
     );
-  const pool = new Pool({
-    connectionString: process.env.MIGRATION_DATABASE_URL,
-  });
-  const client = await pool.connect();
+  const pool = new Pool({ connectionString: url });
   try {
-    await client.query("BEGIN");
-    const old = await client.query(
-      "select digest from suite.module_releases where module_id=$1 and version=$2",
-      [pkg.module_id, pkg.version],
-    );
-    if (old.rowCount && old.rows[0].digest !== pkg.digest)
-      throw Error(
-        "Published versions are immutable. Increment the module version.",
+    const publicKey =
+      process.env.MODULE_SIGNING_PUBLIC_KEY ??
+      (await readFile(`${keys}/public.pem`, "utf8"));
+    if (command === "submit") {
+      const pkg = JSON.parse(await readFile(name, "utf8")) as SignedPackage;
+      const server = args[0]
+        ? (JSON.parse(await readFile(args[0], "utf8")) as ServerPackage)
+        : null;
+      const id = await submitRelease(pool, pkg, server, publicKey);
+      console.log(id);
+    } else if (command === "review") {
+      if (!["approve", "reject"].includes(args[0]) || !args[1]?.trim())
+        throw Error(
+          "Usage: pnpm module review <submission-id> <approve|reject> <reason>",
+        );
+      await reviewRelease(
+        pool,
+        name,
+        args[0] === "approve" ? "approved" : "rejected",
+        args[1],
+        publicKey,
       );
-    await client.query(
-      "insert into suite.module_releases(module_id,version,manifest,digest,signature,key_id,artifact) values($1,$2,$3,$4,$5,$6,$7) on conflict do nothing",
-      [
-        pkg.module_id,
-        pkg.version,
-        pkg.manifest,
-        pkg.digest,
-        pkg.signature,
-        pkg.key_id,
-        pkg.artifact,
-      ],
-    );
-    await client.query(
-      "insert into suite.entitlements(workspace_id,module_id,active) select id,$1,false from suite.workspaces on conflict do nothing",
-      [pkg.module_id],
-    );
-    await client.query(
-      "insert into suite.module_activations(workspace_id,module_id,state,config) select id,$1,'draft','{}' from suite.workspaces on conflict do nothing",
-      [pkg.module_id],
-    );
-    await client.query(
-      "update suite.roles set permissions=ARRAY(SELECT DISTINCT unnest(permissions || $1::text[])) where protected and name in ('Owner','Administrator')",
-      [pkg.manifest.permissions],
-    );
-    await client.query("COMMIT");
-    console.log(
-      `Published ${pkg.module_id}@${pkg.version}. Entitlement and publication remain separate administrator actions.`,
-    );
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
+      console.log(`Review recorded for ${name}.`);
+    } else if (command === "stage") {
+      await stageRelease(pool, name, publicKey);
+      console.log(
+        `Reviewed server staged for ${name}. Client publication remains separate.`,
+      );
+    } else if (command === "publish") {
+      let id = name;
+      if (name.endsWith(".json")) {
+        const pkg = JSON.parse(await readFile(name, "utf8")) as SignedPackage;
+        verifyPackage(pkg, publicKey);
+        const match = await pool.query(
+          "select id from suite.module_submissions where module_id=$1 and version=$2 and client_package->>'digest'=$3",
+          [pkg.module_id, pkg.version, pkg.digest],
+        );
+        if (!match.rows[0])
+          throw Error(
+            "Submit, review and stage this release before publishing it.",
+          );
+        id = match.rows[0].id;
+      }
+      const pkg = await publishRelease(pool, id, publicKey);
+      console.log(
+        `Published ${pkg.module_id}@${pkg.version}. Entitlement, configuration and employee publication remain separate administrator actions.`,
+      );
+    } else {
+      const result = name
+        ? await pool.query(
+            "select * from suite.module_submissions where id=$1",
+            [name],
+          )
+        : await pool.query(
+            "select id,module_id,version,publisher_id,state,backend_kind,submitted_by,submitted_at,reviewed_by,review_reason,staged_at,client_package->>'digest' as client_digest,server_package->>'digest' as server_digest from suite.module_submissions order by submitted_at desc limit 100",
+          );
+      console.log(JSON.stringify(result.rows, null, 2));
+    }
   } finally {
-    client.release();
     await pool.end();
   }
 } else if (command === "inspect") {
@@ -200,5 +236,5 @@ if (command === "keygen") {
   console.log(JSON.stringify(pkg.manifest, null, 2));
 } else
   throw Error(
-    "Commands: create, dev, check, test, keygen, build, publish, inspect",
+    "Commands: create, dev, check, test, keygen, build, submit, submissions, review, stage, publish, inspect",
   );

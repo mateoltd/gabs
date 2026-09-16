@@ -18,11 +18,14 @@ export async function resolveWorkspaceRelease(
   tx: Tx,
   workspaceId: string,
   id: string,
+  allowUnpublishedBuiltin = false,
 ) {
   const releases = await tx
     .selectFrom("suite.module_releases")
     .selectAll()
     .execute();
+  if (allowUnpublishedBuiltin && !releases.some((r) => r.module_id === id))
+    return [];
   const rows = await tx
     .selectFrom("suite.platform_settings")
     .selectAll()
@@ -63,13 +66,8 @@ export async function workspaceModule(
   workspaceId: string,
   id: string,
 ): Promise<ModuleDefinition> {
-  const published = await tx
-    .selectFrom("suite.module_releases")
-    .select("version")
-    .where("module_id", "=", id)
-    .executeTakeFirst();
-  if (!published) return found(moduleDefinition(id));
-  const plan = await resolveWorkspaceRelease(tx, workspaceId, id);
+  const plan = await resolveWorkspaceRelease(tx, workspaceId, id, true);
+  if (!plan.length) return found(moduleDefinition(id));
   return hydrateModule(
     found(plan.find((p) => p.module_id === id))
       .artifact as unknown as ModuleDefinition,

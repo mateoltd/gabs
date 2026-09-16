@@ -13,3 +13,7 @@ Custom CSS and the host UI styles mount inside Shadow DOM with an explicit reset
 ## Acceptance
 
 Build an independently authored fifth module with custom TSX, sign/publish/install it without modifying host registries, save and reload a record, and show that host styles remain unchanged. Reject modified code/CSS, mismatched declarations, unknown formats and untrusted signatures. Verify typed contract failures and real browser/Electron execution. Complete update/pin/migration acceptance, failure-containment journeys and hosted trust rotation retain their separate lifecycle/framework gates. Custom queued offline execution remains open in SDK/OFF work; this implementation does not claim full framework acceptance.
+
+## Reviewed server components
+
+Custom views can call schema-inferred module operations through the same client. Modules with scoped server handlers now build a separate signed server package and follow the [submission/review/staging workflow](module-server-releases.md) before client publication. The browser never downloads the server package. The fifth-module fixture exercises this complete local path in Chromium and Electron.

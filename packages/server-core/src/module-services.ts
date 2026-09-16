@@ -11,6 +11,7 @@ import { found, requireCondition } from "./errors";
 import { workspaceModule } from "./module-releases";
 import { executeResource, type ResourceCommand } from "./module-runtime";
 import { audit, publish } from "./transactions";
+import { stagedModuleServer } from "./staged-module-server";
 export type InstalledModuleServer =
   ScopedModuleServer | TrustedModuleServer<{ tx: Tx; ctx: Context }>;
 
@@ -51,9 +52,7 @@ export async function executeModuleOperation(
       "SERVICE_CYCLE",
       "A cyclic or excessively deep service call was rejected.",
     );
-    const server = servers.find(
-      (s) => s.module.id === module.id && s.module.version === module.version,
-    );
+    const server = await stagedModuleServer(tx, module, servers);
     requireCondition(
       server,
       409,

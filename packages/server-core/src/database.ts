@@ -11,6 +11,19 @@ type Time = ColumnType<Date, Date | string | undefined, Date | string>;
 type Base = { id: string; created_at: Time };
 type Tenant = { workspace_id: string };
 export interface Database {
+  "suite.module_publishers": { id: string; name: string; status: string };
+  "suite.module_submissions": {
+    id: string;
+    module_id: string;
+    version: string;
+    publisher_id: string;
+    client_package: import("../../module-sdk/node/signing").SignedPackage;
+    server_package:
+      import("../../module-sdk/node/server-package").ServerPackage | null;
+    backend_kind: "none" | "bundled" | "builtin";
+    state: "pending" | "approved" | "rejected" | "published";
+    staged_at: Time | null;
+  };
   "suite.stock_counts": Tenant &
     Base & {
       product_id: string;

@@ -27,8 +27,7 @@ export default defineView(module, function Notes({ client, online }) {
           setBusy(true);
           setError(undefined);
           void client
-            .resource("notes")
-            .create({ name })
+            .call("capture", { name })
             .then(async () => {
               setName("");
               await refresh();

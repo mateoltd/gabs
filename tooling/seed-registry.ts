@@ -7,9 +7,15 @@ import {
   signPackage,
   verifyPackage,
 } from "../packages/module-sdk/node/signing";
-import type { DB } from "../packages/server-core/src/database";
+import type { Pool } from "pg";
+import {
+  submitRelease,
+  reviewRelease,
+  stageRelease,
+  publishRelease,
+} from "./registry-review";
 /** Local fixtures use local trust roots. Production publishing always uses the explicit CLI. */
-export async function seedRegistry(db: DB) {
+export async function seedRegistry(db: Pool) {
   if (!["development", "test"].includes(process.env.NODE_ENV ?? ""))
     throw Error("Registry fixtures are restricted to development and test.");
   const directory =
@@ -50,20 +56,32 @@ export async function seedRegistry(db: DB) {
   for (const module of releases.values()) {
     const client = await buildClientViews(module, `modules/${module.id}`);
     const pkg = verifyPackage(signPackage(module, privateKey, client), trusted);
-    const old = await db
-      .selectFrom("suite.module_releases")
-      .select("digest")
-      .where("module_id", "=", pkg.module_id)
-      .where("version", "=", pkg.version)
-      .executeTakeFirst();
+    const old = (
+      await db.query(
+        "select digest from suite.module_releases where module_id=$1 and version=$2",
+        [pkg.module_id, pkg.version],
+      )
+    ).rows[0];
     if (old && old.digest !== pkg.digest)
       throw Error(
         `Published ${module.id}@${module.version} changed. Increment its version.`,
       );
-    await db
-      .insertInto("suite.module_releases")
-      .values(pkg)
-      .onConflict((oc) => oc.columns(["module_id", "version"]).doNothing())
-      .execute();
+    if (old) continue;
+    const id = await submitRelease(
+      db,
+      pkg,
+      null,
+      trusted,
+      Object.keys(module.operations).length > 0,
+    );
+    await reviewRelease(
+      db,
+      id,
+      "approved",
+      "Local development fixture from the checked-out host baseline",
+      trusted,
+    );
+    await stageRelease(db, id, trusted, moduleServers);
+    await publishRelease(db, id, trusted);
   }
 }

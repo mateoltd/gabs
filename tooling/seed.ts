@@ -1,3 +1,4 @@
+import { Pool } from "pg";
 import { seedRegistry } from "./seed-registry";
 import { randomUUID } from "node:crypto";
 import {
@@ -18,11 +19,13 @@ export async function seed() {
   try {
     if (!process.env.MIGRATION_DATABASE_URL)
       throw Error("Local registry seeding requires MIGRATION_DATABASE_URL.");
-    const registry = connectDatabase(process.env.MIGRATION_DATABASE_URL);
+    const registry = new Pool({
+      connectionString: process.env.MIGRATION_DATABASE_URL,
+    });
     try {
       await seedRegistry(registry);
     } finally {
-      await registry.destroy();
+      await registry.end();
     }
     const owner = await identify(db, {
       issuer: "development",

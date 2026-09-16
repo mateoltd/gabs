@@ -1,0 +1,15 @@
+{
+  "freshMigrationsAndSeed": "passed",
+  "published": [
+    {
+      "state": "published",
+      "backend_kind": "builtin",
+      "count": "3"
+    },
+    {
+      "state": "published",
+      "backend_kind": "none",
+      "count": "2"
+    }
+  ]
+}
