@@ -5,8 +5,8 @@ import { moduleStorageVersions } from "../../../packages/server-core/src/module-
 import { workspaceModule } from "../../../packages/server-core/src/module-releases";
 import { executeModuleOperation } from "../../../packages/server-core/src/module-services";
 import { assertHostModuleRollout } from "../../../packages/server-core/src/module-rollout";
-import orders from "../../../modules/orders/module";
-import inventory from "../../../modules/inventory/module";
+import orders from "../../../modules/orders/releases/1.1.0/module";
+import inventory from "../../../modules/inventory/releases/1.2.0/module";
 
 /** Transitional host routes use the selected module's public queries after cutover. */
 export async function businessQuery(

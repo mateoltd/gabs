@@ -3,7 +3,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import type { Logger } from "kysely";
 
 /** Opt-in fixture diagnostics. Never record SQL parameters or expose an inspector port. */
-export function createLoadDiagnostics() {
+export function createLoadDiagnostics(
+  phase: "reads" | "confirmations" = "reads",
+) {
   const directory = "docs/verification/load-diagnostics";
   const session = new Session();
   const queries = new Map<
@@ -42,11 +44,11 @@ export function createLoadDiagnostics() {
         const { profile } = await session.post("Profiler.stop");
         await mkdir(directory, { recursive: true });
         await writeFile(
-          `${directory}/reads.cpuprofile`,
+          `${directory}/${phase}.cpuprofile`,
           JSON.stringify(profile),
         );
         await writeFile(
-          `${directory}/queries.json`,
+          `${directory}/${phase === "reads" ? "queries" : "confirmation-queries"}.json`,
           JSON.stringify(
             [...queries]
               .map(([sql, times]) => ({ sql, ...times }))

@@ -1,0 +1,21 @@
+{
+  "recordedAt": "2026-09-16T18:29:19.025Z",
+  "schemas": [
+    {
+      "module_id": "inventory",
+      "schema_version": 2,
+      "release_version": "2.0.0"
+    },
+    {
+      "module_id": "orders",
+      "schema_version": 2,
+      "release_version": "2.0.0"
+    }
+  ],
+  "counts": {
+    "historical_orders": "0",
+    "historical_products": "0",
+    "scoped_orders": "6",
+    "scoped_products": "8"
+  }
+}

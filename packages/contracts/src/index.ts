@@ -39,12 +39,14 @@ export const ROLE_PRESETS: Record<string, readonly Permission[]> = {
     "orders.edit",
     "orders.confirm",
     "orders.cancel",
+    "inventory.reservations.write",
     "inventory.availability.read",
     ...PERMISSIONS.filter((p) => p.startsWith("contacts.")),
   ],
   Warehouse: [
     "orders.read",
     "orders.fulfill",
+    "inventory.reservations.write",
     "inventory.read",
     "inventory.availability.read",
     "inventory.products.manage",
@@ -53,6 +55,14 @@ export const ROLE_PRESETS: Record<string, readonly Permission[]> = {
   ],
   Viewer: PERMISSIONS.filter((p) => p.endsWith(".read")),
 };
+/** Reviewed product onboarding template, independent of publisher-requested services. */
+export const DEFAULT_SERVICE_GRANTS = [
+  {
+    source: "orders",
+    target: "inventory",
+    services: ["resolve-products", "reserve", "release", "consume"],
+  },
+] as const;
 export const BUSINESS_PERMISSIONS = PERMISSIONS.filter(
   (p) =>
     !PLATFORM_PERMISSIONS.includes(p as (typeof PLATFORM_PERMISSIONS)[number]),

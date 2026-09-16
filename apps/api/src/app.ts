@@ -1,13 +1,14 @@
+import { assertModuleStorage } from "../../../packages/server-core/src/module-storage";
 import { businessQuery } from "./business-queries";
 import { registerWorkspacePolicy } from "./workspace-policy";
-import ordersDefinition from "../../../modules/orders/module";
+import ordersDefinition from "../../../modules/orders/releases/1.1.0/module";
 import { moduleServers } from "@suite/module-catalog/server";
 import {
   assertHostModuleRollout,
   validateConfiguredRollouts,
 } from "../../../packages/server-core/src/module-rollout";
 import { ModuleBusinessError } from "@suite/module-sdk/server";
-import inventoryDefinition from "../../../modules/inventory/module";
+import inventoryDefinition from "../../../modules/inventory/releases/1.2.0/module";
 import { registerBilling } from "./billing";
 import { registerPlatform } from "./platform";
 import { ValidationError } from "@suite/module-sdk";
@@ -500,6 +501,7 @@ export async function createApp(
           currency: input.currency,
           userId: req.actor.id,
           kind: "company",
+          requestId: req.id,
         });
       });
     },
@@ -617,15 +619,19 @@ export async function createApp(
               if (
                 options.hostStorageBridge !== false &&
                 (options.module === "orders" || options.module === "inventory")
-              )
+              ) {
+                const legacy =
+                  options.module === "orders"
+                    ? ordersDefinition
+                    : inventoryDefinition;
                 await assertHostModuleRollout(
                   tx,
                   ctx.workspaceId,
-                  options.module === "orders"
-                    ? ordersDefinition
-                    : inventoryDefinition,
+                  legacy,
                   moduleServers,
                 );
+                await assertModuleStorage(tx, ctx.workspaceId, legacy);
+              }
               return options.handler(tx, ctx, req, reply);
             };
             if (

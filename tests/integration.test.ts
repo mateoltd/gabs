@@ -1,3 +1,4 @@
+import { provisionLegacyWorkspace as provisionWorkspace } from "./fixtures/legacy-workspace";
 import "dotenv/config";
 import type { OrganizationPolicy } from "@suite/module-sdk/governance";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
@@ -9,7 +10,6 @@ import {
   connectDatabase,
   identify,
   inWorkspace,
-  provisionWorkspace,
   authorize,
   assignModules,
   type Actor,

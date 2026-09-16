@@ -11,7 +11,7 @@ React and TypeScript run in the web client and Electron renderer. Corporate writ
 - `apps/api/src/platform.ts`: generic resources, typed business operation dispatch, organization policy, installation and artifact delivery.
 - `packages/server-core/src/module-runtime.ts`: workspace-scoped resources, revisions, conflict merging and reference grants.
 - `packages/app-web/src/module-view.tsx`: generated resource screens with forms, search, pagination, archive and provisional changes.
-- `modules/contacts`, `modules/projects`: declarative applications with generated screens. Orders and Inventory use SDK operation handlers around their transactional business services and retain their richer existing screens.
+- `modules/contacts`, `modules/projects`: declarative applications with generated screens. Orders and Inventory use scoped SDK handlers with private stores and declared cross-module services, while retaining their richer existing screens.
 
 ### Authoring
 
@@ -55,7 +55,7 @@ Set `serviceOnly: true` alongside `public: true` when only declared module consu
 
 Declare module-local actions such as `audit: ["order.confirmed"]`; `await ctx.audit("order.confirmed", orderId)` infers the action name and writes an audit prefixed by the module ID. Audit calls are server capabilities and share the operation transaction. Invalid caught or detached audit calls still abort it.
 
-Default Orders and Inventory releases retain their `defineTrustedModuleServer` SQL bridges. Independently signed [Inventory](verification/inventory-sdk/README.md) and [Orders](verification/orders-sdk/README.md) 2.0 candidates now use scoped SDK capabilities. Read models, client adapters and authoritative relational-data conversion still precede their coordinated rollout. Trusted official code is not a hostile-code sandbox.
+Default Orders and Inventory 2.0 releases use scoped SDK capabilities. New workspaces initialize their empty schema-2 namespaces with an auditable trusted onboarding template, including reviewed cross-module service grants. Archived Inventory 1.2 and Orders 1.1 trusted bridges remain for existing schema-1 workspaces and historical receipt recovery until reviewed conversion. [Default release acceptance](verification/business-defaults/README.md) covers fresh web/native journeys, role permissions and storage boundaries. Trusted official code is not a hostile-code sandbox.
 
 Export an exact typed provider contract into the consumer package:
 
@@ -157,7 +157,7 @@ The registry distributes signed contracts, custom React bundles and scoped serve
 
 While a workspace uses the historical business storage, administrators use **Modules → Upgrade business modules** to select published schema-2 releases, explicitly add introduced role permissions and grant the required Inventory services. **Review upgrade** is read-only and checks releases, staged backends, current access, configuration and source consistency. Resolve reported access/denial issues before applying. A changed policy invalidates the review.
 
-**Apply reviewed upgrade** commits selected permissions, service grants and both data migrations together, makes the selected client releases mandatory, and preserves source history. Failed conversion rolls everything back. After an uncertain response, **Retry upgrade** reuses the exact request; reloading also retrieves the durable completion state. Old clients must update and cannot commit against preserved source tables. Offline cached access lasts only through the existing lease. See [acceptance and limits](verification/business-cutover/README.md). Default releases have not yet been promoted to these scoped candidates.
+**Apply reviewed upgrade** commits selected permissions, service grants and both data migrations together, makes the selected client releases mandatory, and preserves source history. Failed conversion rolls everything back. After an uncertain response, **Retry upgrade** reuses the exact request; reloading also retrieves the durable completion state. Old clients must update and cannot commit against preserved source tables. Offline cached access lasts only through the existing lease. See [acceptance and limits](verification/business-cutover/README.md). New workspaces already use these scoped defaults; existing schema-1 workspaces require this explicit administrator upgrade. Production onboarding still requires entitlements and publication before runtime availability.
 
 ## Offline and local work
 

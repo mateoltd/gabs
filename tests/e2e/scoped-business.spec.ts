@@ -1,3 +1,4 @@
+import { provisionLegacyWorkspace as provisionWorkspace } from "../fixtures/legacy-workspace";
 import AxeBuilder from "@axe-core/playwright";
 import "dotenv/config";
 import { test, expect } from "@playwright/test";
@@ -7,12 +8,11 @@ import { createModuleClient, type ModuleCall } from "@suite/module-sdk";
 import {
   connectDatabase,
   inWorkspace,
-  provisionWorkspace,
   type Actor,
 } from "../../packages/server-core/src";
 import { scopedBusinessFixture } from "../fixtures/scoped-business";
-import legacyInventory from "../../modules/inventory/module";
-import legacyOrders from "../../modules/orders/module";
+import legacyInventory from "../../modules/inventory/releases/1.2.0/module";
+import legacyOrders from "../../modules/orders/releases/1.1.0/module";
 import { selectValue } from "./controls.helpers";
 
 test("migrated business screens use their verified release for stock, orders, conflicts and offline drafts", async ({

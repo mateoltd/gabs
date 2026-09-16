@@ -1,6 +1,6 @@
 import type { ModuleDefinition } from "@suite/module-sdk";
 import { Table } from "@suite/ui-web";
-import moduleDefinition from "../module";
+import moduleDefinition from "../releases/1.1.0/module";
 import { useToast, Tooltip } from "@suite/ui-web";
 import { Input, Select, SelectOption, NumberInput } from "@suite/ui-web";
 import { useSearchParams } from "react-router";

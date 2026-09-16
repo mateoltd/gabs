@@ -1,3 +1,4 @@
+import { provisionLegacyWorkspace as provisionWorkspace } from "./fixtures/legacy-workspace";
 import {
   reviewBusinessCutover,
   applyBusinessCutover,
@@ -20,8 +21,8 @@ import {
 import { defineModuleServer } from "@suite/module-sdk/server";
 import { registerModule } from "@suite/module-catalog";
 import { moduleServers } from "@suite/module-catalog/server";
-import legacyOrders from "../modules/orders/module";
-import legacyInventory from "../modules/inventory/module";
+import legacyOrders from "../modules/orders/releases/1.1.0/module";
+import legacyInventory from "../modules/inventory/releases/1.2.0/module";
 import { migrateLegacyBusinessStorage } from "../packages/server-core/src/legacy-business-migration";
 import { sql } from "kysely";
 import ordersCandidate from "../modules/orders/releases/2.0.0/module";
@@ -39,7 +40,6 @@ import {
   connectDatabase,
   identify,
   inWorkspace,
-  provisionWorkspace,
   authorize,
   type Actor,
 } from "../packages/server-core/src";

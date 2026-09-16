@@ -56,9 +56,10 @@ const serverCatalog = `// Generated reviewed server entry points. Never import t
 import type {ScopedModuleServer,TrustedModuleServer} from '@suite/module-sdk/server';
 import type {Tx,Context} from '../../server-core/src';
 ${servers.map((d, i) => `import s${i} from '../../../modules/${d}';`).join("\n")}
-export const moduleServers:Array<ScopedModuleServer|TrustedModuleServer<{tx:Tx;ctx:Context}>>=[${servers.map((_, i) => `s${i}`).join(",")}];
-const identities=new Set<string>();
-for(const server of moduleServers){const key=server.module.id+'@'+server.module.version;if(identities.has(key))throw Error('Duplicate staged backend: '+key);identities.add(key);}
+const staged:Array<ScopedModuleServer|TrustedModuleServer<{tx:Tx;ctx:Context}>>=[${servers.map((_, i) => `s${i}`).join(",")}];
+const identities=new Map<string,(typeof staged)[number]>();
+for(const server of staged){const key=server.module.id+'@'+server.module.version;const previous=identities.get(key);if(previous && previous!==server)throw Error('Duplicate staged backend: '+key);identities.set(key,server);}
+export const moduleServers=[...identities.values()];
 `;
 for (const [path, source] of [
   ["index", catalog],
@@ -73,5 +74,5 @@ for (const [path, source] of [
   if (previous !== output) await writeFile(file, output);
 }
 console.log(
-  `Discovered ${modules.length} modules and ${servers.length} staged backends.`,
+  `Discovered ${modules.length} modules and ${servers.length} server entry points.`,
 );

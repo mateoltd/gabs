@@ -1,3 +1,4 @@
+import { provisionLegacyWorkspace as provisionWorkspace } from "./fixtures/legacy-workspace";
 import "dotenv/config";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -8,7 +9,6 @@ import {
   connectDatabase,
   identify,
   inWorkspace,
-  provisionWorkspace,
 } from "../packages/server-core/src";
 const db = connectDatabase();
 let server: Awaited<ReturnType<typeof createApp>>,
@@ -445,8 +445,11 @@ describe("Subscription authority", () => {
 describe("Typed business operations", () => {
   it("reserves atomically and makes SDK fulfillment retries idempotent", async () => {
     const { createModuleClient } = await import("@suite/module-sdk");
-    const inventory = (await import("../modules/inventory/module")).default;
-    const orders = (await import("../modules/orders/module")).default;
+    const inventory = (
+      await import("../modules/inventory/releases/1.2.0/module")
+    ).default;
+    const orders = (await import("../modules/orders/releases/1.1.0/module"))
+      .default;
     const send = async (call: import("@suite/module-sdk").ModuleCall) => {
       const res = await server.app.inject({
         method: "POST",
@@ -514,7 +517,9 @@ describe("Typed business operations", () => {
 describe("Physical stock counts and pinned backends", () => {
   it("rejects stale counts, preserves reservations, and records a zero-variance count once", async () => {
     const { createModuleClient } = await import("@suite/module-sdk");
-    const inventory = (await import("../modules/inventory/module")).default;
+    const inventory = (
+      await import("../modules/inventory/releases/1.2.0/module")
+    ).default;
     const send = async (call: import("@suite/module-sdk").ModuleCall) => {
       const response = await server.app.inject({
         method: "POST",

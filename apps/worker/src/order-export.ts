@@ -3,7 +3,7 @@ import { assertSchema, Type, type Static } from "@suite/module-sdk";
 import { moduleServers } from "@suite/module-catalog/server";
 import { orderExportRows } from "@suite/orders/server";
 import { requireCondition, type Context, type Tx } from "@suite/server-core";
-import legacyOrders from "../../../modules/orders/module";
+import legacyOrders from "../../../modules/orders/releases/1.1.0/module";
 import orders from "../../../modules/orders/releases/2.0.0/module";
 import { workspaceModule } from "../../../packages/server-core/src/module-releases";
 import { assertHostModuleRollout } from "../../../packages/server-core/src/module-rollout";

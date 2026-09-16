@@ -1,6 +1,6 @@
 import type { ModuleDefinition } from "@suite/module-sdk";
 import scopedDefinition from "../releases/2.0.0/module";
-import moduleDefinition from "../module";
+import moduleDefinition from "../releases/1.2.0/module";
 import { useToast } from "@suite/ui-web";
 import {
   Checkbox,

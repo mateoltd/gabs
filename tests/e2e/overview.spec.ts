@@ -222,7 +222,7 @@ test("overview summary and keyboard tabs switch the same order table", async ({
     exact: true,
   });
   await expect(
-    panel.getByRole("link", { name: /^Open order 1004/ }),
+    panel.getByRole("link", { name: /^Open order \d+ for Atelier Nord$/ }),
   ).toBeVisible();
   await expect(panel.getByRole("row").nth(1)).toContainText("Confirmed");
   await ready.press("ArrowRight");

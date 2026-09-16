@@ -66,11 +66,12 @@ try {
     throw Error("Restored module schema history is inconsistent");
   const sdkInvariant = await restored.query(`
     WITH migrated AS (SELECT workspace_id FROM suite.platform_settings WHERE key='business-storage-import' AND value->>'state'='completed'),
-    products AS (SELECT r.* FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='inventory' AND resource='$products' AND NOT archived),
-    movements AS (SELECT r.workspace_id,(data->>'productId')::uuid AS product_id,sum((data->>'onHandDelta')::bigint) AS on_hand,sum((data->>'reservedDelta')::bigint) AS reserved FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='inventory' AND resource='$movements' AND NOT archived GROUP BY r.workspace_id,data->>'productId'),
-    reservations AS (SELECT r.* FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='inventory' AND resource='$reservations' AND NOT archived),
+    scoped AS (SELECT workspace_id FROM migrated UNION SELECT a.workspace_id FROM suite.audit a JOIN suite.module_storage s ON s.workspace_id=a.workspace_id AND s.module_id=a.target_id WHERE a.action='modules.storage.initialized' AND s.module_id IN ('inventory','orders') AND s.schema_version>=2),
+    products AS (SELECT r.* FROM suite.module_records r JOIN scoped USING(workspace_id) WHERE module_id='inventory' AND resource='$products' AND NOT archived),
+    movements AS (SELECT r.workspace_id,(data->>'productId')::uuid AS product_id,sum((data->>'onHandDelta')::bigint) AS on_hand,sum((data->>'reservedDelta')::bigint) AS reserved FROM suite.module_records r JOIN scoped USING(workspace_id) WHERE module_id='inventory' AND resource='$movements' AND NOT archived GROUP BY r.workspace_id,data->>'productId'),
+    reservations AS (SELECT r.* FROM suite.module_records r JOIN scoped USING(workspace_id) WHERE module_id='inventory' AND resource='$reservations' AND NOT archived),
     reserved AS (SELECT r.workspace_id,(line->>'productId')::uuid AS product_id,sum((line->>'quantity')::bigint) AS quantity FROM reservations r CROSS JOIN LATERAL jsonb_array_elements(data->'lines') line WHERE data->>'state'='reserved' GROUP BY r.workspace_id,line->>'productId'),
-    orders AS (SELECT r.* FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='orders' AND resource='$orders' AND NOT archived)
+    orders AS (SELECT r.* FROM suite.module_records r JOIN scoped USING(workspace_id) WHERE module_id='orders' AND resource='$orders' AND NOT archived)
     SELECT
       (SELECT count(*) FROM products WHERE (data->>'reserved')::bigint<0 OR (data->>'reserved')::bigint>(data->>'onHand')::bigint OR (data->>'available')::bigint<>(data->>'onHand')::bigint-(data->>'reserved')::bigint) AS sdk_invalid_balances,
       (SELECT count(*) FROM products p LEFT JOIN movements m ON (m.workspace_id,m.product_id)=(p.workspace_id,p.id) WHERE (p.data->>'onHand')::bigint<>coalesce(m.on_hand,0) OR (p.data->>'reserved')::bigint<>coalesce(m.reserved,0)) AS sdk_ledger_mismatches,
@@ -81,12 +82,13 @@ try {
        OR (o.data->>'status'='fulfilled' AND coalesce(r.data->>'state','missing')<>'consumed')
        OR (o.data->>'status'='cancelled' AND r.id IS NOT NULL AND r.data->>'state'<>'released')
        OR (o.data->>'status'='draft' AND r.id IS NOT NULL)) AS sdk_invalid_orders,
-      (SELECT count(*) FROM migrated m LEFT JOIN suite.module_records c ON c.workspace_id=m.workspace_id AND c.module_id='orders' AND c.resource='$counters' AND c.id='00000000-0000-4000-8000-000000000001'
-       WHERE c.id IS NULL OR c.archived OR (c.data->>'next')::bigint<=coalesce((SELECT max((o.data->>'number')::bigint) FROM orders o WHERE o.workspace_id=m.workspace_id),0)) AS sdk_invalid_counters`);
+      (SELECT count(*) FROM scoped m LEFT JOIN suite.module_records c ON c.workspace_id=m.workspace_id AND c.module_id='orders' AND c.resource='$counters' AND c.id='00000000-0000-4000-8000-000000000001'
+       WHERE (c.id IS NULL AND (EXISTS(SELECT 1 FROM orders o WHERE o.workspace_id=m.workspace_id) OR EXISTS(SELECT 1 FROM migrated original WHERE original.workspace_id=m.workspace_id)))
+       OR (c.id IS NOT NULL AND (c.archived OR c.data->>'next' IS NULL OR (c.data->>'next')::bigint<=coalesce((SELECT max((o.data->>'number')::bigint) FROM orders o WHERE o.workspace_id=m.workspace_id),0)))) AS sdk_invalid_counters`);
   if (Object.values(sdkInvariant.rows[0]).some((v) => Number(v) !== 0))
     throw Error("Restored SDK business invariants failed");
   const counts = await restored.query(
-    "SELECT (SELECT count(*) FROM suite.workspaces) workspaces,(SELECT count(*) FROM suite.orders) orders,(SELECT count(*) FROM suite.stock_movements) movements,(SELECT count(*) FROM suite.module_storage) module_schemas,(SELECT count(*) FROM suite.module_migrations) module_migrations,(SELECT count(*) FROM suite.platform_settings WHERE key='business-storage-import' AND value->>'state'='completed') sdk_migrated_workspaces",
+    "SELECT (SELECT count(*) FROM suite.workspaces) workspaces,(SELECT count(*) FROM suite.orders) orders,(SELECT count(*) FROM suite.stock_movements) movements,(SELECT count(*) FROM suite.module_storage) module_schemas,(SELECT count(*) FROM suite.module_migrations) module_migrations,(SELECT count(*) FROM suite.platform_settings WHERE key='business-storage-import' AND value->>'state'='completed') sdk_migrated_workspaces,(SELECT count(DISTINCT a.workspace_id) FROM suite.audit a JOIN suite.module_storage s ON s.workspace_id=a.workspace_id AND s.module_id=a.target_id WHERE a.action='modules.storage.initialized' AND s.module_id IN ('inventory','orders') AND s.schema_version>=2) sdk_initialized_workspaces",
   );
   const role = await restored.connect();
   try {

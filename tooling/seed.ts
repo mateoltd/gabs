@@ -9,8 +9,11 @@ import {
   authorize,
   assignModules,
 } from "../packages/server-core/src/index";
-import { createProduct, changeStock } from "../modules/inventory/server/index";
-import { createOrder, changeOrder } from "../modules/orders/server/index";
+import { createModuleClient } from "@suite/module-sdk";
+import { executeModuleOperation } from "../packages/server-core/src/module-services";
+import { moduleServers } from "@suite/module-catalog/server";
+import inventory from "../modules/inventory/module";
+import orders from "../modules/orders/module";
 if (!["development", "test"].includes(process.env.NODE_ENV ?? ""))
   throw Error("Seed data is restricted to local development and test");
 export const DEMO_WORKSPACE = "11111111-1111-4111-8111-111111111111";
@@ -114,6 +117,26 @@ export async function seed() {
         DEMO_WORKSPACE,
         "seed",
       );
+      const stock = createModuleClient(inventory, (call) =>
+        executeModuleOperation(
+          tx,
+          ctx,
+          inventory,
+          call.operation!,
+          call.input,
+          moduleServers,
+        ),
+      );
+      const salesClient = createModuleClient(orders, (call) =>
+        executeModuleOperation(
+          tx,
+          ctx,
+          orders,
+          call.operation!,
+          call.input,
+          moduleServers,
+        ),
+      );
       const products = [];
       for (const [sku, name, price, quantity] of [
         ["NL-101", "Field notebook", 1800, 124],
@@ -125,13 +148,13 @@ export async function seed() {
         ["NL-107", "Oak pencil holder", 2400, 6],
         ["NL-108", "Measuring tape", 1600, 92],
       ] as const) {
-        const product = await createProduct(tx, ctx, {
+        const product = await stock.call("create-product", {
           sku,
           name,
           priceMinor: price,
         });
-        await changeStock(tx, ctx, product.id, {
-          kind: "receipt",
+        await stock.call("receipt", {
+          id: product.id,
           quantity,
           reason: "Opening stock",
         });
@@ -147,7 +170,7 @@ export async function seed() {
       ].entries()) {
         const p = products[i],
           q = products[(i + 2) % products.length];
-        let order = await createOrder(tx, ctx, {
+        let order = await salesClient.call("draft", {
           customerName: customer,
           lines: [
             { productId: p.id, quantity: i + 2, priceMinor: p.priceMinor },
@@ -155,15 +178,15 @@ export async function seed() {
           ],
         });
         if (i < 4)
-          order = await changeOrder(
-            tx,
-            ctx,
-            order.id,
-            "confirm",
-            `"${order.version}"`,
-          );
+          order = await salesClient.call("confirm", {
+            id: order.id,
+            version: order.version,
+          });
         if (i < 2)
-          await changeOrder(tx, ctx, order.id, "fulfill", `"${order.version}"`);
+          await salesClient.call("fulfill", {
+            id: order.id,
+            version: order.version,
+          });
       }
     });
     console.log(

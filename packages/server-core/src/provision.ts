@@ -1,7 +1,9 @@
-import { found } from "./errors";
+import { storageContract, type ModuleDefinition } from "@suite/module-sdk";
+import { found, requireCondition } from "./errors";
+import { canonical, satisfies } from "@suite/module-sdk/registry";
 import { bundledModuleIds, moduleDefinition } from "@suite/module-catalog";
 import { randomUUID } from "node:crypto";
-import { ROLE_PRESETS } from "@suite/contracts";
+import { ROLE_PRESETS, DEFAULT_SERVICE_GRANTS } from "@suite/contracts";
 import type { DB, Tx } from "./database";
 import { inWorkspace } from "./database";
 import { lockKey } from "./authorization";
@@ -14,10 +16,26 @@ export async function provisionWorkspace(
     name: string;
     kind: "personal" | "company";
     currency?: string;
+    requestId?: string;
     /** Trusted onboarding template; registry discovery never assigns modules. */
     modules?: readonly string[];
+    /** Trusted host template override, never accepted from a client request. */
+    moduleDefaults?: readonly ModuleDefinition[];
+    serviceGrants?: readonly {
+      source: string;
+      target: string;
+      services: readonly string[];
+    }[];
   },
 ) {
+  const selected = new Map(
+    [...new Set(input.modules ?? bundledModuleIds)].map((id) => [
+      id,
+      found(
+        input.moduleDefaults?.find((m) => m.id === id) ?? moduleDefinition(id),
+      ),
+    ]),
+  );
   await tx
     .insertInto("suite.workspaces")
     .values({
@@ -42,7 +60,12 @@ export async function provisionWorkspace(
         id,
         workspace_id: input.id,
         name,
-        permissions: [...permissions],
+        permissions: permissions.filter((permission) => {
+          const module = [...selected.values()].find((m) =>
+            permission.startsWith(m.id + "."),
+          );
+          return !module || module.permissions.includes(permission);
+        }),
         protected: ["Owner", "Administrator"].includes(name),
       })
       .execute();
@@ -56,8 +79,30 @@ export async function provisionWorkspace(
         })
         .execute();
   }
-  for (const moduleId of new Set(input.modules ?? bundledModuleIds)) {
-    found(moduleDefinition(moduleId));
+  for (const [moduleId, definition] of selected) {
+    const schema = storageContract(definition);
+    if (schema.version > 1) {
+      await tx
+        .insertInto("suite.module_storage")
+        .values({
+          workspace_id: input.id,
+          module_id: moduleId,
+          schema_version: schema.version,
+          release_version: definition.version,
+        })
+        .execute();
+      await tx
+        .insertInto("suite.audit")
+        .values({
+          id: randomUUID(),
+          workspace_id: input.id,
+          actor_id: input.userId,
+          action: "modules.storage.initialized",
+          target_id: moduleId,
+          request_id: input.requestId ?? input.id,
+        })
+        .execute();
+    }
     await tx
       .insertInto("suite.entitlements")
       .values({
@@ -82,6 +127,39 @@ export async function provisionWorkspace(
         workspace_id: input.id,
         membership_id: membershipId,
         module_id: moduleId,
+      })
+      .execute();
+  }
+  for (const grant of input.serviceGrants ?? DEFAULT_SERVICE_GRANTS) {
+    const source = selected.get(grant.source),
+      target = selected.get(grant.target);
+    if (!source || !target) continue;
+    requireCondition(
+      grant.services.length > 0 &&
+        grant.services.every((name) => {
+          const provider = target.operations[name];
+          return (
+            provider?.public &&
+            Object.values(source.services ?? {}).some(
+              (service) =>
+                service.moduleId === target.id &&
+                service.operation === name &&
+                satisfies(target.version, service.version) &&
+                canonical(service.contract) === canonical(provider),
+            )
+          );
+        }),
+      400,
+      "INVALID_ONBOARDING_GRANT",
+      "The trusted workspace template must grant matching declared public services.",
+    );
+    await tx
+      .insertInto("suite.platform_settings")
+      .values({
+        workspace_id: input.id,
+        key: `grant:${source.id}:${target.id}`,
+        value: { services: [...grant.services] },
+        version: 1,
       })
       .execute();
   }

@@ -414,7 +414,9 @@ test("overview actions, keyboard filters, dialog focus and responsive visual sys
   });
   await page.getByRole("link", { name: "Overview", exact: true }).click();
   await page.getByRole("tab", { name: /^Ready to fulfill/ }).click();
-  await page.getByRole("link", { name: /Open order 1004/ }).click();
+  await page
+    .getByRole("link", { name: /^Open order \d+ for Atelier Nord$/ })
+    .click();
   await expect(
     page.getByRole("complementary", { name: /Order #/ }),
   ).toContainText("Atelier Nord");

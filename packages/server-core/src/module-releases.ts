@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { moduleStorageVersions } from "./module-storage";
 import { readFile } from "node:fs/promises";
 import { moduleDefinition, moduleDefinitions } from "@suite/module-catalog";
@@ -27,10 +28,27 @@ export async function resolveWorkspaceRelease(
   pinOverrides: Record<string, string> = {},
 ) {
   const storage = await moduleStorageVersions(tx, workspaceId);
-  const releases = await tx
-    .selectFrom("suite.module_releases")
-    .select(["module_id", "version", "manifest"])
-    .execute();
+  // Resolve against every candidate in the dependency closure, without transferring
+  // unrelated registry manifests. UNION terminates cycles before semver backtracking.
+  const releases = (
+    await sql<{
+      module_id: string;
+      version: string;
+      manifest: Record<string, unknown>;
+    }>`
+    with recursive required_modules(module_id) as (
+      select ${id}::text
+      union
+      select dependency.module_id
+      from required_modules required
+      join suite.module_releases release on release.module_id = required.module_id
+      cross join lateral jsonb_object_keys(release.manifest->'dependencies') dependency(module_id)
+    )
+    select release.module_id, release.version, release.manifest
+    from suite.module_releases release
+    join required_modules required on required.module_id = release.module_id
+  `.execute(tx)
+  ).rows;
   if (allowUnpublishedBuiltin && !releases.some((r) => r.module_id === id))
     return [];
   const rows = await tx

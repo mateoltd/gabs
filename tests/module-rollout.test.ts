@@ -1,3 +1,4 @@
+import { provisionLegacyWorkspace as provisionWorkspace } from "./fixtures/legacy-workspace";
 import "dotenv/config";
 import { it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -6,7 +7,6 @@ import {
   connectDatabase,
   identify,
   inWorkspace,
-  provisionWorkspace,
 } from "../packages/server-core/src";
 
 it("recovers committed receipts after mandatory updates while enforcing current authority and new execution policy", async () => {

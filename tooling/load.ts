@@ -10,14 +10,19 @@ import {
   authorize,
   connectDatabase,
 } from "../packages/server-core/src";
-import { createProduct, changeStock } from "../modules/inventory/server";
-import { createOrder } from "../modules/orders/server";
+import { createModuleClient } from "@suite/module-sdk";
+import { executeModuleOperation } from "../packages/server-core/src/module-services";
+import { moduleServers } from "@suite/module-catalog/server";
+import inventory from "../modules/inventory/module";
+import ordersDefinition from "../modules/orders/module";
 import { createLoadDiagnostics } from "./load-diagnostics";
 if (!["development", "test"].includes(process.env.NODE_ENV ?? ""))
   throw Error("Load fixtures are restricted to local development and test.");
-const diagnostics = process.argv.includes("--profile")
-  ? createLoadDiagnostics()
-  : undefined;
+const profileConfirmations = process.argv.includes("--profile-confirmations");
+const diagnostics =
+  process.argv.includes("--profile") || profileConfirmations
+    ? createLoadDiagnostics(profileConfirmations ? "confirmations" : "reads")
+    : undefined;
 const { app, db, auth } = await createApp({
     db: connectDatabase(undefined, diagnostics?.log),
   }),
@@ -49,20 +54,40 @@ try {
       workspace,
       randomUUID(),
     );
-    const product = await createProduct(tx, ctx, {
+    const stock = createModuleClient(inventory, (call) =>
+      executeModuleOperation(
+        tx,
+        ctx,
+        inventory,
+        call.operation!,
+        call.input,
+        moduleServers,
+      ),
+    );
+    const sales = createModuleClient(ordersDefinition, (call) =>
+      executeModuleOperation(
+        tx,
+        ctx,
+        ordersDefinition,
+        call.operation!,
+        call.input,
+        moduleServers,
+      ),
+    );
+    const product = await stock.call("create-product", {
       sku: "LOAD",
       name: "Load product",
       priceMinor: 1250,
     });
-    await changeStock(tx, ctx, product.id, {
-      kind: "receipt",
+    await stock.call("receipt", {
+      id: product.id,
       quantity: 2000,
       reason: "Performance fixture",
     });
     const rows = [];
     for (let i = 0; i < 1000; i++)
       rows.push(
-        await createOrder(tx, ctx, {
+        await sales.call("draft", {
           customerName: `Load customer ${i}`,
           lines: [{ productId: product.id, quantity: 1, priceMinor: 1250 }],
         }),
@@ -78,43 +103,56 @@ try {
     };
   const sample = async (path: string, init: RequestInit = {}) => {
     const start = performance.now(),
-      r = await fetch(`${origin}/api/v1/workspaces/${workspace}${path}`, {
-        ...init,
-        headers: { ...headers, ...init.headers },
-      });
+      r = await fetch(
+        `${origin}${path.startsWith("/api/") ? path : `/api/v1/workspaces/${workspace}${path}`}`,
+        {
+          ...init,
+          headers: { ...headers, ...init.headers },
+        },
+      );
     await r.arrayBuffer();
     if (!r.ok) throw Error(`Load request failed ${r.status}`);
     return performance.now() - start;
   };
   await sample("/orders");
-  await diagnostics?.start();
+  if (!profileConfirmations) await diagnostics?.start();
   const reads = await Promise.all(
     Array.from({ length: 50 }, () => sample("/orders")),
   );
-  await diagnostics?.stop();
+  if (!profileConfirmations) await diagnostics?.stop();
+  else await diagnostics?.start();
   const confirmations = await Promise.all(
     orders.slice(0, 50).map((o) =>
-      sample(`/orders/${o.id}/confirm`, {
-        method: "POST",
-        body: "{}",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": randomUUID(),
-          "if-match": `"${o.version}"`,
+      sample(
+        `/api/v1/module/orders/workspaces/${workspace}/operations/confirm`,
+        {
+          method: "POST",
+          body: JSON.stringify({ id: o.id, version: o.version }),
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": randomUUID(),
+            "x-module-version": ordersDefinition.version,
+          },
         },
-      }),
+      ),
     ),
   );
+  if (profileConfirmations) await diagnostics?.stop();
   const p95 = (v: number[]) =>
     Math.round([...v].sort((a, b) => a - b)[Math.ceil(v.length * 0.95) - 1]);
   const report = {
     diagnostic: Boolean(diagnostics),
     recordedAt: new Date().toISOString(),
     dataset: { orders: 1000, linesPerOrder: 1, products: 1 },
+    businessBackend: "scoped-sdk",
+    moduleVersions: {
+      orders: ordersDefinition.version,
+      inventory: inventory.version,
+    },
     clients: 50,
     samplesPerOperation: 50,
     transport:
-      "HTTP loopback, 50 concurrent clients, one shared authorized actor, same stock row",
+      "HTTP loopback, 50 concurrent clients, one shared authorized actor, same stock record",
     node: process.version,
     host: {
       platform: process.platform,
