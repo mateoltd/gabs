@@ -271,6 +271,34 @@ it("recovers exact device changes across download interruption, uncertain accept
         operation: "moduleFleet",
         params: { workspaceId, moduleId: root },
       });
+    // A mismatched workspace dependency selection is rejected before download,
+    // but still leaves a scoped observation with no invented release version.
+    const beforeBadPin = await state();
+    await admin.query(
+      "insert into suite.platform_settings(workspace_id,key,value) values($1,$2,$3) on conflict(workspace_id,key) do update set value=$3",
+      [workspaceId, `pin:${dependency}`, { version: "99.0.0" }],
+    );
+    await expect(installModule(props, beforeBadPin, root)).rejects.toThrow();
+    expect((await stored()).lifecycle?.[root]).toBeUndefined();
+    const failedPlanId = (await stored()).installationReports?.[root]?.report
+      .attemptId;
+    await expect(installModule(props, beforeBadPin, root)).rejects.toThrow();
+    expect((await stored()).installationReports?.[root]?.report.attemptId).toBe(
+      failedPlanId,
+    );
+    expect((await stored()).installationReports?.[root]).toMatchObject({
+      delivered: true,
+      report: { errorCode: "policy", phase: "failed" },
+    });
+    await admin.query(
+      "delete from suite.platform_settings where workspace_id=$1 and key=$2",
+      [workspaceId, `pin:${dependency}`],
+    );
+    expect(await fleet()).toMatchObject({
+      accepted: 0,
+      failed: 1,
+      items: [{ reportVersion: null, errorCode: "policy", phase: "failed" }],
+    });
     const initial = await state();
     loseResponse = true;
     await expect(installModule(props, initial, dependency)).rejects.toThrow(
@@ -350,6 +378,10 @@ it("recovers exact device changes across download interruption, uncertain accept
       report: { phase: "ready" },
     });
     failReports = false;
+    // A fresh page still respects the persisted delivery delay.
+    await flushInstallationReports({ ...props });
+    expect((await stored()).installationReports?.[root]?.delivered).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     await flushInstallationReports(props);
     expect(await fleet()).toMatchObject({
       accepted: 1,
@@ -414,6 +446,18 @@ it("recovers exact device changes across download interruption, uncertain accept
       uninstallModule({ ...props }, root, removalId),
     ]);
     expect(await auditCount("uninstall")).toBe(1);
+    expect(await fleet()).toMatchObject({
+      accepted: 0,
+      failed: 0,
+      items: [
+        {
+          phase: "removed",
+          reportAction: "uninstall",
+          state: "removed",
+          receiptMatches: true,
+        },
+      ],
+    });
     const installsAfterRemoval = await auditCount("install");
     expect(
       await installModule(

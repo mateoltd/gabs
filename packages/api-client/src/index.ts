@@ -77,6 +77,7 @@ export function httpTransport(
       headers["X-Module-Version"] = request.moduleVersion;
     if (request.version !== undefined)
       headers["If-Match"] = `"${request.version}"`;
+    const timeout = request.operation === "installationReport" ? 2000 : 20000;
     const response = await fetch(baseUrl + op.path, {
       method: op.method,
       headers,
@@ -84,8 +85,8 @@ export function httpTransport(
         request.body === undefined ? undefined : JSON.stringify(request.body),
       credentials: "include",
       signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
-        : AbortSignal.timeout(20000),
+        ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+        : AbortSignal.timeout(timeout),
     });
     return { status: response.status, body: await response.json() };
   };
@@ -130,6 +131,7 @@ export class SuiteClient {
   }
   async request<K extends OperationId>(
     request: OperationRequest & { operation: K },
+    options?: { signal?: AbortSignal },
   ): Promise<Result<K>> {
     const controller = new AbortController();
     if (
@@ -139,8 +141,12 @@ export class SuiteClient {
       this.reads.set(controller, request.params.workspaceId);
     let result;
     try {
-      result = await this.transport(request, controller.signal);
-      controller.signal.throwIfAborted();
+      const signal = options?.signal
+        ? AbortSignal.any([controller.signal, options.signal])
+        : controller.signal;
+      signal.throwIfAborted();
+      result = await this.transport(request, signal);
+      signal.throwIfAborted();
     } finally {
       this.reads.delete(controller);
     }

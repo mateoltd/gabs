@@ -15,19 +15,29 @@ import {
 
 function observation(item: ModuleFleet["items"][number]) {
   if (!item.phase) return "No device report";
+  if (item.phase === "removed")
+    return item.receiptMatches && item.state === "removed"
+      ? "Removal reported"
+      : "Earlier device report";
   if (item.phase === "ready")
     return item.receiptMatches && item.state === "installed"
       ? "Ready reported"
       : "Earlier device report";
   if (item.confirmedAt && item.reportedAt && item.confirmedAt > item.reportedAt)
     return "Earlier device report";
-  if (item.phase === "failed") return "Installation failed";
+  if (item.phase === "failed")
+    return item.reportAction === "uninstall"
+      ? "Removal failed"
+      : "Installation failed";
+  if (item.phase === "planning") return "Checking compatibility";
+  if (item.reportAction === "uninstall") return "Removal awaiting confirmation";
   return item.phase === "downloading" ? "Downloading" : "Awaiting confirmation";
 }
 const errorLabels: Record<string, string> = {
   download: "Download could not finish. Retry on this device.",
   verification: "Package verification failed. Repair on this device.",
-  policy: "The server rejected the attempt. Review access and update policy.",
+  policy:
+    "Compatibility or access checks failed. Review access and update policy.",
   storage:
     "Local storage could not finish. Check storage and retry on this device.",
   connection: "Connection was interrupted. Reconnect this device to resume.",
@@ -92,8 +102,8 @@ export function ModuleFleetDialog(
             </p>
             <p role="status">
               {fleet.accepted} of {fleet.total} known devices have a
-              server-accepted release. {fleet.failed} reported an installation
-              failure.
+              server-accepted release. {fleet.failed} reported a failed module
+              change.
             </p>
             <p className="small">
               Reports do not confirm current connectivity or override
@@ -169,7 +179,9 @@ export function ModuleFleetDialog(
                             </div>
                           )}
                           {item.phase === "failed" &&
-                            observation(item) === "Installation failed" && (
+                            ["Installation failed", "Removal failed"].includes(
+                              observation(item),
+                            ) && (
                               <p className="small">
                                 {errorLabels[item.errorCode ?? "unknown"] ??
                                   errorLabels.unknown}

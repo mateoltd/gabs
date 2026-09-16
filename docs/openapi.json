@@ -11236,7 +11236,6 @@
                   "deviceId",
                   "attemptId",
                   "sequence",
-                  "version",
                   "phase"
                 ],
                 "properties": {
@@ -11257,6 +11256,27 @@
                     "maximum": 2147483647,
                     "type": "integer"
                   },
+                  "action": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "install"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "uninstall"
+                        ]
+                      }
+                    ]
+                  },
+                  "accountId": {
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "type": "string"
+                  },
                   "version": {
                     "minLength": 1,
                     "maxLength": 40,
@@ -11264,6 +11284,12 @@
                   },
                   "phase": {
                     "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "planning"
+                        ]
+                      },
                       {
                         "type": "string",
                         "enum": [
@@ -11280,6 +11306,12 @@
                         "type": "string",
                         "enum": [
                           "ready"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "removed"
                         ]
                       },
                       {

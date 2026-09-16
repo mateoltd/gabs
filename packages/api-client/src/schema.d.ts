@@ -5264,8 +5264,10 @@ export interface operations {
                     deviceId: string;
                     attemptId: string;
                     sequence: number;
-                    version: string;
-                    phase: "downloading" | "confirming" | "ready" | "failed";
+                    action?: "install" | "uninstall";
+                    accountId?: string;
+                    version?: string;
+                    phase: "planning" | "downloading" | "confirming" | "ready" | "removed" | "failed";
                     errorCode?: "download" | "verification" | "policy" | "storage" | "connection" | "unknown";
                     receiptId?: string;
                 };

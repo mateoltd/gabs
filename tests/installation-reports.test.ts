@@ -95,6 +95,63 @@ it("isolates device observations, rejects forged readiness and keeps newer attem
       phase: "failed",
       errorCode: "download",
     };
+    expect(
+      (
+        await request(memberSession, "installation-reports", {
+          ...report,
+          accountId: owner.id,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await request(memberSession, "installation-reports", {
+          ...report,
+          action: "uninstall",
+          phase: "ready",
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await request(memberSession, "installation-reports", {
+          ...report,
+          action: "uninstall",
+          phase: "removed",
+          receiptId: randomUUID(),
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await request(memberSession, "installation-reports", {
+          ...report,
+          version: undefined,
+          moduleId: "unknown-module",
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await request(memberSession, "installation-reports", {
+          ...report,
+          attemptId: randomUUID(),
+          accountId: member.id,
+          version: undefined,
+          errorCode: "policy",
+        })
+      ).statusCode,
+    ).toBe(200);
+    const preflight = (
+      await request(ownerSession, "modules/contacts/devices")
+    ).json();
+    expect(preflight).toMatchObject({
+      accepted: 0,
+      failed: 1,
+      items: [
+        { reportVersion: null, reportAction: "install", phase: "failed" },
+      ],
+    });
     const reported = await request(
       memberSession,
       "installation-reports",

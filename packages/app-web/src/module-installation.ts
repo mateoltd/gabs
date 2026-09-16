@@ -1,3 +1,5 @@
+import { reportInstallation } from "./installation-reporting";
+export { flushInstallationReports } from "./installation-reporting";
 import { supportsStorage } from "@suite/module-sdk";
 import { validateClientArtifacts } from "@suite/module-sdk/client-artifact";
 import { ApiError } from "@suite/api-client";
@@ -78,66 +80,6 @@ const lifecycleLock = (props: FeatureProps) =>
 const sameReleases = (a: InstallationSelection[], b: InstallationSelection[]) =>
   canonical([...a].sort((x, y) => x.moduleId.localeCompare(y.moduleId))) ===
   canonical([...b].sort((x, y) => x.moduleId.localeCompare(y.moduleId)));
-/** Pending observations survive reconnects; they cannot grant runtime access. */
-export async function flushInstallationReports(props: FeatureProps) {
-  const pending =
-    (await readModuleStorage(props.platform, props.scope))
-      .installationReports ?? {};
-  for (const [id, item] of Object.entries(pending)) {
-    if (item.delivered) continue;
-    try {
-      await props.client.request({
-        operation: "installationReport",
-        params: { workspaceId: props.scope.workspaceId },
-        body: item.report,
-      });
-      await changeModuleStorage(props.platform, props.scope, (s) => {
-        const current = s.installationReports?.[id];
-        if (
-          current?.report.attemptId === item.report.attemptId &&
-          current.report.sequence === item.report.sequence
-        )
-          current.delivered = true;
-      });
-    } catch {
-      /* Keep this observation for a later connected attempt. */
-    }
-  }
-}
-async function reportInstallation(
-  props: FeatureProps,
-  id: string,
-  attempt: InstallationAttempt,
-  phase: InstallationReport["phase"],
-  errorCode?: InstallationReport["errorCode"],
-  receiptId?: string,
-) {
-  if (attempt.action !== "install") return;
-  try {
-    await changeModuleStorage(props.platform, props.scope, (s) => {
-      const previous = s.installationReports?.[id]?.report;
-      (s.installationReports ??= {})[id] = {
-        delivered: false,
-        report: {
-          moduleId: id,
-          deviceId: attempt.deviceId,
-          attemptId: attempt.requestId,
-          sequence:
-            previous?.attemptId === attempt.requestId
-              ? previous.sequence + 1
-              : 1,
-          version: attempt.releases.find((r) => r.moduleId === id)!.version,
-          phase,
-          ...(errorCode ? { errorCode } : {}),
-          ...(receiptId ? { receiptId } : {}),
-        },
-      };
-    });
-    await flushInstallationReports(props);
-  } catch {
-    /* Reporting failure must not alter an installation's outcome. */
-  }
-}
 async function recordFailure(
   props: FeatureProps,
   id: string,
@@ -167,7 +109,12 @@ async function recordFailure(
     id,
     attempt,
     "failed",
-    error instanceof ApiError ? "policy" : failureCode,
+    error instanceof ApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      ![408, 429].includes(error.status)
+      ? "policy"
+      : failureCode,
   );
 }
 async function acknowledge(
@@ -219,10 +166,51 @@ export async function installModule(
     };
     check();
     // A queued caller may have waited behind another install, removal or pin change.
-    state = await props.client.request({
-      operation: "platformState",
-      params: { workspaceId: props.scope.workspaceId },
-    });
+    const preflightFailure = async (
+      errorCode: InstallationReport["errorCode"],
+    ) => {
+      try {
+        const previous = (await readModuleStorage(props.platform, props.scope))
+          .installationReports?.[id]?.report;
+        const retry =
+          previous?.action === "install" &&
+          !previous.version &&
+          previous.phase === "failed" &&
+          previous.errorCode === errorCode;
+        await reportInstallation(
+          props,
+          id,
+          {
+            action: "install",
+            requestId: retry ? previous.attemptId : crypto.randomUUID(),
+            deviceId: deviceId(),
+            releases: [],
+            startedAt: Date.now(),
+            phase: "downloading",
+          },
+          "failed",
+          errorCode,
+        );
+      } catch {
+        // Preserve the original preflight error if local reporting is unavailable.
+      }
+    };
+    try {
+      state = await props.client.request({
+        operation: "platformState",
+        params: { workspaceId: props.scope.workspaceId },
+      });
+    } catch (error) {
+      await preflightFailure(
+        error instanceof ApiError &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          ![408, 429].includes(error.status)
+          ? "policy"
+          : "connection",
+      );
+      throw error;
+    }
     const existing = await readModuleStorage(props.platform, props.scope);
     // A background caller may have queued before a user's removal. Recheck
     // the server's current device intent while holding the lifecycle lock.
@@ -250,30 +238,37 @@ export async function installModule(
         /* The verified download path repairs corrupt local bytes. */
       }
     }
-    const pins = Object.fromEntries(
-      state.settings
-        .filter((s) => s.key.startsWith("pin:") && s.value.version)
-        .map((s) => [s.key.slice(4), String(s.value.version)]),
-    );
-    const plan = resolveReleases(
-      id,
-      storageCompatibleReleases(
-        state.releases.map((r) => r.manifest as unknown as ReleaseManifest),
-        new Map(
-          (state.storage ?? []).map((s) => [s.module_id, s.schema_version]),
+    let plan: ReleaseManifest[];
+    try {
+      const pins = Object.fromEntries(
+        state.settings
+          .filter((s) => s.key.startsWith("pin:") && s.value.version)
+          .map((s) => [s.key.slice(4), String(s.value.version)]),
+      );
+      plan = resolveReleases(
+        id,
+        storageCompatibleReleases(
+          state.releases.map((r) => r.manifest as unknown as ReleaseManifest),
+          new Map(
+            (state.storage ?? []).map((s) => [s.module_id, s.schema_version]),
+          ),
+          pins,
         ),
+        "1.0.0",
+        "1.0.0",
         pins,
-      ),
-      "1.0.0",
-      "1.0.0",
-      pins,
-    );
-    for (const release of plan) {
-      const selected = state.modules.find((m) => m.id === release.id);
-      if (selected?.version !== release.version)
-        throw Error(
-          `This release requires ${release.id}@${release.version}, but the workspace selects ${selected?.version ?? "no release"}. Ask an administrator to choose compatible version pins.`,
-        );
+      );
+      for (const release of plan) {
+        const selected = state.modules.find((m) => m.id === release.id);
+        if (selected?.version !== release.version)
+          throw Error(
+            `This release requires ${release.id}@${release.version}, but the workspace selects ${selected?.version ?? "no release"}. Ask an administrator to choose compatible version pins.`,
+          );
+      }
+    } catch (error) {
+      // No executable change exists yet. Report the failed plan without inventing a release.
+      await preflightFailure("policy");
+      throw error;
     }
     const releases = plan.map((r) => ({
       moduleId: r.id,
@@ -424,8 +419,8 @@ export async function uninstallModule(
   resumeRequestId?: string,
 ) {
   return navigator.locks.request(lifecycleLock(props), async () => {
-    let attempt = (await readModuleStorage(props.platform, props.scope))
-      .lifecycle?.[id];
+    const stored = await readModuleStorage(props.platform, props.scope);
+    let attempt = stored.lifecycle?.[id];
     // A queued Resume click must not create a new removal after background recovery finished.
     if (resumeRequestId && attempt?.requestId !== resumeRequestId) return;
     if (attempt?.action === "install" && attempt.phase === "confirming") {
@@ -448,6 +443,7 @@ export async function uninstallModule(
         requestId: crypto.randomUUID(),
         deviceId: deviceId(),
         releases: [],
+        reportVersion: stored.installed[id]?.version,
         startedAt: Date.now(),
         phase: "confirming",
       };
@@ -458,8 +454,11 @@ export async function uninstallModule(
       });
     }
     const current = attempt;
+    let failureCode: InstallationReport["errorCode"] = "connection";
     try {
-      await acknowledge(props, id, current);
+      await reportInstallation(props, id, current, "confirming");
+      const receipt = await acknowledge(props, id, current);
+      failureCode = "storage";
       await changeModuleStorage(props.platform, props.scope, (s) => {
         delete s.installed[id];
         for (const key of Object.keys(s.downloads ?? {}))
@@ -467,9 +466,17 @@ export async function uninstallModule(
         delete s.lifecycle?.[id];
         delete s.lifecycleErrors?.[id];
       });
+      await reportInstallation(
+        props,
+        id,
+        current,
+        "removed",
+        undefined,
+        receipt.id,
+      );
     } catch (error) {
       try {
-        await recordFailure(props, id, current, error);
+        await recordFailure(props, id, current, error, failureCode);
       } catch {
         /* Keep the original error. */
       }

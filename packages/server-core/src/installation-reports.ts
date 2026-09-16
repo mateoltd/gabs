@@ -16,30 +16,47 @@ export async function recordInstallationReport(
   report: InstallationReport,
 ) {
   assertSchema(InstallationReportSchema, report);
-  found(
-    await tx
-      .selectFrom("suite.module_releases")
-      .select("version")
-      .where("module_id", "=", report.moduleId)
-      .where("version", "=", report.version)
-      .executeTakeFirst(),
+  const action = report.action ?? "install";
+  requireCondition(
+    !report.accountId || report.accountId === ctx.actor.id,
+    403,
+    "REPORT_ACCOUNT_CHANGED",
+    "Sign in with the account that recorded this observation.",
   );
-  if (report.phase === "ready") {
+  requireCondition(
+    !(
+      action === "uninstall" &&
+      ["planning", "downloading", "ready"].includes(report.phase)
+    ) &&
+      !(action === "install" && report.phase === "removed") &&
+      !(report.phase === "ready" && !report.version),
+    400,
+    "INVALID_REPORT_PHASE",
+    "The report phase does not match its action.",
+  );
+  let release = tx
+    .selectFrom("suite.module_releases")
+    .select("version")
+    .where("module_id", "=", report.moduleId);
+  if (report.version) release = release.where("version", "=", report.version);
+  found(await release.executeTakeFirst());
+  if (report.phase === "ready" || report.phase === "removed") {
     const receipt = await tx
       .selectFrom("suite.module_installations")
-      .select("receipt_id")
+      .select(["receipt_id", "version", "state"])
       .where("workspace_id", "=", ctx.workspaceId)
       .where("user_id", "=", ctx.actor.id)
       .where("module_id", "=", report.moduleId)
       .where("device_id", "=", report.deviceId)
-      .where("version", "=", report.version)
-      .where("state", "=", "installed")
       .executeTakeFirst();
     requireCondition(
-      report.receiptId && receipt?.receipt_id === report.receiptId,
+      report.receiptId &&
+        receipt?.receipt_id === report.receiptId &&
+        receipt.state === (action === "install" ? "installed" : "removed") &&
+        (action === "uninstall" || receipt.version === report.version),
       409,
       "INSTALLATION_REPORT_RECEIPT",
-      "Device readiness requires its current accepted installation receipt.",
+      "A completed device change requires its current accepted receipt.",
     );
   }
   await tx
@@ -51,7 +68,8 @@ export async function recordInstallationReport(
       module_id: report.moduleId,
       attempt_id: report.attemptId,
       sequence: report.sequence,
-      version: report.version,
+      version: report.version ?? null,
+      action,
       phase: report.phase,
       error_code: report.errorCode ?? null,
       receipt_id: report.receiptId ?? null,
@@ -75,7 +93,10 @@ export async function recordInstallationReport(
           updated_at: sql`clock_timestamp()`,
         })
         .where("suite.installation_reports.sequence", "<", report.sequence)
-        .where("suite.installation_reports.version", "=", report.version),
+        .where("suite.installation_reports.action", "=", action)
+        .where(
+          sql<boolean>`suite.installation_reports.version is not distinct from ${report.version ?? null}`,
+        ),
     )
     .execute();
   return { ok: true };
@@ -118,7 +139,7 @@ export async function moduleFleet(
   ), devices as (
     select coalesce(i.user_id,r.user_id) as user_id, coalesce(i.device_id,r.device_id) as device_id,
       i.version, i.state, i.updated_at as confirmed_at,
-      r.version as report_version, r.phase, r.error_code, r.updated_at as reported_at,
+      r.version as report_version, r.action as report_action, r.phase, r.error_code, r.updated_at as reported_at,
       coalesce(i.receipt_id=r.receipt_id,false) as receipt_matches,
       (r.updated_at >= i.updated_at or i.updated_at is null) as report_current
     from (select * from suite.module_installations where workspace_id=${ctx.workspaceId}::uuid and module_id=${moduleId}) i
@@ -141,6 +162,7 @@ export async function moduleFleet(
       state: string | null;
       confirmed_at: Date | null;
       report_version: string | null;
+      report_action: "install" | "uninstall" | null;
       phase: string | null;
       error_code: string | null;
       reported_at: Date | null;
@@ -160,6 +182,7 @@ export async function moduleFleet(
       state: r.state,
       confirmedAt: r.confirmed_at?.toISOString() ?? null,
       reportVersion: r.report_version,
+      reportAction: r.report_action,
       phase: r.phase,
       errorCode: r.error_code,
       reportedAt: r.reported_at?.toISOString() ?? null,

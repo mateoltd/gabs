@@ -154,11 +154,22 @@ export const InstallationReportSchema = Type.Object(
         "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
     }),
     sequence: Type.Integer({ minimum: 1, maximum: 2147483647 }),
-    version: Type.String({ minLength: 1, maxLength: 40 }),
+    action: Type.Optional(
+      Type.Union([Type.Literal("install"), Type.Literal("uninstall")]),
+    ),
+    accountId: Type.Optional(RecoveryId),
+    version: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
     phase: Type.Union(
-      (["downloading", "confirming", "ready", "failed"] as const).map((v) =>
-        Type.Literal(v),
-      ),
+      (
+        [
+          "planning",
+          "downloading",
+          "confirming",
+          "ready",
+          "removed",
+          "failed",
+        ] as const
+      ).map((v) => Type.Literal(v)),
     ),
     errorCode: Type.Optional(
       Type.Union(
@@ -198,6 +209,7 @@ export interface ModuleFleet {
     state: string | null;
     confirmedAt: string | null;
     reportVersion: string | null;
+    reportAction: "install" | "uninstall" | null;
     phase: string | null;
     errorCode: string | null;
     reportedAt: string | null;

@@ -91,7 +91,8 @@ export interface Database {
     module_id: string;
     attempt_id: string;
     sequence: number;
-    version: string;
+    version: string | null;
+    action: "install" | "uninstall";
     phase: string;
     error_code: string | null;
     receipt_id: string | null;

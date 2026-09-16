@@ -398,7 +398,7 @@ for (const uncertainReply of [false, true])
         });
         await expect(
           devices.getByText(
-            "1 of 1 known devices have a server-accepted release. 0 reported an installation failure.",
+            "1 of 1 known devices have a server-accepted release. 0 reported a failed module change.",
             { exact: true },
           ),
         ).toBeVisible();

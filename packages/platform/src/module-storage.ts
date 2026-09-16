@@ -22,13 +22,22 @@ export interface InstallationAttempt {
   deviceId: string;
   releases: InstallationSelection[];
   startedAt: number;
+  reportVersion?: string;
   phase: "downloading" | "confirming";
   error?: string;
 }
 export interface ModuleStorage {
   installationReports?: Record<
     string,
-    { report: InstallationReport; delivered: boolean }
+    {
+      report: InstallationReport;
+      delivered: boolean;
+      delivery?: {
+        attempts: number;
+        nextAttemptAt: number;
+        rejected?: "invalid" | "superseded";
+      };
+    }
   >;
   lifecycle?: Record<string, InstallationAttempt>;
   lifecycleErrors?: Record<string, string>;

@@ -79,7 +79,7 @@ test("administration sees a partial device installation failure and its real rec
     });
     await expect(
       dialog.getByText(
-        "1 of 2 known devices have a server-accepted release. 1 reported an installation failure.",
+        "1 of 2 known devices have a server-accepted release. 1 reported a failed module change.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -132,7 +132,7 @@ test("administration sees a partial device installation failure and its real rec
       .click();
     await expect(
       dialog.getByText(
-        "2 of 2 known devices have a server-accepted release. 0 reported an installation failure.",
+        "2 of 2 known devices have a server-accepted release. 0 reported a failed module change.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -143,6 +143,75 @@ test("administration sees a partial device installation failure and its real rec
     await page.screenshot({
       path: "docs/verification/module-fleet/recovered.png",
     });
+    await otherCard
+      .getByRole("button", { name: "Uninstall", exact: true })
+      .click();
+    await expect(
+      second.getByRole("alert").filter({ hasText: "Uninstall projects" }),
+    ).toBeVisible();
+    await dialog
+      .getByRole("button", { name: "Refresh devices", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("Removal failed", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(
+        "2 of 2 known devices have a server-accepted release. 1 reported a failed module change.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await mkdir("docs/verification/report-recovery", { recursive: true });
+    await page.screenshot({
+      path: "docs/verification/report-recovery/removal-failure.png",
+    });
+    const projects = second.locator(".module-install-card").filter({
+      has: second.getByRole("heading", { name: "Projects", exact: true }),
+    });
+    await projects
+      .getByRole("button", { name: "Uninstall", exact: true })
+      .click();
+    await expect(
+      projects.getByText("Not installed on this device", { exact: true }),
+    ).toBeVisible();
+    await otherCard
+      .getByRole("button", { name: "Uninstall", exact: true })
+      .click();
+    await expect(
+      otherCard.getByText("Not installed on this device", { exact: true }),
+    ).toBeVisible();
+    await dialog
+      .getByRole("button", { name: "Refresh devices", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("Removal reported", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(
+        "1 of 2 known devices have a server-accepted release. 0 reported a failed module change.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page.screenshot({
+      path: "docs/verification/report-recovery/removed.png",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: "docs/verification/report-recovery/removed-narrow.png",
+    });
+    expect(
+      await dialog
+        .locator(".table-wrap")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .include('[role="dialog"]')
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
   } finally {
     await context.close();
   }

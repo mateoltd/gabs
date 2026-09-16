@@ -266,7 +266,9 @@ async function execute(raw: OperationRequest) {
     method: op.method,
     headers,
     body: request.body === undefined ? undefined : JSON.stringify(request.body),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(
+      request.operation === "installationReport" ? 2000 : 20000,
+    ),
     redirect: "error",
   });
   const body = (await res.json()) as Record<string, unknown>;
