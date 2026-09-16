@@ -223,6 +223,9 @@ importers:
       '@suite/module-sdk':
         specifier: workspace:*
         version: link:packages/module-sdk
+      '@suite/ui-web':
+        specifier: workspace:*
+        version: link:packages/ui-web
       '@types/node':
         specifier: 26.5.1
         version: 26.5.1
@@ -259,6 +262,12 @@ importers:
       prettier:
         specifier: 3.9.6
         version: 3.9.6
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.0
+        version: 19.3.0(react@19.3.0)
       semver:
         specifier: 7.8.5
         version: 7.8.5

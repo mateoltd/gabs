@@ -1,3 +1,5 @@
+import { buildClientViews } from "../packages/module-sdk/node/build-client";
+import { moduleContract } from "@suite/module-sdk/client-artifact";
 import { validateFixtures } from "@suite/module-sdk/simulator";
 import { moduleServers } from "@suite/module-catalog/server";
 import "dotenv/config";
@@ -93,12 +95,25 @@ if (command === "keygen") {
     execute(["exec", "vitest", "run", "tests/module-sdk.test.ts"]);
   console.log(`${selected.length} module definitions validated.`);
 } else if (command === "build") {
+  if (!name) throw Error("Usage: pnpm module build <module-id-or-directory>");
+  const directory = identifier.test(name)
+    ? resolve(`modules/${name}`)
+    : resolve(name);
   const module = (
-    await import(pathToFileURL(resolve(`modules/${name}/module.ts`)).href)
+    await import(pathToFileURL(resolve(directory, "module.ts")).href)
   ).default as ModuleDefinition;
-  resolveReleases(module.id, moduleDefinitions, "1.0.0", "1.0.0");
+  resolveReleases(
+    module.id,
+    [...moduleDefinitions.filter((m) => m.id !== module.id), module],
+    "1.0.0",
+    "1.0.0",
+  );
   const key = await readFile(`${keys}/private.pem`, "utf8");
-  const pkg = signPackage(module, key);
+  const pkg = signPackage(
+    module,
+    key,
+    await buildClientViews(module, directory),
+  );
   await mkdir(".local/modules", { recursive: true });
   const path = `.local/modules/${module.id}-${module.version}.json`;
   await writeFile(path, JSON.stringify(pkg, null, 2));
@@ -124,7 +139,7 @@ if (command === "keygen") {
       (server) =>
         server.module.id === pkg.module_id &&
         server.module.version === pkg.version &&
-        canonical(server.module) === canonical(pkg.artifact),
+        canonical(server.module) === canonical(moduleContract(pkg.artifact)),
     )
   )
     throw Error(

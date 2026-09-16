@@ -394,6 +394,19 @@ test("assigned modules install in the background before they are opened", async 
   page,
 }) => {
   const workspaceId = await workspace(page);
+  const bootstrap = await (
+    await page.request.get(`/api/v1/workspaces/${workspaceId}/bootstrap`)
+  ).json();
+  const assigned = bootstrap.modules
+    .filter(
+      (m: { assigned: boolean; entitled: boolean; state: string }) =>
+        m.assigned && m.entitled && m.state === "enabled",
+    )
+    .map((m: { moduleId: string }) => m.moduleId)
+    .sort();
+  expect(assigned).toEqual(
+    expect.arrayContaining(["contacts", "projects", "orders", "inventory"]),
+  );
   await expect
     .poll(
       async () => {
@@ -403,14 +416,17 @@ test("assigned modules install in the background before they are opened", async 
         const state = await (
           await page.request.get(`/api/v1/workspaces/${workspaceId}/platform`)
         ).json();
-        return state.installations.filter(
-          (i: { device_id: string; state: string }) =>
-            i.device_id === deviceId && i.state === "installed",
-        ).length;
+        return state.installations
+          .filter(
+            (i: { device_id: string; state: string; module_id: string }) =>
+              i.device_id === deviceId && i.state === "installed",
+          )
+          .map((i: { module_id: string }) => i.module_id)
+          .sort();
       },
       { timeout: 20000 },
     )
-    .toBe(4);
+    .toEqual(assigned);
 });
 
 test("physical count shows variance and commits the checked stock snapshot", async ({

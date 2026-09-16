@@ -1,3 +1,4 @@
+import { validateClientArtifacts } from "@suite/module-sdk/client-artifact";
 import type { FeatureProps } from "@suite/platform";
 import {
   changeModuleStorage,
@@ -59,6 +60,7 @@ export async function verifyArtifact(pkg: SignedArtifact, pem: string) {
     pkg.artifact.publisher !== pkg.manifest.publisher
   )
     throw Error("Module identity verification failed.");
+  validateClientArtifacts(pkg.artifact);
 }
 /** Verified downloads survive interruption. Installed versions switch only after every dependency verifies. */
 export async function installModule(
@@ -117,7 +119,11 @@ export async function installModule(
             },
           });
           await verifyArtifact(pkg, trust.publicKey);
-          if (pkg.version !== release.version)
+          if (
+            pkg.module_id !== release.id ||
+            pkg.version !== release.version ||
+            pkg.digest !== expected.digest
+          )
             throw Error(
               "The release policy changed during installation. Retry to use the current policy.",
             );

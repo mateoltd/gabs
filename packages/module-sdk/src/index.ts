@@ -98,7 +98,16 @@ export interface ModuleDefinition {
   events?: Record<string, TSchema>;
   services?: Record<string, import("./context").ServiceReference>;
   customUI?: boolean;
-  navigation?: { path: string; permission: string };
+  views?: Record<
+    string,
+    {
+      title: string;
+      entry: string;
+      stylesheet?: string;
+      permission: string;
+    }
+  >;
+  navigation?: { path: string; permission: string; view?: string };
   legacyView?: boolean;
 }
 export function defineModule<const M extends ModuleDefinition>(
@@ -106,10 +115,39 @@ export function defineModule<const M extends ModuleDefinition>(
     operations: {
       [K in keyof M["operations"]]: { permission: M["permissions"][number] };
     };
+    views?: {
+      [K in keyof NonNullable<M["views"]>]: {
+        permission: M["permissions"][number];
+      };
+    };
+    navigation?: { view?: keyof NonNullable<M["views"]> & string };
   },
 ): M {
   if (!identifier.test(definition.id))
     throw new Error("Module IDs must be lowercase slugs.");
+  if (definition.navigation) {
+    if (
+      [
+        "overview",
+        "modules",
+        "organization",
+        "people",
+        "audit",
+        "notifications",
+        "settings",
+        "auth",
+        "api",
+      ].includes(definition.id) ||
+      definition.navigation.path !== `/${definition.id}`
+    )
+      throw new Error(
+        "Module navigation must use its own module ID and cannot replace a host route.",
+      );
+    if (!definition.permissions.includes(definition.navigation.permission))
+      throw new Error(
+        `Undeclared navigation permission: ${definition.navigation.permission}`,
+      );
+  }
   for (const name of [
     ...Object.keys(definition.resources),
     ...Object.keys(definition.operations),
@@ -117,6 +155,28 @@ export function defineModule<const M extends ModuleDefinition>(
     if (!identifier.test(name))
       throw new Error(`Invalid resource or operation: ${name}`);
   }
+  for (const [name, view] of Object.entries(definition.views ?? {})) {
+    if (!identifier.test(name) || !view.title.trim())
+      throw new Error(`Invalid custom view: ${name}`);
+    if (!definition.permissions.includes(view.permission))
+      throw new Error(`Undeclared view permission: ${view.permission}`);
+    for (const path of [view.entry, view.stylesheet].filter(
+      (p): p is string => !!p,
+    ))
+      if (
+        !/^[a-zA-Z0-9_./-]+$/.test(path) ||
+        path.startsWith("/") ||
+        path.split("/").some((p) => p === ".." || p === "")
+      )
+        throw new Error(
+          `View ${name} requires a relative path within the module.`,
+        );
+  }
+  if (
+    definition.navigation?.view &&
+    !definition.views?.[definition.navigation.view]
+  )
+    throw new Error(`Unknown navigation view: ${definition.navigation.view}`);
   for (const op of Object.values(definition.operations)) {
     if (!definition.permissions.includes(op.permission))
       throw new Error(`Undeclared permission: ${op.permission}`);
@@ -380,8 +440,11 @@ export function hydrateSchema(schema: TSchema): TSchema {
   return { ...copy, [Symbol.for("TypeBox.Kind")]: kind };
 }
 export function hydrateModule(module: ModuleDefinition): ModuleDefinition {
+  const { client: _client, ...contract } = module as ModuleDefinition & {
+    client?: unknown;
+  };
   return defineModule({
-    ...module,
+    ...contract,
     configuration: hydrateSchema(module.configuration) as TObject,
     ...(module.events
       ? {

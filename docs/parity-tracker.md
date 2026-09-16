@@ -1,6 +1,6 @@
 # Functionality parity tracker
 
-Updated: 16 September 2026. **Overall status: paused by the user; parity has not been achieved.** Owner: the assistant in this project, with user decisions only where materially required.
+Updated: 16 September 2026. **Overall status: active; parity has not been achieved.** Owner: the assistant in this project, with user decisions only where materially required.
 
 ## Sources and working rules
 
@@ -15,25 +15,25 @@ Statuses: **ready** = executable next work; **open** = unfinished; **active** = 
 
 ## Current handoff
 
-**User override: feature expansion remains paused. [UI reconciliation](ui-reconciliation.md) is implemented and verified; await user direction before resuming EXT-01.** The ordered parity backlog below remains intact; it is not the current implementation instruction.
+**User direction: resume feature parity after creating and pushing the repository checkpoint. UI refinement is authorized as a second goal after parity is verified; see [its queued brief](ui-refinement-goal.md).** The current interface remains an engineering baseline, not an accepted visual standard.
 
-- **Next after resumption:** EXT-01, independent signed executable client packages and manifest-driven custom views. Start by inspecting package format, verification, module installation and custom-view mounting. Write the package/host contract before changing runtime loading; retain declarative package compatibility.
-- **Then:** EXT-02 and EXT-03, server release staging and migrations; SDK-01 may proceed independently when useful. Resolve schema compatibility before claiming recoverable executable updates.
-- **Current item:** UI-R02 shared-list redesign completed and verified in web and Electron; see [evidence](verification/people-inventory/README.md). UI reconciliation completed against the reconstructed baseline. [Evidence and limits](verification/ui-reconciliation/README.md) include 66 screen/theme/viewport captures, all ten archetype controls, native Electron review and focused regression tests. No parity implementation item is active.
+- **Active:** EXT-02, reviewed server-component staging and publisher submission/review. EXT-01 is verified locally; its independent package contract and evidence are linked below. Inspect current static backend discovery, CLI publication and release resolution before extending staging.
+- **Then:** EXT-03, per-module migrations; SDK-01 may proceed independently when useful. Resolve schema compatibility before claiming recoverable executable updates.
+- **Current item:** EXT-02. Repository created at https://github.com/mateoltd/gabs (private), current checkout preserved as `ef70776443ed4020f4c43f9741108d52f9268c58`. Local execution and the Codex goal are active; the user resumed the goal and its active status was verified.
 - **Blockers:** no external dependency blocks the next engineering item. Provider credentials, hosted infrastructure and target-platform environments are required later; see dependency register.
 - **Last verified baseline:** 59 unit/integration tests, 45 Chromium journeys, two Electron runtime tests, builds, formatting and a local logical restore, with follow-up qualifications in the [16 September record](verification/README.md#sdk-lifecycle-and-business-continuation-16-september-2026). These are historical results, not tests run for this tracker update.
 
 ## 1. Independent modules and lifecycle
 
-| ID     | Status | Deliverable and acceptance required                                                                                                                                                                                            | After                  | Coverage                    |
-| ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | --------------------------- |
-| EXT-01 | ready  | Signed executable client bundles and manifest-driven custom React loading. Install a reviewed custom-view module without host edits; reject corrupt or untrusted bytes and prevent styles escaping the container.              | —                      | CORE-002, STORE-003, UI-004 |
-| EXT-02 | open   | Reviewed server-component staging/deployment and publisher submission/review workflow. Client releases cannot become available before the exact compatible server contract is staged; rejected submissions cannot publish.     | —                      | BACK-001, CORE-002          |
-| EXT-03 | open   | Per-module migration manager with namespaced storage, forward compatibility and failure recovery. Exercise interrupted/failed migration without exposing a half-ready release or losing data.                                  | EXT-02                 | BACK-001, BACK-002          |
-| EXT-04 | open   | Resumable installation, update, pins, repair, suspension and schema-safe executable rollback acceptance. Preserve data on uninstall and block incompatible dependency/backend/schema combinations with actionable diagnostics. | EXT-01, EXT-03         | CORE-002, ORG-004           |
-| EXT-05 | open   | Mandatory-update rollout controls and lifecycle observability. Demonstrate pinned-client compatibility, emergency suspension, partial rollout failure and explicit offline lease limits.                                       | EXT-04                 | ORG-004                     |
-| EXT-06 | open   | Registry hosting, trust-key rotation and recovery. Test an authorized rotation, revoked/unknown key rejection and recovery with independently distributed artifacts.                                                           | EXT-01                 | STORE-003                   |
-| EXT-07 | open   | Complete fifth-module proof: scaffold, custom UI/service implementation, check, test, build, review, publish, install and update through public contracts without editing host source.                                         | EXT-04, SDK-02, SDK-03 | Framework acceptance        |
+| ID     | Status   | Deliverable and acceptance required                                                                                                                                                                                            | After                  | Coverage                    |
+| ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | --------------------------- |
+| EXT-01 | verified | Signed executable client bundles and manifest-driven custom React loading. Install a reviewed custom-view module without host edits; reject corrupt or untrusted bytes and prevent styles escaping the container.              | —                      | CORE-002, STORE-003, UI-004 |
+| EXT-02 | active   | Reviewed server-component staging/deployment and publisher submission/review workflow. Client releases cannot become available before the exact compatible server contract is staged; rejected submissions cannot publish.     | —                      | BACK-001, CORE-002          |
+| EXT-03 | open     | Per-module migration manager with namespaced storage, forward compatibility and failure recovery. Exercise interrupted/failed migration without exposing a half-ready release or losing data.                                  | EXT-02                 | BACK-001, BACK-002          |
+| EXT-04 | open     | Resumable installation, update, pins, repair, suspension and schema-safe executable rollback acceptance. Preserve data on uninstall and block incompatible dependency/backend/schema combinations with actionable diagnostics. | EXT-01, EXT-03         | CORE-002, ORG-004           |
+| EXT-05 | open     | Mandatory-update rollout controls and lifecycle observability. Demonstrate pinned-client compatibility, emergency suspension, partial rollout failure and explicit offline lease limits.                                       | EXT-04                 | ORG-004                     |
+| EXT-06 | open     | Registry hosting, trust-key rotation and recovery. Test an authorized rotation, revoked/unknown key rejection and recovery with independently distributed artifacts.                                                           | EXT-01                 | STORE-003                   |
+| EXT-07 | open     | Complete fifth-module proof: scaffold, custom UI/service implementation, check, test, build, review, publish, install and update through public contracts without editing host source.                                         | EXT-04, SDK-02, SDK-03 | Framework acceptance        |
 
 ## 2. Typed SDK and runtime
 
@@ -112,16 +112,16 @@ These are acceptance dependencies, not excuses to stop engineering. Do not recor
 
 Every gate starts **open**. Link dated evidence here when accepted; passing a subset never closes a gate. All required rows above must be verified as well.
 
-| Gate                 | Required proof                                                                                                                                                        | Status / evidence                                       |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Framework            | Fifth executable module through the public SDK and complete lifecycle without host edits; inferred types reject invalid contracts.                                    | Open; declarative-only proof is historical evidence.    |
-| Business correctness | Concurrent reservations cannot oversell; retries cannot duplicate fulfillment/payment effects/audit; cross-module transactions are atomic.                            | Open; current partial coverage in verification history. |
-| Offline              | Crash durability, dependencies, visible conflicts, independent rejection handling, expired/revoked access and authorized pending-work recovery.                       | Open.                                                   |
-| Authorization        | Workspace/profile isolation, malicious requests, current permissions, scoped service/capability grants and locked-profile recovery.                                   | Open.                                                   |
-| Lifecycle            | Interrupted/corrupt/incompatible installation, migration failure, supported pins, suspension, repair, schema-safe rollback and data-preserving uninstall.             | Open.                                                   |
-| Commerce             | Provider-backed duplicate/delayed webhooks, seats, subscription changes, failures and reconciliation end to end.                                                      | Open.                                                   |
-| Product              | Real web and packaged desktop journeys for four applications, organization editing, profiles, approvals, notifications, all themes and keyboard/assistive technology. | Open.                                                   |
-| Operations           | Observable sync/lifecycle/entitlement failures, routed alerts, signed updates and validated backup/service recovery.                                                  | Open.                                                   |
+| Gate                 | Required proof                                                                                                                                                        | Status / evidence                                                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework            | Fifth executable module through the public SDK and complete lifecycle without host edits; inferred types reject invalid contracts.                                    | Open; [independent executable client proof](verification/executable-modules/README.md) passes; full fifth-module lifecycle remains open. |
+| Business correctness | Concurrent reservations cannot oversell; retries cannot duplicate fulfillment/payment effects/audit; cross-module transactions are atomic.                            | Open; current partial coverage in verification history.                                                                                  |
+| Offline              | Crash durability, dependencies, visible conflicts, independent rejection handling, expired/revoked access and authorized pending-work recovery.                       | Open.                                                                                                                                    |
+| Authorization        | Workspace/profile isolation, malicious requests, current permissions, scoped service/capability grants and locked-profile recovery.                                   | Open.                                                                                                                                    |
+| Lifecycle            | Interrupted/corrupt/incompatible installation, migration failure, supported pins, suspension, repair, schema-safe rollback and data-preserving uninstall.             | Open.                                                                                                                                    |
+| Commerce             | Provider-backed duplicate/delayed webhooks, seats, subscription changes, failures and reconciliation end to end.                                                      | Open.                                                                                                                                    |
+| Product              | Real web and packaged desktop journeys for four applications, organization editing, profiles, approvals, notifications, all themes and keyboard/assistive technology. | Open.                                                                                                                                    |
+| Operations           | Observable sync/lifecycle/entitlement failures, routed alerts, signed updates and validated backup/service recovery.                                                  | Open.                                                                                                                                    |
 
 ## Work log
 
@@ -139,3 +139,17 @@ Future entries: task IDs, user-visible outcome, exact verification and limitatio
 - User-authorized UI follow-up covering People, Inventory, Audit and one shared foundation for all table renderers, including Orders and generated modules.
 - Verified: 15 distinct scoped Chromium tests passed across the final run and focused reruns, six motion checks, one actual Electron test, web/desktop builds, TypeScript, boundary/copy checks and formatting. [Exact scope and screenshots](verification/people-inventory/README.md).
 - UI-003 evidence expanded; its incomplete component/composability/assistive-technology acceptance remains open. No feature-parity item resumed. Next action remains waiting for user direction on the parity pause.
+
+### 16 September 2026: repository checkpoint and parity resumption
+
+- Created the private `mateoltd/gabs` repository through GitHub CLI, linked `origin`, committed the existing checkout, and pushed `main` with upstream tracking.
+- User resumed feature-parity engineering and authorized a subsequent dedicated UI-refinement goal. All release gates remain open; UI refinement must follow verified parity rather than being silently folded into this resumption.
+- EXT-01 is active. Preserve shared UI conventions and test observable custom-module behavior without redesigning unrelated screens.
+
+### 16 September 2026: EXT-01 executable client packages
+
+- Added the public typed `defineView` contract, signed self-contained JS/CSS packages, CLI builds from independent directories, manifest-driven loading and host UI styles inside Shadow DOM. No host registry/router edit is needed to publish the fifth module.
+- Verified real save/reload and corrupt-download rejection in Chromium, native execution through the bounded Electron bridge, runtime/type contract checks, and wide/narrow/native screenshots. Final regression: 62 unit/integration tests, 55 Chromium journeys, 5 Electron tests, all builds, formatting and boundaries passed. [Evidence and limitations](verification/executable-modules/README.md).
+- Fixed dynamic-route reload/initial-navigation races and long version metadata wrapping found during acceptance. Preserved historical UI screenshots; current UI is not declared polished.
+- The initial remote CI exposed missing historical release seeds and a Debian executable-name mismatch. Both are corrected; fresh remote CI must confirm them.
+- EXT-01 is verified locally. EXT-02 is next and active; full framework/lifecycle gates remain open, including reviewed backend deployment, migrations, custom offline execution and hosted trust rotation.

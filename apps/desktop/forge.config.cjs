@@ -41,7 +41,7 @@ module.exports = {
     {
       name: "@electron-forge/maker-deb",
       config: {
-        options: { maintainer: "Common" },
+        options: { name: "common-suite", bin: "common", maintainer: "Common" },
       },
     },
   ],

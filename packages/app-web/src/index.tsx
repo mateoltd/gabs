@@ -1,4 +1,4 @@
-import { installModule, deviceId } from "./module-installation";
+import { installModule, deviceId, verifyArtifact } from "./module-installation";
 import {
   changeModuleStorage,
   readModuleStorage,
@@ -13,7 +13,7 @@ import {
 import { hydrateModule } from "@suite/module-sdk";
 import { moduleDefinitions, registerModule } from "@suite/module-catalog";
 import { ModuleGate } from "./module-gate";
-import { ModuleView } from "./module-view";
+import { ModuleSurface } from "./custom-module-view";
 import { Input } from "@suite/ui-web";
 import {
   Component,
@@ -458,6 +458,28 @@ function Workspace({
       return result;
     },
     refetchInterval: 30000,
+  });
+  const installedCatalog = useQuery({
+    queryKey: [user.id, workspaceId, "installed-catalog"],
+    enabled: !online && !!bootstrapData,
+    networkMode: "always",
+    queryFn: async () => {
+      const stored = await readModuleStorage(platform, {
+        userId: user.id,
+        workspaceId,
+      });
+      for (const installed of Object.values(stored.installed)) {
+        if (!installed.signed || !installed.publicKey) continue;
+        await verifyArtifact(installed.signed, installed.publicKey);
+        registerModule(
+          hydrateModule(
+            installed.signed
+              .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+          ),
+        );
+      }
+      return true;
+    },
   });
   const inbox = useQuery({
     queryKey: [user.id, workspaceId, "notifications"],
@@ -925,6 +947,7 @@ function Workspace({
           ) : (
             <FeatureBoundary key={workspaceId} resetKey={title}>
               <MotionRoutes>
+                <Route path="/" element={<Navigate to="/overview" replace />} />
                 <Route
                   path="/organization"
                   element={onlineOnly(<Organization {...features} />)}
@@ -938,7 +961,9 @@ function Workspace({
                       path={m.navigation!.path}
                       element={
                         <ModuleGate {...features} moduleId={m.id}>
-                          <ModuleView {...features} moduleId={m.id} />
+                          {(installation) => (
+                            <ModuleSurface {...features} {...installation} />
+                          )}
                         </ModuleGate>
                       }
                     />
@@ -1010,7 +1035,22 @@ function Workspace({
                     </>,
                   )}
                 />
-                <Route path="*" element={<Navigate to="/overview" replace />} />
+                <Route
+                  path="*"
+                  element={
+                    (
+                      online ? catalog.isSuccess : installedCatalog.isSuccess
+                    ) ? (
+                      <Navigate to="/overview" replace />
+                    ) : (catalog.error ?? installedCatalog.error) ? (
+                      <ErrorMessage
+                        error={catalog.error ?? installedCatalog.error}
+                      />
+                    ) : (
+                      <Loading />
+                    )
+                  }
+                />
               </MotionRoutes>
             </FeatureBoundary>
           )}

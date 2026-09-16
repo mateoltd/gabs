@@ -1,4 +1,8 @@
 import { createHash, sign, verify, createPublicKey } from "node:crypto";
+import {
+  validateClientArtifacts,
+  type ClientBundles,
+} from "../src/client-artifact";
 import { canonical } from "../src/registry";
 import type { ModuleDefinition } from "../src/index";
 export interface SignedPackage {
@@ -13,11 +17,14 @@ export interface SignedPackage {
 export function signPackage(
   module: ModuleDefinition,
   privateKey: string,
+  client?: ClientBundles,
 ): SignedPackage {
   const artifact = JSON.parse(JSON.stringify(module)) as Record<
     string,
     unknown
   >;
+  if (client && Object.keys(client).length) artifact.client = client;
+  validateClientArtifacts(artifact);
   const manifest = {
     id: module.id,
     version: module.version,
@@ -71,5 +78,6 @@ export function verifyPackage(pkg: SignedPackage, publicKey: string) {
     pkg.artifact.version !== pkg.version
   )
     throw Error("Module identity does not match its signed manifest.");
+  validateClientArtifacts(pkg.artifact);
   return pkg;
 }

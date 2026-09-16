@@ -151,7 +151,7 @@ export function HostCustomSandbox({
       {root &&
         createPortal(
           <>
-            <style>{`:host{all:initial;display:block;contain:content;color:#111;background:#fff;font:16px system-ui}*{box-sizing:border-box}${css}`}</style>
+            <style>{`:host{all:initial;display:block;contain:content;min-width:0;color:var(--text);background:var(--surface);font:inherit;line-height:1.5}*{box-sizing:border-box}${css}`}</style>
             {children}
           </>,
           root,

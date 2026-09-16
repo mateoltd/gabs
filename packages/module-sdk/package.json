@@ -10,7 +10,9 @@
     "./governance": "./src/governance.ts",
     "./platform": "./src/platform.ts",
     "./server": "./src/server.ts",
-    "./simulator": "./src/simulator.ts"
+    "./simulator": "./src/simulator.ts",
+    "./ui": "./src/ui.ts",
+    "./client-artifact": "./src/client-artifact.ts"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",

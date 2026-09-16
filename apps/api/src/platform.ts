@@ -314,17 +314,33 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           .where("workspace_id", "=", ctx.workspaceId)
           .execute();
         const admin = ctx.permissions.includes("modules.manage");
+        // Include releases published after server startup; executable client-only
+        // modules require neither a host rebuild nor a server restart.
+        const publishedIds = await tx
+          .selectFrom("suite.module_releases")
+          .select("module_id")
+          .distinct()
+          .execute();
+        const candidates = [
+          ...new Set([
+            ...moduleDefinitions.map((m) => m.id),
+            ...publishedIds.map((r) => r.module_id),
+          ]),
+        ];
         const definitions = await Promise.all(
-          moduleDefinitions
+          candidates
             .filter(
               (m) =>
                 admin ||
                 activations.some(
-                  (a) => a.module_id === m.id && a.state === "enabled",
+                  (a) => a.module_id === m && a.state === "enabled",
                 ),
             )
-            .map((m) => workspaceModule(tx, ctx.workspaceId, m.id)),
+            .map((m) => workspaceModule(tx, ctx.workspaceId, m)),
         );
+        for (const definition of definitions)
+          if (!moduleDefinition(definition.id)) registerModule(definition);
+        refreshModuleCatalog();
         const releases = await tx
           .selectFrom("suite.module_releases")
           .select([

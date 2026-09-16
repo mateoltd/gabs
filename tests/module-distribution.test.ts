@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
-import { randomUUID, generateKeyPairSync } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
   connectDatabase,
@@ -36,14 +36,11 @@ describe("Independent module distribution", () => {
         ),
       },
     });
-    const pair = generateKeyPairSync("ed25519");
-    const previousKey = process.env.MODULE_SIGNING_PUBLIC_KEY;
-    process.env.MODULE_SIGNING_PUBLIC_KEY = pair.publicKey
-      .export({ type: "spki", format: "pem" })
-      .toString();
+    const keyDirectory =
+      process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys";
     const pkg = signPackage(
       module,
-      pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      await readFile(`${keyDirectory}/private.pem`, "utf8"),
     );
     await db.insertInto("suite.module_releases").values(pkg).execute();
     const server = await createApp({
@@ -141,9 +138,6 @@ describe("Independent module distribution", () => {
         [id],
       );
       await admin.end();
-      if (previousKey === undefined)
-        delete process.env.MODULE_SIGNING_PUBLIC_KEY;
-      else process.env.MODULE_SIGNING_PUBLIC_KEY = previousKey;
     }
   });
 });

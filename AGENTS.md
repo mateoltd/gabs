@@ -2,7 +2,7 @@
 
 ## Parity goal and continuity
 
-- Current user direction: feature-parity implementation is paused for UI reconciliation. Reconciliation evidence is recorded in `docs/ui-reconciliation.md`; wait for user direction before resuming any parity task. Preserve the established UI in `docs/ui.md`; functional expansion is not permission to replace its visual system. New UI must use its shared geometry, controls, navigation and motion, and be visually checked in web and Electron.
+- Current user direction: resume feature parity after the GitHub checkpoint. Preserve existing UI while completing functionality; the current UI is not user-approved as polished or acceptable. After every parity acceptance gate is verified, complete the parity goal and create the separately authorized UI refinement goal described in `docs/ui-refinement-goal.md`. Do not start that second goal early. Reconciliation evidence is historical, not a final design approval.
 
 - Preserve the approved product vision in `docs/product-vision.md`. This is a modular business platform, not a two-module application.
 - At the start of implementation, read `docs/parity-tracker.md` and the relevant rows of `docs/requirement-ledger.md`. Resume the next ready item; do not restart completed work.

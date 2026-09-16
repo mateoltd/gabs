@@ -1,0 +1,14 @@
+/* This intentionally broad selector must never affect the host document. */
+body {
+  background: rgb(255, 0, 255);
+}
+.form-stack {
+  max-width: 420px;
+}
+ul {
+  padding: 0;
+  list-style: none;
+}
+li {
+  padding-block: 12px;
+}

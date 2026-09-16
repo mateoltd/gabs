@@ -1,3 +1,4 @@
+import type { SignedArtifact } from "@suite/module-sdk/platform";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -8,7 +9,15 @@ import { readModuleStorage } from "@suite/platform/module-storage";
 import { Loading, Empty, ErrorMessage, Button } from "@suite/ui-web";
 import { installModule, deviceId, verifyArtifact } from "./module-installation";
 export function ModuleGate(
-  props: FeatureProps & { moduleId: string; children: ReactNode },
+  props: FeatureProps & {
+    moduleId: string;
+    children:
+      | ReactNode
+      | ((installation: {
+          pkg: SignedArtifact;
+          publicKey: string;
+        }) => ReactNode);
+  },
 ) {
   const query = useQuery({
     networkMode: "always",
@@ -31,6 +40,15 @@ export function ModuleGate(
       const storage = await readModuleStorage(props.platform, props.scope);
       const installed = storage.installed[props.moduleId];
       if (!props.online) {
+        const activation = props.bootstrap.modules.find(
+          (m) => m.moduleId === props.moduleId,
+        );
+        if (
+          !activation?.entitled ||
+          !activation.assigned ||
+          activation.state !== "enabled"
+        )
+          return false;
         if (!installed?.signed || !installed.publicKey) return false;
         await verifyArtifact(installed.signed, installed.publicKey);
         registerModule(
@@ -38,7 +56,7 @@ export function ModuleGate(
             installed.signed.artifact as unknown as ModuleDefinition,
           ),
         );
-        return true;
+        return { pkg: installed.signed, publicKey: installed.publicKey };
       }
       const state = await props.client.request({
         operation: "platformState",
@@ -71,7 +89,7 @@ export function ModuleGate(
               installed.signed.artifact as unknown as ModuleDefinition,
             ),
           );
-          return true;
+          return { pkg: installed.signed, publicKey: installed.publicKey };
         } catch {
           /* Repair an invalid cached artifact from the official registry. */
         }
@@ -80,7 +98,8 @@ export function ModuleGate(
       registerModule(
         hydrateModule(pkg.artifact as unknown as ModuleDefinition),
       );
-      return true;
+      const trust = await props.client.request({ operation: "moduleTrust" });
+      return { pkg, publicKey: trust.publicKey };
     },
   });
   if (query.isPending || (query.isFetching && !query.data)) return <Loading />;
@@ -101,5 +120,7 @@ export function ModuleGate(
         <Link to="/modules">Manage modules</Link>
       </>
     );
-  return props.children;
+  return typeof props.children === "function"
+    ? props.children(query.data)
+    : props.children;
 }

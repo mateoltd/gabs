@@ -1,5 +1,7 @@
 import { generateKeyPairSync, createPublicKey } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { moduleServers } from "@suite/module-catalog/server";
+import { buildClientViews } from "../packages/module-sdk/node/build-client";
 import { moduleDefinitions } from "@suite/module-catalog";
 import {
   signPackage,
@@ -40,8 +42,14 @@ export async function seedRegistry(db: DB) {
   const trusted =
     process.env.MODULE_SIGNING_PUBLIC_KEY ??
     (await readFile(`${directory}/public.pem`, "utf8"));
-  for (const module of moduleDefinitions) {
-    const pkg = verifyPackage(signPackage(module, privateKey), trusted);
+  const releases = new Map(
+    [...moduleDefinitions, ...moduleServers.map((server) => server.module)].map(
+      (module) => [`${module.id}@${module.version}`, module],
+    ),
+  );
+  for (const module of releases.values()) {
+    const client = await buildClientViews(module, `modules/${module.id}`);
+    const pkg = verifyPackage(signPackage(module, privateKey, client), trusted);
     const old = await db
       .selectFrom("suite.module_releases")
       .select("digest")
