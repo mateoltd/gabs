@@ -17,7 +17,7 @@ Statuses: **ready** = executable next work; **open** = unfinished; **active** = 
 
 **User direction: resume feature parity after creating and pushing the repository checkpoint. UI refinement is authorized as a second goal after parity is verified; see [its queued brief](ui-refinement-goal.md).** The current interface remains an engineering baseline, not an accepted visual standard.
 
-- **Active:** EXT-02, reviewed server-component staging and publisher submission/review. EXT-01 is verified locally; its independent package contract and evidence are linked below. Inspect current static backend discovery, CLI publication and release resolution before extending staging.
+- **Active:** EXT-02, reviewed server-component staging and publisher submission/review. EXT-01 is verified locally; its independent package contract and evidence are linked below. Registry write isolation is implemented and verified. Next add immutable submission/review records tied to exact client and server digests, followed by reviewed server deployment and publication checks. Existing source discovery is not independent deployment.
 - **Then:** EXT-03, per-module migrations; SDK-01 may proceed independently when useful. Resolve schema compatibility before claiming recoverable executable updates.
 - **Current item:** EXT-02. Repository created at https://github.com/mateoltd/gabs (private), current checkout preserved as `ef70776443ed4020f4c43f9741108d52f9268c58`. Local execution and the Codex goal are active; the user resumed the goal and its active status was verified.
 - **Blockers:** no external dependency blocks the next engineering item. Provider credentials, hosted infrastructure and target-platform environments are required later; see dependency register.
@@ -153,3 +153,9 @@ Future entries: task IDs, user-visible outcome, exact verification and limitatio
 - Fixed dynamic-route reload/initial-navigation races and long version metadata wrapping found during acceptance. Preserved historical UI screenshots; current UI is not declared polished.
 - The initial remote CI exposed missing historical release seeds and a Debian executable-name mismatch. Both are corrected; fresh remote CI must confirm them.
 - EXT-01 is verified locally. EXT-02 is next and active; full framework/lifecycle gates remain open, including reviewed backend deployment, migrations, custom offline execution and hosted trust rotation.
+
+### 16 September 2026: EXT-02 publication authority boundary
+
+- Removed registry mutation privileges from the application/worker/public database roles. Added a non-login registry role with only registry read/insert rights for protected release tooling; it cannot update or delete immutable releases. Local seeding now uses its explicit migration connection for registry insertion, while business fixtures still use the ordinary application connection.
+- The real PostgreSQL distribution test first proves an API connection cannot insert a release, then inserts via the explicit fixture publisher and exercises normal installation/data access. Migration, local seed and all 62 unit/integration checks passed.
+- EXT-02 remains active: immutable review records, server artifact staging/deployment, promotion gates and review workflow still need implementation. This privilege fix alone is not a review system.

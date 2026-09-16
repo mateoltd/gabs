@@ -121,3 +121,7 @@ The regression run exposed an assertion racing navigation and an old expectation
 ## Independently signed executable client modules, 16 September 2026
 
 EXT-01 passed local acceptance: a fifth typed TSX module built/published outside host discovery installs dynamically, saves and reloads real records, contains its styles, and rejects corrupt executable downloads. Final checks passed: 62 unit/integration tests, 55 Chromium journeys, 5 actual Electron tests, all builds, formatting and boundary checks. [Detailed evidence and explicit limits](executable-modules/README.md). Framework, lifecycle and release gates remain open.
+
+### Registry publication authority, 16 September 2026
+
+Migration 013 revokes registry writes from ordinary application/worker roles. The existing real PostgreSQL distribution test now verifies SQL permission denial before privileged fixture publication and normal API installation. Migration, seed, strict types/boundaries and all 62 tests passed after the change. No UI code changed in this follow-up; the preceding browser/native evidence remains scoped to EXT-01. Reviewed staging/promotion remains open under EXT-02.

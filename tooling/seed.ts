@@ -16,7 +16,14 @@ export const DEMO_WORKSPACE = "11111111-1111-4111-8111-111111111111";
 export async function seed() {
   const db = connectDatabase();
   try {
-    await seedRegistry(db);
+    if (!process.env.MIGRATION_DATABASE_URL)
+      throw Error("Local registry seeding requires MIGRATION_DATABASE_URL.");
+    const registry = connectDatabase(process.env.MIGRATION_DATABASE_URL);
+    try {
+      await seedRegistry(registry);
+    } finally {
+      await registry.destroy();
+    }
     const owner = await identify(db, {
       issuer: "development",
       subject: "owner",

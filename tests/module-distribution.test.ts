@@ -42,7 +42,20 @@ describe("Independent module distribution", () => {
       module,
       await readFile(`${keyDirectory}/private.pem`, "utf8"),
     );
-    await db.insertInto("suite.module_releases").values(pkg).execute();
+    // An ordinary API connection must not bypass release publication controls.
+    await expect(
+      db.insertInto("suite.module_releases").values(pkg).execute(),
+    ).rejects.toMatchObject({ code: "42501" });
+    if (!process.env.MIGRATION_DATABASE_URL)
+      throw Error(
+        "The test requires an explicit fixture publisher connection.",
+      );
+    const publisher = connectDatabase(process.env.MIGRATION_DATABASE_URL);
+    try {
+      await publisher.insertInto("suite.module_releases").values(pkg).execute();
+    } finally {
+      await publisher.destroy();
+    }
     const server = await createApp({
       db,
       auth: {
