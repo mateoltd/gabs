@@ -811,4 +811,56 @@ describe("real PostgreSQL transactions and tenant security", () => {
     });
     expect(response.statusCode).toBe(403);
   });
+  it("filters customer names before order pagination and keeps customer details scoped", async () => {
+    const p = await product(10);
+    const prefix = `Page customer ${randomUUID()}`;
+    const created: { id: string; customerName: string }[] = [];
+    for (const suffix of ["Alpha", "Beta", "Gamma"]) {
+      const response = await request("POST", path("/orders"), {
+        customerName: `${prefix} ${suffix}`,
+        lines: [{ productId: p.id, quantity: 1, priceMinor: 1000 }],
+      });
+      expect(response.status).toBe(200);
+      created.push(response.body);
+    }
+    created.sort((a, b) => a.id.localeCompare(b.id));
+    let cursor: string | null = null;
+    for (const expected of created) {
+      const response = await request(
+        "GET",
+        path(
+          `/orders?search=${encodeURIComponent(prefix.toLowerCase())}&status=draft&limit=1${cursor ? `&cursor=${cursor}` : ""}`,
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(response.body.items).toHaveLength(1);
+      expect(response.body.items[0]).toMatchObject({
+        id: expected.id,
+        customerName: expected.customerName,
+        lines: [{ productId: p.id }],
+      });
+      cursor = response.body.nextCursor;
+    }
+    expect(cursor).toBeNull();
+    const last = created.at(-1)!;
+    const exact = await request(
+      "GET",
+      path(`/orders?search=${encodeURIComponent(last.customerName)}&limit=1`),
+    );
+    expect(exact.body.items.map((o: { id: string }) => o.id)).toEqual([
+      last.id,
+    ]);
+    expect(
+      (
+        await request(
+          "GET",
+          `/workspaces/${foreignWorkspace}/orders?search=${encodeURIComponent(prefix)}`,
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (await request("GET", path(`/orders?search=absent-${randomUUID()}`))).body
+        .items,
+    ).toEqual([]);
+  });
 });

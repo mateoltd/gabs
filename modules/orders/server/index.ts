@@ -266,11 +266,6 @@ export async function listOrders(
 ) {
   let query = tx
     .selectFrom("suite.orders as o")
-    .innerJoin("suite.customers as c", (j) =>
-      j
-        .onRef("o.customer_id", "=", "c.id")
-        .onRef("o.workspace_id", "=", "c.workspace_id"),
-    )
     .select([
       "o.id",
       "o.number",
@@ -278,13 +273,32 @@ export async function listOrders(
       "o.version",
       "o.total_minor",
       "o.created_at",
-      "c.name",
     ])
+    // A scalar lookup uses the customer's unique key and avoids a tenant-wide
+    // nested-loop join when statistics underestimate a newly populated workspace.
+    .select((eb) =>
+      eb
+        .selectFrom("suite.customers as c")
+        .select("c.name")
+        .whereRef("c.id", "=", "o.customer_id")
+        .whereRef("c.workspace_id", "=", "o.workspace_id")
+        .as("name"),
+    )
     .where("o.workspace_id", "=", workspaceId)
     .orderBy("o.id");
   if (page.status) query = query.where("o.status", "=", page.status);
   if (page.cursor) query = query.where("o.id", ">", page.cursor);
-  if (page.search) query = query.where("c.name", "ilike", `%${page.search}%`);
+  if (page.search)
+    query = query.where(
+      (eb) =>
+        eb
+          .selectFrom("suite.customers as c")
+          .select("c.name")
+          .whereRef("c.id", "=", "o.customer_id")
+          .whereRef("c.workspace_id", "=", "o.workspace_id"),
+      "ilike",
+      `%${page.search}%`,
+    );
   const limit = page.limit ?? 50,
     rows = await query.limit(limit + 1).execute(),
     visible = rows.slice(0, limit);
@@ -307,7 +321,7 @@ export async function listOrders(
     status: o.status as OrderStatus,
     version: o.version,
     totalMinor: Number(o.total_minor),
-    customerName: o.name,
+    customerName: found(o.name ?? undefined),
     createdAt: iso(o.created_at),
     lines: lines
       .filter((l) => l.order_id === o.id)
