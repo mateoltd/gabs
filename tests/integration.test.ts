@@ -1,4 +1,5 @@
 import "dotenv/config";
+import type { OrganizationPolicy } from "@suite/module-sdk/governance";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
@@ -143,6 +144,172 @@ afterAll(async () => {
   await admin.end();
 });
 describe("real PostgreSQL transactions and tenant security", () => {
+  it("reads current identity and the full inheritance graph without retaining stale grants", async () => {
+    const user = await identify(db, {
+      issuer: "test",
+      subject: randomUUID(),
+      email: `${randomUUID()}@test.local`,
+      name: "Authorization snapshot",
+      emailVerified: true,
+    });
+    const actor: Actor = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      emailVerified: true,
+      mfa: true,
+    };
+    const company = randomUUID(),
+      parent = randomUUID(),
+      leaf = randomUUID();
+    const { root, member } = await inWorkspace(db, company, async (tx) => {
+      await provisionWorkspace(tx, {
+        id: company,
+        userId: user.id,
+        name: "Grant graph acceptance",
+        kind: "company",
+      });
+      const root = await tx
+        .selectFrom("suite.roles")
+        .select("id")
+        .where("name", "=", "Owner")
+        .executeTakeFirstOrThrow();
+      const member = await tx
+        .selectFrom("suite.memberships")
+        .select("id")
+        .where("user_id", "=", user.id)
+        .executeTakeFirstOrThrow();
+      await tx
+        .insertInto("suite.roles")
+        .values([
+          {
+            id: parent,
+            workspace_id: company,
+            name: "Parent",
+            permissions: ["orders.create"],
+          },
+          {
+            id: leaf,
+            workspace_id: company,
+            name: "Leaf",
+            permissions: ["orders.read"],
+          },
+        ])
+        .execute();
+      await tx
+        .deleteFrom("suite.role_assignments")
+        .where("membership_id", "=", member.id)
+        .execute();
+      await tx
+        .insertInto("suite.role_assignments")
+        .values({
+          workspace_id: company,
+          membership_id: member.id,
+          role_id: leaf,
+        })
+        .execute();
+      return { root: root.id, member: member.id };
+    });
+    const policy = (inherit: boolean, denies: string[] = []) =>
+      inWorkspace(db, company, (tx) =>
+        tx
+          .insertInto("suite.platform_settings")
+          .values({
+            workspace_id: company,
+            key: "organization",
+            version: 1,
+            value: {
+              rootId: root,
+              groups: [],
+              ranks: [
+                {
+                  id: root,
+                  name: "Administrador",
+                  parents: [],
+                  inherit: false,
+                  denies: [],
+                  x: 0,
+                  y: 0,
+                },
+                {
+                  id: parent,
+                  name: "Parent",
+                  parents: [root],
+                  inherit: false,
+                  denies: [],
+                  x: 0,
+                  y: 100,
+                },
+                {
+                  id: leaf,
+                  name: "Leaf",
+                  parents: [parent],
+                  inherit,
+                  denies,
+                  x: 0,
+                  y: 200,
+                },
+              ],
+            } satisfies OrganizationPolicy,
+          })
+          .onConflict((oc) =>
+            oc
+              .columns(["workspace_id", "key"])
+              .doUpdateSet((eb) => ({ value: eb.ref("excluded.value") })),
+          )
+          .execute(),
+      );
+    const read = () =>
+      inWorkspace(db, company, (tx) =>
+        authorize(tx, actor, company, randomUUID()),
+      );
+    await policy(false);
+    expect((await read()).permissions).toEqual(["orders.read"]);
+    await policy(true);
+    expect((await read()).permissions.sort()).toEqual([
+      "orders.create",
+      "orders.read",
+    ]);
+    await policy(true, ["orders.create"]);
+    expect((await read()).permissions).toEqual(["orders.read"]);
+    await inWorkspace(db, company, (tx) =>
+      tx
+        .updateTable("suite.memberships")
+        .set({ active: false })
+        .where("id", "=", member)
+        .execute(),
+    );
+    await expect(read()).rejects.toMatchObject({
+      code: "MEMBERSHIP_REVOKED",
+      status: 403,
+    });
+    await inWorkspace(db, company, (tx) =>
+      tx
+        .updateTable("suite.memberships")
+        .set({ active: true })
+        .where("id", "=", member)
+        .execute(),
+    );
+    await admin.query("update suite.users set active=false where id=$1", [
+      user.id,
+    ]);
+    try {
+      await expect(read()).rejects.toMatchObject({
+        code: "UNAUTHENTICATED",
+        status: 401,
+      });
+    } finally {
+      await admin.query("update suite.users set active=true where id=$1", [
+        user.id,
+      ]);
+    }
+    expect((await read()).permissions).toEqual(["orders.read"]);
+    await expect(
+      inWorkspace(db, foreignWorkspace, (tx) =>
+        authorize(tx, actor, foreignWorkspace, randomUUID()),
+      ),
+    ).rejects.toMatchObject({ code: "MEMBERSHIP_REVOKED", status: 403 });
+  });
   it("summarizes the entire workspace and filters orders and low stock before pagination", async () => {
     const available = await product(100),
       low = await product(3);

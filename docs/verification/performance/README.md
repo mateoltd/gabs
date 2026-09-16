@@ -41,3 +41,7 @@ The diagnostic CPU sampler and query wrapper were temporary local tooling. They 
 CI keeps the uninstrumented load acceptance result and unchanged budgets. After failure it runs diagnostics against a fresh fixture in the same database; profile latency is not acceptance evidence or a directly comparable benchmark. The restore drill now runs independently after an attempted load gate, so a latency failure no longer hides restore results. The original failed load step still fails the job.
 
 Local diagnostic smoke run produced 196 CPU samples and 750 queries grouped into 15 SQL statements, with parameter fields absent. Its instrumented p95 was 116/175 ms; that only verifies tooling and does not close the remote gate.
+
+## Current authorization candidate
+
+The first diagnostic-enabled remote run passed, but the following candidate again exceeded the read budget (552 ms). Both restore drills passed. Captured remote timings support consolidating current authorization reads into one statement without caching permissions. [Exact run reports, profiling limits, candidate change and acceptance](authorization/README.md). OPS-07 remains open pending this candidate's remote result.

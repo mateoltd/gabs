@@ -190,6 +190,7 @@ test("viewer permissions, accessible navigation, themes and narrow layout", asyn
   await expect(
     page.getByRole("heading", { name: "Inventory", exact: true }),
   ).toBeVisible();
+  await page.getByPlaceholder("Search products or SKU").fill("Field notebook");
   await expect(page.getByText("Field notebook", { exact: true })).toBeVisible();
   await page.screenshot({
     path: "test-results/inventory-dark.png",
@@ -220,6 +221,10 @@ test("viewer permissions, accessible navigation, themes and narrow layout", asyn
   await expect(
     page.getByRole("heading", { name: "Orders", exact: true }),
   ).toBeVisible();
+  // Seed records can move beyond the first page as browser fixtures accumulate.
+  await page
+    .getByRole("searchbox", { name: "Search customers" })
+    .fill("Form & Field");
   await expect(page.getByText("Form & Field", { exact: true })).toBeVisible();
   const overflow = await page.evaluate(() =>
     Array.from(document.querySelectorAll("body *"))

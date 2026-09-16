@@ -163,3 +163,7 @@ A fresh-workspace query plan exposed 499,500 customer/order join comparisons bef
 Typed clients, generated screens and offline journals carry their authoring release through browser/native transports. The API rejects mismatches before writes and receipt replay; legacy retries retain their original hash. Verified 72 unit/PostgreSQL tests, 14 focused Chromium journeys, all six distinct Electron journeys and four builds. [Scope and limitations](client-module-version/README.md). EXT-05 remains active for accepted-version policies, rollout controls and observability.
 
 Remote run `35056056304` still failed reads at 670 ms while confirmation passed at 726 ms. CI now captures CPU/query diagnostics after a failed gate and independently runs restore. Targets are unchanged; [OPS-07 remains open](performance/README.md).
+
+## 16 September 2026: authorization round-trip reduction
+
+Remote results varied: `6442851` passed at 387/420 ms, while `1b7d216` failed read p95 at 552 ms; its confirmation was 593 ms and restore passed. Captured diagnostics show 750 queries across 50 reads. The candidate reads current user, membership, policy and complete role/assignment graph in one statement, reducing the fixture to 650 queries without caching authorization. All 74 unit/PostgreSQL tests, 18 distinct selected browser journeys, four builds and formatting passed locally; uninstrumented load was 102/177 ms. [Reports, regression scope and limits](performance/authorization/README.md). OPS-07 remains open pending the exact remote candidate result.

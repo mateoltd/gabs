@@ -1,0 +1,186 @@
+{
+  "totalSamples": 821,
+  "sampleIntervalMicroseconds": 500,
+  "topSelfSamples": [
+    {
+      "samples": 160,
+      "function": "(idle)",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 22,
+      "function": "parseRow",
+      "source": "file:///home/runner/work/gabs/gabs/node_modules/.pnpm/pg@8.23.0/node_modules/pg/lib/result.js",
+      "line": 63
+    },
+    {
+      "samples": 20,
+      "function": "run",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 15,
+      "function": "(program)",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 10,
+      "function": "runMicrotasks",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 10,
+      "function": "writev",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 10,
+      "function": "export",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 8,
+      "function": "writev",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 8,
+      "function": "run",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 7,
+      "function": "(garbage collector)",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 6,
+      "function": "writev",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 6,
+      "function": "connect",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 6,
+      "function": "addFields",
+      "source": "file:///home/runner/work/gabs/gabs/node_modules/.pnpm/pg@8.23.0/node_modules/pg/lib/result.js",
+      "line": 82
+    },
+    {
+      "samples": 6,
+      "function": "close",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 5,
+      "function": "run",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 5,
+      "function": "nextTick",
+      "source": "node:internal/process/task_queues",
+      "line": 113
+    },
+    {
+      "samples": 5,
+      "function": "canonical",
+      "source": "file:///home/runner/work/gabs/gabs/packages/module-sdk/src/registry.ts",
+      "line": 1
+    },
+    {
+      "samples": 5,
+      "function": "openFileHandle",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 5,
+      "function": "",
+      "source": "file:///home/runner/work/gabs/gabs/modules/orders/server/index.ts",
+      "line": 1
+    },
+    {
+      "samples": 5,
+      "function": "canonical",
+      "source": "file:///home/runner/work/gabs/gabs/packages/module-sdk/src/registry.ts",
+      "line": 1
+    },
+    {
+      "samples": 5,
+      "function": "writeBuffer",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 5,
+      "function": "init",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 5,
+      "function": "addFields",
+      "source": "file:///home/runner/work/gabs/gabs/node_modules/.pnpm/pg@8.23.0/node_modules/pg/lib/result.js",
+      "line": 82
+    },
+    {
+      "samples": 4,
+      "function": "writeLatin1String",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 4,
+      "function": "",
+      "source": "file:///home/runner/work/gabs/gabs/tooling/load-diagnostics.ts",
+      "line": 1
+    },
+    {
+      "samples": 4,
+      "function": "read",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 4,
+      "function": "hydrateSchema",
+      "source": "file:///home/runner/work/gabs/gabs/packages/module-sdk/src/index.ts",
+      "line": 1
+    },
+    {
+      "samples": 4,
+      "function": "writeBuffer",
+      "source": "",
+      "line": 0
+    },
+    {
+      "samples": 4,
+      "function": "canonical",
+      "source": "file:///home/runner/work/gabs/gabs/packages/module-sdk/src/registry.ts",
+      "line": 1
+    },
+    {
+      "samples": 4,
+      "function": "anonymous2",
+      "source": "",
+      "line": 219
+    }
+  ]
+}

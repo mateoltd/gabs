@@ -4,6 +4,7 @@ import {
 } from "@suite/module-sdk/governance";
 import { moduleDefinition } from "@suite/module-catalog";
 import { sql } from "kysely";
+import { jsonArrayFrom } from "kysely/helpers/postgres";
 import type { Tx } from "./database";
 import { requireCondition } from "./errors";
 import { workspaceDependencies } from "./module-releases";
@@ -33,48 +34,52 @@ export async function authorize(
   permission?: Permission,
   moduleId?: ModuleId,
 ): Promise<Context> {
-  const user = await tx
-    .selectFrom("suite.users")
-    .select("active")
-    .where("id", "=", actor.id)
-    .executeTakeFirst();
-  requireCondition(
-    user?.active,
-    401,
-    "UNAUTHENTICATED",
-    "Sign in to continue.",
-  );
+  // One statement reads the current identity, membership and complete grant graph.
+  // Nothing is cached across requests; explicit denials still see all workspace roles.
   const membership = await tx
-    .selectFrom("suite.memberships as m")
-    .innerJoin("suite.workspaces as w", "w.id", "m.workspace_id")
+    .selectFrom("suite.users as u")
+    .leftJoin("suite.memberships as m", (j) =>
+      j
+        .onRef("m.user_id", "=", "u.id")
+        .on("m.workspace_id", "=", workspaceId)
+        .on("m.active", "=", true),
+    )
+    .leftJoin("suite.workspaces as w", "w.id", "m.workspace_id")
     .leftJoin("suite.platform_settings as p", (j) =>
       j
         .onRef("p.workspace_id", "=", "m.workspace_id")
         .on("p.key", "=", "organization"),
     )
-    .select(["m.id", "w.kind", "p.value as policy"])
-    .where("m.workspace_id", "=", workspaceId)
-    .where("m.user_id", "=", actor.id)
-    .where("m.active", "=", true)
+    .select(["u.active", "m.id", "w.kind", "p.value as policy"])
+    .select((eb) =>
+      jsonArrayFrom(
+        eb
+          .selectFrom("suite.roles as r")
+          .leftJoin("suite.role_assignments as a", (j) =>
+            j
+              .onRef("a.role_id", "=", "r.id")
+              .onRef("a.workspace_id", "=", "r.workspace_id")
+              .onRef("a.membership_id", "=", "m.id"),
+          )
+          .select(["r.id", "r.name", "r.permissions", "a.membership_id"])
+          .where("r.workspace_id", "=", workspaceId),
+      ).as("roles"),
+    )
+    .where("u.id", "=", actor.id)
     .executeTakeFirst();
   requireCondition(
-    membership,
+    membership?.active,
+    401,
+    "UNAUTHENTICATED",
+    "Sign in to continue.",
+  );
+  requireCondition(
+    membership.id && membership.kind,
     403,
     "MEMBERSHIP_REVOKED",
     "You no longer have access to this workspace.",
   );
-  // Read grants and assignments together, with no cross-request permission cache.
-  const allRoles = await tx
-    .selectFrom("suite.roles as r")
-    .leftJoin("suite.role_assignments as a", (j) =>
-      j
-        .onRef("a.role_id", "=", "r.id")
-        .onRef("a.workspace_id", "=", "r.workspace_id")
-        .on("a.membership_id", "=", membership.id),
-    )
-    .select(["r.id", "r.name", "r.permissions", "a.membership_id"])
-    .where("r.workspace_id", "=", workspaceId)
-    .execute();
+  const allRoles = membership.roles;
   const roles = allRoles.filter((r) => r.membership_id !== null);
   const permissions = effectivePermissions(
     roles.map((r) => r.id),
