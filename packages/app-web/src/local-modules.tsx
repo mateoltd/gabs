@@ -1,3 +1,7 @@
+import {
+  LocalModuleHistory,
+  LocalModuleVersions,
+} from "./local-module-history";
 import { useEffect, useRef, useState } from "react";
 import {
   hydrateModule,
@@ -8,6 +12,7 @@ import type { SignedArtifact } from "@suite/module-sdk/platform";
 import {
   availableLocalModules,
   planLocalInstallation,
+  planRetainedLocalInstallation,
   type LocalSession,
   type LocalRelease,
 } from "@suite/platform/local-profiles";
@@ -37,6 +42,8 @@ export function LocalModules({
   onlineWorkspaces: () => void;
 }) {
   const [open, setOpen] = useState(false),
+    [versions, setVersions] = useState<string>(),
+    [history, setHistory] = useState(false),
     [available, setAvailable] = useState<ModuleDefinition[]>(),
     [selected, setSelected] = useState<{
       downloadId?: string;
@@ -56,7 +63,6 @@ export function LocalModules({
     [error, setError] = useState<unknown>(),
     [notice, setNotice] = useState("");
   const controller = useRef<AbortController>(undefined);
-  const form = useRef<HTMLFormElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (error || downloading)
@@ -65,11 +71,10 @@ export function LocalModules({
         ?.scrollTo({ top: 0 });
   }, [error, downloading]);
   useEffect(() => {
-    if (selected)
-      form.current
-        ?.closest<HTMLElement>('[role="dialog"]')
-        ?.scrollTo({ top: 0 });
-  }, [selected?.pkg.digest]);
+    panel.current
+      ?.closest<HTMLElement>('[role="dialog"]')
+      ?.scrollTo({ top: 0 });
+  }, [selected?.pkg.digest, versions, history]);
   useEffect(() => () => controller.current?.abort(), []);
   const retained = Object.entries(session.data.modules ?? {}).filter(
     ([, installation]) => !installation.active,
@@ -110,32 +115,20 @@ export function LocalModules({
       Object.values(m.operations).some((op) => op.policy === "local"),
   );
   const selectRetained = (module: ModuleDefinition, release: LocalRelease) => {
-    const retained = Object.values(session.data.modules ?? {}).flatMap(
-      (installation) => Object.values(installation.releases),
-    );
-    const plan = planLocalInstallation(
+    const related = planRetainedLocalInstallation(
       session.data,
-      module,
-      retained.map((r) =>
-        hydrateModule(r.package.artifact as unknown as ModuleDefinition),
-      ),
-    );
-    const related = plan
-      .filter((m) => m.id !== module.id)
-      .map((m) => {
-        const saved = retained.find(
-          (r) =>
-            r.package.module_id === m.id && r.package.version === m.version,
-        );
-        if (!saved)
-          throw Error(`Restore ${m.name} from the registry before continuing.`);
-        return {
-          module: m,
-          pkg: saved.package,
-          publicKey: saved.publicKey,
-          configuration: saved.configuration as Record<string, unknown>,
-        };
-      });
+      module.id,
+      release.package.version,
+    )
+      .filter((r) => r.package.module_id !== module.id)
+      .map((r) => ({
+        module: hydrateModule(
+          r.package.artifact as unknown as ModuleDefinition,
+        ),
+        pkg: r.package,
+        publicKey: r.publicKey,
+        configuration: r.configuration as Record<string, unknown>,
+      }));
     setSelected({
       module,
       pkg: release.package,
@@ -169,6 +162,8 @@ export function LocalModules({
           if (!busy) {
             setOpen(value);
             setSelected(undefined);
+            setVersions(undefined);
+            setHistory(false);
             setError(undefined);
           }
         }}
@@ -180,7 +175,6 @@ export function LocalModules({
           {notice && <p role="status">{notice}</p>}
           {selected ? (
             <form
-              ref={form}
               className="form-stack"
               onSubmit={(event) => {
                 event.preventDefault();
@@ -296,11 +290,33 @@ export function LocalModules({
               <Button
                 type="button"
                 disabled={busy}
-                onClick={() => setSelected(undefined)}
+                onClick={() => {
+                  setSelected(undefined);
+                  setVersions(undefined);
+                }}
               >
                 Back to modules
               </Button>
             </form>
+          ) : versions ? (
+            <LocalModuleVersions
+              data={session.data}
+              moduleId={versions}
+              select={(module, release) => {
+                try {
+                  selectRetained(module, release);
+                  setError(undefined);
+                } catch (error) {
+                  setError(error);
+                }
+              }}
+              back={() => setVersions(undefined)}
+            />
+          ) : history ? (
+            <LocalModuleHistory
+              data={session.data}
+              back={() => setHistory(false)}
+            />
           ) : (
             <>
               {downloads.length > 0 && (
@@ -480,6 +496,16 @@ export function LocalModules({
                                 </Button>
                                 <Button
                                   disabled={busy}
+                                  onClick={() => {
+                                    setVersions(module.id);
+                                    setNotice("");
+                                    setError(undefined);
+                                  }}
+                                >
+                                  Retained versions
+                                </Button>
+                                <Button
+                                  disabled={busy}
                                   onClick={() =>
                                     void action(async () => {
                                       await session.uninstall(module.id);
@@ -543,6 +569,16 @@ export function LocalModules({
                                 >
                                   Restore locally
                                 </Button>
+                                <Button
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setVersions(id);
+                                    setNotice("");
+                                    setError(undefined);
+                                  }}
+                                >
+                                  Retained versions
+                                </Button>
                               </td>
                             </tr>
                           );
@@ -552,6 +588,16 @@ export function LocalModules({
                   </div>
                 </>
               )}
+              <Button
+                disabled={busy}
+                onClick={() => {
+                  setHistory(true);
+                  setNotice("");
+                  setError(undefined);
+                }}
+              >
+                Installation history
+              </Button>
               {registry?.online ? (
                 <Button
                   disabled={busy}

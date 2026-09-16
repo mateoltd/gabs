@@ -305,3 +305,7 @@ Bounded exact-content/signing-key caches and read-only snapshot release selectio
 ## Durable local module downloads
 
 Verified packages now persist before full installation staging, with account/workspace-bound missing-package recovery and offline configuration review. All 153 unit/PostgreSQL tests, four builds, eight headless browser cases and three distinct minimized native cases passed. A visual scroll issue was corrected and rechecked at wide/narrow/native sizes. [Evidence, screenshots and remaining scope](local-downloads/README.md). SDK-02, OPS-07 and full parity remain active.
+
+## Retained local versions and lifecycle history
+
+Schema-aware planning, offline retained-release selection and atomic local history passed 155 unit/PostgreSQL tests, four builds, nine distinct headless browser journeys and three minimized native cases. Wide/narrow/native layouts were inspected after replacing cramped columns with existing stacked lists. [Evidence and the SDK-02 acceptance map](local-versions/README.md) close SDK-02 locally; SDK-03 is next, and all broader SDK/identity/synchronization/application/release gates remain open.

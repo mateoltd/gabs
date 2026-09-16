@@ -82,7 +82,15 @@ export type LocalInstallationAttempt = {
       error?: string;
     }
 );
+export interface LocalLifecycleEvent {
+  id: string;
+  action: "installed" | "removed";
+  at: number;
+  time: "completed" | "requested";
+  modules: { moduleId: string; moduleVersion: string; title: string }[];
+}
 export interface LocalData {
+  lifecycle?: LocalLifecycleEvent[];
   downloads?: Record<string, LocalDownload>;
   installationAttempts?: Record<string, LocalInstallationAttempt>;
   attempts?: Record<string, LocalAttempt>;
@@ -393,22 +401,13 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         const { module, release } = selected.get(choice.id)!;
         const { package: pkg, publicKey, configuration } = release;
         const prior = data.modules?.[module.id];
-        const previousModule = prior
-          ? moduleContract(prior.releases[prior.version].package.artifact)
-          : bundledModuleDefinitions.find((m) => m.id === module.id);
         const prefix = module.id + "/";
         const records = Object.fromEntries(
           Object.entries(data.records)
             .filter(([key]) => key.startsWith(prefix))
             .map(([key, rows]) => [key.slice(prefix.length), rows]),
         );
-        const fromVersion =
-          prior?.schemaVersion ??
-          (previousModule
-            ? localStorageContract(previousModule).version
-            : Object.values(records).some((rows) => rows.length)
-              ? 1
-              : localStorageContract(module).version);
+        const fromVersion = localSchemaVersion(data, module);
         const migrated = await worker.run(
           module,
           {
@@ -471,6 +470,16 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       await commit(
         {
           ...next,
+          lifecycle: [
+            ...(data.lifecycle ?? []),
+            {
+              id: attemptId,
+              action: "installed",
+              at: Date.now(),
+              time: "completed",
+              modules: metadata.modules,
+            },
+          ],
           installationAttempts: {
             ...data.installationAttempts,
             [attemptId]: { ...metadata, state: "accepted" },
@@ -707,6 +716,24 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           throw Error("Remove dependent local modules first.");
         await commit({
           ...data,
+          lifecycle: [
+            ...(data.lifecycle ?? []),
+            {
+              id: crypto.randomUUID(),
+              action: "removed",
+              at: Date.now(),
+              time: "completed",
+              modules: [
+                {
+                  moduleId,
+                  moduleVersion: prior.version,
+                  title: String(
+                    prior.releases[prior.version].package.artifact.name,
+                  ),
+                },
+              ],
+            },
+          ],
           modules: { ...data.modules, [moduleId]: { ...prior, active: false } },
         });
       });
@@ -1027,13 +1054,15 @@ export function planLocalInstallation(
   root: ModuleDefinition,
   registry: readonly ModuleDefinition[],
 ) {
+  const issue = localReleaseIssue(data, root);
+  if (issue) throw Error(issue);
   const installed = availableLocalModules(data);
   const candidates = new Map(installed.map((m) => [m.id + "@" + m.version, m]));
   for (const module of [...registry, root])
     candidates.set(module.id + "@" + module.version, module);
   const selected = resolveReleaseSet(
     [...new Set([root.id, ...installed.map((m) => m.id)])],
-    [...candidates.values()],
+    [...candidates.values()].filter((m) => !localReleaseIssue(data, m)),
     "1.0.0",
     "1.0.0",
     { [root.id]: root.version },
@@ -1046,4 +1075,90 @@ export function planLocalInstallation(
         !installed.some((old) => old.id === m.id && old.version === m.version),
     )
     .map((m) => candidates.get(m.id + "@" + m.version)!);
+}
+
+/** The same starting schema is used by planning and the authoritative local worker. */
+export function localSchemaVersion(data: LocalData, module: ModuleDefinition) {
+  const prior = data.modules?.[module.id];
+  const previous = prior
+    ? moduleContract(prior.releases[prior.version].package.artifact)
+    : bundledModuleDefinitions.find((m) => m.id === module.id);
+  return (
+    prior?.schemaVersion ??
+    (previous
+      ? localStorageContract(previous).version
+      : Object.entries(data.records).some(
+            ([key, rows]) => key.startsWith(module.id + "/") && rows.length,
+          )
+        ? 1
+        : localStorageContract(module).version)
+  );
+}
+
+/** Metadata preflight only. Signed worker execution still validates every record and migration. */
+export function localReleaseIssue(
+  data: LocalData,
+  module: ModuleDefinition,
+): string | undefined {
+  const contract = localStorageContract(module);
+  let version = localSchemaVersion(data, module);
+  while (version < contract.version) {
+    const step = Object.values(contract.migrations).find(
+      (m) => m.from === version,
+    );
+    if (!step || step.to !== version + 1)
+      return `${module.name} ${module.version} does not include a migration from local data version ${version} to ${version + 1}.`;
+    version = step.to;
+  }
+  if (
+    version < contract.compatible.minimum ||
+    version > contract.compatible.maximum
+  )
+    return `${module.name} ${module.version} cannot use local data version ${version}. Choose a release compatible with the saved data.`;
+}
+
+export function planRetainedLocalInstallation(
+  data: LocalData,
+  moduleId: string,
+  version: string,
+): LocalRelease[] {
+  const releases = Object.values(data.modules ?? {}).flatMap((m) =>
+    Object.values(m.releases),
+  );
+  const root = data.modules?.[moduleId]?.releases[version];
+  if (!root) throw Error("This release is not retained in this local profile.");
+  return planLocalInstallation(
+    data,
+    hydrateModule(moduleContract(root.package.artifact)),
+    releases.map((r) => hydrateModule(moduleContract(r.package.artifact))),
+  ).map((m) => {
+    const release = releases.find(
+      (r) => r.package.module_id === m.id && r.package.version === m.version,
+    );
+    if (!release)
+      throw Error(`Download ${m.name} ${m.version} before continuing.`);
+    return release;
+  });
+}
+
+/** Older accepted attempts retain their known request time; no completion date is invented. */
+export function localLifecycleHistory(data: LocalData): LocalLifecycleEvent[] {
+  const events = [...(data.lifecycle ?? [])].reverse();
+  const recorded = new Set(events.map((e) => e.id));
+  for (const [id, attempt] of Object.entries(data.installationAttempts ?? {}))
+    if (attempt.state === "accepted" && !recorded.has(id))
+      events.push({
+        id,
+        action: "installed",
+        at: attempt.createdAt,
+        time: "requested",
+        modules: attempt.modules ?? [
+          {
+            moduleId: attempt.moduleId,
+            moduleVersion: attempt.moduleVersion,
+            title: attempt.title,
+          },
+        ],
+      });
+  return events.sort((a, b) => b.at - a.at);
 }

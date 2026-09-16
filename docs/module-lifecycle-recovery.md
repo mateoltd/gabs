@@ -44,7 +44,7 @@ Standalone profiles use their encrypted local vault and local authority. Their s
 
 `LocalSession.beginDownload`, `saveDownload`, `dismissDownload` and `installDownload` expose this host lifecycle. Installing revalidates the complete release set and consumes the download in the same durable commit that stages the recoverable installation attempt. Downloading alone never activates code. Invalid configuration keeps the saved set; interruption after staging uses the existing installation recovery. Discarding downloads preserves installed code, business records and operation receipts. See [verified web/native recovery](verification/local-downloads/README.md).
 
-Recovery is per complete package, without HTTP byte-range resumption. This explicitly local workflow does not finalize corporate business changes or replace corporate entitlement/lease checks. Local lifecycle history and a general retained-release selector remain in SDK-02.
+Recovery is per complete package, without HTTP byte-range resumption. This explicitly local workflow does not finalize corporate business changes or replace corporate entitlement/lease checks. The retained-version selector evaluates saved schemas and the full active consumer set before configuration review. Incompatible versions are disabled with reasons; workers still validate the actual data. Successful installs/removals append encrypted local history atomically, accepted retries do not duplicate it, and older accepted requests retain their known request timestamps. See [version and history acceptance](verification/local-versions/README.md).
 
 ## Release scope
 

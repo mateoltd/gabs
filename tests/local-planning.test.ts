@@ -5,6 +5,9 @@ import {
 } from "@suite/module-sdk/registry";
 import {
   planLocalInstallation,
+  localReleaseIssue,
+  localLifecycleHistory,
+  planRetainedLocalInstallation,
   type LocalData,
 } from "../packages/platform/src/local-profiles";
 import { defineModule, resource, field, Type } from "@suite/module-sdk";
@@ -157,4 +160,128 @@ it("plans only changed local releases and restores retained dependency sets", ()
       (m) => m.id,
     ),
   ).toEqual(["provider", "consumer"]);
+});
+
+it("excludes incompatible dependency data, blocks destructive rollback and requires a full forward path", () => {
+  const module = (
+    id: string,
+    version: string,
+    dependencies: Record<string, string> = {},
+    localStorage?: ModuleDefinition["localStorage"],
+  ) =>
+    defineModule({
+      id,
+      name: id,
+      version,
+      description: "Storage planning",
+      host: "^1",
+      backend: "^1",
+      publisher: "suite",
+      dependencies,
+      configuration: Type.Object({}),
+      resources: {},
+      operations: {},
+      permissions: [],
+      ...(localStorage ? { localStorage } : {}),
+    });
+  const old = module("provider", "1.0.0"),
+    compatible = module(
+      "provider",
+      "1.1.0",
+      {},
+      { version: 1, compatible: { minimum: 1, maximum: 2 }, migrations: {} },
+    ),
+    active = module(
+      "provider",
+      "2.0.0",
+      {},
+      {
+        version: 2,
+        compatible: { minimum: 2, maximum: 2 },
+        migrations: { upgrade: { from: 1, to: 2 } },
+      },
+    ),
+    consumer = module("consumer", "1.0.0", { provider: "^1" });
+  const retained = [old, compatible, active];
+  const data = {
+    records: {},
+    modules: {
+      provider: {
+        active: true,
+        version: active.version,
+        schemaVersion: 2,
+        releases: Object.fromEntries(
+          retained.map((m) => [
+            m.version,
+            {
+              package: { module_id: m.id, version: m.version, artifact: m },
+              publicKey: "fixture",
+              configuration: {},
+            },
+          ]),
+        ),
+      },
+    },
+  } as unknown as LocalData;
+  expect(localReleaseIssue(data, old)).toContain(
+    "cannot use local data version 2",
+  );
+  expect(() =>
+    planRetainedLocalInstallation(data, old.id, old.version),
+  ).toThrow(/local data version 2/);
+  expect(
+    planRetainedLocalInstallation(data, compatible.id, compatible.version).map(
+      (r) => r.package.version,
+    ),
+  ).toEqual(["1.1.0"]);
+  expect(
+    planLocalInstallation(data, consumer, [old, compatible]).map((m) => [
+      m.id,
+      m.version,
+    ]),
+  ).toEqual([
+    ["provider", "1.1.0"],
+    ["consumer", "1.0.0"],
+  ]);
+  const missing = module(
+    "provider",
+    "3.0.0",
+    {},
+    { version: 3, compatible: { minimum: 3, maximum: 3 }, migrations: {} },
+  );
+  expect(localReleaseIssue(data, missing)).toContain(
+    "migration from local data version 2 to 3",
+  );
+  expect(() => planLocalInstallation(data, missing, [])).toThrow(/migration/);
+});
+
+it("combines durable lifecycle events with legacy accepted requests without duplicating or inventing completion dates", () => {
+  const modules = [
+    { moduleId: "notes", moduleVersion: "1.0.0", title: "Notes" },
+  ];
+  const data: LocalData = {
+    records: {},
+    lifecycle: [
+      {
+        id: "accepted",
+        action: "installed",
+        at: 200,
+        time: "completed",
+        modules,
+      },
+      { id: "removed", action: "removed", at: 200, time: "completed", modules },
+    ],
+    installationAttempts: {
+      accepted: { ...modules[0], createdAt: 100, state: "accepted" },
+      legacy: { ...modules[0], createdAt: 50, state: "accepted" },
+    },
+  };
+  expect(
+    localLifecycleHistory(data).map((e) => [e.id, e.action, e.time, e.at]),
+  ).toEqual([
+    ["removed", "removed", "completed", 200],
+    ["accepted", "installed", "completed", 200],
+    ["legacy", "installed", "requested", 50],
+  ]);
+  expect(data.lifecycle?.[0].id).toBe("accepted");
 });

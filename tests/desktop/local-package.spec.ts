@@ -245,6 +245,54 @@ test("minimized Electron executes a signed local package in its packaged worker 
         await page.screenshot({
           path: "docs/verification/local-dependencies/desktop-recovered.png",
         });
+        await page
+          .getByRole("button", { name: "Manage local modules", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Installation history", exact: true })
+          .click();
+        const history = page.getByRole("list", {
+          name: "Local installation history",
+          exact: true,
+        });
+        await expect(
+          history.getByRole("heading", {
+            name: "Saved installation",
+            exact: true,
+          }),
+        ).toHaveCount(2);
+        await mkdir("docs/verification/local-versions", { recursive: true });
+        await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
+        await page.screenshot({
+          path: "docs/verification/local-versions/desktop-history.png",
+        });
+        await page
+          .getByRole("button", { name: "Back to modules", exact: true })
+          .click();
+        await page
+          .getByRole("table", { name: "Local modules", exact: true })
+          .getByRole("row")
+          .filter({ hasText: "Local package notes" })
+          .getByRole("button", { name: "Retained versions", exact: true })
+          .click();
+        await expect(
+          page.getByRole("button", {
+            name: "Review version 1.0.0",
+            exact: true,
+          }),
+        ).toBeDisabled();
+        await expect(
+          page.getByRole("button", {
+            name: "Review version 2.0.0",
+            exact: true,
+          }),
+        ).toBeEnabled();
+        await page.screenshot({
+          path: "docs/verification/local-versions/desktop-versions.png",
+        });
+        await page
+          .getByRole("button", { name: "Close dialog", exact: true })
+          .click();
       }
       const result = await page.evaluate(
         async ({
@@ -314,6 +362,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
           const stored = session.data.modules![module.id];
           const related = session.data.modules![dependency.pkg.module_id];
           const profileId = session.id;
+          const history = session.data.lifecycle ?? [];
           if (saved) session.lock();
           return {
             profileId,
@@ -322,6 +371,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
             rows,
             stored,
             related,
+            history,
             installationId,
             state: attempt.state,
           };
@@ -355,6 +405,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
         schemaVersion: saved ? 2 : 1,
       });
       expect(result.related.migrations).toHaveLength(saved ? 1 : 0);
+      expect(result.history).toHaveLength(saved ? 2 : 1);
       expect(
         await app.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows().every(
