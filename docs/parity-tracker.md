@@ -22,7 +22,7 @@ Statuses: **ready** = executable next work; **open** = unfinished; **active** = 
 - **Next:** implement explicit accepted-client release policies, mandatory-update controls and lifecycle observability in EXT-05. SDK-01 may proceed independently when useful. Hosted trust/production release acceptance remain open in EXT-06 and OPS-04/05; separate administrator data deletion is explicitly EXT-08.
 - **Repository and goal:** private https://github.com/mateoltd/gabs; initial checkout preserved as `ef70776443ed4020f4c43f9741108d52f9268c58`. The resumed parity goal is active. The UI-refinement goal remains queued after parity.
 - **Blockers:** no external dependency blocks the next engineering item. Provider credentials, hosted infrastructure and target-platform environments are required later; see dependency register.
-- **Last verified baseline:** 72 unit/PostgreSQL tests, 14 focused Chromium journeys, all 6 distinct Electron journeys (boundary fixture corrected and rerun), four builds and formatting. Prior full remote suite passed all 59 browser journeys and three unsigned packaging jobs. Remote latency and hosted release gates remain open.
+- **Last verified baseline:** 73 unit/PostgreSQL tests, 14 focused Chromium journeys, all 6 distinct Electron journeys (boundary fixture corrected and rerun), four builds and formatting. Prior full remote suite passed all 59 browser journeys and three unsigned packaging jobs. Remote latency and hosted release gates remain open.
 
 ## 1. Independent modules and lifecycle
 
@@ -202,3 +202,9 @@ Future entries: task IDs, user-visible outcome, exact verification and limitatio
 - Resolution keeps compatible code available until migration commits, rejects unsafe pins and prevents old executables from writing data invalid under the stored schema. Empty namespaces initialize without fake migration history; retained archived records validate before schema commit.
 - The existing Configure modal shows current/target schemas, migration steps, failure and retry. Wide/narrow screenshots and a real generated-module journey were inspected. [SDK and operator guide](module-storage-migrations.md), [acceptance evidence](verification/module-migrations/README.md).
 - Final checks: 66 unit/PostgreSQL tests, 58 Chromium journeys, 5 Electron journeys, all builds, formatting, boundaries and local logical restore passed. Local load: 150/233 ms p95 read/confirmation. Remote run `35049529410` failed reads at 925 ms; targets remain unchanged. EXT-04 is next and active; overall parity and the later UI-refinement goal remain unfinished.
+
+### 16 September 2026: release identity and current permission checks
+
+- EXT-05 now has release identity from typed clients and generated screens through persistent queued work and browser/native transports. Stale contracts fail before execution or receipt replay; legacy retries retain their original hash. This does not complete accepted-version rollout policy.
+- Closed a resource receipt replay gap: current action-level permissions are now checked before idempotency lookup, including legacy receipts. A PostgreSQL regression verifies revocation, independent read access, restoration and exactly one record.
+- Verified 73 unit/PostgreSQL tests, 14 focused Chromium journeys, all six distinct native journeys and four builds for the release-identity foundation. [Evidence and remaining work](verification/client-module-version/README.md). Remote diagnostics run `35057665259` is pending; OPS-07 remains active.

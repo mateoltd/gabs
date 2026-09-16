@@ -12,7 +12,7 @@
 
 ## Verification
 
-- 72 unit/PostgreSQL tests in 14 files passed, plus type, boundary and copy checks. Coverage includes inferred client calls, malformed native envelopes, stale resource/operation requests, authorization, exact receipt replay and rejecting version changes on an existing key.
+- 73 unit/PostgreSQL tests in 14 files passed, plus type, boundary and copy checks. Coverage includes inferred client calls, malformed native envelopes, stale resource/operation requests, authorization, exact receipt replay and rejecting version changes on an existing key.
 - The member-directory route also checks release identity; its focused PostgreSQL suite verifies current success and stale rejection.
 - All 14 selected Chromium journeys passed: generated resources, persistent offline capture/reload/reconnect, independent signed client/server modules, migration, installation recovery and related platform flows. The journal test asserts the actual persisted version and the actual retried network header/key.
 - All six distinct Electron journeys passed, including a focused rerun after replacing shared mutable workspace state with a fresh provisioned company in the boundary fixture. Native stale requests fail, current requests succeed and the application remains unlocked.
@@ -21,3 +21,7 @@
 ## Remaining
 
 Explicit accepted-client release sets, safe mixed-version dispatch, mandatory/optional rollout policy, administrator controls, per-device partial-failure visibility and connected emergency-suspension delivery remain unfinished. Schema/backend compatibility, current authorization and offline lease limits must govern these policies. Queued stale work must remain recoverable without silently changing its original contract.
+
+## Receipt authorization correction
+
+Review of the new version checks exposed an existing resource replay gap: the route checked module access before idempotency lookup, but the resource permission was checked only inside execution. An accepted receipt could therefore be returned after the corresponding write permission was revoked. The route now checks the action's current resource permission before looking up any receipt. Versioned and legacy requests both deny replay after revocation, preserve independent read access, and return the original single result after authorization is restored. Custom operation routes already check their declared permission before replay.

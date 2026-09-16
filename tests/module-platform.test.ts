@@ -163,6 +163,94 @@ describe("Public module runtime", () => {
       (await call("contacts", "contacts", "create", legacy, legacyKey)).body,
     ).toEqual(first.body);
   });
+  it("rechecks current resource permissions before replaying versioned and legacy receipts", async () => {
+    const attempts = [];
+    for (const version of [undefined, contacts.version]) {
+      const input = {
+        id: randomUUID(),
+        data: {
+          name: "Protected receipt",
+          kind: "person",
+          relationship: "customer",
+        },
+      };
+      const key = randomUUID();
+      const accepted = await call(
+        "contacts",
+        "contacts",
+        "create",
+        input,
+        key,
+        version,
+      );
+      expect(accepted.status).toBe(200);
+      attempts.push({ input, key, version, accepted });
+    }
+    const roles = await inWorkspace(db, workspace, async (tx) => {
+      const rows = await tx
+        .selectFrom("suite.roles")
+        .select(["id", "permissions"])
+        .where("workspace_id", "=", workspace)
+        .execute();
+      for (const role of rows)
+        await tx
+          .updateTable("suite.roles")
+          .set({
+            permissions: role.permissions.filter(
+              (p) => p !== "contacts.contacts.write",
+            ),
+          })
+          .where("id", "=", role.id)
+          .execute();
+      return rows;
+    });
+    try {
+      for (const attempt of attempts) {
+        const denied = await call(
+          "contacts",
+          "contacts",
+          "create",
+          attempt.input,
+          attempt.key,
+          attempt.version,
+        );
+        expect(denied.status).toBe(403);
+        expect(denied.body.code).toBe("FORBIDDEN");
+        expect(denied.body.data).toBeUndefined();
+      }
+      // The remaining read permission still works independently.
+      expect((await call("contacts", "contacts", "list", {})).status).toBe(200);
+    } finally {
+      await inWorkspace(db, workspace, async (tx) => {
+        for (const role of roles)
+          await tx
+            .updateTable("suite.roles")
+            .set({ permissions: role.permissions })
+            .where("id", "=", role.id)
+            .execute();
+      });
+    }
+    for (const attempt of attempts) {
+      const recovered = await call(
+        "contacts",
+        "contacts",
+        "create",
+        attempt.input,
+        attempt.key,
+        attempt.version,
+      );
+      expect(recovered.status).toBe(200);
+      expect(recovered.body).toEqual(attempt.accepted.body);
+      const records = await inWorkspace(db, workspace, (tx) =>
+        tx
+          .selectFrom("suite.module_records")
+          .select("id")
+          .where("id", "=", attempt.input.id)
+          .execute(),
+      );
+      expect(records).toHaveLength(1);
+    }
+  });
   it("validates schemas before persistence", async () => {
     const result = await call("contacts", "contacts", "create", {
       id: randomUUID(),

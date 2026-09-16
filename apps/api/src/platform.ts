@@ -432,7 +432,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           req.actor,
           req.params.workspaceId,
           req.id,
-          undefined,
+          `${req.params.moduleId}.${req.body.resource}.${["list", "get"].includes(req.body.action) ? "read" : "write"}`,
           req.params.moduleId,
         );
         const clientVersion = req.headers["x-module-version"];
