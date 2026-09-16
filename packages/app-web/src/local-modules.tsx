@@ -51,6 +51,11 @@ export function LocalModules({
   const retained = Object.entries(session.data.modules ?? {}).filter(
     ([, installation]) => !installation.active,
   );
+  const unfinished = Object.entries(
+    session.data.installationAttempts ?? {},
+  ).flatMap(([id, attempt]) =>
+    attempt.state === "accepted" ? [] : [{ id, ...attempt }],
+  );
   const modules = availableLocalModules(session.data).filter(
     (m) =>
       Object.values(m.resources).some((r) => r.standalone) ||
@@ -148,6 +153,73 @@ export function LocalModules({
             </form>
           ) : (
             <>
+              {unfinished.length > 0 && (
+                <>
+                  <h3>Unfinished installations</h3>
+                  <p className="small">
+                    Downloaded releases and configuration are saved in this
+                    profile. Resume offline, or discard the request to choose
+                    another release. Your installed modules and records are
+                    preserved.
+                  </p>
+                  <ul
+                    className="local-installations"
+                    aria-label="Unfinished local installations"
+                  >
+                    {unfinished.map(({ id, ...attempt }) => (
+                      <li key={id}>
+                        <h4>{attempt.title}</h4>
+                        <p className="small">Version {attempt.moduleVersion}</p>
+                        <p>
+                          {attempt.state === "pending"
+                            ? "Awaiting recovery"
+                            : attempt.state === "interrupted"
+                              ? "Interrupted"
+                              : "Failed"}
+                        </p>
+                        {attempt.error && (
+                          <p className="small">{attempt.error}</p>
+                        )}
+                        <div className="module-toolbar">
+                          <Button
+                            disabled={busy}
+                            onClick={() =>
+                              void action(async (signal) => {
+                                await session.retryInstallation(id, {
+                                  signal,
+                                });
+                                setNotice(
+                                  `${attempt.title} is ready in this local profile.`,
+                                );
+                              })
+                            }
+                          >
+                            Resume installation
+                          </Button>
+                          <Button
+                            disabled={busy}
+                            onClick={() =>
+                              void action(async () => {
+                                await session.dismissInstallation(id);
+                                setNotice(
+                                  "Installation request discarded. Your installed module and records are preserved.",
+                                );
+                              })
+                            }
+                          >
+                            Discard installation
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {busy && (
+                    <Button onClick={() => controller.current?.abort()}>
+                      Cancel installation
+                    </Button>
+                  )}
+                </>
+              )}
               <div className="table-scroll">
                 <Table aria-label="Local modules">
                   <thead>

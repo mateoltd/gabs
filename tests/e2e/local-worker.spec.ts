@@ -210,6 +210,10 @@ test("a reviewed local executable installs, runs offline, upgrades and retains e
         (r) => r.data.text,
       );
       const selected = session.data.modules![oldModule.id].version;
+      for (const [id, attempt] of Object.entries(
+        session.data.installationAttempts ?? {},
+      ))
+        if (attempt.state !== "accepted") await session.dismissInstallation(id);
       await session.uninstall(oldModule.id);
       const retained = session.data.records[oldModule.id + "/items"].map(
         (r) => r.data.text,
@@ -309,7 +313,22 @@ test("signed local migrations commit atomically and retain compatible rollback, 
         { text: "Retained note" },
         key,
       );
-      const before = session.data;
+      const businessData = () => ({
+        records: session.data.records,
+        modules: session.data.modules,
+        receipts: session.data.receipts,
+      });
+      const before = businessData();
+      const originalInstallation = Object.keys(
+        session.data.installationAttempts!,
+      )[0];
+      const discardUnfinished = async () => {
+        for (const [id, attempt] of Object.entries(
+          session.data.installationAttempts ?? {},
+        ))
+          if (attempt.state !== "accepted")
+            await session.dismissInstallation(id);
+      };
       let failure = "",
         cancelled = "",
         incompatible = "",
@@ -320,7 +339,23 @@ test("signed local migrations commit atomically and retain compatible rollback, 
         failure = (e as Error).message;
       }
       const failurePreserved =
-        JSON.stringify(session.data) === JSON.stringify(before);
+        JSON.stringify(businessData()) === JSON.stringify(before);
+      const failedAttempt = Object.values(
+        session.data.installationAttempts!,
+      ).find((a) => a.state !== "accepted")!;
+      let replacement = "",
+        removal = "";
+      try {
+        await session.install(next.pkg, next.publicKey);
+      } catch (error) {
+        replacement = (error as Error).message;
+      }
+      try {
+        await session.uninstall(module.id);
+      } catch (error) {
+        removal = (error as Error).message;
+      }
+      await discardUnfinished();
       const controller = new AbortController();
       const pending = session.install(
         next.pkg,
@@ -328,18 +363,32 @@ test("signed local migrations commit atomically and retain compatible rollback, 
         {},
         { signal: controller.signal },
       );
-      setTimeout(() => controller.abort(), 100);
+      while (
+        !Object.values(session.data.installationAttempts ?? {}).some(
+          (a) => a.state === "pending",
+        )
+      )
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      controller.abort();
       try {
         await pending;
       } catch (e) {
         cancelled = (e as { code: string }).code;
       }
       const cancellationPreserved =
-        JSON.stringify(session.data) === JSON.stringify(before);
+        JSON.stringify(businessData()) === JSON.stringify(before);
+      const interruptedId = Object.entries(
+        session.data.installationAttempts!,
+      ).find(([, a]) => a.state === "interrupted")![0];
       // A concurrent session commits while the worker computes a migration snapshot.
-      const competitor = await sdk.unlockLocalProfile(profile, password);
       const migrating = session.install(next.pkg, next.publicKey);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      while (
+        !Object.values(session.data.installationAttempts ?? {}).some(
+          (a) => a.state === "pending",
+        )
+      )
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      const competitor = await sdk.unlockLocalProfile(profile, password);
       await sdk
         .createModuleClient(module, (call) => competitor.execute(module, call))
         .call("capture", { text: "Concurrent note" });
@@ -352,8 +401,11 @@ test("signed local migrations commit atomically and retain compatible rollback, 
       session.lock();
       session = await sdk.unlockLocalProfile(profile, password);
       const beforeRetry = session.data.modules![module.id].version;
-      await session.install(next.pkg, next.publicKey);
+      await session.retryInstallation(interruptedId);
       const migrated = session.data;
+      await session.retryInstallation(originalInstallation);
+      const acceptedReplayPreserved =
+        JSON.stringify(session.data) === JSON.stringify(migrated);
       session.lock();
       session = await sdk.unlockLocalProfile(profile, password);
       const historical = await client().call(
@@ -366,6 +418,7 @@ test("signed local migrations commit atomically and retain compatible rollback, 
       } catch (e) {
         incompatible = (e as { code: string }).code;
       }
+      await discardUnfinished();
       await session.install(compatible.pkg, compatible.publicKey);
       const restored = session.data;
       // Reinstalling the same executable does not re-run the data migration.
@@ -379,7 +432,12 @@ test("signed local migrations commit atomically and retain compatible rollback, 
         stale,
         beforeRetry,
         failurePreserved,
+        failedState: failedAttempt.state,
+        replacement,
+        removal,
         cancellationPreserved,
+        acceptedReplayPreserved,
+        recoveredState: migrated.installationAttempts![interruptedId].state,
         same: original === historical,
         rows: migrated.records[module.id + "/items"],
         stored: restored.modules![module.id],
@@ -390,6 +448,11 @@ test("signed local migrations commit atomically and retain compatible rollback, 
   );
   expect(result.failure).toContain("Migration fixture failure");
   expect(result.failurePreserved).toBe(true);
+  expect(result.failedState).toBe("failed");
+  expect(result.replacement).toContain("Resume or discard");
+  expect(result.removal).toContain("Resume or discard");
+  expect(result.acceptedReplayPreserved).toBe(true);
+  expect(result.recoveredState).toBe("accepted");
   expect(result.cancellationPreserved).toBe(true);
   expect(result.cancelled).toBe("LOCAL_CANCELLED");
   expect(result.stale).toBe("PROFILE_CHANGED");

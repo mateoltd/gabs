@@ -2,10 +2,11 @@ import "dotenv/config";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { build } from "esbuild";
 import { createRequire } from "node:module";
-import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { publishLocalPackage } from "../local-package-fixture";
+import { selectValue } from "../e2e/controls.helpers";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("minimized Electron executes a signed local package in its packaged worker and recovers after restart", async () => {
@@ -15,6 +16,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
     id: published.pkg.module_id,
     version: "2.0.0",
     field: "body",
+    migrationDelayMs: 3000,
     localStorage: {
       version: 2,
       compatible: { minimum: 2, maximum: 2 },
@@ -72,11 +74,73 @@ test("minimized Electron executes a signed local package in its packaged worker 
       profileId: string;
       key: string;
       rowId: string;
+      installationId: string;
     }) => {
       const page = await app.firstWindow();
       await page.waitForLoadState("domcontentloaded");
       await page.context().setOffline(true);
       const workerStarted = page.waitForEvent("worker");
+      if (saved) {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page
+          .getByRole("button", {
+            name: /^(Use a local profile|Open local profiles)$/,
+          })
+          .click();
+        await selectValue(page, "Profile", saved.profileId);
+        await page
+          .getByLabel("Passphrase", { exact: true })
+          .fill("correct horse battery staple");
+        await page
+          .getByRole("button", { name: "Unlock profile", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Manage local modules", exact: true })
+          .click();
+        const recovery = page.getByRole("list", {
+          name: "Unfinished local installations",
+          exact: true,
+        });
+        await expect(
+          recovery.getByText("Awaiting recovery", { exact: true }),
+        ).toBeVisible();
+        await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
+        await mkdir("docs/verification/local-install-recovery", {
+          recursive: true,
+        });
+        await page.screenshot({
+          path: "docs/verification/local-install-recovery/desktop-pending.png",
+        });
+        await recovery
+          .getByRole("button", { name: "Resume installation", exact: true })
+          .click();
+        await expect(
+          page.getByText(
+            "Local package notes is ready in this local profile.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await page
+          .getByRole("button", { name: "Close dialog", exact: true })
+          .click();
+        await selectValue(
+          page,
+          "Module and resource",
+          published.pkg.module_id + "/items",
+        );
+        await expect(
+          page.getByRole("cell", {
+            name: "Native signed local execution",
+            exact: true,
+          }),
+        ).toHaveCount(1);
+        await expect(
+          page.getByRole("columnheader", { name: "Body", exact: true }),
+        ).toBeVisible();
+        await page.screenshot({
+          path: "docs/verification/local-install-recovery/desktop-recovered.png",
+        });
+      }
       const result = await page.evaluate(
         async ({ javascript, published, upgraded, saved }) => {
           const url = URL.createObjectURL(
@@ -96,6 +160,11 @@ test("minimized Electron executes a signed local package in its packaged worker 
             published.pkg
               .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
           );
+          if (saved) {
+            await session.retryInstallation(saved.installationId);
+            // An accepted attempt is a durable receipt, including after restart.
+            await session.retryInstallation(saved.installationId);
+          }
           const key = saved?.key ?? crypto.randomUUID();
           const rowId = (await sdk
             .createModuleClient(module, (call) => session.execute(module, call))
@@ -104,12 +173,36 @@ test("minimized Electron executes a signed local package in its packaged worker 
               { text: "Native signed local execution" },
               key,
             )) as string;
-          if (!saved) await session.install(upgraded.pkg, upgraded.publicKey);
+          if (!saved) {
+            void session
+              .install(upgraded.pkg, upgraded.publicKey)
+              .catch(() => {});
+            while (
+              !Object.values(session.data.installationAttempts ?? {}).some(
+                (attempt) => attempt.state === "pending",
+              )
+            )
+              await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          const installationId =
+            saved?.installationId ??
+            Object.entries(session.data.installationAttempts!).find(
+              ([, attempt]) => attempt.state === "pending",
+            )![0];
+          const attempt = session.data.installationAttempts![installationId];
           const rows = session.data.records[module.id + "/items"];
           const stored = session.data.modules![module.id];
           const profileId = session.id;
-          session.lock();
-          return { profileId, key, rowId, rows, stored };
+          if (saved) session.lock();
+          return {
+            profileId,
+            key,
+            rowId,
+            rows,
+            stored,
+            installationId,
+            state: attempt.state,
+          };
         },
         { javascript, published, upgraded, saved },
       );
@@ -117,13 +210,16 @@ test("minimized Electron executes a signed local package in its packaged worker 
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0]).toMatchObject({
         id: result.rowId,
-        data: { body: "Native signed local execution" },
+        data: saved
+          ? { body: "Native signed local execution" }
+          : { text: "Native signed local execution" },
       });
       expect(result.stored).toMatchObject({
-        version: "2.0.0",
-        schemaVersion: 2,
+        version: saved ? "2.0.0" : "1.0.0",
+        schemaVersion: saved ? 2 : 1,
       });
-      expect(result.stored.migrations).toHaveLength(1);
+      expect(result.stored.migrations).toHaveLength(saved ? 1 : 0);
+      expect(result.state).toBe(saved ? "accepted" : "pending");
       expect(
         await app.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows().every(

@@ -272,7 +272,7 @@ test("personal registry installation, local action cancellation and restart reco
       name,
       version: "2.0.0",
       field: "body",
-      migrationDelayMs: 1200,
+      migrationDelayMs: 4000,
       localStorage: {
         version: 2,
         compatible: { minimum: 2, maximum: 2 },
@@ -307,7 +307,87 @@ test("personal registry installation, local action cancellation and restart reco
       .click();
     await expect(page.getByRole("alert")).toContainText("cancelled");
     await page
+      .getByRole("button", { name: "Back to modules", exact: true })
+      .click();
+    const installations = page.getByRole("list", {
+      name: "Unfinished local installations",
+      exact: true,
+    });
+    await expect(
+      installations.getByText("Interrupted", { exact: true }),
+    ).toBeVisible();
+    await installations
+      .getByRole("button", { name: "Discard installation", exact: true })
+      .click();
+    await expect(installations).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Installation request discarded. Your installed module and records are preserved.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page
+      .getByRole("table", { name: "Local modules", exact: true })
+      .getByRole("row")
+      .filter({ hasText: name })
+      .getByRole("cell", { name: "1.0.0", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: `Install ${name}`, exact: true })
+      .click();
+    const resuming = page.waitForEvent("worker");
+    await page
       .getByRole("button", { name: "Save local installation", exact: true })
+      .click();
+    await resuming;
+    await context.setOffline(true);
+    // Navigation destroys the running worker after its candidate has been saved.
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Open local profiles", exact: true })
+      .click();
+    await selectValue(page, "Profile", profileId);
+    await page
+      .getByLabel("Passphrase", { exact: true })
+      .fill("correct horse battery staple");
+    await page
+      .getByRole("button", { name: "Unlock profile", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Manage local modules", exact: true })
+      .click();
+    await expect(
+      installations.getByText("Awaiting recovery", { exact: true }),
+    ).toBeVisible();
+    await mkdir("docs/verification/local-install-recovery", {
+      recursive: true,
+    });
+    await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
+    await page.screenshot({
+      path: "docs/verification/local-install-recovery/pending.png",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+    ).toBe(true);
+    for (const name of ["Resume installation", "Discard installation"]) {
+      const button = installations.getByRole("button", { name, exact: true });
+      const box = await button.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+    }
+    await page.screenshot({
+      path: "docs/verification/local-install-recovery/pending-narrow.png",
+    });
+    const audit = await new AxeBuilder({ page })
+      .include('[role="dialog"]')
+      .withTags(["wcag2a", "wcag2aa"])
+      .analyze();
+    expect(audit.violations).toEqual([]);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await installations
+      .getByRole("button", { name: "Resume installation", exact: true })
       .click();
     await expect(
       page.getByText(`${name} is ready in this local profile.`, {
@@ -369,6 +449,28 @@ test("personal registry installation, local action cancellation and restart reco
     ).toHaveCount(1);
     await page.screenshot({
       path: "docs/verification/local-migrations/restored-narrow.png",
+    });
+    await page
+      .getByRole("button", { name: "Local actions", exact: true })
+      .click();
+    await page.getByLabel("Text", { exact: true }).fill("After installation");
+    await page
+      .getByRole("button", { name: "Run locally", exact: true })
+      .click();
+    await expect(
+      page.getByText("Completed and saved locally.", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await expect(
+      page.getByRole("cell", {
+        name: "Personal: After installation",
+        exact: true,
+      }),
+    ).toHaveCount(1);
+    await page.screenshot({
+      path: "docs/verification/local-install-recovery/recovered-narrow.png",
     });
   } finally {
     if (workspace)

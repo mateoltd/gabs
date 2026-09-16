@@ -56,7 +56,21 @@ export interface LocalAttempt {
   state: "pending" | "accepted" | "rejected" | "interrupted";
   error?: string;
 }
+export type LocalInstallationAttempt = {
+  moduleId: string;
+  moduleVersion: string;
+  title: string;
+  createdAt: number;
+} & (
+  | { state: "accepted" }
+  | {
+      release: LocalRelease;
+      state: "pending" | "interrupted" | "failed";
+      error?: string;
+    }
+);
 export interface LocalData {
+  installationAttempts?: Record<string, LocalInstallationAttempt>;
   attempts?: Record<string, LocalAttempt>;
   modules?: Record<string, LocalInstallation>;
   records: Record<string, ResourceRecord[]>;
@@ -108,6 +122,11 @@ export interface LocalSession {
     configuration?: unknown,
     options?: { signal?: AbortSignal; timeoutMs?: number },
   ): Promise<void>;
+  retryInstallation(
+    attemptId: string,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<void>;
+  dismissInstallation(attemptId: string): Promise<void>;
   uninstall(moduleId: string): Promise<void>;
   execute(
     module: ModuleDefinition,
@@ -210,6 +229,201 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     if (unlocked) data = next;
     unlockedOrThrow();
   }
+  async function installRelease(
+    pkg: SignedArtifact,
+    publicKey: string,
+    configuration: unknown,
+    options: { signal?: AbortSignal; timeoutMs?: number },
+  ) {
+    await verifyArtifact(pkg, publicKey);
+    const module = hydrateModule(moduleContract(pkg.artifact));
+    if (
+      !Object.values(module.resources).some((r) => r.standalone) &&
+      !Object.values(module.operations).some((op) => op.policy === "local")
+    )
+      throw Error("This module does not support standalone profiles.");
+    assertSchema(module.configuration, configuration);
+    const prior = data.modules?.[module.id];
+    if (
+      Object.values(data.attempts ?? {}).some(
+        (a) =>
+          a.moduleId === module.id &&
+          a.state !== "accepted" &&
+          (a.moduleVersion !== module.version ||
+            canonical(a.configuration) !== canonical(configuration)),
+      )
+    )
+      throw Error(
+        "Resolve or dismiss pending local requests before changing this module's release or configuration. Their input is preserved.",
+      );
+    const same = prior?.releases[module.version];
+    if (same && same.package.digest !== pkg.digest)
+      throw Error(
+        "Installed release bytes are immutable. Use a new version for executable changes.",
+      );
+    const available = new Map(
+      availableLocalModules(data).map((m) => [m.id, m]),
+    );
+    available.set(module.id, module);
+    // Check the complete active set: replacing a provider must preserve its consumers.
+    const pins = Object.fromEntries(
+      [...available.values()].map((m) => [m.id, m.version]),
+    );
+    for (const item of available.values())
+      resolveReleases(item.id, [...available.values()], "1.0.0", "1.0.0", pins);
+    const release = { package: pkg, publicKey, configuration };
+    const unfinished = Object.entries(data.installationAttempts ?? {}).find(
+      ([, attempt]) =>
+        attempt.moduleId === module.id && attempt.state !== "accepted",
+    );
+    if (
+      unfinished &&
+      unfinished[1].state !== "accepted" &&
+      canonical(unfinished[1].release) !== canonical(release)
+    )
+      throw Error(
+        "Resume or discard the unfinished installation before selecting another release or configuration. Your installed module and records are preserved.",
+      );
+    const attemptId = unfinished?.[0] ?? crypto.randomUUID();
+    const attempt: LocalInstallationAttempt = {
+      moduleId: module.id,
+      moduleVersion: module.version,
+      title: module.name,
+      release,
+      createdAt: unfinished?.[1].createdAt ?? Date.now(),
+      state: "pending",
+    };
+    await commit(
+      {
+        ...data,
+        installationAttempts: {
+          ...data.installationAttempts,
+          [attemptId]: attempt,
+        },
+      },
+      options.signal,
+    );
+    try {
+      const previousModule = prior
+        ? moduleContract(prior.releases[prior.version].package.artifact)
+        : bundledModuleDefinitions.find((m) => m.id === module.id);
+      const prefix = module.id + "/";
+      const records = Object.fromEntries(
+        Object.entries(data.records)
+          .filter(([key]) => key.startsWith(prefix))
+          .map(([key, rows]) => [key.slice(prefix.length), rows]),
+      );
+      const fromVersion =
+        prior?.schemaVersion ??
+        (previousModule
+          ? localStorageContract(previousModule).version
+          : Object.values(records).some((rows) => rows.length)
+            ? 1
+            : localStorageContract(module).version);
+      const migrated = await worker.run(
+        module,
+        {
+          profileId: vault.id,
+          call: {
+            moduleId: module.id,
+            moduleVersion: module.version,
+            action: "list",
+            input: {},
+          },
+          configuration,
+          snapshot: { records, receipts: data.receipts?.[module.id] ?? {} },
+        },
+        {
+          ...options,
+          artifact: { package: pkg, publicKey },
+          migrateFrom: fromVersion,
+        },
+      );
+      const retained = Object.fromEntries(
+        Object.entries(data.records).filter(([key]) => !key.startsWith(prefix)),
+      );
+      let migratedFrom = fromVersion;
+      const history = (migrated.migrations ?? []).map((name) => {
+        const to = localStorageContract(module).migrations[name].to;
+        const entry = {
+          name,
+          release: module.version,
+          from: migratedFrom,
+          to,
+          appliedAt: Date.now(),
+        };
+        migratedFrom = to;
+        return entry;
+      });
+      await commit(
+        {
+          ...data,
+          installationAttempts: {
+            ...data.installationAttempts,
+            [attemptId]: {
+              moduleId: module.id,
+              moduleVersion: module.version,
+              title: module.name,
+              createdAt: attempt.createdAt,
+              state: "accepted",
+            },
+          },
+          records: {
+            ...retained,
+            ...Object.fromEntries(
+              Object.entries(migrated.snapshot.records).map(([key, rows]) => [
+                prefix + key,
+                rows,
+              ]),
+            ),
+          },
+          modules: {
+            ...data.modules,
+            [module.id]: {
+              schemaVersion: migrated.schemaVersion,
+              migrations: [...(prior?.migrations ?? []), ...history],
+              active: true,
+              version: module.version,
+              releases: {
+                ...prior?.releases,
+                [module.version]: { package: pkg, publicKey, configuration },
+              },
+            },
+          },
+        },
+        options.signal,
+      );
+    } catch (error) {
+      if (
+        unlocked &&
+        data.installationAttempts?.[attemptId]?.state === "pending"
+      ) {
+        const interrupted = [
+          "LOCAL_CANCELLED",
+          "LOCAL_TIMEOUT",
+          "LOCAL_WORKER_FAILED",
+          "PROFILE_LOCKED",
+          "PROFILE_CHANGED",
+        ].includes((error as { code?: string }).code ?? "");
+        // A storage failure must preserve the original durable request and original error.
+        await commit({
+          ...data,
+          installationAttempts: {
+            ...data.installationAttempts,
+            [attemptId]: {
+              ...attempt,
+              state: interrupted ? "interrupted" : "failed",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "The installation could not finish.",
+            },
+          },
+        }).catch(() => {});
+      }
+      throw error;
+    }
+  }
   const current: LocalSession = {
     id: vault.id,
     name: vault.name,
@@ -217,137 +431,56 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       return structuredClone(data);
     },
     install(pkg, publicKey, configuration = {}, options = {}) {
-      options = { ...options };
-      pkg = structuredClone(pkg);
-      configuration = structuredClone(configuration);
+      const release = structuredClone({
+        package: pkg,
+        publicKey,
+        configuration,
+      });
+      const execution = { ...options };
+      return enqueue(() =>
+        installRelease(
+          release.package,
+          release.publicKey,
+          release.configuration,
+          execution,
+        ),
+      );
+    },
+    retryInstallation(attemptId, options = {}) {
+      const execution = { ...options };
       return enqueue(async () => {
-        await verifyArtifact(pkg, publicKey);
-        const module = hydrateModule(moduleContract(pkg.artifact));
-        if (
-          !Object.values(module.resources).some((r) => r.standalone) &&
-          !Object.values(module.operations).some((op) => op.policy === "local")
-        )
-          throw Error("This module does not support standalone profiles.");
-        assertSchema(module.configuration, configuration);
-        const prior = data.modules?.[module.id];
-        if (
-          Object.values(data.attempts ?? {}).some(
-            (a) =>
-              a.moduleId === module.id &&
-              a.state !== "accepted" &&
-              (a.moduleVersion !== module.version ||
-                canonical(a.configuration) !== canonical(configuration)),
-          )
-        )
-          throw Error(
-            "Resolve or dismiss pending local requests before changing this module's release or configuration. Their input is preserved.",
-          );
-        const same = prior?.releases[module.version];
-        if (same && same.package.digest !== pkg.digest)
-          throw Error(
-            "Installed release bytes are immutable. Use a new version for executable changes.",
-          );
-        const available = new Map(
-          availableLocalModules(data).map((m) => [m.id, m]),
+        const attempt = data.installationAttempts?.[attemptId];
+        if (!attempt)
+          throw Error("This installation request is no longer available.");
+        // The acceptance marker commits with the release and data. Never replay an old install.
+        if (attempt.state === "accepted") return;
+        const release = attempt.release;
+        await installRelease(
+          release.package,
+          release.publicKey,
+          release.configuration,
+          execution,
         );
-        available.set(module.id, module);
-        // Check the complete active set: replacing a provider must preserve its consumers.
-        const pins = Object.fromEntries(
-          [...available.values()].map((m) => [m.id, m.version]),
-        );
-        for (const item of available.values())
-          resolveReleases(
-            item.id,
-            [...available.values()],
-            "1.0.0",
-            "1.0.0",
-            pins,
-          );
-        const previousModule = prior
-          ? moduleContract(prior.releases[prior.version].package.artifact)
-          : bundledModuleDefinitions.find((m) => m.id === module.id);
-        const prefix = module.id + "/";
-        const records = Object.fromEntries(
-          Object.entries(data.records)
-            .filter(([key]) => key.startsWith(prefix))
-            .map(([key, rows]) => [key.slice(prefix.length), rows]),
-        );
-        const fromVersion =
-          prior?.schemaVersion ??
-          (previousModule
-            ? localStorageContract(previousModule).version
-            : Object.values(records).some((rows) => rows.length)
-              ? 1
-              : localStorageContract(module).version);
-        const migrated = await worker.run(
-          module,
-          {
-            profileId: vault.id,
-            call: {
-              moduleId: module.id,
-              moduleVersion: module.version,
-              action: "list",
-              input: {},
-            },
-            configuration,
-            snapshot: { records, receipts: data.receipts?.[module.id] ?? {} },
-          },
-          {
-            ...options,
-            artifact: { package: pkg, publicKey },
-            migrateFrom: fromVersion,
-          },
-        );
-        const retained = Object.fromEntries(
-          Object.entries(data.records).filter(
-            ([key]) => !key.startsWith(prefix),
-          ),
-        );
-        let migratedFrom = fromVersion;
-        const history = (migrated.migrations ?? []).map((name) => {
-          const to = localStorageContract(module).migrations[name].to;
-          const entry = {
-            name,
-            release: module.version,
-            from: migratedFrom,
-            to,
-            appliedAt: Date.now(),
-          };
-          migratedFrom = to;
-          return entry;
-        });
-        await commit(
-          {
-            ...data,
-            records: {
-              ...retained,
-              ...Object.fromEntries(
-                Object.entries(migrated.snapshot.records).map(([key, rows]) => [
-                  prefix + key,
-                  rows,
-                ]),
-              ),
-            },
-            modules: {
-              ...data.modules,
-              [module.id]: {
-                schemaVersion: migrated.schemaVersion,
-                migrations: [...(prior?.migrations ?? []), ...history],
-                active: true,
-                version: module.version,
-                releases: {
-                  ...prior?.releases,
-                  [module.version]: { package: pkg, publicKey, configuration },
-                },
-              },
-            },
-          },
-          options.signal,
-        );
+      });
+    },
+    dismissInstallation(attemptId) {
+      return enqueue(async () => {
+        const installationAttempts = { ...data.installationAttempts };
+        delete installationAttempts[attemptId];
+        await commit({ ...data, installationAttempts });
       });
     },
     uninstall(moduleId) {
       return enqueue(async () => {
+        if (
+          Object.values(data.installationAttempts ?? {}).some(
+            (attempt) =>
+              attempt.moduleId === moduleId && attempt.state !== "accepted",
+          )
+        )
+          throw Error(
+            "Resume or discard the unfinished installation before removing this module. Its records are preserved.",
+          );
         const prior = data.modules?.[moduleId];
         if (!prior?.active) throw Error("This local module is not installed.");
         if (

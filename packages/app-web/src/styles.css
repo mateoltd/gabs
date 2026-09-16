@@ -2792,3 +2792,23 @@ body:has(.local-workspace),
   padding: 0;
   min-width: 0;
 }
+
+/* Local installation recovery keeps every action visible on narrow screens. */
+.local-installations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 24px;
+}
+.local-installations > li {
+  display: grid;
+  gap: 8px;
+}
+.local-installations h4,
+.local-installations p {
+  margin: 0;
+}
+.local-installations .module-toolbar {
+  margin-block: 8px 0;
+}
