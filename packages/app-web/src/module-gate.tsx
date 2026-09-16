@@ -1,13 +1,19 @@
 import { ApiError } from "@suite/api-client";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
-import { registerModule } from "@suite/module-catalog";
+import { moduleDependencies, registerModule } from "@suite/module-catalog";
 import type { FeatureProps } from "@suite/platform";
 import { readModuleStorage } from "@suite/platform/module-storage";
-import { Loading, Empty, ErrorMessage, Button } from "@suite/ui-web";
+import {
+  Loading,
+  Empty,
+  ErrorMessage,
+  Button,
+  PreservedSurface,
+} from "@suite/ui-web";
 import {
   installModule,
   deviceId,
@@ -40,6 +46,7 @@ export function ModuleGate(
       "runtime-installation",
       props.moduleId,
       props.online,
+      props.bootstrap.policyRevision ?? "0",
     ],
     refetchInterval: props.online ? 30000 : false,
     queryFn: async ({ signal }) => {
@@ -122,39 +129,47 @@ export function ModuleGate(
       return installed;
     },
   });
-  if (query.isPending || (query.isFetching && !query.data)) return <Loading />;
+  const retained = useRef<ReactNode>(null);
+  const permitted = moduleDependencies(props.moduleId).every((id) =>
+    props.bootstrap.modules.some(
+      (m) =>
+        m.moduleId === id && m.state === "enabled" && m.assigned && m.entitled,
+    ),
+  );
   const accessDenied =
     query.error instanceof ApiError && [401, 403].includes(query.error.status);
-  if (query.error && (!query.data || accessDenied))
-    return (
-      <>
-        <ErrorMessage error={query.error} />
-        <Button onClick={() => void query.refetch()}>Retry installation</Button>
-      </>
-    );
-  if (!query.data)
-    return (
-      <>
-        <Empty
-          title="Module installation required"
-          description="Install an assigned, published module to open it on this device."
-        />
-        <Link to="/modules">Manage modules</Link>
-      </>
-    );
+  const visible = permitted && !!query.data && !accessDenied;
+  if (visible && query.data)
+    retained.current =
+      typeof props.children === "function"
+        ? props.children(query.data)
+        : props.children;
   return (
     <>
-      {query.error && (
+      {!permitted ? (
+        <Empty
+          title="Module access paused"
+          description="This module or a required dependency is unavailable. Input in this open view is kept for when your access is restored. Saved pending work remains on this device."
+        />
+      ) : query.isPending || (query.isFetching && !query.data) ? (
+        <Loading />
+      ) : query.error ? (
         <div>
           <ErrorMessage error={query.error} />
           <Button onClick={() => void query.refetch()}>
             Retry installation
           </Button>
         </div>
-      )}
-      {typeof props.children === "function"
-        ? props.children(query.data)
-        : props.children}
+      ) : !query.data ? (
+        <>
+          <Empty
+            title="Module installation required"
+            description="Install an assigned, published module to open it on this device."
+          />
+          <Link to="/modules">Manage modules</Link>
+        </>
+      ) : null}
+      <PreservedSurface visible={visible}>{retained.current}</PreservedSurface>
     </>
   );
 }

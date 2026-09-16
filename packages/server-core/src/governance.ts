@@ -92,6 +92,14 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
     seatLimit: w.seat_limit,
     memberCount: Number(count.n),
     authorizedAt: new Date().toISOString(),
+    policyRevision:
+      (
+        await tx
+          .selectFrom("suite.workspace_policy")
+          .select("revision")
+          .where("workspace_id", "=", ctx.workspaceId)
+          .executeTakeFirst()
+      )?.revision ?? "0",
   };
 }
 export async function listMembers(tx: Tx, ctx: Context) {

@@ -6,7 +6,7 @@
   min-width: 0;
   view-transition-name: workspace-page;
 }
-.route-stage:has(> .orders-workbench) {
+.route-stage:has(> .preserved-surface:not([hidden]) > .orders-workbench) {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -85,8 +85,9 @@
   animation: content-arrive var(--duration-slow) var(--ease-smooth-out) 120ms
     both;
 }
-.route-stage > :is(.table-wrap, .panel, .empty),
-.route-stage > .route-reveal {
+:is(.route-stage, .route-stage > .preserved-surface)
+  > :is(.table-wrap, .panel, .empty),
+:is(.route-stage, .route-stage > .preserved-surface) > .route-reveal {
   animation: content-arrive var(--duration-slow) var(--ease-smooth-out)
     var(--duration-micro) both;
 }
@@ -127,7 +128,7 @@
 
 /* Reserve both grid tracks so opening and closing the inspector resizes the list. */
 @media (min-width: 1101px) {
-  .route-stage > .orders-workbench {
+  .route-stage > .preserved-surface > .orders-workbench {
     grid-template-columns: minmax(0, 1fr) 0px;
     transition: grid-template-columns var(--panel-close-dur)
       var(--ease-smooth-out);

@@ -644,6 +644,10 @@
                     },
                     "authorizedAt": {
                       "type": "string"
+                    },
+                    "policyRevision": {
+                      "pattern": "^[0-9]{1,20}$",
+                      "type": "string"
                     }
                   }
                 }
@@ -11212,6 +11216,229 @@
                     },
                     "requestId": {
                       "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/policy": {
+      "get": {
+        "operationId": "workspacePolicy",
+        "parameters": [
+          {
+            "schema": {
+              "pattern": "^[0-9]{1,20}$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "since",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "revision",
+                    "bootstrap"
+                  ],
+                  "properties": {
+                    "revision": {
+                      "type": "string"
+                    },
+                    "bootstrap": {
+                      "type": "object",
+                      "required": [
+                        "workspace",
+                        "permissions",
+                        "roleNames",
+                        "modules",
+                        "offlineHours",
+                        "seatLimit",
+                        "memberCount",
+                        "authorizedAt"
+                      ],
+                      "properties": {
+                        "workspace": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "name",
+                            "kind",
+                            "currency"
+                          ],
+                          "properties": {
+                            "id": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "maxLength": 200,
+                              "type": "string"
+                            },
+                            "kind": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "personal"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "company"
+                                  ]
+                                }
+                              ]
+                            },
+                            "accent": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "forest"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "blue"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "plum"
+                                  ]
+                                }
+                              ]
+                            },
+                            "logoDataUrl": {
+                              "maxLength": 50000,
+                              "type": "string"
+                            },
+                            "currency": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "permissions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "roleNames": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "modules": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "moduleId",
+                              "state",
+                              "accessPolicy",
+                              "entitled",
+                              "assigned"
+                            ],
+                            "properties": {
+                              "moduleId": {
+                                "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                                "type": "string"
+                              },
+                              "state": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "draft"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "enabled"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "suspended"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "accessPolicy": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "self"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "approval"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "admin"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "entitled": {
+                                "type": "boolean"
+                              },
+                              "assigned": {
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        },
+                        "offlineHours": {
+                          "type": "integer"
+                        },
+                        "seatLimit": {
+                          "type": "integer"
+                        },
+                        "memberCount": {
+                          "type": "integer"
+                        },
+                        "authorizedAt": {
+                          "type": "string"
+                        },
+                        "policyRevision": {
+                          "pattern": "^[0-9]{1,20}$",
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 }

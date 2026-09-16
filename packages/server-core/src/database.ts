@@ -12,6 +12,7 @@ type Time = ColumnType<Date, Date | string | undefined, Date | string>;
 type Base = { id: string; created_at: Time };
 type Tenant = { workspace_id: string };
 export interface Database {
+  "suite.workspace_policy": Tenant & { revision: string };
   "suite.module_storage": Tenant & {
     module_id: string;
     schema_version: number;
@@ -281,6 +282,13 @@ export interface Database {
 }
 export type DB = Kysely<Database>;
 export type Tx = Transaction<Database>;
+const databasePools = new WeakMap<DB, Pool>();
+export function policyListenerPool(db: DB) {
+  const pool = databasePools.get(db);
+  if (!pool)
+    throw Error("Policy delivery requires a managed PostgreSQL connection.");
+  return pool;
+}
 export function connectDatabase(
   url = process.env.DATABASE_URL,
   log?: LogConfig,
@@ -307,7 +315,12 @@ export function connectDatabase(
   pool.on("error", () => {
     /* Already reported by the client listener; pg removes the idle connection. */
   });
-  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }), log });
+  const db = new Kysely<Database>({
+    dialect: new PostgresDialect({ pool }),
+    log,
+  });
+  databasePools.set(db, pool);
+  return db;
 }
 export async function inWorkspace<T>(
   db: DB,

@@ -7,6 +7,9 @@ export {
   RecordIdentity,
 } from "./work-list";
 import {
+  Activity,
+  createContext,
+  useContext,
   cloneElement,
   isValidElement,
   type ReactElement,
@@ -60,6 +63,33 @@ export function Button({
     button
   );
 }
+const SurfacePortalContext = createContext<HTMLElement | null>(null);
+/** Keep live input while hiding a locked surface, including its portalled controls. */
+export function PreservedSurface({
+  visible,
+  children,
+}: {
+  visible: boolean;
+  children: ReactNode;
+}) {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  return (
+    <div
+      ref={setContainer}
+      className="preserved-surface"
+      hidden={!visible}
+      inert={!visible}
+      style={visible ? { display: "contents" } : { display: "none" }}
+    >
+      <SurfacePortalContext.Provider value={container}>
+        <ControlPortalContext.Provider value={container}>
+          <Activity mode={visible ? "visible" : "hidden"}>{children}</Activity>
+        </ControlPortalContext.Provider>
+      </SurfacePortalContext.Provider>
+    </div>
+  );
+}
+
 export function Modal({
   open,
   onOpenChange,
@@ -77,6 +107,7 @@ export function Modal({
   wide?: boolean;
   className?: string;
 }) {
+  const surfaceContainer = useContext(SurfacePortalContext);
   const [present, setPresent] = useState(open);
   const [phase, setPhase] = useState("");
   const retained = useRef({ title, description, children });
@@ -120,7 +151,7 @@ export function Modal({
   }, [open, present]);
   return (
     <Dialog.Root open={present} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
+      <Dialog.Portal container={surfaceContainer ?? undefined}>
         <Dialog.Overlay className={`dialog-overlay ${phase}`} />
         <div className="dialog-positioner">
           <Dialog.Content

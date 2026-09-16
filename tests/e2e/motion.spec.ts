@@ -181,7 +181,9 @@ test("pagination retains rows during a slow request and returns to the previous 
   await expect(
     page.getByRole("button", { name: "Next page", exact: true }),
   ).toBeDisabled();
-  expect((await table.boundingBox())?.height).toBe(before?.height);
+  expect(before).not.toBeNull();
+  // Rendering may round an unchanged box by a fraction of a CSS pixel.
+  expect((await table.boundingBox())!.height).toBeCloseTo(before!.height, 2);
   await expect(
     page.locator("#inventory-results > .results-motion-content"),
   ).toHaveCSS("opacity", "1");

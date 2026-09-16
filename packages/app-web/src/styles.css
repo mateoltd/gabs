@@ -347,13 +347,30 @@ body {
 .content:focus-visible {
   outline: none;
 }
-.content:has(> .route-stage > .orders-workbench) {
+.content:has(
+  > .preserved-surface:not([hidden])
+    > .route-stage
+    > .preserved-surface:not([hidden])
+    > .orders-workbench
+) {
   padding: 0;
   display: flex;
   flex-direction: column;
 }
-.content:has(> .route-stage > .orders-workbench) > .notice,
-.content:has(> .route-stage > .orders-workbench) > .error-message {
+.content:has(
+    > .preserved-surface:not([hidden])
+      > .route-stage
+      > .preserved-surface:not([hidden])
+      > .orders-workbench
+  )
+  > .notice,
+.content:has(
+    > .preserved-surface:not([hidden])
+      > .route-stage
+      > .preserved-surface:not([hidden])
+      > .orders-workbench
+  )
+  > .error-message {
   margin: 16px 30px 0;
 }
 .command-dialog {

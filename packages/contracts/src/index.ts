@@ -233,6 +233,7 @@ export const BootstrapSchema = Type.Object({
   seatLimit: Type.Integer(),
   memberCount: Type.Integer(),
   authorizedAt: Type.String(),
+  policyRevision: Type.Optional(Type.String({ pattern: "^[0-9]{1,20}$" })),
 });
 export type Bootstrap = Static<typeof BootstrapSchema>;
 export const MovementSchema = Type.Object({
@@ -360,6 +361,10 @@ export const OPERATIONS = {
 
   overview: { method: "GET", path: "/api/v1/workspaces/:workspaceId/overview" },
   me: { method: "GET", path: "/api/v1/me" },
+  workspacePolicy: {
+    method: "GET",
+    path: "/api/v1/workspaces/:workspaceId/policy",
+  },
   bootstrap: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/bootstrap",

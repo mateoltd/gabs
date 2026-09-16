@@ -85,7 +85,8 @@ export function validateOperation(value: unknown): OperationRequest {
     Object.keys(r.query).some(
       (k) =>
         !["cursor", "limit", "search", "status", "stock"].includes(k) &&
-        !(r.operation === "moduleFleet" && k === "offset"),
+        !(r.operation === "moduleFleet" && k === "offset") &&
+        !(r.operation === "workspacePolicy" && k === "since"),
     )
   )
     throw Error("Invalid query");
@@ -96,6 +97,11 @@ export function validateOperation(value: unknown): OperationRequest {
       Number(r.query.offset) > 1000000)
   )
     throw Error("Invalid device page");
+  if (
+    r.query?.since !== undefined &&
+    !/^[0-9]{1,20}$/.test(String(r.query.since))
+  )
+    throw Error("Invalid policy revision");
   operationPath(r);
   return r;
 }

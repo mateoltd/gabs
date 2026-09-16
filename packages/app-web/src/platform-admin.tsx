@@ -1165,6 +1165,7 @@ export function Organization(props: FeatureProps) {
 export function Appearance(props: FeatureProps) {
   const state = usePlatformState(props);
   const [error, setError] = useState<unknown>();
+  const [saving, setSaving] = useState(false);
   const setting = state.data?.settings.find((s) => s.key === "appearance");
   const current = String(setting?.value.archetype ?? "modern-dark");
   return (
@@ -1173,8 +1174,13 @@ export function Appearance(props: FeatureProps) {
       <Field label="Design archetype">
         <Select
           value={current}
-          disabled={!props.bootstrap.permissions.includes("workspace.manage")}
+          disabled={
+            saving || !props.bootstrap.permissions.includes("workspace.manage")
+          }
           onValueChange={async (archetype) => {
+            if (saving || archetype === current) return;
+            setSaving(true);
+            setError(undefined);
             try {
               await props.client.request({
                 operation: "platformCommand",
@@ -1189,6 +1195,8 @@ export function Appearance(props: FeatureProps) {
               await state.refetch();
             } catch (e) {
               setError(e);
+            } finally {
+              setSaving(false);
             }
           }}
         >

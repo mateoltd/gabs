@@ -213,3 +213,9 @@ All 81 unit/PostgreSQL tests and four production builds passed. The full browser
 ## Durable lifecycle report recovery
 
 [Report recovery evidence](report-recovery/README.md) records bounded delivery and persistent retries, preflight observations, receipt-validated removal progress, account binding and terminal rejection. All 85 unit/PostgreSQL tests passed, with the affected lifecycle test repeated after the final refinement; six selected headless browser journeys and all 11 minimized Electron journeys passed. Builds and formatting passed, and wide/narrow/native device views were inspected. Connected suspension and emergency/offline acceptance remain open.
+
+## 16 September 2026: connected suspension and lease recovery
+
+[Connected suspension evidence](module-suspension/README.md) records transactional policy delivery, fresh authorization, monotonic revisions, existing-workspace backfill, hidden editor/portal preservation and offline lease expiry without pending-work loss. Reauthorization is required before synchronization resumes.
+
+All 88 unit/PostgreSQL tests, strict types/boundaries/copy checks and four builds passed. The broad browser run passed 66/67; after fixing a restoration race, the strengthened delayed-reply journey passed three consecutive runs and all eight affected lifecycle journeys passed. Thus 67 distinct browser journeys passed across iterations, not a fresh all-67 run after the final fix. After the final cache-ordering refinement, three focused policy tests and six affected browser journeys passed. All 12 minimized/unfocused Electron journeys passed on the final application build. Wide/narrow/native screens and corrected Orders layout were inspected. EXT-05 has local acceptance; SDK-01 is next. Overall parity and the later UI-refinement goal remain unfinished.

@@ -1,4 +1,10 @@
 import {
+  newerPolicy,
+  snapshotWithPolicy,
+  usePolicyDelivery,
+} from "./policy-delivery";
+import { PreservedSurface } from "@suite/ui-web";
+import {
   installModule,
   flushInstallationReports,
   verifiedInstalledModule,
@@ -199,6 +205,20 @@ function Workspace({
     [user.id, workspaceId],
   );
   const qc = useQueryClient();
+  const saveSnapshot = useCallback(
+    (value: Snapshot | null) =>
+      navigator.locks.request(
+        `suite-snapshot:${scope.userId}:${scope.workspaceId}`,
+        () => platform.save(scope, "snapshot", value),
+      ),
+    [scope],
+  );
+
+  const [policyDenied, setPolicyDenied] = useState(false);
+  const [validatedOnline, setValidatedOnline] = useState(false);
+  useEffect(() => {
+    if (!online) setValidatedOnline(false);
+  }, [online]);
   const [cached, setCached] = useState<Snapshot>(),
     [cacheLoaded, setCacheLoaded] = useState(false),
     [offlineEnabled, setOfflineEnabled] = useState(false),
@@ -274,10 +294,29 @@ function Workspace({
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("suite-theme", theme);
   }, [theme]);
+  const latestPolicy = useRef<import("@suite/contracts").Bootstrap | undefined>(
+    undefined,
+  );
+  const cachePolicyEpoch = useRef(0);
+  const acceptPolicy = (candidate: import("@suite/contracts").Bootstrap) => {
+    const next = newerPolicy(latestPolicy.current, candidate);
+    if (next !== latestPolicy.current) cachePolicyEpoch.current++;
+    latestPolicy.current = next;
+    return latestPolicy.current;
+  };
   const boot = useQuery({
     queryKey: [user.id, workspaceId, "bootstrap"],
-    queryFn: () =>
-      client.request({ operation: "bootstrap", params: { workspaceId } }),
+    queryFn: async ({ signal }) => {
+      const result = await client.request(
+        { operation: "bootstrap", params: { workspaceId } },
+        { signal },
+      );
+      if (!signal.aborted) {
+        setValidatedOnline(true);
+        setPolicyDenied(false);
+      }
+      return acceptPolicy(result);
+    },
     enabled: online,
     retry: false,
     refetchInterval: online ? 30000 : false,
@@ -288,7 +327,9 @@ function Workspace({
       .load<Snapshot>(scope, "snapshot")
       .then((value) => {
         if (active) {
-          setCached(value);
+          setCached(
+            value ? snapshotWithPolicy(value, latestPolicy.current) : value,
+          );
           setOfflineEnabled(!!value);
           setCacheLoaded(true);
         }
@@ -305,14 +346,16 @@ function Workspace({
       void qc.cancelQueries({ queryKey: [user.id, workspaceId] });
     };
   }, [scope, qc, user.id, workspaceId]);
-  const bootstrapData = online
-    ? (boot.data ??
-      (boot.isPending && canReadSnapshot(cached, now)
+  const bootstrapData = policyDenied
+    ? undefined
+    : online
+      ? (boot.data ??
+        (boot.isPending && canReadSnapshot(cached, now)
+          ? cached.bootstrap
+          : undefined))
+      : canReadSnapshot(cached, now)
         ? cached.bootstrap
-        : undefined))
-    : canReadSnapshot(cached, now)
-      ? cached.bootstrap
-      : undefined;
+        : undefined;
   useEffect(() => {
     document.documentElement.dataset.accent =
       bootstrapData?.workspace.accent ?? "forest";
@@ -348,12 +391,21 @@ function Workspace({
   const handleError = useCallback(
     (e: unknown) => {
       setError(e);
-      if (e instanceof ApiError && e.code === "MEMBERSHIP_REVOKED") {
+      if (
+        e instanceof ApiError &&
+        (e.status === 401 || e.code === "MEMBERSHIP_REVOKED")
+      )
+        setPolicyDenied(true);
+      if (
+        e instanceof ApiError &&
+        (e.code === "MEMBERSHIP_REVOKED" || e.status === 401)
+      ) {
+        cachePolicyEpoch.current++;
         // Revoke access immediately, retaining provisional work for authorized recovery.
         setCached(undefined);
         setOfflineEnabled(false);
         void Promise.all([
-          platform.save(scope, "snapshot", null),
+          saveSnapshot(null),
           changeModuleStorage(platform, scope, (s) => {
             s.pages = {};
             s.referenceOptions = {};
@@ -367,22 +419,53 @@ function Workspace({
     },
     [scope, qc, onRefreshIdentity, user.id, workspaceId],
   );
+  usePolicyDelivery(
+    client,
+    workspaceId,
+    user.id,
+    online,
+    async (policy, changed) => {
+      await qc.cancelQueries({ queryKey: [user.id, workspaceId, "bootstrap"] });
+      policy = acceptPolicy(policy);
+      setPolicyDenied(false);
+      setValidatedOnline(true);
+      qc.setQueryData([user.id, workspaceId, "bootstrap"], policy);
+      // Apply revocation to the current offline lease before any asynchronous cache write.
+      setCached((previous) =>
+        previous ? snapshotWithPolicy(previous, policy) : previous,
+      );
+      if (changed) {
+        // A slow installation must not delay listening for the next suspension.
+        void Promise.all([
+          qc.invalidateQueries({
+            queryKey: [user.id, workspaceId, "platform"],
+          }),
+          qc.invalidateQueries({
+            queryKey: [user.id, workspaceId, "runtime-installation"],
+          }),
+        ]).catch(handleError);
+      }
+    },
+    handleError,
+  );
   useEffect(() => {
     if (boot.error) handleError(boot.error);
   }, [boot.error, handleError]);
   useEffect(() => {
-    if (!online || !boot.data || !cacheLoaded) return;
+    if (policyDenied || !online || !boot.data || !cacheLoaded) return;
+    if (newerPolicy(latestPolicy.current, boot.data) !== boot.data) return;
+    const epoch = cachePolicyEpoch.current;
     if (!boot.data.offlineHours) {
       if (cached) {
-        void platform
-          .save(scope, "snapshot", {
-            ...cached,
-            expiresAt: 0,
-            bootstrap: boot.data,
-            products: [],
-            orders: [],
-          })
+        void saveSnapshot({
+          ...cached,
+          expiresAt: 0,
+          bootstrap: boot.data,
+          products: [],
+          orders: [],
+        })
           .then(() => {
+            if (epoch !== cachePolicyEpoch.current) return;
             setCached(undefined);
             setOfflineEnabled(false);
           })
@@ -408,9 +491,9 @@ function Workspace({
         new Date(boot.data.authorizedAt).getTime() +
         boot.data.offlineHours * 3600000,
     };
-    void platform
-      .save(scope, "snapshot", value)
+    void saveSnapshot(value)
       .then(() => {
+        if (epoch !== cachePolicyEpoch.current) return;
         setCached(value);
         return platform.rememberIdentity({
           userId: user.id,
@@ -420,6 +503,7 @@ function Workspace({
       })
       .catch(setError);
   }, [
+    policyDenied,
     online,
     boot.data,
     products.data,
@@ -574,7 +658,7 @@ function Workspace({
         client,
         scope,
         bootstrap: bootstrapData,
-        online: online && !!boot.data && !boot.isError,
+        online: online && validatedOnline && !!boot.data && !boot.isError,
         platform,
         snapshot: canReadSnapshot(cached, now) ? cached : undefined,
         offlineEnabled,
@@ -715,6 +799,9 @@ function Workspace({
     platform,
     qc,
   ]);
+  const retainedFeatures = useRef<FeatureProps | undefined>(undefined);
+  if (features) retainedFeatures.current = features;
+  const routeFeatures = features ?? retainedFeatures.current;
   const onlineOnly = (node: ReactNode) =>
     online ? (
       node
@@ -1021,116 +1108,128 @@ function Workspace({
             ) : (
               <Loading />
             )
-          ) : (
-            <FeatureBoundary key={workspaceId} resetKey={title}>
-              <MotionRoutes>
-                <Route path="/" element={<Navigate to="/overview" replace />} />
-                <Route
-                  path="/organization"
-                  element={onlineOnly(<Organization {...features} />)}
-                />
-                <Route path="/overview" element={<Overview {...features} />} />
-                {moduleDefinitions
-                  .filter((m) => !m.legacyView && m.navigation)
-                  .map((m) => (
-                    <Route
-                      key={m.id}
-                      path={m.navigation!.path}
-                      element={
-                        <ModuleGate {...features} moduleId={m.id}>
-                          {(installation) => (
-                            <ModuleSurface {...features} {...installation} />
-                          )}
-                        </ModuleGate>
-                      }
-                    />
-                  ))}
-                <Route
-                  path="/orders"
-                  element={
-                    <ModuleGate {...features} moduleId="orders">
-                      <Orders {...features} />
-                    </ModuleGate>
-                  }
-                />
-                <Route
-                  path="/inventory"
-                  element={
-                    <ModuleGate {...features} moduleId="inventory">
-                      <Inventory {...features} />
-                    </ModuleGate>
-                  }
-                />
-                <Route
-                  path="/modules"
-                  element={onlineOnly(<Modules {...features} />)}
-                />
-                <Route
-                  path="/people"
-                  element={
-                    bootstrapData?.permissions.includes("members.manage") ? (
-                      onlineOnly(<People {...features} />)
-                    ) : (
-                      <Empty
-                        title="Administrator access required"
-                        description="Your role does not allow people management."
+          ) : null}
+          <PreservedSurface visible={!!features}>
+            {routeFeatures && (
+              <FeatureBoundary key={workspaceId} resetKey={title}>
+                <MotionRoutes>
+                  <Route
+                    path="/"
+                    element={<Navigate to="/overview" replace />}
+                  />
+                  <Route
+                    path="/organization"
+                    element={onlineOnly(<Organization {...routeFeatures} />)}
+                  />
+                  <Route
+                    path="/overview"
+                    element={<Overview {...routeFeatures} />}
+                  />
+                  {moduleDefinitions
+                    .filter((m) => !m.legacyView && m.navigation)
+                    .map((m) => (
+                      <Route
+                        key={m.id}
+                        path={m.navigation!.path}
+                        element={
+                          <ModuleGate {...routeFeatures} moduleId={m.id}>
+                            {(installation) => (
+                              <ModuleSurface
+                                {...routeFeatures}
+                                {...installation}
+                              />
+                            )}
+                          </ModuleGate>
+                        }
                       />
-                    )
-                  }
-                />
-                <Route
-                  path="/audit"
-                  element={
-                    bootstrapData?.permissions.includes("audit.read") ? (
-                      onlineOnly(<Audit {...features} />)
-                    ) : (
-                      <Empty
-                        title="Audit access required"
-                        description="Your role does not allow viewing the audit history."
-                      />
-                    )
-                  }
-                />
-                <Route
-                  path="/notifications"
-                  element={onlineOnly(<Notifications {...features} />)}
-                />
-                <Route
-                  path="/settings"
-                  element={onlineOnly(
-                    <>
-                      <Settings
-                        {...features}
-                        toggleOffline={toggleOffline}
-                        theme={theme}
-                        setTheme={setTheme}
-                      >
-                        <Appearance {...features} />
-                        <Billing {...features} />
-                        <LocalNetwork {...features} />
-                      </Settings>
-                    </>,
-                  )}
-                />
-                <Route
-                  path="*"
-                  element={
-                    (
-                      online ? catalog.isSuccess : installedCatalog.isSuccess
-                    ) ? (
-                      <Navigate to="/overview" replace />
-                    ) : (catalog.error ?? installedCatalog.error) ? (
-                      <ErrorMessage
-                        error={catalog.error ?? installedCatalog.error}
-                      />
-                    ) : (
-                      <Loading />
-                    )
-                  }
-                />
-              </MotionRoutes>
-            </FeatureBoundary>
-          )}
+                    ))}
+                  <Route
+                    path="/orders"
+                    element={
+                      <ModuleGate {...routeFeatures} moduleId="orders">
+                        <Orders {...routeFeatures} />
+                      </ModuleGate>
+                    }
+                  />
+                  <Route
+                    path="/inventory"
+                    element={
+                      <ModuleGate {...routeFeatures} moduleId="inventory">
+                        <Inventory {...routeFeatures} />
+                      </ModuleGate>
+                    }
+                  />
+                  <Route
+                    path="/modules"
+                    element={onlineOnly(<Modules {...routeFeatures} />)}
+                  />
+                  <Route
+                    path="/people"
+                    element={
+                      bootstrapData?.permissions.includes("members.manage") ? (
+                        onlineOnly(<People {...routeFeatures} />)
+                      ) : (
+                        <Empty
+                          title="Administrator access required"
+                          description="Your role does not allow people management."
+                        />
+                      )
+                    }
+                  />
+                  <Route
+                    path="/audit"
+                    element={
+                      bootstrapData?.permissions.includes("audit.read") ? (
+                        onlineOnly(<Audit {...routeFeatures} />)
+                      ) : (
+                        <Empty
+                          title="Audit access required"
+                          description="Your role does not allow viewing the audit history."
+                        />
+                      )
+                    }
+                  />
+                  <Route
+                    path="/notifications"
+                    element={onlineOnly(<Notifications {...routeFeatures} />)}
+                  />
+                  <Route
+                    path="/settings"
+                    element={onlineOnly(
+                      <>
+                        <Settings
+                          {...routeFeatures}
+                          toggleOffline={toggleOffline}
+                          theme={theme}
+                          setTheme={setTheme}
+                        >
+                          <Appearance {...routeFeatures} />
+                          <Billing {...routeFeatures} />
+                          <LocalNetwork {...routeFeatures} />
+                        </Settings>
+                      </>,
+                    )}
+                  />
+                  <Route
+                    path="*"
+                    element={
+                      (
+                        online ? catalog.isSuccess : installedCatalog.isSuccess
+                      ) ? (
+                        <Navigate to="/overview" replace />
+                      ) : (catalog.error ?? installedCatalog.error) ? (
+                        <ErrorMessage
+                          error={catalog.error ?? installedCatalog.error}
+                        />
+                      ) : (
+                        <Loading />
+                      )
+                    }
+                  />
+                </MotionRoutes>
+              </FeatureBoundary>
+            )}
+          </PreservedSurface>
         </main>
       </div>
       <Modal

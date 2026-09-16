@@ -1,3 +1,4 @@
+import { registerWorkspacePolicy } from "./workspace-policy";
 import ordersDefinition from "../../../modules/orders/module";
 import { moduleServers } from "@suite/module-catalog/server";
 import {
@@ -576,6 +577,13 @@ export async function createApp(
       handler: async (request, reply) => {
         const req = request as Request<S.Static<B>>;
         return inWorkspace(db, req.params.workspaceId, async (tx) => {
+          if (operation === "bootstrap")
+            await tx
+              .selectFrom("suite.workspace_policy")
+              .select("revision")
+              .where("workspace_id", "=", req.params.workspaceId)
+              .forShare()
+              .executeTakeFirst();
           const ctx = await authorize(
             tx,
             request.actor,
@@ -1225,6 +1233,7 @@ export async function createApp(
       return { filename: `orders-${exportRow.id}.csv`, content };
     },
   });
+  await registerWorkspacePolicy(app, db, auth);
   await registerPlatform(app, db);
   await registerBilling(app, db, config.origin);
   await app.ready();

@@ -532,6 +532,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspaceId}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["workspacePolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspaceId}/installation-reports": {
         parameters: {
             query?: never;
@@ -914,6 +930,7 @@ export interface operations {
                         seatLimit: number;
                         memberCount: number;
                         authorizedAt: string;
+                        policyRevision?: string;
                     };
                 };
             };
@@ -5243,6 +5260,57 @@ export interface operations {
                         code: string;
                         message: string;
                         requestId: string;
+                    };
+                };
+            };
+        };
+    };
+    workspacePolicy: {
+        parameters: {
+            query?: {
+                since?: string;
+            };
+            header?: never;
+            path: {
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: string;
+                        bootstrap: {
+                            workspace: {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                kind: "personal" | "company";
+                                accent?: "forest" | "blue" | "plum";
+                                logoDataUrl?: string;
+                                currency: string;
+                            };
+                            permissions: string[];
+                            roleNames: string[];
+                            modules: {
+                                moduleId: string;
+                                state: "draft" | "enabled" | "suspended";
+                                accessPolicy: "self" | "approval" | "admin";
+                                entitled: boolean;
+                                assigned: boolean;
+                            }[];
+                            offlineHours: number;
+                            seatLimit: number;
+                            memberCount: number;
+                            authorizedAt: string;
+                            policyRevision?: string;
+                        };
                     };
                 };
             };
