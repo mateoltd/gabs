@@ -133,7 +133,14 @@ if (command === "keygen") {
     `Created ${name}. Run pnpm install, then pnpm module check ${name} and pnpm module test ${name}. Edit module.scenarios.ts to exercise your module's behavior.`,
   );
 } else if (command === "dev") {
-  execute(["exec", "tsx", "watch", "tooling/module-dev.ts", name ?? ""]);
+  execute([
+    "exec",
+    "tsx",
+    "watch",
+    "tooling/module-dev.ts",
+    name ?? "",
+    ...args,
+  ]);
 } else if (command === "check" || command === "test") {
   if (command === "test" && !name)
     throw Error(
@@ -174,7 +181,15 @@ if (command === "keygen") {
       // Run outside the CLI process and bound stuck promises or infinite author loops.
       const result = spawnSync(
         process.execPath,
-        ["--import", "tsx", "tooling/module-test.ts", directory],
+        [
+          "--import",
+          "tsx",
+          "tooling/module-test.ts",
+          directory,
+          ...args
+            .filter((_value, index) => index % 2 === 1)
+            .map((path) => resolve(path)),
+        ],
         {
           stdio: "inherit",
           timeout: 120_000,

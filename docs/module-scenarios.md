@@ -25,7 +25,7 @@ export default defineModuleScenarios(module, {
 
 Adapt the example to your resource names and fields. Resource names, inputs, results, fixtures and configuration are inferred from the imported module. Normal TypeScript diagnostics include the source file, line and column. Scaffolding writes working examples for the generated `items` resource.
 
-Each scenario starts with fresh records, journal, receipts, events, permissions and online state. Explicit `fixtures` override `fixtures.json`; otherwise the CLI loads that file from the module directory. Fixtures are validated against the same resource schemas. Use `configuration` for required configuration and `server` for a scoped handler imported from your own `module-server.ts`; its contract must match the selected release exactly. Shared mutable state captured by author functions is still the author's responsibility.
+Each scenario starts with fresh root/provider records, private stores, journal, receipts, events, simulated audits, grants, permissions and online state. Explicit `fixtures` override `fixtures.json`; otherwise the CLI loads that file from the module directory. Fixtures are validated against the same resource schemas. Use `configuration` for required configuration and `server` for a scoped handler imported from your own `module-server.ts`; its contract must match the selected release exactly. Shared mutable state captured by author functions is still the author's responsibility.
 
 The simulation exposes `setOnline`, `setPermissions`, `submit`, `sync`, `snapshot`, and the normal typed `client`. `client` performs immediate simulated requests; use `submit` to exercise provisional offline captures. [Contacts scenarios](../modules/contacts/module.scenarios.ts) demonstrate rejected offline work and conflicting edits. Assertions may use Node's built-in `node:assert/strict`; no test-framework globals are required.
 
@@ -36,10 +36,58 @@ pnpm module check ./path/to/module --dependency ./path/to/provider
 pnpm module test ./path/to/module --dependency ./path/to/provider
 ```
 
-`check` and `test` accept directories without catalog or host edits. They type-check the module source graph, validate fixture schemas, resolve compatible dependencies and build custom client views to catch unsupported imports or invalid bundles. Repeat `--dependency` for additional development provider directories. This supplies dependency metadata for compatibility checks; it does not yet inject cross-module services into the simulator. With no module argument, `check` checks every discovered module; `test` requires an explicit target.
+`check` and `test` accept directories without catalog or host edits. They type-check the module source graph, validate fixture schemas, resolve compatible dependencies and build custom client views to catch unsupported imports or invalid bundles. Repeat `--dependency` for additional development provider directories. For `test`, these directories also supply provider backends, configuration and fixtures. Compatibility alone never grants service access. With no module argument, `check` checks every discovered module; `test` requires an explicit target.
 
 The scenario process reports `RUN`, `PASS` or `FAIL` with the module and scenario name, plus assertion stacks. Ordinary failures do not prevent independent scenarios from running. The CLI terminates a stuck scenario process after 120 seconds and exits unsuccessfully; the last `RUN` line identifies where it stopped. Author files are trusted development code, not sandboxed extensions.
 
+## Cross-module fixtures
+
+Use an optional `module.simulation.ts` in each development module. It is trusted development code and is not shipped as a release entry. `defineSimulationModule` infers private-store and identified-resource fixture types, validates their schemas and rejects duplicate/invalid IDs. Keep the existing `fixtures.json` format for simple resource examples with generated IDs.
+
+```ts
+// provider/module.simulation.ts
+import { defineSimulationModule } from "@suite/module-sdk/simulator";
+import module from "./module";
+
+export default defineSimulationModule(module, {
+  configuration: { prefix: "Verified " },
+  stores: {
+    entries: [
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        data: { name: "Initial provider fixture" },
+      },
+    ],
+  },
+});
+```
+
+Use your own store and configuration fields. `records` accepts resource fixtures with stable IDs, optional versions and archive state in the same envelope. Cross-module links can reference those stable IDs. The CLI loads `module-server.ts` automatically and checks its exact scoped contract. A simulation file can override the file-based configuration, simple fixtures and backend explicitly.
+
+```ts
+// consumer/module.simulation.ts
+import {
+  defineSimulationModule,
+  grantSimulationServices,
+} from "@suite/module-sdk/simulator";
+import module from "./module";
+
+export default defineSimulationModule(module, {
+  grants: grantSimulationServices(module, "record"),
+});
+```
+
+Only declared service aliases are accepted by the typed grant helper. The simulator checks the loaded provider's version, public contract, explicit grant and actor permissions when executing a service. Provider calls share the caller's actor, workspace and transaction. Explicitly translated business rejections preserve the consumer's declared error type; ignored dependent failures still roll back the transaction.
+
+For direct SDK use, pass `providers: [defineSimulationModule(provider, {...})]` and `grants` to `createModuleSimulator` or `defineModuleScenarios`. CLI scenarios inherit `module.simulation.ts`, configuration/fixtures files and the supplied provider directories; explicitly supplied scenario options override those defaults. Every scenario receives a fresh graph. Inspect it with `simulation.inspect(provider)` for inferred record types, `snapshot()` for journal/effects, `setModulePermissions(provider.id, [...])` and `setGrants([...])` to exercise revocation.
+
+[The independent service-preview fixture](../tests/fixtures/service-preview/module.scenarios.ts) is executable:
+
+```sh
+pnpm module test tests/fixtures/service-preview --dependency tests/fixtures/service-preview/provider
+pnpm module dev tests/fixtures/service-preview --dependency tests/fixtures/service-preview/provider
+```
+
 ## Verification boundary
 
-These scenarios help module authors iterate. The current simulator does not implement private stores, corporate audit storage, cross-module service fixtures, production authorization, durable persistence or historical field merging. Standalone resource simulation is available through `personal: true`; executing a custom local handler still belongs to the actual local worker tests. Keep PostgreSQL, browser and native acceptance for those behaviors. The [custom React development preview](module-development.md) has separate local acceptance. Cross-module fixtures and private-store/audit simulation remain SDK-03 work; this command does not imply those capabilities are complete.
+These scenarios help module authors iterate. Private stores, service calls and simulated audit entries run in serialized in-memory transactions. This does not establish PostgreSQL concurrency/isolation, database locale and exact numeric behavior, corporate authorization, durable persistence or historical field merging. Standalone resource simulation is available through `personal: true`; actual local workers retain their separate browser/native acceptance. Keep PostgreSQL, browser and native acceptance for their own behaviors. [The SDK-03 acceptance map](verification/module-services-preview/README.md) ties the scenario, preview and provider evidence together.

@@ -3,6 +3,32 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+it("injects independent provider backends and typed fixtures into module-owned CLI scenarios", async () => {
+  const catalog = await readFile(
+    "packages/module-catalog/src/index.ts",
+    "utf8",
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "tooling/module-cli.ts",
+      "test",
+      "tests/fixtures/service-preview",
+      "--dependency",
+      "tests/fixtures/service-preview/provider",
+    ],
+    { encoding: "utf8", timeout: 60000 },
+  );
+  const output = result.stdout + result.stderr;
+  expect(result.status, output).toBe(0);
+  expect(output).toContain("2/2 module-owned scenarios passed.");
+  expect(await readFile("packages/module-catalog/src/index.ts", "utf8")).toBe(
+    catalog,
+  );
+}, 65000);
+
 it("checks and executes an independent module's own scenarios with actionable failures", async () => {
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(resolve(".local/scenario-cli-"));

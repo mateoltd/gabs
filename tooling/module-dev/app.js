@@ -76,10 +76,104 @@ function renderState() {
     ),
   );
   $("events").textContent = JSON.stringify(state.events, null, 2);
+  $("audits").replaceChildren(table(state.audits, "Simulated audit entries"));
+  const collections = (data, scope) =>
+    Object.entries(data).flatMap(([name, rows]) => [
+      text("h3", name),
+      table(
+        rows.map((row) => ({
+          id: row.id,
+          ...row.data,
+          version: row.version,
+          archived: row.archived,
+        })),
+        `${scope} ${name} data`,
+      ),
+    ]);
+  $("store-section").hidden = !Object.keys(state.stores).length;
+  $("stores").replaceChildren(...collections(state.stores, state.module.id));
+  $("provider-section").hidden = !Object.keys(state.providers).length;
+  $("providers").replaceChildren(
+    ...Object.entries(state.providers).map(([id, provider]) => {
+      const section = document.createElement("section");
+      section.append(
+        text("h3", `${provider.module.name} ${provider.module.version}`),
+        ...collections(provider.records, id),
+        ...collections(provider.stores, id),
+      );
+      return section;
+    }),
+  );
   updatePreview(
     state,
     async (call) => (await request({ action: "execute", call })).result,
   );
+}
+function serviceControls() {
+  $("service-controls").hidden =
+    !Object.keys(state.providers).length &&
+    !Object.keys(state.module.services ?? {}).length;
+  const modules = [
+    { module: state.module, permissions: state.permissions },
+    ...Object.values(state.providers),
+  ];
+  const selected = () =>
+    [...$("grants").querySelectorAll("input:checked")].map((input) =>
+      JSON.parse(input.value),
+    );
+  for (const { module } of modules)
+    for (const [alias, reference] of Object.entries(module.services ?? {})) {
+      const grant = {
+        consumerId: module.id,
+        providerId: reference.moduleId,
+        operation: reference.operation,
+      };
+      const label = text(
+        "label",
+        `${module.id}: ${alias} (${reference.moduleId}.${reference.operation})`,
+      );
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = JSON.stringify(grant);
+      box.checked = state.grants.some((current) =>
+        Object.keys(grant).every((key) => current[key] === grant[key]),
+      );
+      box.disabled = !modules.some(
+        (provider) => provider.module.id === reference.moduleId,
+      );
+      box.onchange = () =>
+        request({ action: "grants", grants: selected() }).catch((error) => {
+          box.checked = !box.checked;
+          feedback(error.message);
+        });
+      label.prepend(box);
+      $("grants").append(label);
+    }
+  for (const provider of Object.values(state.providers)) {
+    const fieldset = document.createElement("fieldset");
+    fieldset.append(text("legend", `${provider.module.name} permissions`));
+    for (const permission of provider.module.permissions) {
+      const label = text("label", permission),
+        box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = permission;
+      box.checked = provider.permissions.includes(permission);
+      box.onchange = () =>
+        request({
+          action: "permissions",
+          moduleId: provider.module.id,
+          permissions: [...fieldset.querySelectorAll("input:checked")].map(
+            (input) => input.value,
+          ),
+        }).catch((error) => {
+          box.checked = !box.checked;
+          feedback(error.message);
+        });
+      label.prepend(box);
+      fieldset.append(label);
+    }
+    $("provider-permissions").append(fieldset);
+  }
 }
 function contract() {
   const [kind, name] = $("contract").value.split(":");
@@ -218,6 +312,7 @@ async function load() {
     return;
   }
   $("title").textContent = `${state.module.name} ${state.module.version}`;
+  serviceControls();
   for (const [kind, definitions] of [
     ["resource", state.module.resources],
     ["operation", state.module.operations],

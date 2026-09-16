@@ -150,7 +150,7 @@ function Surface({
     >
       <loaded.View
         client={client}
-        scope={{ userId: "simulated-user", workspaceId: "simulated-workspace" }}
+        scope={data.scope}
         online={data.online}
         hasPermission={(permission) => data.permissions.includes(permission)}
         state={editable}

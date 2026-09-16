@@ -5,95 +5,216 @@ import {
   type ModuleDefinition,
   type ResourceRecord,
   type JsonRecord,
-  type Static,
 } from "./index";
-import { ModuleBusinessError, type ScopedModuleServer } from "./server";
-import { canonical } from "./registry";
+import { ModuleBusinessError } from "./server";
+import { canonical, satisfies } from "./registry";
 import { flushJournal, type JournalEntry } from "./sync";
-export type ModuleFixtures<M extends ModuleDefinition> = {
-  [K in keyof M["resources"]]?: Array<Static<M["resources"][K]["schema"]>>;
+import { createSimulationStores } from "./simulation-stores";
+import {
+  defineSimulationModule,
+  simulationError as rejected,
+  type SimulationModule,
+  type SimulationGrant,
+  type SimulationStoreRecord,
+  type SimulationNamespace,
+} from "./simulation-fixtures";
+export {
+  defineFixtures,
+  validateFixtures,
+  defineSimulationModule,
+  grantSimulationServices,
+  type ModuleFixtures,
+  type SimulationModule,
+  type SimulationGrant,
+  type ResourceFixtures,
+  type StoreFixtures,
+  type SimulationRecord,
+  type SimulationNamespace,
+} from "./simulation-fixtures";
+
+export type SimulatorOptions<M extends ModuleDefinition> = Omit<
+  SimulationModule<M>,
+  "module"
+> & {
+  providers?: readonly SimulationModule[];
+  personal?: boolean;
 };
-export function defineFixtures<M extends ModuleDefinition>(
-  module: M,
-  fixtures: ModuleFixtures<M>,
-): ModuleFixtures<M> {
-  validateFixtures(module, fixtures);
-  return fixtures;
-}
-export function validateFixtures(
-  module: ModuleDefinition,
-  fixtures: unknown,
-): asserts fixtures is Record<string, JsonRecord[]> {
-  if (!fixtures || typeof fixtures !== "object" || Array.isArray(fixtures))
-    throw Error("Fixtures must map resource names to arrays of records.");
-  for (const [name, rows] of Object.entries(fixtures)) {
-    const resource = module.resources[name];
-    if (!resource || !Array.isArray(rows))
-      throw Error(`Invalid fixture resource: ${name}`);
-    rows.forEach((data, index) => {
-      try {
-        assertSchema(resource.schema, data);
-      } catch (error) {
-        throw Error(`Fixture ${name}[${index}]: ${(error as Error).message}`);
-      }
-    });
-  }
-}
-const rejected = (status: number, code: string, message: string) =>
-  Object.assign(new Error(message), { status, code });
-export interface SimulatorSnapshot {
+export const simulationIdentity = Object.freeze({
+  userId: "00000000-0000-4000-8000-000000000001",
+  membershipId: "00000000-0000-4000-8000-000000000002",
+  workspaceId: "00000000-0000-4000-8000-000000000003",
+});
+interface NamespaceData {
   records: Record<string, ResourceRecord[]>;
+  stores: Record<string, SimulationStoreRecord[]>;
+}
+export interface SimulatorSnapshot extends NamespaceData {
+  scope: { userId: string; workspaceId: string };
   journal: JournalEntry[];
-  events: { name: string; payload: unknown }[];
+  events: { moduleId: string; name: string; payload: unknown }[];
+  audits: {
+    moduleId: string;
+    action: string;
+    targetId: string;
+    requestId: string;
+    actorId: string;
+    workspaceId: string;
+  }[];
   online: boolean;
   permissions: string[];
+  grants: SimulationGrant[];
+  providers: Record<
+    string,
+    NamespaceData & { module: ModuleDefinition; permissions: string[] }
+  >;
 }
-/** A deterministic development adapter. It never connects to a corporate workspace. */
+/** Isolated development transactions. Corporate authority and SQL acceptance still belong to the server. */
 export function createModuleSimulator<M extends ModuleDefinition>(
   module: M,
-  options: {
-    fixtures?: ModuleFixtures<M>;
-    configuration?: unknown;
-    server?: ScopedModuleServer;
-    personal?: boolean;
-  } = {},
+  options: SimulatorOptions<M> = {},
 ) {
+  const root = defineSimulationModule(module, options);
+  const modules = new Map<string, SimulationModule>();
+  let data: Record<string, NamespaceData> = {};
+  const permissions = new Map<string, string[]>();
+  let grants: SimulationGrant[] = [];
   let online = true;
-  let permissions: string[] = [...module.permissions];
-  let records: Record<string, ResourceRecord[]> = Object.fromEntries(
-    Object.keys(module.resources).map((k) => [k, []]),
-  );
-  const journal: JournalEntry[] = [];
-  const events: { name: string; payload: unknown }[] = [];
+  const journal: JournalEntry[] = [],
+    events: SimulatorSnapshot["events"] = [],
+    audits: SimulatorSnapshot["audits"] = [];
   const receipts = new Map<string, { request: string; result: unknown }>();
-  const fixtures = options.fixtures ?? {};
-  validateFixtures(module, fixtures);
-  for (const [name, rows] of Object.entries(fixtures))
-    records[name] = rows.map((data) => ({
-      id: crypto.randomUUID(),
-      data: structuredClone(data),
-      version: 1,
-      archived: false,
-      updatedAt: new Date().toISOString(),
-    }));
-  function policy(call: ModuleCall) {
+  const stores = new Map<string, ReturnType<typeof createSimulationStores>>();
+  const recordAudit = (
+    moduleId: string,
+    action: string,
+    targetId: string,
+    requestId: string,
+  ) => {
+    audits.push({
+      moduleId,
+      action,
+      targetId,
+      requestId,
+      actorId: simulationIdentity.userId,
+      workspaceId: simulationIdentity.workspaceId,
+    });
+  };
+  for (const input of [root, ...(options.providers ?? [])]) {
+    const fixture = defineSimulationModule(input.module, input),
+      current = fixture.module;
+    if (modules.has(current.id))
+      throw Error(`Duplicate simulation module: ${current.id}`);
+    modules.set(current.id, fixture);
+    permissions.set(current.id, [...current.permissions]);
+    data[current.id] = {
+      records: Object.fromEntries(
+        Object.keys(current.resources).map((name) => [
+          name,
+          [
+            ...(fixture.fixtures?.[name] ?? []).map((value) => ({
+              id: crypto.randomUUID(),
+              data: structuredClone(value) as JsonRecord,
+              version: 1,
+              archived: false,
+              updatedAt: new Date().toISOString(),
+            })),
+            ...(fixture.records?.[name] ?? []).map((value) => ({
+              ...structuredClone(value),
+              data: structuredClone(value.data) as JsonRecord,
+              id: value.id.toLowerCase(),
+              version: value.version ?? 1,
+              archived: value.archived ?? false,
+              updatedAt: new Date().toISOString(),
+            })),
+          ],
+        ]),
+      ),
+      stores: Object.fromEntries(
+        Object.keys(current.stores ?? {}).map((name) => [
+          name,
+          (fixture.stores?.[name] ?? []).map((value) => ({
+            ...structuredClone(value),
+            data: structuredClone(value.data) as JsonRecord,
+            id: value.id.toLowerCase(),
+            version: value.version ?? 1,
+            archived: value.archived ?? false,
+          })),
+        ]),
+      ),
+    };
+    stores.set(
+      current.id,
+      createSimulationStores(
+        current,
+        () => data[current.id].stores,
+        (action, targetId, requestId) =>
+          recordAudit(current.id, action, targetId, requestId),
+      ),
+    );
+  }
+  function setGrants(values: readonly SimulationGrant[]) {
+    for (const grant of values) {
+      const consumer = modules.get(grant.consumerId)?.module,
+        provider = modules.get(grant.providerId)?.module;
+      if (
+        !consumer ||
+        !provider ||
+        !Object.values(consumer.services ?? {}).some(
+          (reference) =>
+            reference.moduleId === grant.providerId &&
+            reference.operation === grant.operation,
+        ) ||
+        !provider.operations[grant.operation]?.public
+      )
+        throw rejected(
+          400,
+          "INVALID_SERVICE_GRANT",
+          "A simulation grant must name a declared service and loaded public provider.",
+        );
+    }
+    grants = structuredClone([...values]);
+  }
+  setGrants([...modules.values()].flatMap((fixture) => fixture.grants ?? []));
+  function policy(
+    scope: SimulationModule,
+    call: ModuleCall,
+    active: string[] = [],
+  ) {
+    const module = scope.module;
     if (call.moduleId !== module.id)
       throw rejected(
         403,
         "CAPABILITY_DENIED",
-        "This simulator only grants access to its own module.",
+        "Use declared services for cross-module access.",
       );
-    const definition =
-      call.action === "operation"
-        ? module.operations[call.operation!]
-        : module.resources[call.resource!];
+    if (call.moduleVersion && call.moduleVersion !== module.version)
+      throw rejected(
+        409,
+        "MODULE_VERSION_MISMATCH",
+        "This call belongs to another simulated release.",
+      );
+    const collection =
+      call.action === "operation" ? module.operations : module.resources;
+    const name =
+      (call.action === "operation" ? call.operation : call.resource) ?? "";
+    const definition = Object.hasOwn(collection, name) && collection[name];
     if (!definition)
       throw rejected(404, "NOT_FOUND", "Unknown resource or operation.");
+    if (
+      call.action === "operation" &&
+      module.operations[name].serviceOnly &&
+      !active.length
+    )
+      throw rejected(
+        403,
+        "SERVICE_ONLY",
+        "This operation requires a declared and granted module service call.",
+      );
     const permission =
       call.action === "operation"
-        ? module.operations[call.operation!].permission
-        : `${module.id}.${call.resource}.${["get", "list"].includes(call.action) ? "read" : "write"}`;
-    if (!permissions.includes(permission))
+        ? module.operations[name].permission
+        : `${module.id}.${name}.${["get", "list"].includes(call.action) ? "read" : "write"}`;
+    if (!permissions.get(module.id)!.includes(permission))
       throw rejected(403, "FORBIDDEN", `Missing permission: ${permission}`);
     if (
       options.personal &&
@@ -114,29 +235,51 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       );
     return definition.policy;
   }
-  const execute = async (call: ModuleCall): Promise<unknown> => {
-    policy(call);
+  const execute = async (
+    scope: SimulationModule,
+    call: ModuleCall,
+    requestId: string,
+    active: string[] = [],
+  ): Promise<unknown> => {
+    const module = scope.module;
+    policy(scope, call, active);
     if (call.action === "operation") {
-      if (!options.server)
+      const name = call.operation!,
+        definition = module.operations[name],
+        identity = `${module.id}.${name}`;
+      if (active.includes(identity) || active.length >= 16)
+        throw rejected(
+          409,
+          "SERVICE_CYCLE",
+          "A cyclic or excessively deep service call was rejected.",
+        );
+      if (!scope.server)
         throw rejected(
           409,
           "BACKEND_UNAVAILABLE",
-          "Stage a scoped module-server.ts to simulate this operation.",
+          `Supply a scoped backend for ${module.id}@${module.version}.`,
         );
-      const readOnly = module.operations[call.operation!].kind === "query";
-      let failure: unknown;
-      let closed = false;
+      const readOnly = definition.kind === "query";
+      let failure: unknown,
+        failed = false,
+        closed = false;
       const pending = new Set<Promise<unknown>>();
       const guarded = <T>(
         write: boolean,
         run: () => Promise<T>,
       ): Promise<T> => {
         const task = Promise.resolve().then(() => {
-          if (closed || (readOnly && write))
+          if (closed)
+            throw rejected(
+              409,
+              "OPERATION_CLOSED",
+              "This simulated operation has already finished.",
+            );
+          if (readOnly && write)
             throw rejected(
               403,
               "QUERY_WRITE_DENIED",
-              "Read-only operations cannot change data or emit events.",
+              "Read-only operations cannot change data, lock records, emit events or call commands.",
             );
           return run();
         });
@@ -144,65 +287,177 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         void task.then(
           () => pending.delete(task),
           (error) => {
+            failed = true;
             failure ??= error;
             pending.delete(task);
           },
         );
         return task;
       };
+      let result: unknown;
       try {
-        let result: unknown;
-        try {
-          result = await options.server.execute(call.operation!, call.input, {
-            actor: { id: "simulated-user", membershipId: "simulated-member" },
-            workspaceId: "simulated-workspace",
-            requestId: call.key ?? crypto.randomUUID(),
-            permissions,
-            configuration: options.configuration ?? {},
-            resource: (request) =>
-              guarded(!["get", "list"].includes(request.action), () =>
-                execute(request),
-              ),
-            audit: () =>
-              guarded(true, async () => {
+        const caller = active.at(-1);
+        result = await scope.server.execute(name, call.input, {
+          actor: {
+            id: simulationIdentity.userId,
+            membershipId: simulationIdentity.membershipId,
+          },
+          workspaceId: simulationIdentity.workspaceId,
+          requestId,
+          ...(caller
+            ? {
+                caller: {
+                  moduleId: caller.slice(0, caller.lastIndexOf(".")),
+                  operation: caller.slice(caller.lastIndexOf(".") + 1),
+                },
+              }
+            : {}),
+          permissions: permissions.get(module.id)!,
+          configuration: scope.configuration ?? {},
+          resource: (request) =>
+            guarded(!["get", "list"].includes(request.action), async () => {
+              if (
+                request.action === "operation" ||
+                request.moduleId !== module.id
+              )
                 throw rejected(
-                  409,
-                  "AUDIT_UNAVAILABLE",
-                  "Audit storage requires an authoritative server test.",
+                  403,
+                  "CAPABILITY_DENIED",
+                  "Use declared services for cross-module access.",
                 );
-              }),
-            emit: (name, payload) =>
-              guarded(true, async () => {
-                events.push({ name, payload: structuredClone(payload) });
-              }),
-            service: async () => {
-              throw rejected(
-                409,
-                "SERVICE_UNAVAILABLE",
-                "Cross-module services require a provider integration test.",
+              return execute(scope, request, requestId, [...active, identity]);
+            }),
+          store: (name, command) =>
+            guarded(
+              !["get", "scan", "query", "aggregate"].includes(command.action) ||
+                (command.action === "get" && !!command.lock),
+              () => stores.get(module.id)!(name, command, requestId),
+            ),
+          audit: (action, targetId) =>
+            guarded(true, async () => {
+              if (
+                !module.audit?.includes(action) ||
+                typeof targetId !== "string" ||
+                !targetId.length ||
+                targetId.length > 200
+              )
+                throw rejected(
+                  400,
+                  "INVALID_AUDIT",
+                  "Use a declared audit action and bounded target identifier.",
+                );
+              recordAudit(
+                module.id,
+                `${module.id}.${action}`,
+                targetId,
+                requestId,
               );
-            },
-          });
-        } finally {
-          while (pending.size) await Promise.allSettled([...pending]);
-          closed = true;
-        }
-        if (failure) throw failure;
-        return result;
+            }),
+          emit: (event, payload) =>
+            guarded(true, async () => {
+              const schema = module.events?.[event];
+              if (!schema)
+                throw rejected(400, "INVALID_EVENT", "Use a declared event.");
+              assertSchema(schema, payload);
+              events.push({
+                moduleId: module.id,
+                name: event,
+                payload: structuredClone(payload),
+              });
+            }),
+          service: (alias, input) =>
+            guarded(
+              module.services?.[alias]?.contract.kind !== "query",
+              async () => {
+                const reference = module.services?.[alias];
+                if (!reference || !module.dependencies[reference.moduleId])
+                  throw rejected(
+                    403,
+                    "UNDECLARED_DEPENDENCY",
+                    "Declare the public service and its provider dependency.",
+                  );
+                const provider = modules.get(reference.moduleId);
+                if (!provider)
+                  throw rejected(
+                    409,
+                    "SERVICE_UNAVAILABLE",
+                    `Load a development fixture for ${reference.moduleId}.`,
+                  );
+                const contract =
+                  provider.module.operations[reference.operation];
+                if (
+                  !contract?.public ||
+                  !satisfies(
+                    provider.module.version,
+                    module.dependencies[reference.moduleId],
+                  )
+                )
+                  throw rejected(
+                    409,
+                    "SERVICE_INCOMPATIBLE",
+                    "The simulated provider does not expose a compatible public service.",
+                  );
+                if (canonical(contract) !== canonical(reference.contract))
+                  throw rejected(
+                    409,
+                    "SERVICE_CONTRACT_MISMATCH",
+                    "Rebuild the consumer against the simulated public service contract.",
+                  );
+                if (
+                  !grants.some(
+                    (grant) =>
+                      grant.consumerId === module.id &&
+                      grant.providerId === provider.module.id &&
+                      grant.operation === reference.operation,
+                  )
+                )
+                  throw rejected(
+                    403,
+                    "GRANT_REQUIRED",
+                    `Grant ${module.id} access to ${reference.moduleId}.${reference.operation} in this simulation.`,
+                  );
+                return execute(
+                  provider,
+                  {
+                    moduleId: provider.module.id,
+                    moduleVersion: provider.module.version,
+                    action: "operation",
+                    operation: reference.operation,
+                    input,
+                  },
+                  requestId,
+                  [...active, identity],
+                );
+              },
+            ),
+        });
       } catch (error) {
-        if (error instanceof ModuleBusinessError)
-          throw Object.assign(rejected(422, error.code, error.message), {
-            detail: {
-              moduleId: error.moduleId,
-              operation: error.operation,
-              error: error.detail,
-            },
-          });
-        throw error;
+        failed = true;
+        if (
+          failure instanceof ModuleBusinessError &&
+          error instanceof ModuleBusinessError &&
+          error.moduleId === module.id &&
+          error.operation === name
+        )
+          failure = error;
+        else failure ??= error;
+      } finally {
+        while (pending.size) await Promise.allSettled([...pending]);
+        closed = true;
       }
+      if (failed) throw failure;
+      assertSchema(definition.output, result);
+      if (!readOnly)
+        recordAudit(
+          module.id,
+          `${module.id}.operation.${name}`,
+          module.id,
+          requestId,
+        );
+      return result;
     }
     const resource = module.resources[call.resource!],
-      rows = records[call.resource!];
+      rows = data[module.id].records[call.resource!];
     const input = call.input as {
       id?: string;
       data?: JsonRecord;
@@ -246,6 +501,12 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         updatedAt: new Date().toISOString(),
       };
       rows.push(record);
+      recordAudit(
+        module.id,
+        `${module.id}.${call.resource}.${call.action}`,
+        record.id,
+        requestId,
+      );
       return structuredClone(record);
     }
     if (!old) throw rejected(404, "NOT_FOUND", "Record not found.");
@@ -266,18 +527,25 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     }
     old.version++;
     old.updatedAt = new Date().toISOString();
+    recordAudit(
+      module.id,
+      `${module.id}.${call.resource}.${call.action}`,
+      old.id,
+      requestId,
+    );
     return structuredClone(old);
   };
-  // Serialize each transaction just as the shared database coordinates competing writes.
+  // All namespaces and effects share one serialized development transaction.
   let tail: Promise<unknown> = Promise.resolve();
   const send = (call: ModuleCall): Promise<unknown> => {
     const run = async () => {
-      policy(call);
+      policy(root, call);
       if (!online && !options.personal)
         throw rejected(503, "OFFLINE", "The simulated server is offline.");
       const readOnly =
-        call.action === "operation" &&
-        module.operations[call.operation!].kind === "query";
+        ["get", "list"].includes(call.action) ||
+        (call.action === "operation" &&
+          module.operations[call.operation!].kind === "query");
       const request = canonical(call),
         prior = !readOnly && call.key ? receipts.get(call.key) : undefined;
       if (prior) {
@@ -289,16 +557,38 @@ export function createModuleSimulator<M extends ModuleDefinition>(
           );
         return structuredClone(prior.result);
       }
-      const before = structuredClone(records),
-        eventCount = events.length;
+      const before = structuredClone(data),
+        eventCount = events.length,
+        auditCount = audits.length;
       try {
-        const result = await execute(call);
+        const result = await execute(
+          root,
+          call,
+          call.key ?? crypto.randomUUID(),
+        );
         if (!readOnly && call.key)
           receipts.set(call.key, { request, result: structuredClone(result) });
         return result;
       } catch (error) {
-        records = before;
+        data = before;
         events.splice(eventCount);
+        audits.splice(auditCount);
+        if (error instanceof ModuleBusinessError) {
+          if (
+            error.moduleId !== module.id ||
+            error.operation !== call.operation
+          )
+            throw Error("A dependent service rejected the operation.", {
+              cause: error,
+            });
+          throw Object.assign(rejected(422, error.code, error.message), {
+            detail: {
+              moduleId: error.moduleId,
+              operation: error.operation,
+              error: error.detail,
+            },
+          });
+        }
         throw error;
       }
     };
@@ -306,23 +596,71 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     tail = task.catch(() => {});
     return task;
   };
+  const setModulePermissions = (id: string, values: readonly string[]) => {
+    const scope = modules.get(id);
+    if (!scope) throw Error(`Unknown simulated module: ${id}`);
+    permissions.set(
+      id,
+      values.filter((permission) =>
+        scope.module.permissions.includes(permission),
+      ),
+    );
+  };
   return {
     client: createModuleClient(module, send),
     send,
     snapshot: (): SimulatorSnapshot =>
-      structuredClone({ records, journal, events, online, permissions }),
+      structuredClone({
+        ...data[module.id],
+        scope: {
+          userId: simulationIdentity.userId,
+          workspaceId: simulationIdentity.workspaceId,
+        },
+        journal,
+        events,
+        audits,
+        online,
+        permissions: permissions.get(module.id)!,
+        grants,
+        providers: Object.fromEntries(
+          [...modules]
+            .filter(([id]) => id !== module.id)
+            .map(([id, scope]) => [
+              id,
+              {
+                ...data[id],
+                module: scope.module,
+                permissions: permissions.get(id)!,
+              },
+            ]),
+        ),
+      }),
+    inspect<const T extends ModuleDefinition>(
+      definition: T,
+    ): SimulationNamespace<T> {
+      if (
+        canonical(modules.get(definition.id)?.module) !== canonical(definition)
+      )
+        throw Error("Inspect a loaded, matching simulation module.");
+      return structuredClone({
+        ...data[definition.id],
+        permissions: permissions.get(definition.id)!,
+      }) as SimulationNamespace<T>;
+    },
     setOnline(value: boolean) {
       online = value;
     },
     setPermissions(values: readonly string[]) {
-      permissions = values.filter((p) => module.permissions.includes(p));
+      setModulePermissions(module.id, values);
     },
+    setModulePermissions,
+    setGrants,
     async submit(
       call: ModuleCall,
     ): Promise<
       { state: "pending"; id: string } | { state: "accepted"; result: unknown }
     > {
-      const execution = policy(call);
+      const execution = policy(root, call);
       if (
         !online &&
         !options.personal &&
@@ -347,8 +685,8 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         if (!old)
           journal.push({
             id,
-            userId: "simulated-user",
-            workspaceId: "simulated-workspace",
+            userId: simulationIdentity.userId,
+            workspaceId: simulationIdentity.workspaceId,
             call: { ...call, key: id },
             dependencies: [],
             state: "pending",

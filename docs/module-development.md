@@ -2,7 +2,7 @@
 
 ```sh
 pnpm module dev contacts
-pnpm module dev ./path/to/module
+pnpm module dev ./path/to/module --dependency ./path/to/provider
 ```
 
 The command prints a loopback URL, normally `http://127.0.0.1:4321`. Set `MODULE_DEV_PORT` to select a different port. An independent directory needs no catalog, navigation or host edits.
@@ -13,7 +13,9 @@ The workspace checks the module's own TypeScript graph, validates fixture/config
 
 Put resource examples in `fixtures.json`. Put development configuration in `configuration.json`, matching the module's configuration schema. If the module has custom server operations, supply a scoped `module-server.ts` matching that exact definition. Missing configuration, incompatible dependencies, invalid fixtures and type/bundle errors appear in the workspace. Fixing the source rebuilds it automatically, including recovery from a failed initial build.
 
-Changes to module sources, custom TSX, CSS, JSON fixtures and configuration trigger a fresh simulator process and page reload. **Every rebuild resets simulated data, permissions, connectivity and unsaved view state.** This is automatic reload, not state-preserving React Fast Refresh. Tests and authored scenarios remain separate commands; see [module scenarios](module-scenarios.md).
+Repeat `--dependency` for each external provider directory. The host loads its exact scoped backend, development configuration and fixtures. A provider is never granted access merely because it is loaded. Add explicit grants in `module.simulation.ts` as described in [cross-module fixtures](module-scenarios.md#cross-module-fixtures). The preview exposes per-service grants, provider permissions, private stores and a simulated audit trail.
+
+Changes to root or provider module sources, custom TSX, CSS, typed/JSON fixtures and configuration trigger a fresh simulator process and page reload. **Every rebuild resets simulated data, permissions, connectivity and unsaved view state.** This is automatic reload, not state-preserving React Fast Refresh. Tests and authored scenarios remain separate commands; see [module scenarios](module-scenarios.md).
 
 ## Exercising behavior
 
@@ -27,4 +29,4 @@ The local host preserves same-origin/Host validation, strict input schemas, a 64
 
 ## Current boundaries
 
-The preview uses the host's light UI styles. Application theme/archetype certification remains separate work. The simulator supports generated resources and resource-based scoped operations; private stores, corporate audits and cross-module service fixtures remain unsupported. Current development dependency metadata comes from the reviewed catalog; explicit external provider fixtures are the next SDK-03 milestone. Standalone worker execution, durable offline recovery, corporate permission/grant correctness and transactional database acceptance still require their actual host tests. No corporate workspace or production database is used by this simulator.
+The preview uses the host's light UI styles. Application theme/archetype certification remains separate work. The simulator supports generated resources, scoped operations, private store CRUD/query/aggregation, declared cross-module services and a development audit trail. Cross-module records, emitted events and audits roll back together on failure, including caught or detached capability failures. Query handlers cannot write or lock records. Transactions are serialized in memory; PostgreSQL isolation, locale/numeric behavior and real corporate audit storage are outside this simulation. Standalone worker execution, durable offline recovery, corporate permission/grant correctness and transactional database acceptance still require their actual host tests. No corporate workspace or production database is used by this simulator.

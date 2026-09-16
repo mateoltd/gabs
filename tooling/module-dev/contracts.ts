@@ -1,10 +1,14 @@
 import type { ModuleCall, ModuleDefinition } from "@suite/module-sdk";
 import type { ClientBundles } from "@suite/module-sdk/client-artifact";
-import type { SimulatorSnapshot } from "@suite/module-sdk/simulator";
+import type {
+  SimulatorSnapshot,
+  SimulationGrant,
+} from "@suite/module-sdk/simulator";
 
 export type DevAction =
   | { action: "network"; online: boolean }
-  | { action: "permissions"; permissions: string[] }
+  | { action: "permissions"; moduleId?: string; permissions: string[] }
+  | { action: "grants"; grants: SimulationGrant[] }
   | { action: "sync" }
   | { action: "submit" | "execute"; call: ModuleCall };
 export type DevState = SimulatorSnapshot & {

@@ -1,3 +1,8 @@
+export {
+  storeCommandSchema,
+  storeQueryCommandSchema,
+  storeFieldKind,
+} from "./store-contract";
 export type { StoreQueryCommand, StoreQueryFilter } from "./store-query";
 import {
   storageContract,

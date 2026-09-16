@@ -17,7 +17,11 @@ import {
   defineModuleServer,
   type ModuleContext,
 } from "@suite/module-sdk/server";
-import { createModuleSimulator } from "@suite/module-sdk/simulator";
+import {
+  createModuleSimulator,
+  defineSimulationModule,
+  grantSimulationServices,
+} from "@suite/module-sdk/simulator";
 import { registerModule } from "@suite/module-catalog";
 import { moduleServers } from "@suite/module-catalog/server";
 import { SuiteClient } from "../packages/api-client/src";
@@ -527,7 +531,15 @@ it("rejects queued/local query declarations and enforces query effects in the si
       }),
     ).toThrow("online execution");
   const simulator = createModuleSimulator(provider, { server: providerServer });
-  for (const action of ["resource", "emit", "audit"]) {
+  for (const action of [
+    "resource",
+    "emit",
+    "audit",
+    "create",
+    "replace",
+    "archive",
+    "lock",
+  ]) {
     await expect(
       simulator.client.call("unsafe", { action }),
     ).rejects.toMatchObject({ code: "QUERY_WRITE_DENIED" });
@@ -537,4 +549,21 @@ it("rejects queued/local query declarations and enforces query effects in the si
   }
   expect(simulator.snapshot().events).toEqual([]);
   expect(simulator.snapshot().records.items).toEqual([]);
+  const shared = createModuleSimulator(consumer, {
+    server: consumerServer,
+    providers: [
+      defineSimulationModule(provider, {
+        server: providerServer,
+        stores: { numbers: [{ id: recordId, data: { value: 7 } }] },
+      }),
+    ],
+    grants: grantSimulationServices(consumer, "read", "write", "unsafe"),
+  });
+  const before = shared.snapshot();
+  expect(await shared.client.call("read", {})).toEqual({ first: 7, second: 7 });
+  for (const operation of ["unsafe", "command"] as const)
+    await expect(shared.client.call(operation, {})).rejects.toMatchObject({
+      code: "QUERY_WRITE_DENIED",
+    });
+  expect(shared.snapshot()).toEqual(before);
 });

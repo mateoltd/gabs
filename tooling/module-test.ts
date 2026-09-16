@@ -7,10 +7,11 @@ import {
   type ModuleScenarios,
 } from "@suite/module-sdk/scenarios";
 import type { ModuleDefinition } from "@suite/module-sdk";
-import { loadModuleWorkspace } from "./module-workspace";
+import { loadSimulationGraph } from "./module-simulation";
 
 const directory = resolve(process.argv[2]);
-const { module, fixtures } = await loadModuleWorkspace(directory);
+const simulation = await loadSimulationGraph(directory, process.argv.slice(3));
+const { module } = simulation;
 const entry = resolve(directory, "module.scenarios.ts");
 try {
   await access(entry);
@@ -26,7 +27,7 @@ if (!suite?.module || canonical(suite.module) !== canonical(module))
     `Scenario contract differs from ${module.id}@${module.version}. Import this directory's module.ts.`,
   );
 const results = await runModuleScenarios(suite, {
-  fixtures,
+  simulation,
   start(name) {
     console.log(`RUN ${module.id}: ${name}`);
   },

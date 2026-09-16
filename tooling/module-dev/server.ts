@@ -7,7 +7,11 @@ import type { ClientBundles } from "@suite/module-sdk/client-artifact";
 import { buildDevAssets } from "./build";
 import type { DevAction, DevState, WorkerResponse } from "./contracts";
 
-export async function startModuleDev(directory: string, port = 4321) {
+export async function startModuleDev(
+  directory: string,
+  port = 4321,
+  dependencies: string[] = [],
+) {
   if (process.env.NODE_ENV === "production")
     throw Error("The module simulator is a development-only tool.");
   const assets = await buildDevAssets();
@@ -63,7 +67,7 @@ export async function startModuleDev(directory: string, port = 4321) {
     bundles = {};
     const worker = fork(
       fileURLToPath(new URL("worker.ts", import.meta.url)),
-      [directory],
+      [directory, ...dependencies],
       {
         execArgv: ["--import", "tsx"],
         stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -123,27 +127,30 @@ export async function startModuleDev(directory: string, port = 4321) {
         failed(`Module simulator stopped (${code}). ${diagnostic}`);
     });
   };
-  const watcher = watch(directory, { recursive: true }, (_event, filename) => {
-    if (
-      !filename ||
-      /(^|[/\\])(node_modules|dist|\.git|\.local)([/\\]|$)/.test(
-        filename.toString(),
+  const watchers = [...new Set([directory, ...dependencies])].map((path) => {
+    const watcher = watch(path, { recursive: true }, (_event, filename) => {
+      if (
+        !filename ||
+        /(^|[/\\])(node_modules|dist|\.git|\.local)([/\\]|$)/.test(
+          filename.toString(),
+        )
       )
-    )
-      return;
-    if (!/\.(?:[cm]?[jt]sx?|css|json)$/.test(filename.toString())) return;
-    // Invalidate the old code as soon as a change is observed; debounce the rebuild only.
-    stopWorker();
-    status = "building";
-    state = undefined;
-    bundles = {};
-    revision = randomUUID();
-    clearTimeout(debounce);
-    debounce = setTimeout(rebuild, 150);
+        return;
+      if (!/\.(?:[cm]?[jt]sx?|css|json)$/.test(filename.toString())) return;
+      // Invalidate the old code as soon as a change is observed; debounce the rebuild only.
+      stopWorker();
+      status = "building";
+      state = undefined;
+      bundles = {};
+      revision = randomUUID();
+      clearTimeout(debounce);
+      debounce = setTimeout(rebuild, 150);
+    });
+    watcher.on("error", (error) =>
+      failed(`Module source watcher failed: ${error.message}`),
+    );
+    return watcher;
   });
-  watcher.on("error", (error) =>
-    failed(`Module source watcher failed: ${error.message}`),
-  );
   let origin = "";
   const http = createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -265,7 +272,7 @@ export async function startModuleDev(directory: string, port = 4321) {
     origin = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
     rebuild();
   } catch (error) {
-    watcher.close();
+    watchers.forEach((watcher) => watcher.close());
     stopWorker();
     throw error;
   }
@@ -274,7 +281,7 @@ export async function startModuleDev(directory: string, port = 4321) {
     async close() {
       closed = true;
       clearTimeout(debounce);
-      watcher.close();
+      watchers.forEach((watcher) => watcher.close());
       stopWorker();
       http.closeAllConnections();
       await new Promise<void>((resolve, reject) =>

@@ -1,61 +1,21 @@
-import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { assertSchema, Type } from "@suite/module-sdk";
-import { canonical, resolveReleases } from "@suite/module-sdk/registry";
 import { createModuleSimulator } from "@suite/module-sdk/simulator";
-import type { ScopedModuleServer } from "@suite/module-sdk/server";
-import { moduleDefinitions } from "@suite/module-catalog";
-import { checkModuleSources, loadModuleWorkspace } from "../module-workspace";
+import { checkModuleSources } from "../module-workspace";
+import { loadSimulationGraph } from "../module-simulation";
 import { buildClientViews } from "../../packages/module-sdk/node/build-client";
 import type { DevAction, WorkerResponse } from "./contracts";
 
 const send = (message: WorkerResponse) => process.send?.(message);
 try {
   const directory = resolve(process.argv[2]);
-  await checkModuleSources(directory);
-  const { module, fixtures } = await loadModuleWorkspace(directory);
-  resolveReleases(
-    module.id,
-    [...moduleDefinitions.filter((m) => m.id !== module.id), module],
-    "1.0.0",
-    "1.0.0",
-  );
-  let configuration: unknown = {};
-  try {
-    configuration = JSON.parse(
-      await readFile(resolve(directory, "configuration.json"), "utf8"),
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  assertSchema(module.configuration, configuration);
-  let server: ScopedModuleServer | undefined;
-  const entry = resolve(directory, "module-server.ts");
-  let hasServer = true;
-  try {
-    await access(entry);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    hasServer = false;
-  }
-  if (hasServer) {
-    server = (await import(pathToFileURL(entry).href))
-      .default as ScopedModuleServer;
-    if (
-      server?.kind !== "scoped" ||
-      canonical(server.module) !== canonical(module)
-    )
-      throw Error(
-        "Development operations require a scoped module-server.ts matching this release.",
-      );
-  }
+  const dependencies = process.argv.slice(3).map((path) => resolve(path));
+  for (const path of [directory, ...dependencies])
+    await checkModuleSources(path);
+  const graph = await loadSimulationGraph(directory, dependencies);
+  const { module } = graph;
   const bundles = await buildClientViews(module, directory);
-  const simulator = createModuleSimulator(module, {
-    fixtures,
-    configuration,
-    server,
-  });
+  const simulator = createModuleSimulator(module, graph);
   const call = Type.Object(
     {
       moduleId: Type.Literal(module.id),
@@ -77,6 +37,23 @@ try {
   );
   const input = Type.Union([
     Type.Object(
+      {
+        action: Type.Literal("grants"),
+        grants: Type.Array(
+          Type.Object(
+            {
+              consumerId: Type.String(),
+              providerId: Type.String(),
+              operation: Type.String(),
+            },
+            { additionalProperties: false },
+          ),
+          { maxItems: 500 },
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
       { action: Type.Literal("network"), online: Type.Boolean() },
       { additionalProperties: false },
     ),
@@ -84,6 +61,7 @@ try {
       {
         action: Type.Literal("permissions"),
         permissions: Type.Array(Type.String(), { maxItems: 500 }),
+        moduleId: Type.Optional(Type.String()),
       },
       { additionalProperties: false },
     ),
@@ -106,7 +84,11 @@ try {
       const action = message.action;
       if (action.action === "network") simulator.setOnline(action.online);
       if (action.action === "permissions")
-        simulator.setPermissions(action.permissions);
+        simulator.setModulePermissions(
+          action.moduleId ?? module.id,
+          action.permissions,
+        );
+      if (action.action === "grants") simulator.setGrants(action.grants);
       if (action.action === "sync") result = await simulator.sync();
       if (action.action === "submit")
         result = await simulator.submit(action.call);
@@ -119,7 +101,7 @@ try {
         snapshot: simulator.snapshot(),
       });
     } catch (error) {
-      const e = error as {
+      const e = (error ?? {}) as {
         status?: number;
         code?: string;
         message?: string;

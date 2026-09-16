@@ -1,3 +1,4 @@
+import { storeCommandSchema } from "@suite/module-sdk/server";
 import { queryStore } from "./module-queries";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
@@ -8,40 +9,6 @@ import type { Tx } from "./database";
 import { lockKey, type Context } from "./authorization";
 import { found, requireCondition } from "./errors";
 import { audit } from "./transactions";
-
-const id = Type.String({
-  pattern:
-    "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
-});
-const version = Type.Integer({ minimum: 1, maximum: 2147483646 });
-const object = Type.Record(Type.String(), Type.Unknown());
-const commands = Type.Union([
-  Type.Object(
-    { action: Type.Literal("get"), id, lock: Type.Optional(Type.Boolean()) },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      action: Type.Literal("scan"),
-      where: Type.Optional(object),
-      after: Type.Optional(id),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { action: Type.Literal("create"), id: Type.Optional(id), data: object },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { action: Type.Literal("replace"), id, version, data: object },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { action: Type.Literal("archive"), id, version },
-    { additionalProperties: false },
-  ),
-]);
 
 /** The enclosing operation owns authorization, transaction lifetime and failure draining. */
 export async function executeStore(
@@ -60,7 +27,7 @@ export async function executeStore(
   const definition = module.stores![name];
   if (command.action === "query" || command.action === "aggregate")
     return queryStore(tx, ctx, module.id, name, definition, command);
-  assertSchema(commands, command);
+  assertSchema(storeCommandSchema, command);
   // '$' is not a legal public resource identifier. No resource route can expose a store.
   const resource = `$${name}`;
   const select = () =>

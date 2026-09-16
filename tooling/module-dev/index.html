@@ -25,6 +25,15 @@
             <summary>Permission simulator</summary>
             <div id="permissions"></div>
           </details>
+          <details id="service-controls" hidden>
+            <summary>Service grants and provider permissions</summary>
+            <p>
+              Loading a provider does not grant access. Choose the declared
+              services allowed in this simulation.
+            </p>
+            <div id="grants"></div>
+            <div id="provider-permissions"></div>
+          </details>
         </section>
         <section id="custom-preview" hidden>
           <h2>Custom React preview</h2>
@@ -50,6 +59,14 @@
           <h2>Accepted records</h2>
           <div id="records"></div>
         </section>
+        <section id="store-section" hidden>
+          <h2>Private stores</h2>
+          <div id="stores"></div>
+        </section>
+        <section id="provider-section" hidden>
+          <h2>Provider fixtures</h2>
+          <div id="providers"></div>
+        </section>
         <section>
           <h2>Operation journal</h2>
           <div id="journal"></div>
@@ -57,6 +74,14 @@
         <section>
           <h2>Emitted events</h2>
           <pre id="events"></pre>
+        </section>
+        <section>
+          <h2>Simulated audit trail</h2>
+          <p>
+            Development observations only. These entries are not corporate audit
+            records.
+          </p>
+          <div id="audits"></div>
         </section>
       </div>
     </main>

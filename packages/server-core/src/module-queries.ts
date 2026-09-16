@@ -1,3 +1,7 @@
+import {
+  storeQueryCommandSchema,
+  storeFieldKind,
+} from "@suite/module-sdk/server";
 import { queryCursor } from "./module-query-cursor";
 import { createHash } from "node:crypto";
 import { sql, type RawBuilder } from "kysely";
@@ -6,83 +10,12 @@ import {
   Type,
   type Store,
   type TObject,
-  type TSchema,
 } from "@suite/module-sdk";
 import { canonical } from "@suite/module-sdk/registry";
 import type { StoreQueryCommand } from "@suite/module-sdk/server";
 import type { Context } from "./authorization";
 import type { Tx } from "./database";
 import { requireCondition } from "./errors";
-const name = Type.String({ minLength: 1, maxLength: 200 });
-const number = Type.Number();
-const scalar = Type.Union([Type.String(), number, Type.Boolean(), Type.Null()]);
-const comparable = Type.Union([Type.String(), number]);
-const filters = {
-  where: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-  search: Type.Optional(
-    Type.Object(
-      {
-        fields: Type.Array(name, {
-          minItems: 1,
-          maxItems: 8,
-          uniqueItems: true,
-        }),
-        text: Type.String({ minLength: 1, maxLength: 200 }),
-      },
-      { additionalProperties: false },
-    ),
-  ),
-  ranges: Type.Optional(
-    Type.Record(
-      Type.String(),
-      Type.Object(
-        {
-          gt: Type.Optional(comparable),
-          gte: Type.Optional(comparable),
-          lt: Type.Optional(comparable),
-          lte: Type.Optional(comparable),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-  ),
-};
-const commands = Type.Union([
-  Type.Object(
-    {
-      ...filters,
-      action: Type.Literal("query"),
-      orderBy: Type.Optional(
-        Type.Array(
-          Type.Object(
-            {
-              field: name,
-              direction: Type.Union([
-                Type.Literal("asc"),
-                Type.Literal("desc"),
-              ]),
-            },
-            { additionalProperties: false },
-          ),
-          { maxItems: 3 },
-        ),
-      ),
-      cursor: Type.Optional(Type.String({ maxLength: 24576 })),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      ...filters,
-      action: Type.Literal("aggregate"),
-      sum: Type.Optional(Type.Array(name, { maxItems: 8, uniqueItems: true })),
-      groupBy: Type.Optional(name),
-      maxGroups: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-]);
 const cursorSchema = Type.Object(
   {
     version: Type.Literal(1),
@@ -90,22 +23,13 @@ const cursorSchema = Type.Object(
     id: Type.String({
       pattern: "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
     }),
-    values: Type.Array(scalar, { maxItems: 3 }),
+    values: Type.Array(
+      Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
+      { maxItems: 3 },
+    ),
   },
   { additionalProperties: false },
 );
-function kind(schema: TSchema): string | undefined {
-  if (["string", "number", "integer", "boolean"].includes(schema.type))
-    return schema.type;
-  if (Array.isArray(schema.anyOf)) {
-    const types = new Set(
-      schema.anyOf
-        .filter((s: TSchema) => s.type !== "null")
-        .map((s: TSchema) => kind(s)),
-    );
-    if (types.size === 1) return [...types][0] as string | undefined;
-  }
-}
 /** No caller-controlled SQL identifiers: field names and values are parameters. */
 export async function queryStore(
   tx: Tx,
@@ -115,14 +39,14 @@ export async function queryStore(
   definition: Store,
   command: StoreQueryCommand,
 ) {
-  assertSchema(commands, command);
+  assertSchema(storeQueryCommandSchema, command);
   const properties = (definition.schema as TObject).properties;
   const field = (
     key: string,
     allowed = ["string", "number", "integer", "boolean"],
   ) => {
     const schema = Object.hasOwn(properties, key) ? properties[key] : undefined;
-    const type = schema && kind(schema);
+    const type = schema && storeFieldKind(schema);
     requireCondition(
       type && allowed.includes(type),
       400,

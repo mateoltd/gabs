@@ -72,6 +72,24 @@ th {
   max-width: 100%;
   overflow: auto;
 }
+#providers table,
+#stores table {
+  min-width: 640px;
+}
+#audits table {
+  min-width: 1100px;
+}
+#providers td,
+#stores td,
+#audits td {
+  white-space: nowrap;
+}
+#service-controls fieldset {
+  min-inline-size: 0;
+}
+#service-controls label {
+  overflow-wrap: anywhere;
+}
 #preview-root > select {
   margin-bottom: 16px;
 }
