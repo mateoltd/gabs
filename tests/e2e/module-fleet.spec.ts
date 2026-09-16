@@ -93,6 +93,11 @@ test("administration sees a partial device installation failure and its real rec
     // Local pending state appears before the failure report is acknowledged.
     // Open the fleet only after the server has the observation being asserted.
     await failureReported;
+    // A fresh page/catalog must preserve the failed attempt's background retry delay.
+    await second.reload();
+    await expect(
+      otherCard.getByText("Installation pending.", { exact: false }),
+    ).toBeVisible();
     await card
       .getByRole("button", { name: "View devices", exact: true })
       .click();

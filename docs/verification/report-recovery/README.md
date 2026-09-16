@@ -23,3 +23,19 @@ The existing device dialog distinguishes failed installation, failed removal and
 ## Limits and next work
 
 Connected suspension delivery and emergency/offline acceptance remain EXT-05 work. Reports first received after disconnection are ordered by server receipt time; they are not hardware attestation, proof of present connectivity or proof of local erasure. Reports retain the latest observation per module locally, so an unavailable reporting endpoint may miss intermediate phases. Backoff is persistent, but a report can only be delivered while an authorized client runs. Storage/OS operations themselves are not covered by the network deadline. The later UI-refinement goal and signed installed-runtime acceptance on all supported platforms remain separate.
+
+## 17 September 2026: bounded background lifecycle retries
+
+Remote `a7a346c` / [CI 35154833179](https://github.com/mateoltd/gabs/actions/runs/35154833179) exposed repeated automatic download retries, not stale report ordering. Its trace shows the same attempt moving from failed sequence 2 to downloading 3, failed 4, downloading 5 and failed 6 in under two seconds. The device dialog legitimately sampled the intermediate downloading observation.
+
+Durable transient installation/removal failures now store a background retry count/deadline. Automatic retries wait 30 seconds, doubling to a five-minute cap; the lifecycle lock checks the saved deadline before making requests. Explicit user resume bypasses the delay and retains the request identity. Canceled UI effects do not accrue delay. Skipped background removals do not invalidate the catalog as though a change succeeded. Reporting delivery backoff remains separate.
+
+Verification on this candidate:
+
+- The real PostgreSQL lifecycle integration passes with added assertions for no requests/reports during the saved delay, unchanged request IDs, an expired deadline allowing another automatic attempt, increasing delay after another failure, deferred removal and immediate explicit recovery.
+- Strict types, boundary/copy checks and all four builds pass.
+- Two headless Chromium journeys pass: the exact fleet failure/recovery journey now includes reloading the failed device before examining its report, and the uncertain-receipt/data-preserving-uninstall journey still passes. Existing business/receipt/accessibility assertions were retained.
+- One actual Electron installation-recovery journey passes through a full process restart with one accepted receipt. The existing minimized-test configuration keeps the window hidden/minimized, unfocused and out of the Dock.
+- Generated historical captures were restored because no layout changed. Changed-file formatting and whitespace checks pass. Logs use `/tmp/gabs-install-backoff-{types,tests,build,browser,native}.log`.
+
+The remote candidate must still pass fresh CI. This is a scoped lifecycle regression correction, not completion of OPS-07 load or whole-product release acceptance. Preflight failures without a durable attempt retain their existing behavior; background recovery requires a running authorized client.

@@ -12,6 +12,8 @@ Once every package verifies, the attempt changes to **awaiting confirmation**. T
 
 Lost responses, process interruption and local write failures retain the same attempt. Retrying reuses its request ID. Replaying an old receipt rechecks current authorization, release policy and device state; it cannot undo a later removal or reinstall. A definitive rejection clears that attempt while preserving business data and a local explanation. A changed selection settles an uncertain earlier request before creating a new one.
 
+Transient failures of a durable installation/removal attempt persist an exponential background retry delay, starting at 30 seconds and capped at five minutes. The deadline is checked under the lifecycle lock before background requests or progress reports. Ordinary catalog refreshes and reloads cannot immediately restart a failed attempt. Later catalog refreshes can resume once the deadline expires; canceled UI effects do not add delay. Explicit Resume/Repair actions remain immediate and keep the exact pending request identity.
+
 Resume controls reuse pending intent even if background recovery finishes while the click is waiting. Installing a dependent at the same version preserves its dependency’s original receipt, so independent recovery can still finish.
 
 Modules shows pending confirmation, resumable installation/removal and repair controls. A server record without the matching local version is labelled **Device setup incomplete**. Background completion refreshes the displayed state. Module-specific failures remain with their module and clear after recovery; authentication and workspace revocation still invoke the host's identity handling.

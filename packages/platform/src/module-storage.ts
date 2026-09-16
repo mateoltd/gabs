@@ -25,6 +25,7 @@ export interface InstallationAttempt {
   reportVersion?: string;
   phase: "downloading" | "confirming";
   error?: string;
+  retry?: { failures: number; nextAttemptAt: number };
 }
 export interface ModuleStorage {
   installationReports?: Record<

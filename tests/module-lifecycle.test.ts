@@ -345,6 +345,43 @@ it("recovers exact device changes across download interruption, uncertain accept
       items: [{ phase: "failed", version: "1.0.0", reportVersion: "1.1.0" }],
     });
     const pending = (await stored()).lifecycle![root];
+    expect(pending.retry?.failures).toBe(1);
+    expect(pending.retry!.nextAttemptAt).toBeGreaterThan(Date.now());
+    const beforeAutomaticRetry = sent.length;
+    const failedObservation = (await stored()).installationReports?.[root];
+    expect(
+      await installModule(
+        { ...props },
+        upgrade,
+        root,
+        false,
+        () => true,
+        "background",
+      ),
+    ).toBe(false);
+    expect(sent).toHaveLength(beforeAutomaticRetry);
+    expect((await stored()).installationReports?.[root]).toEqual(
+      failedObservation,
+    );
+    // Persisted retry deadlines survive a new caller and allow later automatic recovery.
+    await changeModuleStorage(platform, props.scope, (storage) => {
+      storage.lifecycle![root].retry!.nextAttemptAt = Date.now() - 1;
+    });
+    failDownload = true;
+    await expect(
+      installModule(
+        { ...props },
+        upgrade,
+        root,
+        false,
+        () => true,
+        "background",
+      ),
+    ).rejects.toThrow("Download interrupted");
+    expect((await stored()).lifecycle![root]).toMatchObject({
+      requestId: pending.requestId,
+      retry: { failures: 2 },
+    });
     expect((await stored()).downloads?.[`${dependency}@1.1.0`]).toBeTruthy();
     expect((await stored()).installed[root].version).toBe("1.0.0");
     const dependencyDownloads = () =>
@@ -441,6 +478,11 @@ it("recovers exact device changes across download interruption, uncertain accept
       false,
     );
     const removalId = (await stored()).lifecycle![root].requestId;
+    const beforeAutomaticRemoval = sent.length;
+    expect(
+      await uninstallModule({ ...props }, root, removalId, "background"),
+    ).toBe(false);
+    expect(sent).toHaveLength(beforeAutomaticRemoval);
     await Promise.all([
       uninstallModule({ ...props }, root, removalId),
       uninstallModule({ ...props }, root, removalId),

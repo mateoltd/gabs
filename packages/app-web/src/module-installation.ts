@@ -36,6 +36,7 @@ export function deviceId() {
 }
 const lifecycleLock = (props: FeatureProps) =>
   `suite-install:${props.scope.userId}:${props.scope.workspaceId}`;
+class InstallationPausedError extends Error {}
 const sameReleases = (a: InstallationSelection[], b: InstallationSelection[]) =>
   canonical([...a].sort((x, y) => x.moduleId.localeCompare(y.moduleId))) ===
   canonical([...b].sort((x, y) => x.moduleId.localeCompare(y.moduleId)));
@@ -61,7 +62,20 @@ async function recordFailure(
       ![408, 429].includes(error.status)
     )
       delete s.lifecycle[id];
-    else s.lifecycle[id].error = message;
+    else {
+      const pending = s.lifecycle[id];
+      pending.error = message;
+      // Ordinary catalog invalidation must not immediately restart a failed download.
+      // Canceled effects can resume immediately; explicit user retries bypass this delay.
+      if (!(error instanceof InstallationPausedError)) {
+        const failures = Math.min((pending.retry?.failures ?? 0) + 1, 20);
+        pending.retry = {
+          failures,
+          nextAttemptAt:
+            Date.now() + Math.min(30_000 * 2 ** (failures - 1), 300_000),
+        };
+      }
+    }
   });
   await reportInstallation(
     props,
@@ -119,11 +133,17 @@ export async function installModule(
   return navigator.locks.request(lifecycleLock(props), async () => {
     const check = () => {
       if (!active())
-        throw Error(
+        throw new InstallationPausedError(
           "Installation paused before completion. Resume it in Modules.",
         );
     };
     check();
+    const existing = await readModuleStorage(props.platform, props.scope);
+    if (
+      intent === "background" &&
+      (existing.lifecycle?.[id]?.retry?.nextAttemptAt ?? 0) > Date.now()
+    )
+      return false;
     // A queued caller may have waited behind another install, removal or pin change.
     const preflightFailure = async (
       errorCode: InstallationReport["errorCode"],
@@ -170,7 +190,6 @@ export async function installModule(
       );
       throw error;
     }
-    const existing = await readModuleStorage(props.platform, props.scope);
     // A background caller may have queued before a user's removal. Recheck
     // the server's current device intent while holding the lifecycle lock.
     if (
@@ -376,10 +395,16 @@ export async function uninstallModule(
   props: FeatureProps,
   id: string,
   resumeRequestId?: string,
+  intent: "explicit" | "background" = "explicit",
 ) {
   return navigator.locks.request(lifecycleLock(props), async () => {
     const stored = await readModuleStorage(props.platform, props.scope);
     let attempt = stored.lifecycle?.[id];
+    if (
+      intent === "background" &&
+      (attempt?.retry?.nextAttemptAt ?? 0) > Date.now()
+    )
+      return false;
     // A queued Resume click must not create a new removal after background recovery finished.
     if (resumeRequestId && attempt?.requestId !== resumeRequestId) return;
     if (attempt?.action === "install" && attempt.phase === "confirming") {

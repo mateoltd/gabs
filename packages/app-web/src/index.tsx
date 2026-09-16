@@ -698,7 +698,13 @@ function Workspace({
         if (!active) break;
         if (attempt.action === "uninstall") {
           try {
-            await uninstallModule(current, id, attempt.requestId);
+            const removed = await uninstallModule(
+              current,
+              id,
+              attempt.requestId,
+              "background",
+            );
+            if (removed === false) continue;
             changed = true;
           } catch (error) {
             await reportLifecycleError(id, error);
