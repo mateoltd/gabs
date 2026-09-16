@@ -12,6 +12,7 @@
     "./server": "./src/server.ts",
     "./simulator": "./src/simulator.ts",
     "./scenarios": "./src/scenarios.ts",
+    "./forms": "./src/forms.ts",
     "./ui": "./src/ui.ts",
     "./client-artifact": "./src/client-artifact.ts",
     "./local": "./src/local.ts",

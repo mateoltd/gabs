@@ -173,6 +173,13 @@ test("administration sees a partial device installation failure and its real rec
     await page.screenshot({
       path: "docs/verification/module-fleet/recovered.png",
     });
+    const projects = second.locator(".module-install-card").filter({
+      has: second.getByRole("heading", { name: "Projects", exact: true }),
+    });
+    // Dependency removal can only fail once that dependent is actually installed.
+    await expect(projects.getByText(/^Installed /)).toBeVisible({
+      timeout: 30000,
+    });
     const removalFailedReport = report(second, "failed", "uninstall");
     await otherCard
       .getByRole("button", { name: "Uninstall", exact: true })
@@ -196,9 +203,6 @@ test("administration sees a partial device installation failure and its real rec
     await mkdir("docs/verification/report-recovery", { recursive: true });
     await page.screenshot({
       path: "docs/verification/report-recovery/removal-failure.png",
-    });
-    const projects = second.locator(".module-install-card").filter({
-      has: second.getByRole("heading", { name: "Projects", exact: true }),
     });
     await projects
       .getByRole("button", { name: "Uninstall", exact: true })

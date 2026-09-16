@@ -199,6 +199,7 @@ export const viewUIExports = [
   "Loading",
   "Table",
   "SchemaForm",
+  "TypedSchemaForm",
 ] as const;
 export const viewReactExports = [
   "Children",

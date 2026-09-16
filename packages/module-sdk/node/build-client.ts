@@ -74,11 +74,13 @@ export async function buildClientViews(
                       { text: "Relative imports must stay inside the module." },
                     ],
                   };
-              } else if (!/^@suite\/module-sdk(?:\/ui)?$/.test(args.path)) {
+              } else if (
+                !/^@suite\/module-sdk(?:\/(?:ui|forms))?$/.test(args.path)
+              ) {
                 return {
                   errors: [
                     {
-                      text: `Unsupported module import ${args.path}. Use local source, React, @suite/module-sdk/ui or the public host UI kit.`,
+                      text: `Unsupported module import ${args.path}. Use local source, React, @suite/module-sdk/ui, @suite/module-sdk/forms or the public host UI kit.`,
                     },
                   ],
                 };

@@ -76,6 +76,7 @@ export function ModuleLifecycle(
     [busy, setBusy] = useState(""),
     [selected, setSelected] = useState(""),
     [config, setConfig] = useState<Record<string, unknown>>({}),
+    [configValid, setConfigValid] = useState(true),
     [pin, setPin] = useState(""),
     [mandatory, setMandatory] = useState(true),
     [acceptedVersions, setAcceptedVersions] = useState<string[]>([]),
@@ -357,12 +358,13 @@ export function ModuleLifecycle(
               schema={selectedModule.configuration as FormSchema}
               value={config}
               onChange={setConfig}
+              onValidityChange={setConfigValid}
             />
             <ErrorMessage
               error={errorModule === selected ? error : undefined}
             />
             <Button
-              disabled={!!busy}
+              disabled={!!busy || !configValid}
               onClick={() =>
                 void act(selected, async () => {
                   const activation = props.bootstrap.modules.find(

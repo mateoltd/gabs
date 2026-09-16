@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
@@ -53,13 +54,14 @@ export async function publishExecutableFixture(
     }
     execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });
     const artifactPath = `.local/modules/${id}-${version}.json`;
+    const serverPath = artifactPath.replace(".json", ".server.json");
     const submission = execFileSync(
       "pnpm",
       [
         "module",
         "submit",
         artifactPath,
-        artifactPath.replace(".json", ".server.json"),
+        ...(existsSync(serverPath) ? [serverPath] : []),
       ],
       { encoding: "utf8", stdio: "pipe" },
     )

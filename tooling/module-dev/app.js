@@ -29,6 +29,7 @@ function table(rows, label) {
   const table = document.createElement("table"),
     head = document.createElement("tr");
   const keys = Object.keys(rows[0]);
+  if (keys.length > 4) table.style.minWidth = `${keys.length * 160}px`;
   keys.forEach((key) => head.append(text("th", key)));
   table.append(head);
   for (const row of rows) {

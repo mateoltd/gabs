@@ -77,6 +77,21 @@ async function openWorkspace(page: Page, moduleId: string, version: string) {
   await policy(version);
   await page.reload();
   await selectValue(page, "Workspace", workspace);
+  // Complete initial provisioning before manipulating the clock or changing policy.
+  // Otherwise unrelated first installs can cancel or queue the update under test.
+  await page.getByRole("link", { name: "Modules", exact: true }).click();
+  const state = await (
+    await page.request.get(`/api/v1/workspaces/${workspace}/platform`)
+  ).json();
+  for (const id of ["contacts", "inventory", "orders", "projects", moduleId]) {
+    const name = state.modules.find((m: { id: string }) => m.id === id).name;
+    const card = page.locator(".module-install-card").filter({
+      has: page.getByRole("heading", { name, exact: true }),
+    });
+    await expect(card.getByText(/^Installed /)).toBeVisible({ timeout: 30000 });
+  }
+  // Real signed-release selection, verification and receipt publication can span
+  // several requests. Update assertions allow 15 seconds, independently of load budgets.
   await page.clock.install();
   return { workspace, headers, policy };
 }
@@ -187,9 +202,9 @@ for (const uncertainReply of [false, true])
         );
         await page.unroute(artifactRoute);
         await page.clock.fastForward(31000);
-        await expect(
-          page.getByLabel("Category", { exact: true }),
-        ).toBeVisible();
+        await expect(page.getByLabel("Category", { exact: true })).toBeVisible({
+          timeout: 15000,
+        });
         await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
           "Unsaved carried input",
         );
@@ -315,7 +330,7 @@ for (const uncertainReply of [false, true])
           page
             .getByRole("alert")
             .filter({ hasText: "This release removed notes" }),
-        ).toBeVisible();
+        ).toBeVisible({ timeout: 15000 });
         await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
           "Removed resource input",
         );
@@ -369,7 +384,7 @@ test("a custom module keeps its running editor until an explicit discard and upd
   await page.clock.fastForward(31000);
   await expect(
     page.getByRole("button", { name: "Review module update" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await expect(page.getByLabel("Note name", { exact: true })).toHaveValue(
     "Custom input to preserve",
   );
@@ -448,7 +463,7 @@ test("typed custom-view state survives compatible updates and validates publishe
       `Version ${compatible.version} is ready. Your current view remains open.`,
       { exact: true },
     ),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await page.getByRole("button", { name: "Review module update" }).click();
   await expect(
     page.getByRole("button", { name: "Update and keep input" }),
@@ -479,7 +494,7 @@ test("typed custom-view state survives compatible updates and validates publishe
       `Version ${invalid.version} is ready. Your current view remains open.`,
       { exact: true },
     ),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await page.getByRole("button", { name: "Review module update" }).click();
   await page.getByRole("button", { name: "Update and keep input" }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
@@ -507,7 +522,7 @@ test("typed custom-view state survives compatible updates and validates publishe
       `Version ${brokenView.version} is ready. Your current view remains open.`,
       { exact: true },
     ),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await page.getByRole("button", { name: "Review module update" }).click();
   await page.getByRole("button", { name: "Update and keep input" }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
@@ -528,7 +543,7 @@ test("typed custom-view state survives compatible updates and validates publishe
       `Version ${converted.version} is ready. Your current view remains open.`,
       { exact: true },
     ),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await page.getByRole("button", { name: "Review module update" }).click();
   await page.getByRole("button", { name: "Update and keep input" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);

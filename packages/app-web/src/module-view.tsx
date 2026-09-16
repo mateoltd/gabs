@@ -1,4 +1,5 @@
 import { Table } from "@suite/ui-web";
+import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -398,7 +399,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               variant="primary"
               disabled={!resourceAvailable}
               onClick={() => {
-                setForm({});
+                setForm(
+                  createSchemaDraft(definition.schema) as Record<
+                    string,
+                    unknown
+                  >,
+                );
                 setReviewId(undefined);
                 setReviewTargetId(undefined);
                 setEditing(null);
@@ -701,6 +707,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           >
             <SchemaForm
               schema={definition.schema as FormSchema}
+              validate={
+                !!error &&
+                typeof error === "object" &&
+                "code" in error &&
+                error.code === "INVALID_INPUT"
+              }
               fieldOrder={definition.columns}
               value={form}
               referenceOptions={refs}

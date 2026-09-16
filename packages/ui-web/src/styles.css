@@ -226,6 +226,35 @@ strong {
   color: var(--muted);
   font-size: 11px;
 }
+.schema-group {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+}
+.schema-group > legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.schema-array-item {
+  min-width: 0;
+}
+.schema-hint,
+.schema-error,
+.schema-errors {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.schema-hint {
+  color: var(--muted);
+}
+.schema-error,
+.schema-errors {
+  color: var(--danger);
+}
 /* Shared form controls use one quiet boundary, including keyboard focus. */
 .input,
 .textarea,

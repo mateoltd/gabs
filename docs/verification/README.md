@@ -329,3 +329,7 @@ Prior `a7a346c` / [CI 35154833179](https://github.com/mateoltd/gabs/actions/runs
 ## Background lifecycle retry correction, 17 September 2026
 
 [Durable retry evidence](report-recovery/README.md#17-september-2026-bounded-background-lifecycle-retries) explains the prior CI fleet failure and verifies persistent background retry delays, immediate explicit recovery and unchanged request identity. The PostgreSQL lifecycle integration, strict checks, four builds, two headless browser journeys and one minimized/unfocused native restart case pass. Fresh remote CI remains pending; OPS-07 and full parity remain open.
+
+## Typed structured schema forms, 17 September 2026
+
+[SDK-04 form evidence](schema-forms/README.md) records public inferred draft/validation contracts, recursive form controls, invalid-input preservation, contained custom-view dropdowns, and exact nested data accepted through Electron into PostgreSQL. 25 focused tests, strict checks/four builds, 21 distinct headless journeys across correction runs and four minimized native cases passed. Wide/narrow/native captures and scoped Axe checks were reviewed. Lifecycle setup and staged-update waits were corrected after tracing failures; load budgets and business assertions were not changed. SDK-04 remains active for generated documentation, tables/filtering/pagination, references and further composability. Full remote acceptance, parity and final UI approval remain open.

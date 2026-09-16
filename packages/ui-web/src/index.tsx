@@ -636,6 +636,7 @@ export function SegmentedControl({
 }
 export {
   SchemaForm,
+  TypedSchemaForm,
   HostCustomSandbox,
   fieldLabel,
   type FormSchema,

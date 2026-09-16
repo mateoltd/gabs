@@ -209,7 +209,7 @@ test("signed installation repairs assigned modules and removes dependents before
         name: `New ${name.toLowerCase()}`,
         exact: true,
       }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 30000 });
   }
   await page.getByRole("link", { name: "Modules", exact: true }).click();
   const card = page
