@@ -28,7 +28,47 @@ async function workspace(page: Page) {
 test("generated Contacts and Projects work through the actual interface", async ({
   page,
 }) => {
-  await workspace(page);
+  const workspaceId = await workspace(page);
+  const me = await (await page.request.get("/api/v1/me")).json();
+  for (const moduleId of ["contacts", "projects"]) {
+    const rollout = await page.request.post(
+      `/api/v1/workspaces/${workspaceId}/platform`,
+      {
+        headers: {
+          origin: new URL(page.url()).origin,
+          "x-csrf-token": me.csrfToken,
+          "idempotency-key": randomUUID(),
+        },
+        data: {
+          action: "rollout",
+          version: 0,
+          value: {
+            moduleId,
+            version: "1.1.0",
+            mandatory: true,
+            acceptedVersions: [],
+          },
+        },
+      },
+    );
+    expect(rollout.ok(), await rollout.text()).toBeTruthy();
+  }
+  const grant = await page.request.post(
+    `/api/v1/workspaces/${workspaceId}/platform`,
+    {
+      headers: {
+        origin: new URL(page.url()).origin,
+        "x-csrf-token": me.csrfToken,
+        "idempotency-key": randomUUID(),
+      },
+      data: {
+        action: "grant",
+        version: 0,
+        value: { source: "projects", target: "contacts", read: true },
+      },
+    },
+  );
+  expect(grant.ok(), await grant.text()).toBeTruthy();
   await page.getByRole("link", { name: "Contacts", exact: true }).click();
   await page.getByRole("button", { name: "New contacts", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Acme acceptance");
@@ -45,6 +85,10 @@ test("generated Contacts and Projects work through the actual interface", async 
   await page.getByRole("link", { name: "Projects", exact: true }).click();
   await page.getByRole("button", { name: "New projects", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Office rollout");
+  await page.getByRole("combobox", { name: "Contact Id", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Acme acceptance", exact: true })
+    .click();
   await selectValue(page, "Status", "active");
   await page
     .getByRole("dialog")
@@ -133,6 +177,17 @@ test("signed installation repairs assigned modules and removes dependents before
   page,
 }) => {
   await workspace(page);
+  // Open the modules to await real installation rather than racing the
+  // background installer against an increasingly large reviewed catalog.
+  for (const name of ["Contacts", "Projects"]) {
+    await page.getByRole("link", { name, exact: true }).click();
+    await expect(
+      page.getByRole("button", {
+        name: `New ${name.toLowerCase()}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+  }
   await page.getByRole("link", { name: "Modules", exact: true }).click();
   const card = page
     .getByRole("heading", { name: "Contacts", level: 3, exact: true })

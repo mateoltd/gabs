@@ -24,3 +24,7 @@ The query is exercised using the ordinary PostgreSQL application role and row se
 ## Verification
 
 All 74 unit/PostgreSQL tests, type/boundary/copy checks and four builds passed. The uninstrumented local load passed at 102/177 ms for reads/confirmation. Local profiling confirms 13 statement groups and 650 queries; its elapsed time is not used as performance acceptance. All 18 selected browser journeys passed across the initial 17 successes and one focused rerun. The viewer layout test initially assumed a seed order remained on the first page; it now uses the real search controls to find seed inventory/orders before asserting visibility and overflow. Permission, accessibility and responsive assertions remain intact. Formatting passed. The exact remote candidate result is required before this item can be marked verified.
+
+## Subsequent remote results
+
+The candidate did not close OPS-07: [run 35087408586](https://github.com/mateoltd/gabs/actions/runs/35087408586) measured 678/679 ms, and [run 35087635112](https://github.com/mateoltd/gabs/actions/runs/35087635112) measured 689/698 ms. Both missed the unchanged 500 ms read budget. The latter passed confirmation, restore, code/build checks, all 59 browser journeys and three unsigned packaging jobs. Both runners reported AMD EPYC 7763. Fewer authorization round trips are verified, but remote latency acceptance remains open.

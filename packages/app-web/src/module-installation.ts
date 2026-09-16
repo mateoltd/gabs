@@ -1,3 +1,4 @@
+import { supportsStorage } from "@suite/module-sdk";
 import { validateClientArtifacts } from "@suite/module-sdk/client-artifact";
 import { ApiError } from "@suite/api-client";
 import type { FeatureProps } from "@suite/platform";
@@ -401,6 +402,15 @@ export async function verifiedInstalledModule(
       installed.version !== installed.signed.version
     )
       return false;
+    const selected = state?.modules.find((m) => m.id === moduleId)?.version;
+    const policy = state?.settings.find(
+      (s) => s.key === `pin:${moduleId}`,
+    )?.value;
+    const accepted =
+      selected === installed.version ||
+      (policy?.mandatory === false &&
+        Array.isArray(policy.acceptedVersions) &&
+        policy.acceptedVersions.includes(installed.version));
     if (
       state &&
       (!state.installations.some(
@@ -410,8 +420,12 @@ export async function verifiedInstalledModule(
           r.version === installed.version &&
           r.state === "installed",
       ) ||
-        state.modules.find((m) => m.id === moduleId)?.version !==
-          installed.version)
+        !accepted ||
+        !supportsStorage(
+          installed.signed.manifest as unknown as ReleaseManifest,
+          state.storage?.find((s) => s.module_id === moduleId)
+            ?.schema_version ?? 1,
+        ))
     )
       return false;
     await verifyArtifact(installed.signed, installed.publicKey);

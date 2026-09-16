@@ -171,3 +171,9 @@ Remote results varied: `6442851` passed at 387/420 ms, while `1b7d216` failed re
 ## 16 September 2026: stock receipt replay authorization
 
 The receiving/adjustment route now derives its current permission before idempotent replay. All 75 unit/PostgreSQL tests passed, including revocation, independent remaining access, restoration and exactly four expected stock movements. The rebuilt API passed real stock/order fulfillment and viewer accessibility/theme/narrow-layout browser flows. [Detailed limits and evidence](client-module-version/README.md). The prior authorization performance candidate is under remote verification; full parity remains open.
+
+## 16 September 2026: explicit optional and mandatory client releases
+
+EXT-05 now has explicit accepted-release policies, exact mixed-version dispatch, mandatory-update controls in the existing configuration dialog and compatibility checks across migrations, configuration and selected providers. Browser installations retain accepted older contracts; rejected queued work survives an upgrade and can be explicitly reviewed into a new request. Generated views and caches follow the installed contract, reference pickers identify their provider release, and committed installation receipts refresh administration immediately.
+
+All 76 unit/PostgreSQL tests, 16 focused Chromium journeys, six Electron regression journeys, four builds and formatting passed. Policy controls passed Axe checks and wide/narrow visual inspection. [Evidence and specific limits](module-rollout/README.md). EXT-05 remains active for native mixed-version acceptance, safe unsaved-editor handoff, lost-success-reply recovery across updates, fleet progress, failure reporting and connected suspension delivery. OPS-07 remains open: the latest remote read p95 was 689 ms against the unchanged 500 ms target. Full parity and final UI approval have not been achieved.

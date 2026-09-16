@@ -74,6 +74,8 @@ export function ModuleLifecycle(
     [selected, setSelected] = useState(""),
     [config, setConfig] = useState<Record<string, unknown>>({}),
     [pin, setPin] = useState(""),
+    [mandatory, setMandatory] = useState(true),
+    [acceptedVersions, setAcceptedVersions] = useState<string[]>([]),
     [migrationVersion, setMigrationVersion] = useState("");
   const local = useQuery({
     queryKey: [
@@ -249,7 +251,9 @@ export function ModuleLifecycle(
                   {attempt?.action === "install"
                     ? "Resume installation"
                     : installation
-                      ? "Verify and repair"
+                      ? installation.version === module.version
+                        ? "Verify and repair"
+                        : "Update"
                       : "Install"}
                 </Button>
                 {(installation || attempt?.action === "uninstall") && (
@@ -294,6 +298,17 @@ export function ModuleLifecycle(
                             (s) => s.key === `pin:${module.id}`,
                           )?.value.version ?? "",
                         ),
+                      );
+                      const rollout = state.data.settings.find(
+                        (s) => s.key === `pin:${module.id}`,
+                      )?.value;
+                      setMandatory(rollout?.mandatory !== false);
+                      setAcceptedVersions(
+                        Array.isArray(rollout?.acceptedVersions)
+                          ? rollout.acceptedVersions.filter(
+                              (v): v is string => typeof v === "string",
+                            )
+                          : [],
                       );
                     }}
                   >
@@ -479,12 +494,65 @@ export function ModuleLifecycle(
             <Field label="Pinned version (empty follows current release)">
               <Input value={pin} onChange={(e) => setPin(e.target.value)} />
             </Field>
+            <Field label="Require selected release">
+              <Checkbox
+                checked={mandatory}
+                onCheckedChange={(checked) => setMandatory(!!checked)}
+              />
+            </Field>
+            <p>
+              Clients must identify their release. Updates require server
+              acceptance; disconnected clients retain access until their
+              existing offline lease expires. Queued work is preserved for
+              review.
+            </p>
+            {!mandatory && (
+              <section
+                className="form-stack"
+                aria-label="Other accepted releases"
+              >
+                <h3>Other accepted releases</h3>
+                {migrationReleases
+                  .filter((r) => r.version !== (pin || selectedModule.version))
+                  .map((release) => (
+                    <Field
+                      key={release.version}
+                      label={`Accept ${release.version}`}
+                    >
+                      <Checkbox
+                        checked={acceptedVersions.includes(release.version)}
+                        onCheckedChange={(checked) =>
+                          setAcceptedVersions((versions) =>
+                            checked
+                              ? [...versions, release.version]
+                              : versions.filter((v) => v !== release.version),
+                          )
+                        }
+                      />
+                    </Field>
+                  ))}
+                <p>
+                  The server checks compatibility with stored data,
+                  configuration and connected modules before saving.
+                </p>
+              </section>
+            )}
             <Button
+              disabled={!!busy}
               onClick={() =>
                 void act(selected, () =>
                   command(
-                    "pin",
-                    { moduleId: selected, version: pin, mandatory: true },
+                    "rollout",
+                    {
+                      moduleId: selected,
+                      version: pin,
+                      mandatory,
+                      acceptedVersions: mandatory
+                        ? []
+                        : acceptedVersions.filter(
+                            (v) => v !== (pin || selectedModule.version),
+                          ),
+                    },
                     state.data?.settings.find(
                       (s) => s.key === `pin:${selected}`,
                     )?.version ?? 0,

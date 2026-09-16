@@ -1,12 +1,12 @@
 import { Table } from "@suite/ui-web";
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { moduleDefinition } from "@suite/module-catalog";
 import {
   assertSchema,
   type ResourceRecord,
   type ResourcePage,
   type ModuleCall,
+  type ModuleDefinition,
   type TSchema,
 } from "@suite/module-sdk";
 import { canUse, type FeatureProps } from "@suite/platform";
@@ -32,9 +32,9 @@ import {
   fieldLabel,
 } from "@suite/ui-web";
 import { Plus, Search } from "@suite/ui-web/icons";
-export function ModuleView(props: FeatureProps & { moduleId: string }) {
-  const { client, scope, bootstrap, online, platform, moduleId } = props;
-  const module = moduleDefinition(moduleId)!;
+export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
+  const { client, scope, bootstrap, online, platform, module } = props;
+  const moduleId = module.id;
   const qc = useQueryClient();
   const names = Object.keys(module.resources).sort((a, b) =>
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
@@ -55,7 +55,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
     [refs, setRefs] = useState<
       Record<string, { value: string; label: string }[]>
     >({});
-  const pageKey = `${moduleId}/${resource}/${search}/${cursor ?? ""}/${archived}`;
+  const pageKey = `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`;
   const draftKey = `${moduleId}/${resource}`;
   const allowed = canUse(bootstrap, moduleId, `${moduleId}.${resource}.read`);
   const write = canUse(bootstrap, moduleId, `${moduleId}.${resource}.write`);
@@ -82,6 +82,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
       scope.userId,
       scope.workspaceId,
       moduleId,
+      module.version,
       resource,
       search,
       cursor,
@@ -139,7 +140,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
   }, [online, allowed, bootstrap.authorizedAt, moduleId]);
   useEffect(() => {
     let active = true;
-    const referenceKey = `${moduleId}/${resource}`;
+    const referenceKey = `${moduleId}@${module.version}/${resource}`;
     setRefs({});
     const load = async () => {
       if (!online) {
@@ -148,6 +149,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
         return;
       }
       const values: typeof refs = {};
+      let providers: { id: string; version: string }[] | undefined;
       for (const [key, schema] of Object.entries(
         definition.schema.properties as Record<string, TSchema>,
       )) {
@@ -179,8 +181,24 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
           { module: string; resource: string } | undefined;
         if (!ref) continue;
         try {
+          // Same-module references use the installed contract. Other providers
+          // use this workspace's selected contract, never a global catalog entry.
+          if (ref.module !== moduleId && !providers)
+            providers = (
+              await client.request({
+                operation: "platformState",
+                params: { workspaceId: scope.workspaceId },
+              })
+            ).modules;
+          const version =
+            ref.module === moduleId
+              ? module.version
+              : providers?.find((provider) => provider.id === ref.module)
+                  ?.version;
+          if (!version) throw Error("The referenced module is unavailable.");
           const page = (await send({
             moduleId: ref.module,
+            moduleVersion: version,
             resource: ref.resource,
             action: "list",
             input: { limit: 100 },

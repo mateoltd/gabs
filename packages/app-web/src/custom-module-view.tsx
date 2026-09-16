@@ -78,7 +78,13 @@ export function ModuleSurface(
     [props.pkg.digest],
   );
   if (!module.navigation?.view)
-    return <ModuleView {...props} moduleId={module.id} />;
+    return (
+      <ModuleView
+        key={`${props.scope.userId}:${props.scope.workspaceId}:${props.pkg.digest}`}
+        {...props}
+        module={module}
+      />
+    );
   return (
     <CustomModuleView
       key={`${props.scope.userId}:${props.scope.workspaceId}:${props.pkg.digest}`}

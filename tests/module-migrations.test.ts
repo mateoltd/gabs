@@ -320,6 +320,44 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
       { data: { name: "first" }, version: 1 },
       { data: { name: "second" }, version: 1 },
     ]);
+    // An explicitly supported old client must remain compatible after migration.
+    await admin.query(
+      "insert into suite.module_activations(workspace_id,module_id,state,config) values($1,$2,'enabled','{}')",
+      [workspace, id],
+    );
+    await admin.query(
+      "insert into suite.platform_settings(workspace_id,key,value) values($1,$2,$3)",
+      [
+        workspace,
+        `pin:${id}`,
+        {
+          moduleId: id,
+          version: "",
+          mandatory: false,
+          acceptedVersions: ["1.0.0"],
+        },
+      ],
+    );
+    await expect(apply()).rejects.toMatchObject({
+      code: "MODULE_SCHEMA_INCOMPATIBLE",
+    });
+    expect(await snapshot()).toEqual([
+      { data: { name: "first" }, version: 1 },
+      { data: { name: "second" }, version: 1 },
+    ]);
+    await admin.query(
+      "update suite.platform_settings set value=$3 where workspace_id=$1 and key=$2",
+      [
+        workspace,
+        `pin:${id}`,
+        {
+          moduleId: id,
+          version: "",
+          mandatory: false,
+          acceptedVersions: ["1.1.0"],
+        },
+      ],
+    );
     await inWorkspace(db, workspace, async (tx) => {
       await tx
         .insertInto("suite.module_records")
@@ -393,6 +431,10 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
       ),
     ).rejects.toMatchObject({ code: "SCHEMA_DOWNGRADE_FORBIDDEN" });
     await admin.query(
+      "delete from suite.platform_settings where workspace_id=$1 and key=$2",
+      [workspace, `pin:${id}`],
+    );
+    await admin.query(
       "insert into suite.platform_settings(workspace_id,key,value) values($1,$2,$3)",
       [workspace, `pin:${id}`, { version: "1.0.0" }],
     );
@@ -438,6 +480,10 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
         .where("id", "=", owner.id)
         .execute();
     });
+    await admin.query(
+      "delete from suite.module_activations where workspace_id=$1 and module_id=$2",
+      [workspace, id],
+    );
     // Even a forward-compatible old executable cannot write invalid data into the newer stored schema.
     await inWorkspace(db, workspace, async (tx) => {
       const ctx = await context(tx);

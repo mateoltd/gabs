@@ -1,3 +1,4 @@
+import { Type, type Static } from "@sinclair/typebox";
 import type { ModuleDefinition } from "./index";
 import type { OrganizationPolicy } from "./governance";
 export interface PlatformState {
@@ -56,3 +57,17 @@ export interface InstallationReceipt {
   deviceId: string;
   releases: InstallationSelection[];
 }
+
+export const ModuleRolloutSchema = Type.Object(
+  {
+    moduleId: Type.String({ pattern: "^[a-z][a-z0-9-]{0,63}$" }),
+    version: Type.String({ maxLength: 40 }),
+    mandatory: Type.Boolean(),
+    acceptedVersions: Type.Array(Type.String({ minLength: 1, maxLength: 40 }), {
+      maxItems: 10,
+      uniqueItems: true,
+    }),
+  },
+  { additionalProperties: false },
+);
+export type ModuleRollout = Static<typeof ModuleRolloutSchema>;

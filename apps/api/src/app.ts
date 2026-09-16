@@ -1,3 +1,9 @@
+import ordersDefinition from "../../../modules/orders/module";
+import { moduleServers } from "@suite/module-catalog/server";
+import {
+  assertHostModuleRollout,
+  validateConfiguredRollouts,
+} from "../../../packages/server-core/src/module-rollout";
 import { ModuleBusinessError } from "@suite/module-sdk/server";
 import inventoryDefinition from "../../../modules/inventory/module";
 import { registerBilling } from "./billing";
@@ -580,6 +586,15 @@ export async function createApp(
               : options.permission,
             options.module,
           );
+          if (options.module === "orders" || options.module === "inventory")
+            await assertHostModuleRollout(
+              tx,
+              ctx.workspaceId,
+              options.module === "orders"
+                ? ordersDefinition
+                : inventoryDefinition,
+              moduleServers,
+            );
           const execute = () => options.handler(tx, ctx, req, reply);
           if (
             op.method === "POST" ||
@@ -949,8 +964,16 @@ export async function createApp(
     ),
     response: S.OkSchema,
     permission: "modules.manage",
-    handler: (tx, ctx, req) =>
-      configureModule(tx, ctx, req.params.moduleId, req.body),
+    handler: async (tx, ctx, req) => {
+      const result = await configureModule(
+        tx,
+        ctx,
+        req.params.moduleId,
+        req.body,
+      );
+      await validateConfiguredRollouts(tx, ctx.workspaceId, moduleServers);
+      return result;
+    },
   });
   route("accessRequest", {
     body: T.Object(

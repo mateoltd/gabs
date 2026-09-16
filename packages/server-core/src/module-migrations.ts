@@ -1,3 +1,4 @@
+import { validateConfiguredRollouts } from "./module-rollout";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import {
@@ -411,6 +412,7 @@ async function applyMigration(
     )
     .execute();
   invalidateStorageVersions(tx, ctx.workspaceId);
+  await validateConfiguredRollouts(tx, ctx.workspaceId, builtins);
   await audit(
     tx,
     ctx,

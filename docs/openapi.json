@@ -11458,6 +11458,12 @@
                         "enum": [
                           "pin"
                         ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "rollout"
+                        ]
                       }
                     ]
                   },

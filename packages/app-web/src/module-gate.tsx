@@ -1,6 +1,6 @@
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
 import { registerModule } from "@suite/module-catalog";
@@ -23,6 +23,7 @@ export function ModuleGate(
         }) => ReactNode);
   },
 ) {
+  const qc = useQueryClient();
   const query = useQuery<false | { pkg: SignedArtifact; publicKey: string }>({
     networkMode: "always",
     staleTime: 0,
@@ -58,6 +59,10 @@ export function ModuleGate(
         operation: "platformState",
         params: { workspaceId: props.scope.workspaceId },
       });
+      qc.setQueryData(
+        [props.scope.userId, props.scope.workspaceId, "platform"],
+        state,
+      );
       const activation = props.bootstrap.modules.find(
         (m) => m.moduleId === props.moduleId,
       );
@@ -102,6 +107,15 @@ export function ModuleGate(
       );
       registerModule(
         hydrateModule(installed.pkg.artifact as unknown as ModuleDefinition),
+      );
+      // Publish the committed receipt to administration immediately. Waiting
+      // for the entire background catalog leaves already-open modules mislabeled.
+      await Promise.all(
+        ["platform", "lifecycle-storage"].map((key) =>
+          qc.invalidateQueries({
+            queryKey: [props.scope.userId, props.scope.workspaceId, key],
+          }),
+        ),
       );
       return installed;
     },

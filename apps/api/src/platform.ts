@@ -1,4 +1,9 @@
-import { assertClientModuleVersion } from "../../../packages/server-core/src/client-module-version";
+import { ModuleRolloutSchema } from "@suite/module-sdk/platform";
+import {
+  clientModule,
+  compatibleClientRelease,
+  validateConfiguredRollouts,
+} from "../../../packages/server-core/src/module-rollout";
 import { changeDeviceInstallation } from "../../../packages/server-core/src/module-installations";
 import { migrateModuleStorage } from "../../../packages/server-core/src/module-migrations";
 import {
@@ -149,23 +154,30 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
     },
     async (req) =>
       inWorkspace(db, req.params.workspaceId, async (tx) => {
-        const definition = await workspaceModule(
-          tx,
-          req.params.workspaceId,
-          req.params.moduleId,
-        );
-        const operation = found(
-          definition.operations[req.params.operationName],
-        );
         const ctx = await authorize(
           tx,
           req.actor,
           req.params.workspaceId,
           req.id,
-          operation.permission,
-          definition.id,
+          undefined,
+          req.params.moduleId,
         );
-        assertClientModuleVersion(definition, req.headers["x-module-version"]);
+        const definition = await clientModule(
+          tx,
+          ctx.workspaceId,
+          req.params.moduleId,
+          req.headers["x-module-version"],
+          moduleServers,
+        );
+        const operation = found(
+          definition.operations[req.params.operationName],
+        );
+        requireCondition(
+          ctx.permissions.includes(operation.permission),
+          403,
+          "FORBIDDEN",
+          "Your role does not allow this action.",
+        );
         requireCondition(
           operation.policy !== "local",
           400,
@@ -232,12 +244,13 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           `${req.params.moduleId}.${req.params.resource}.read`,
           req.params.moduleId,
         );
-        const module = await workspaceModule(
+        const module = await clientModule(
           tx,
           ctx.workspaceId,
           req.params.moduleId,
+          req.headers["x-module-version"],
+          moduleServers,
         );
-        assertClientModuleVersion(module, req.headers["x-module-version"]);
         const resource = found(module.resources[req.params.resource]);
         requireCondition(
           resource.schema.properties?.[req.params.field]?.["x-membership"],
@@ -436,11 +449,13 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           req.params.moduleId,
         );
         const clientVersion = req.headers["x-module-version"];
-        const definition =
-          clientVersion === undefined
-            ? undefined
-            : await workspaceModule(tx, ctx.workspaceId, req.params.moduleId);
-        if (definition) assertClientModuleVersion(definition, clientVersion);
+        const definition = await clientModule(
+          tx,
+          ctx.workspaceId,
+          req.params.moduleId,
+          clientVersion,
+          moduleServers,
+        );
         const execute = async () => {
           try {
             return await executeResource(
@@ -491,6 +506,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 "uninstall",
                 "migrate",
                 "pin",
+                "rollout",
               ].map((v) => T.Literal(v)),
             ),
             value: T.Record(T.String(), T.Unknown()),
@@ -663,13 +679,24 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 value,
               );
               key = "store-policy";
-            } else if (req.body.action === "pin") {
+            } else if (
+              req.body.action === "pin" ||
+              req.body.action === "rollout"
+            ) {
               assertSchema(
                 T.Object(
                   {
                     moduleId: slug,
                     version: T.String({ maxLength: 40 }),
                     mandatory: T.Boolean(),
+                    ...(req.body.action === "rollout"
+                      ? {
+                          acceptedVersions: T.Array(
+                            T.String({ minLength: 1, maxLength: 40 }),
+                            { maxItems: 10, uniqueItems: true },
+                          ),
+                        }
+                      : {}),
                   },
                   { additionalProperties: false },
                 ),
@@ -695,6 +722,14 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                   "Publish this signed version before pinning it.",
                 );
               }
+              requireCondition(
+                req.body.action !== "rollout" ||
+                  !value.mandatory ||
+                  (value.acceptedVersions as string[]).length === 0,
+                400,
+                "INVALID_ROLLOUT",
+                "A mandatory update cannot also accept older releases.",
+              );
               key = `pin:${value.moduleId}`;
             } else {
               assertSchema(
@@ -747,7 +782,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                   .doUpdateSet({ value, version: (old?.version ?? 0) + 1 }),
               )
               .execute();
-            if (req.body.action === "pin") {
+            if (req.body.action === "pin" || req.body.action === "rollout") {
               const active = await tx
                 .selectFrom("suite.module_activations")
                 .select("module_id")
@@ -793,6 +828,32 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 }
               }
             }
+            if (req.body.action === "rollout") {
+              assertSchema(ModuleRolloutSchema, value);
+              const moduleId = String(value.moduleId);
+              const current = await workspaceModule(
+                tx,
+                ctx.workspaceId,
+                moduleId,
+              );
+              for (const version of new Set([
+                current.version,
+                ...(value.acceptedVersions as string[]),
+              ]))
+                await compatibleClientRelease(
+                  tx,
+                  ctx.workspaceId,
+                  moduleId,
+                  version,
+                  moduleServers,
+                );
+            }
+            if (req.body.action === "pin" || req.body.action === "rollout")
+              await validateConfiguredRollouts(
+                tx,
+                ctx.workspaceId,
+                moduleServers,
+              );
             await audit(tx, ctx, `platform.${req.body.action}`, key);
             return { ok: true };
           },

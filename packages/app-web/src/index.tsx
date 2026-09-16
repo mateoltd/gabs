@@ -1,5 +1,6 @@
 import {
   installModule,
+  verifiedInstalledModule,
   uninstallModule,
   deviceId,
   verifyArtifact,
@@ -641,8 +642,15 @@ function Workspace({
         const stored = await readModuleStorage(current.platform, current.scope);
         if (
           !stored.lifecycle?.[definition.id] &&
-          stored.installed[definition.id]?.version === definition.version &&
-          device?.state === "installed"
+          device?.state === "installed" &&
+          device.version === stored.installed[definition.id]?.version &&
+          (stored.installed[definition.id]?.version === definition.version ||
+            (await verifiedInstalledModule(
+              current,
+              stored,
+              definition.id,
+              state,
+            ).catch(() => false)))
         )
           continue;
         try {
@@ -655,14 +663,26 @@ function Workspace({
           );
           changed = true;
           if (active)
-            await qc.invalidateQueries({
-              queryKey: [
-                scope.userId,
-                scope.workspaceId,
-                "runtime-installation",
-                definition.id,
-              ],
-            });
+            await Promise.all([
+              qc.invalidateQueries({
+                queryKey: [
+                  scope.userId,
+                  scope.workspaceId,
+                  "runtime-installation",
+                  definition.id,
+                ],
+              }),
+              qc.invalidateQueries({
+                queryKey: [scope.userId, scope.workspaceId, "platform"],
+              }),
+              qc.invalidateQueries({
+                queryKey: [
+                  scope.userId,
+                  scope.workspaceId,
+                  "lifecycle-storage",
+                ],
+              }),
+            ]);
         } catch (error) {
           await reportLifecycleError(definition.id, error);
         }
