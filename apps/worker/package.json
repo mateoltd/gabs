@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@suite/module-catalog": "workspace:*",
+    "@suite/module-sdk": "workspace:*",
     "@suite/server-core": "workspace:*",
     "kysely": "0.29.5",
     "dotenv": "17.4.2",

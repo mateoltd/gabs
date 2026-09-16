@@ -544,6 +544,8 @@ export async function createApp(
       response: S.TSchema;
       permission?: S.Permission | ((req: Request<S.Static<B>>) => S.Permission);
       module?: S.ModuleId;
+      // Export metadata is host-owned; its worker selects and validates the current business backend.
+      hostStorageBridge?: boolean;
       query?: boolean;
       handler: (
         tx: Tx,
@@ -595,7 +597,10 @@ export async function createApp(
             options.module,
           );
           const execute = async () => {
-            if (options.module === "orders" || options.module === "inventory")
+            if (
+              options.hostStorageBridge !== false &&
+              (options.module === "orders" || options.module === "inventory")
+            )
               await assertHostModuleRollout(
                 tx,
                 ctx.workspaceId,
@@ -1163,6 +1168,7 @@ export async function createApp(
     },
   });
   route("exports", {
+    hostStorageBridge: false,
     response: T.Array(S.ExportSchema),
     permission: "orders.export",
     module: "orders",
@@ -1188,6 +1194,7 @@ export async function createApp(
       })),
   });
   route("exportCreate", {
+    hostStorageBridge: false,
     body: Empty,
     response: S.ExportSchema,
     permission: "orders.export",
@@ -1209,6 +1216,7 @@ export async function createApp(
     },
   });
   route("exportDownload", {
+    hostStorageBridge: false,
     response: T.Object({ filename: T.String(), content: T.String() }),
     permission: "orders.export",
     module: "orders",

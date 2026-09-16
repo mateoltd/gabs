@@ -41,6 +41,8 @@ import {
 } from "../packages/server-core/src";
 import { migrateModuleStorage } from "../packages/server-core/src/module-migrations";
 import { createApp } from "../apps/api/src/app";
+import { orderExportPages } from "../apps/worker/src/order-export";
+import { runBatch } from "../apps/worker/src/worker";
 
 // Exercise the actual signed candidate source. A unique prerelease plus workspace pins
 // keeps this test from selecting a candidate for any existing company or other test.
@@ -138,6 +140,9 @@ const servers = [first, second].map((module) =>
   }),
 );
 const db = connectDatabase();
+const worker = connectDatabase(
+  process.env.DATABASE_URL!.replace("suite_app:", "suite_worker:"),
+);
 const registry = new Pool({
   connectionString: process.env.MIGRATION_DATABASE_URL,
   options: "-c role=suite_registry",
@@ -337,6 +342,7 @@ afterAll(async () => {
   }
   if (app) await app.app.close();
   await db.destroy();
+  await worker.destroy();
   await registry.end();
   if (directory) await rm(directory, { recursive: true, force: true });
 });
@@ -1997,4 +2003,243 @@ it("queries Orders with complete status/daily summaries and numerically ordered 
   expect(new Set(numbers).size).toBe(
     summary.draft + summary.confirmed + summary.fulfilled + summary.cancelled,
   );
+});
+
+it("exports every migrated order from one snapshot, processes SDK events, and rechecks export access", async () => {
+  const f = await legacyFixture();
+  await convertLegacy(f.target);
+  const lastId = randomUUID();
+  await inWorkspace(worker, foreign, async (tx) => {
+    const leaked = await tx
+      .selectFrom("suite.module_records")
+      .select("id")
+      .where("workspace_id", "=", f.target)
+      .execute();
+    expect(leaked).toEqual([]);
+  });
+  await expect(
+    inWorkspace(worker, f.target, (tx) =>
+      tx
+        .updateTable("suite.module_records")
+        .set({ archived: true })
+        .where("workspace_id", "=", f.target)
+        .execute(),
+    ),
+  ).rejects.toMatchObject({ code: "42501" });
+  const template = await inWorkspace(db, f.target, async (tx) => {
+    const row = await tx
+      .selectFrom("suite.module_records")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .where("module_id", "=", "orders")
+      .where("resource", "=", "$orders")
+      .where("id", "=", f.confirmed.id)
+      .executeTakeFirstOrThrow();
+    await tx
+      .insertInto("suite.module_records")
+      .values(
+        Array.from({ length: 202 }, (_, index) => ({
+          ...row,
+          id: index === 201 ? lastId : randomUUID(),
+          data: {
+            ...row.data,
+            number: f.confirmed.number + index + 1,
+            status: "draft",
+            customerName: `Snapshot ${index}`,
+            orderVersion: 1,
+          },
+        })),
+      )
+      .execute();
+    await tx
+      .updateTable("suite.module_records")
+      .set({ data: { next: f.confirmed.number + 203 } })
+      .where("workspace_id", "=", f.target)
+      .where("module_id", "=", "orders")
+      .where("resource", "=", "$counters")
+      .execute();
+    return row;
+  });
+  await expect(
+    inWorkspace(db, f.target, async (tx) => {
+      const ctx = await authorize(
+        tx,
+        authenticatedActor,
+        f.target,
+        randomUUID(),
+        "orders.export",
+        "orders",
+      );
+      await orderExportPages(tx, ctx).next();
+    }),
+  ).rejects.toMatchObject({ code: "EXPORT_SNAPSHOT_REQUIRED" });
+  await inWorkspace(
+    db,
+    f.target,
+    async (tx) => {
+      const ctx = await authorize(
+        tx,
+        authenticatedActor,
+        f.target,
+        randomUUID(),
+        "orders.export",
+        "orders",
+      );
+      const pages = orderExportPages(tx, ctx);
+      const first = await pages.next();
+      expect(first.done).toBe(false);
+      expect(first.value).toHaveLength(200);
+      // Commit a change to an unread page and a new row after the first page.
+      await inWorkspace(db, f.target, async (other) => {
+        await other
+          .updateTable("suite.module_records")
+          .set({
+            data: {
+              ...template.data,
+              number: f.confirmed.number + 202,
+              status: "draft",
+              customerName: "Changed after snapshot",
+              orderVersion: 1,
+            },
+          })
+          .where("workspace_id", "=", f.target)
+          .where("module_id", "=", "orders")
+          .where("resource", "=", "$orders")
+          .where("id", "=", lastId)
+          .execute();
+        await other
+          .insertInto("suite.module_records")
+          .values({
+            ...template,
+            id: randomUUID(),
+            data: {
+              ...template.data,
+              number: f.confirmed.number + 203,
+              status: "draft",
+              customerName: '=HYPERLINK("example")',
+              orderVersion: 1,
+            },
+          })
+          .execute();
+        await other
+          .updateTable("suite.module_records")
+          .set({ data: { next: f.confirmed.number + 204 } })
+          .where("workspace_id", "=", f.target)
+          .where("module_id", "=", "orders")
+          .where("resource", "=", "$counters")
+          .execute();
+      });
+      const remaining = [];
+      for await (const page of pages) remaining.push(...page);
+      expect(remaining).toHaveLength(3);
+      expect(remaining.at(-1)?.customerName).toBe("Snapshot 201");
+    },
+    { readOnly: true },
+  );
+
+  const orders = createModuleClient(ordersDefinition, send(f.target));
+  await orders.call("cancel", { id: lastId, version: 1 });
+  const requestExport = (key = randomUUID()) =>
+    app.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${f.target}/exports`,
+      headers: { ...headers, "idempotency-key": key },
+      payload: {},
+    });
+  const prioritize = () =>
+    inWorkspace(db, f.target, (tx) =>
+      tx
+        .updateTable("suite.outbox")
+        .set({ created_at: new Date(0) })
+        .where("workspace_id", "=", f.target)
+        .where("completed_at", "is", null)
+        .execute(),
+    );
+  const key = randomUUID(),
+    created = await requestExport(key);
+  expect(created.statusCode, created.body).toBe(200);
+  expect((await requestExport(key)).json()).toEqual(created.json());
+  await prioritize();
+  await runBatch(worker);
+  const download = await app.app.inject({
+    method: "GET",
+    url: `/api/v1/workspaces/${f.target}/exports/${created.json().id}/download`,
+    headers,
+  });
+  expect(download.statusCode, download.body).toBe(200);
+  const lines = download.json().content.split("\r\n");
+  expect(lines).toHaveLength(205);
+  expect(lines.at(-2)).toContain('"Changed after snapshot","cancelled"');
+  expect(lines.at(-1)).toContain('"\'=HYPERLINK(""example"")"');
+  const list = await app.app.inject({
+    method: "GET",
+    url: `/api/v1/workspaces/${f.target}/exports`,
+    headers,
+  });
+  expect(list.json()).toContainEqual(
+    expect.objectContaining({ id: created.json().id, state: "ready" }),
+  );
+  await inWorkspace(db, f.target, async (tx) => {
+    const notifications = await tx
+      .selectFrom("suite.notifications")
+      .select(["title", "event_id"])
+      .where("workspace_id", "=", f.target)
+      .execute();
+    expect(
+      notifications.filter(
+        (n) => n.title === `Order ${f.confirmed.number + 202} cancelled`,
+      ),
+    ).toHaveLength(1);
+    expect(
+      notifications.filter((n) => n.title === "Order export ready"),
+    ).toHaveLength(1);
+    // Reclaim the accepted export event: delivery and output remain idempotent.
+    await tx
+      .updateTable("suite.outbox")
+      .set({
+        completed_at: null,
+        available_at: new Date(0),
+        created_at: new Date(0),
+      })
+      .where("workspace_id", "=", f.target)
+      .where("event_type", "=", "export.orders")
+      .execute();
+  });
+  await runBatch(worker);
+  await inWorkspace(db, f.target, async (tx) => {
+    const notifications = await tx
+      .selectFrom("suite.notifications")
+      .select("id")
+      .where("workspace_id", "=", f.target)
+      .where("title", "=", "Order export ready")
+      .execute();
+    expect(notifications).toHaveLength(1);
+  });
+  const denied = await requestExport();
+  expect(denied.statusCode).toBe(200);
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.module_activations")
+      .set({ state: "suspended" })
+      .where("workspace_id", "=", f.target)
+      .where("module_id", "=", "orders")
+      .execute(),
+  );
+  await prioritize();
+  await runBatch(worker);
+  await inWorkspace(db, f.target, async (tx) => {
+    const rejected = await tx
+      .selectFrom("suite.exports")
+      .select(["state", "object_key"])
+      .where("workspace_id", "=", f.target)
+      .where("id", "=", denied.json().id)
+      .executeTakeFirstOrThrow();
+    expect(rejected).toEqual({ state: "failed", object_key: null });
+  });
+  const revokedDownload = await app.app.inject({
+    method: "GET",
+    url: `/api/v1/workspaces/${f.target}/exports/${created.json().id}/download`,
+    headers,
+  });
+  expect(revokedDownload.statusCode).toBe(403);
 });

@@ -1,4 +1,4 @@
-import { orderExportRows } from "@suite/orders/server";
+import { orderExportPages } from "./order-export";
 import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rename } from "node:fs/promises";
@@ -49,14 +49,14 @@ async function exportOrders(tx: Tx, ctx: Context, id: string) {
     .executeTakeFirst();
   requireCondition(record, 404, "EXPORT_MISSING", "Export unavailable");
   if (record.state === "ready") return;
-  const rows = await orderExportRows(tx, ctx.workspaceId);
+  const lines: string[] = [];
+  for await (const rows of orderExportPages(tx, ctx))
+    for (const r of rows)
+      lines.push(
+        [r.number, r.customerName, r.status, r.totalMinor].map(csv).join(","),
+      );
   const content =
-    "Order,Customer,Status,Total in minor units\r\n" +
-    rows
-      .map((r) =>
-        [r.number, r.name, r.status, r.total_minor].map(csv).join(","),
-      )
-      .join("\r\n");
+    "Order,Customer,Status,Total in minor units\r\n" + lines.join("\r\n");
   const key = `${ctx.workspaceId}/${id}.csv`;
   await writeExport(key, content);
   await tx
@@ -74,117 +74,132 @@ export async function runBatch(db: DB) {
   }>`select * from suite.claim_jobs(10)`.execute(db);
   for (const envelope of claimed.rows) {
     try {
-      await inWorkspace(db, envelope.workspace_id, async (tx) => {
-        const job = await tx
-          .selectFrom("suite.outbox")
-          .selectAll()
-          .where("workspace_id", "=", envelope.workspace_id)
-          .where("id", "=", envelope.id)
-          .where("claim_token", "=", envelope.claim_token)
-          .where("completed_at", "is", null)
-          .forUpdate()
-          .executeTakeFirst();
-        if (!job) return;
-        const user = await tx
-          .selectFrom("suite.users")
-          .selectAll()
-          .where("id", "=", job.actor_id)
-          .executeTakeFirst();
-        if (job.event_type === "export.orders") {
-          requireCondition(
-            user?.active,
-            403,
-            "EXPORT_REVOKED",
-            "Export actor unavailable",
-          );
-          const ctx = await authorize(
-            tx,
-            {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              emailVerified: user.email_verified,
-              mfa: true,
-            },
-            job.workspace_id,
-            job.id,
-            "orders.export",
-            "orders",
-          );
-          await exportOrders(tx, ctx, String(job.payload.recordId));
-        }
-        let targets: string[] = [];
-        let title = "Workspace activity",
-          message = "Your workspace has been updated.";
-        if (job.event_type === "module.record.changed") {
-          targets = [job.actor_id];
-          title = "Module changes accepted";
-          message = `Your ${String(job.payload.moduleId)} changes were saved by the server.`;
-        }
-        if (job.event_type.startsWith("orders.")) {
-          targets = [job.actor_id];
-          title = `Order ${job.payload.number ?? ""} ${job.event_type.split(".")[1]}`;
-          message = "The order and its stock changes were saved together.";
-        }
-        if (job.event_type === "export.orders") {
-          targets = [job.actor_id];
-          title = "Order export ready";
-          message = "Download your CSV from Orders.";
-        }
-        if (job.event_type === "access.requested") {
-          targets = await permissionRecipients(
-            tx,
-            job.workspace_id,
-            "modules.manage",
-          );
-          title = "Module access requested";
-          message =
-            "A member has requested access. Review the request below or in Modules.";
-        }
-        if (job.event_type === "access.resolved") {
-          const m = await tx
-            .selectFrom("suite.memberships")
-            .select("user_id")
-            .where("workspace_id", "=", job.workspace_id)
-            .where("id", "=", String(job.payload.membershipId))
+      await inWorkspace(
+        db,
+        envelope.workspace_id,
+        async (tx) => {
+          const job = await tx
+            .selectFrom("suite.outbox")
+            .selectAll()
+            .where("workspace_id", "=", envelope.workspace_id)
+            .where("id", "=", envelope.id)
+            .where("claim_token", "=", envelope.claim_token)
+            .where("completed_at", "is", null)
+            .forUpdate()
             .executeTakeFirst();
-          targets = m ? [m.user_id] : [];
-          title = `Module access ${job.payload.state}`;
-          message = "Your module request has been reviewed.";
-        }
-        for (const userId of [...new Set(targets)]) {
-          const member = await tx
-            .selectFrom("suite.memberships as m")
-            .innerJoin("suite.users as u", "m.user_id", "u.id")
-            .select("m.id")
-            .where("m.workspace_id", "=", job.workspace_id)
-            .where("m.user_id", "=", userId)
-            .where("m.active", "=", true)
-            .where("u.active", "=", true)
+          if (!job) return;
+          const user = await tx
+            .selectFrom("suite.users")
+            .selectAll()
+            .where("id", "=", job.actor_id)
             .executeTakeFirst();
-          if (!member) continue;
+          if (job.event_type === "export.orders") {
+            requireCondition(
+              user?.active,
+              403,
+              "EXPORT_REVOKED",
+              "Export actor unavailable",
+            );
+            const ctx = await authorize(
+              tx,
+              {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                emailVerified: user.email_verified,
+                mfa: true,
+              },
+              job.workspace_id,
+              job.id,
+              "orders.export",
+              "orders",
+            );
+            await exportOrders(tx, ctx, String(job.payload.recordId));
+          }
+          let targets: string[] = [];
+          let title = "Workspace activity",
+            message = "Your workspace has been updated.";
+          if (job.event_type === "module.record.changed") {
+            targets = [job.actor_id];
+            title = "Module changes accepted";
+            message = `Your ${String(job.payload.moduleId)} changes were saved by the server.`;
+          }
+          if (job.event_type.startsWith("orders.")) {
+            targets = [job.actor_id];
+            title = `Order ${job.payload.number ?? ""} ${job.event_type.split(".")[1]}`;
+            message = "The order and its stock changes were saved together.";
+          }
+          if (
+            ["confirmed", "fulfilled", "cancelled"].some(
+              (event) => job.event_type === `module.orders.event.${event}`,
+            )
+          ) {
+            const data = job.payload.data as { number?: number } | undefined;
+            targets = [job.actor_id];
+            title = `Order ${data?.number ?? ""} ${job.event_type.split(".")[3]}`;
+            message = "The order and its stock changes were saved together.";
+          }
+          if (job.event_type === "export.orders") {
+            targets = [job.actor_id];
+            title = "Order export ready";
+            message = "Download your CSV from Orders.";
+          }
+          if (job.event_type === "access.requested") {
+            targets = await permissionRecipients(
+              tx,
+              job.workspace_id,
+              "modules.manage",
+            );
+            title = "Module access requested";
+            message =
+              "A member has requested access. Review the request below or in Modules.";
+          }
+          if (job.event_type === "access.resolved") {
+            const m = await tx
+              .selectFrom("suite.memberships")
+              .select("user_id")
+              .where("workspace_id", "=", job.workspace_id)
+              .where("id", "=", String(job.payload.membershipId))
+              .executeTakeFirst();
+            targets = m ? [m.user_id] : [];
+            title = `Module access ${job.payload.state}`;
+            message = "Your module request has been reviewed.";
+          }
+          for (const userId of [...new Set(targets)]) {
+            const member = await tx
+              .selectFrom("suite.memberships as m")
+              .innerJoin("suite.users as u", "m.user_id", "u.id")
+              .select("m.id")
+              .where("m.workspace_id", "=", job.workspace_id)
+              .where("m.user_id", "=", userId)
+              .where("m.active", "=", true)
+              .where("u.active", "=", true)
+              .executeTakeFirst();
+            if (!member) continue;
+            await tx
+              .insertInto("suite.notifications")
+              .values({
+                id: randomUUID(),
+                workspace_id: job.workspace_id,
+                user_id: userId,
+                event_id: job.id,
+                title,
+                message,
+                read_at: null,
+              })
+              .onConflict((c) => c.columns(["event_id", "user_id"]).doNothing())
+              .execute();
+          }
           await tx
-            .insertInto("suite.notifications")
-            .values({
-              id: randomUUID(),
-              workspace_id: job.workspace_id,
-              user_id: userId,
-              event_id: job.id,
-              title,
-              message,
-              read_at: null,
-            })
-            .onConflict((c) => c.columns(["event_id", "user_id"]).doNothing())
+            .updateTable("suite.outbox")
+            .set({ completed_at: new Date(), locked_until: null })
+            .where("workspace_id", "=", job.workspace_id)
+            .where("id", "=", job.id)
+            .where("claim_token", "=", envelope.claim_token)
             .execute();
-        }
-        await tx
-          .updateTable("suite.outbox")
-          .set({ completed_at: new Date(), locked_until: null })
-          .where("workspace_id", "=", job.workspace_id)
-          .where("id", "=", job.id)
-          .where("claim_token", "=", envelope.claim_token)
-          .execute();
-      });
+        },
+        { snapshot: true },
+      );
     } catch (error) {
       await inWorkspace(db, envelope.workspace_id, async (tx) => {
         const job = await tx

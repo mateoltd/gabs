@@ -425,6 +425,12 @@ importers:
       '@aws-sdk/client-s3':
         specifier: 3.1132.0
         version: 3.1132.0
+      '@suite/module-catalog':
+        specifier: workspace:*
+        version: link:../../packages/module-catalog
+      '@suite/module-sdk':
+        specifier: workspace:*
+        version: link:../../packages/module-sdk
       '@suite/orders':
         specifier: workspace:*
         version: link:../../modules/orders

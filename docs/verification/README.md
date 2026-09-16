@@ -245,3 +245,7 @@ The [Orders candidate and typed service contracts](orders-sdk/README.md) add pri
 ## Coordinated legacy business conversion, 16 September 2026
 
 [Legacy conversion acceptance](legacy-business-migration/README.md) reconciles authoritative relational data and imports both business modules through signed SDK migrations in one transaction. Source history and accepted receipts remain available; retired SQL writes are fenced, including waiting writers at cutover. All 129 unit/PostgreSQL tests, strict types/boundaries/copy checks and four builds passed. Two headless browser and three hidden Electron journeys passed. A five-second local logical restore verified migrated stock/ledger/reservations, order states/totals, numbering, RLS and the restored fence. Current application/worker adapters and administrator cutover/readiness remain unfinished; SDK-01 and full parity remain active.
+
+## 16 September 2026: SDK-01 business exports and worker delivery
+
+[Snapshot export evidence](business-exports/README.md): 130 tests, four builds, final 42 affected tests, one headless browser creation/download journey and a six-second logical restore. SDK exports include all pages from one authorized snapshot; concurrent edits, formula escaping, retries, scoped notifications, revoked access and worker RLS/write denial are exercised. Business-screen adapters and administrator cutover remain open; no UI acceptance or overall parity claim.
