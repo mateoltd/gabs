@@ -882,6 +882,86 @@ describe("real PostgreSQL transactions and tenant security", () => {
         .execute(),
     );
   });
+  it("checks receipt and adjustment permissions before stock receipt replay", async () => {
+    const p = await product(0);
+    const roles = await inWorkspace(db, workspace, (tx) =>
+      tx
+        .selectFrom("suite.roles")
+        .select(["id", "permissions"])
+        .where("workspace_id", "=", workspace)
+        .execute(),
+    );
+    for (const kind of ["receipt", "adjustment"] as const) {
+      const permission =
+        kind === "receipt" ? "inventory.receive" : "inventory.adjust";
+      const body = {
+        kind,
+        quantity: 1,
+        reason: "Stock authorization acceptance",
+      };
+      const key = randomUUID(),
+        endpoint = path(`/products/${p.id}/stock`);
+      const accepted = await request("POST", endpoint, body, {
+        "idempotency-key": key,
+      });
+      expect(accepted.status).toBe(200);
+      await inWorkspace(db, workspace, async (tx) => {
+        for (const role of roles)
+          await tx
+            .updateTable("suite.roles")
+            .set({
+              permissions: role.permissions.filter(
+                (value) => value !== permission,
+              ),
+            })
+            .where("id", "=", role.id)
+            .execute();
+      });
+      try {
+        for (const attempt of [key, randomUUID()]) {
+          const denied = await request("POST", endpoint, body, {
+            "idempotency-key": attempt,
+          });
+          expect(denied.status).toBe(403);
+          expect(denied.body.code).toBe("FORBIDDEN");
+          expect(denied.body.onHand).toBeUndefined();
+        }
+        const other = await request("POST", endpoint, {
+          ...body,
+          kind: kind === "receipt" ? "adjustment" : "receipt",
+        });
+        expect(other.status).toBe(200);
+      } finally {
+        await inWorkspace(db, workspace, async (tx) => {
+          for (const role of roles)
+            await tx
+              .updateTable("suite.roles")
+              .set({ permissions: role.permissions })
+              .where("id", "=", role.id)
+              .execute();
+        });
+      }
+      const replay = await request("POST", endpoint, body, {
+        "idempotency-key": key,
+      });
+      expect(replay.status).toBe(200);
+      expect(replay.body).toEqual(accepted.body);
+    }
+    await inWorkspace(db, workspace, async (tx) => {
+      const balance = await tx
+        .selectFrom("suite.stock")
+        .select("on_hand")
+        .where("product_id", "=", p.id)
+        .executeTakeFirstOrThrow();
+      expect(balance.on_hand).toBe(4);
+      const movements = await tx
+        .selectFrom("suite.stock_movements")
+        .select("id")
+        .where("product_id", "=", p.id)
+        .execute();
+      expect(movements).toHaveLength(4);
+    });
+  });
   it("retries expired worker leases and deduplicates notifications", async () => {
     const p = await product(),
       o = await draft([p]);

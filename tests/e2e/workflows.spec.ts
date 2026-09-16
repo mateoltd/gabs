@@ -169,6 +169,8 @@ test("offline shell, explicit local draft recovery, reconnect and logout cleanup
 test("viewer permissions, accessible navigation, themes and narrow layout", async ({
   page,
 }) => {
+  // Capture settled layouts; route motion has separate acceptance coverage.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await login(page, "viewer@demo.local");
   await page.getByRole("link", { name: "Orders", exact: true }).click();
   await expect(

@@ -167,3 +167,7 @@ Remote run `35056056304` still failed reads at 670 ms while confirmation passed 
 ## 16 September 2026: authorization round-trip reduction
 
 Remote results varied: `6442851` passed at 387/420 ms, while `1b7d216` failed read p95 at 552 ms; its confirmation was 593 ms and restore passed. Captured diagnostics show 750 queries across 50 reads. The candidate reads current user, membership, policy and complete role/assignment graph in one statement, reducing the fixture to 650 queries without caching authorization. All 74 unit/PostgreSQL tests, 18 distinct selected browser journeys, four builds and formatting passed locally; uninstrumented load was 102/177 ms. [Reports, regression scope and limits](performance/authorization/README.md). OPS-07 remains open pending the exact remote candidate result.
+
+## 16 September 2026: stock receipt replay authorization
+
+The receiving/adjustment route now derives its current permission before idempotent replay. All 75 unit/PostgreSQL tests passed, including revocation, independent remaining access, restoration and exactly four expected stock movements. The rebuilt API passed real stock/order fulfillment and viewer accessibility/theme/narrow-layout browser flows. [Detailed limits and evidence](client-module-version/README.md). The prior authorization performance candidate is under remote verification; full parity remains open.

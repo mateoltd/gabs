@@ -535,7 +535,7 @@ export async function createApp(
     options: {
       body?: B;
       response: S.TSchema;
-      permission?: S.Permission;
+      permission?: S.Permission | ((req: Request<S.Static<B>>) => S.Permission);
       module?: S.ModuleId;
       query?: boolean;
       handler: (
@@ -575,7 +575,9 @@ export async function createApp(
             request.actor,
             req.params.workspaceId,
             request.id,
-            options.permission,
+            typeof options.permission === "function"
+              ? options.permission(req)
+              : options.permission,
             options.module,
           );
           const execute = () => options.handler(tx, ctx, req, reply);
@@ -678,20 +680,10 @@ export async function createApp(
       { additionalProperties: false },
     ),
     response: S.ProductSchema,
+    permission: (req) =>
+      req.body.kind === "receipt" ? "inventory.receive" : "inventory.adjust",
     module: "inventory",
-    handler: (tx, ctx, req) => {
-      requireCondition(
-        ctx.permissions.includes(
-          req.body.kind === "receipt"
-            ? "inventory.receive"
-            : "inventory.adjust",
-        ),
-        403,
-        "FORBIDDEN",
-        "Your role does not allow this stock change.",
-      );
-      return changeStock(tx, ctx, req.params.id, req.body);
-    },
+    handler: (tx, ctx, req) => changeStock(tx, ctx, req.params.id, req.body),
   });
   route("movements", {
     response: S.page(S.MovementSchema),
