@@ -109,10 +109,10 @@ test("a company created in the interface starts directly on scoped business defa
   expect(sent.filter((r) => r.module === "inventory")).toHaveLength(2);
   expect(new Set(sent.map((r) => r.version))).toEqual(new Set(["2.0.0"]));
   await mkdir("docs/verification/business-defaults", { recursive: true });
-  for (const close of await page
-    .getByRole("button", { name: "Dismiss notification", exact: true })
-    .all())
-    await close.click();
+  await page.mouse.move(0, 0);
+  await expect(
+    page.getByRole("button", { name: "Dismiss notification", exact: true }),
+  ).toHaveCount(0, { timeout: 20000 });
   await expect(
     page
       .getByRole("complementary", { name: /Order #/ })

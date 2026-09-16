@@ -263,3 +263,9 @@ The preceding remote checkpoint `35128117193` / `9ea4364` passed functional/brow
 ## Scoped business defaults, 16 September 2026
 
 [SDK-01 default release acceptance](business-defaults/README.md) covers fresh personal/company namespaces, reviewed service grants, Sales permissions, legacy write rejection, exact retries, current SDK development/load fixtures and initialization-aware restore. Current source passed 135 tests in 25 files, strict checks, four builds, both minimized/unfocused native journeys and clean-database Chromium acceptance: 68 initial passes plus two focused passes after replacing legacy seed-number selectors, covering all 70 distinct cases. Scoped local load passed at 394/863 ms against unchanged 500/1,000 ms budgets; the earlier 1,067 ms confirmation failure remains recorded. Historical schema-1 conversion and receipt recovery remain supported. Remote performance, full release gates and UI refinement remain open.
+
+## Local workers, 16 September 2026
+
+The [SDK-02 worker foundation](local-worker/README.md) passes 138 unit/PostgreSQL tests, typed local/server capability separation, worker CPU cancellation/restart, atomic local receipts, real browser IndexedDB revision/deletion checks and hidden Electron restart. Existing standalone resource saves use workers without layout changes. Independent local executable distribution and installed custom-operation/upgrade journeys remain open.
+
+The preceding scoped-default commit `c4460ce` / [CI 35134819192](https://github.com/mateoltd/gabs/actions/runs/35134819192) passed code/build, three unsigned packaging jobs and 69 browser cases. Screenshot cleanup in the remaining case timed out on a shifting notification index; it now waits for expiry instead. That run skipped load and restore, leaving remote acceptance open.

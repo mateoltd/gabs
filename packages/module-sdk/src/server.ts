@@ -29,13 +29,19 @@ export interface ScopedModuleServer {
     capabilities: ModuleCapabilities,
   ): Promise<unknown>;
 }
+export type ServerOperation<M extends ModuleDefinition> = {
+  [K in keyof M["operations"]]: M["operations"][K] extends { policy: "local" }
+    ? never
+    : K;
+}[keyof M["operations"]] &
+  string;
 /** Reviewed module handlers receive only typed, scoped host capabilities. */
 export function defineModuleServer<const M extends ModuleDefinition>(
   module: M,
 ) {
   return (
     handlers: {
-      [K in keyof M["operations"]]: (
+      [K in ServerOperation<M>]: (
         context: OperationContext<M, K>,
         input: Static<M["operations"][K]["input"]>,
       ) => Promise<Static<M["operations"][K]["output"]>>;
@@ -67,7 +73,11 @@ export function defineModuleServer<const M extends ModuleDefinition>(
       },
       async execute(name, input, capabilities) {
         const definition = module.operations[name];
-        if (!definition || !Object.hasOwn(handlers, name))
+        if (
+          !definition ||
+          definition.policy === "local" ||
+          !Object.hasOwn(handlers, name)
+        )
           throw Error(`Unregistered module operation: ${module.id}.${name}`);
         assertSchema(definition.input, input);
         const context = createModuleContext(module, capabilities);

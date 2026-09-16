@@ -1,5 +1,14 @@
 import { openDB } from "idb";
-import type { ResourceRecord } from "@suite/module-sdk";
+import type {
+  ResourceRecord,
+  ModuleDefinition,
+  ModuleCall,
+} from "@suite/module-sdk";
+import {
+  LocalExecutionError,
+  type LocalReceipt,
+} from "@suite/module-sdk/local";
+import { LocalWorkerHost } from "./local-worker";
 interface Vault {
   id: string;
   name: string;
@@ -7,9 +16,11 @@ interface Vault {
   iv: Uint8Array;
   ciphertext: ArrayBuffer;
   updatedAt: number;
+  revision?: number;
 }
 export interface LocalData {
   records: Record<string, ResourceRecord[]>;
+  receipts?: Record<string, Record<string, LocalReceipt>>;
 }
 const db = () =>
   openDB("suite-local-profiles", 1, {
@@ -49,38 +60,163 @@ export async function removeLocalProfile(id: string) {
 export interface LocalSession {
   id: string;
   name: string;
-  data: LocalData;
-  save(data: LocalData): Promise<void>;
+  readonly data: LocalData;
+  execute(
+    module: ModuleDefinition,
+    call: ModuleCall,
+    options?: {
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      configuration?: unknown;
+    },
+  ): Promise<unknown>;
   lock(): void;
 }
 function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
   let unlocked: CryptoKey | undefined = key;
-  return {
+  let revision = vault.revision ?? 0;
+  let tail: Promise<unknown> = Promise.resolve();
+  const worker = new LocalWorkerHost();
+  const current: LocalSession = {
     id: vault.id,
     name: vault.name,
-    data,
-    async save(next) {
-      if (!unlocked) throw Error("Unlock the local profile.");
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ciphertext = await crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv,
-          additionalData: new TextEncoder().encode(vault.id),
-        },
-        unlocked,
-        new TextEncoder().encode(JSON.stringify(next)),
-      );
-      await (
-        await db()
-      ).put("vaults", { ...vault, iv, ciphertext, updatedAt: Date.now() });
-      this.data = next;
+    get data() {
+      return structuredClone(data);
+    },
+    execute(module, call, options = {}) {
+      module = structuredClone(module);
+      call = structuredClone(call);
+      options = {
+        ...options,
+        configuration: structuredClone(options.configuration ?? {}),
+      };
+      // Each transaction snapshots after the preceding durable commit.
+      const task = tail.then(async () => {
+        if (!unlocked)
+          throw new LocalExecutionError(
+            "PROFILE_LOCKED",
+            "Unlock the local profile.",
+          );
+        const prefix = module.id + "/";
+        const snapshot = {
+          records: Object.fromEntries(
+            Object.entries(data.records)
+              .filter(([name]) => name.startsWith(prefix))
+              .map(([name, rows]) => [name.slice(prefix.length), rows]),
+          ),
+          receipts: data.receipts?.[module.id] ?? {},
+        };
+        const result = await worker.run(
+          module,
+          {
+            profileId: vault.id,
+            call,
+            configuration: options.configuration ?? {},
+            snapshot,
+          },
+          options,
+        );
+        if (!unlocked)
+          throw new LocalExecutionError(
+            "PROFILE_LOCKED",
+            "Unlock the local profile.",
+          );
+        if (options.signal?.aborted)
+          throw new LocalExecutionError(
+            "LOCAL_CANCELLED",
+            "The local operation was cancelled.",
+          );
+        if (!["get", "list"].includes(call.action)) {
+          const next: LocalData = {
+            records: {
+              ...data.records,
+              ...Object.fromEntries(
+                Object.entries(result.snapshot.records).map(([name, rows]) => [
+                  prefix + name,
+                  rows,
+                ]),
+              ),
+            },
+            receipts: {
+              ...data.receipts,
+              [module.id]: result.snapshot.receipts,
+            },
+          };
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const ciphertext = await crypto.subtle.encrypt(
+            {
+              name: "AES-GCM",
+              iv,
+              additionalData: new TextEncoder().encode(vault.id),
+            },
+            unlocked,
+            new TextEncoder().encode(JSON.stringify(next)),
+          );
+          if (!unlocked)
+            throw new LocalExecutionError(
+              "PROFILE_LOCKED",
+              "The profile was locked before this change was saved.",
+            );
+          if (options.signal?.aborted)
+            throw new LocalExecutionError(
+              "LOCAL_CANCELLED",
+              "The local operation was cancelled.",
+            );
+          const connection = await db();
+          const tx = connection.transaction("vaults", "readwrite");
+          const stored = (await tx.store.get(vault.id)) as Vault | undefined;
+          if (
+            !unlocked ||
+            options.signal?.aborted ||
+            !stored ||
+            (stored.revision ?? 0) !== revision
+          ) {
+            tx.abort();
+            await tx.done.catch(() => {});
+            if (!unlocked)
+              throw new LocalExecutionError(
+                "PROFILE_LOCKED",
+                "Unlock the local profile.",
+              );
+            if (options.signal?.aborted)
+              throw new LocalExecutionError(
+                "LOCAL_CANCELLED",
+                "The local operation was cancelled.",
+              );
+            throw new LocalExecutionError(
+              "PROFILE_CHANGED",
+              "This profile changed in another window or was removed. Unlock it again before saving.",
+            );
+          }
+          // Cancellation after this durable commit has begun cannot undo accepted work.
+          await tx.store.put({
+            ...vault,
+            iv,
+            ciphertext,
+            updatedAt: Date.now(),
+            revision: revision + 1,
+          });
+          await tx.done;
+          revision++;
+          if (unlocked) data = next;
+        }
+        if (!unlocked)
+          throw new LocalExecutionError(
+            "PROFILE_LOCKED",
+            "Unlock the profile and retry the same request to recover its outcome.",
+          );
+        return result.result;
+      });
+      tail = task.catch(() => {});
+      return task;
     },
     lock() {
       unlocked = undefined;
-      this.data = { records: {} };
+      worker.close();
+      data = { records: {} };
     },
   };
+  return current;
 }
 export async function createLocalProfile(name: string, password: string) {
   if (name.trim().length < 1 || name.length > 100 || password.length < 12)
@@ -93,9 +229,21 @@ export async function createLocalProfile(name: string, password: string) {
     ciphertext: new ArrayBuffer(0),
     updatedAt: Date.now(),
   };
-  const s = session(vault, await derive(password, vault.salt), { records: {} });
-  await s.save(s.data);
-  return s;
+  const key = await derive(password, vault.salt);
+  const data: LocalData = { records: {} };
+  vault.iv = crypto.getRandomValues(new Uint8Array(12));
+  vault.ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: vault.iv as Uint8Array<ArrayBuffer>,
+      additionalData: new TextEncoder().encode(vault.id),
+    },
+    key,
+    new TextEncoder().encode(JSON.stringify(data)),
+  );
+  vault.revision = 0;
+  await (await db()).add("vaults", vault);
+  return session(vault, key, data);
 }
 export async function unlockLocalProfile(id: string, password: string) {
   const vault = (await (await db()).get("vaults", id)) as Vault | undefined;

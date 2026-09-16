@@ -1,7 +1,7 @@
 import { Table } from "@suite/ui-web";
 import { useEffect, useState } from "react";
 import { moduleDefinitions } from "@suite/module-catalog";
-import { assertSchema, type ResourceRecord } from "@suite/module-sdk";
+import { createModuleClient, type ResourceRecord } from "@suite/module-sdk";
 import {
   listLocalProfiles,
   createLocalProfile,
@@ -60,7 +60,10 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
       }
     };
     document.addEventListener("visibilitychange", lock);
-    return () => document.removeEventListener("visibilitychange", lock);
+    return () => {
+      document.removeEventListener("visibilitychange", lock);
+      session?.lock();
+    };
   }, [session]);
   async function signIn() {
     setBusy(true);
@@ -259,25 +262,14 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
             e.preventDefault();
             setBusy(true);
             try {
-              assertSchema(selected.resource.schema, form);
-              const record: ResourceRecord = {
-                id: editing?.id ?? crypto.randomUUID(),
-                data: form,
-                version: (editing?.version ?? 0) + 1,
-                archived: false,
-                updatedAt: new Date().toISOString(),
-              };
-              await session!.save({
-                records: {
-                  ...session!.data.records,
-                  [key]: [
-                    ...(session!.data.records[key] ?? []).filter(
-                      (r) => r.id !== record.id,
-                    ),
-                    record,
-                  ],
-                },
-              });
+              const client = createModuleClient(selected.module, (call) =>
+                session!.execute(selected.module, call),
+              );
+              const resource = client.resource(
+                key.slice(selected.module.id.length + 1),
+              );
+              if (editing) await resource.update(editing.id, form, editing);
+              else await resource.create(form);
               setEditing(undefined);
               setRevision(revision + 1);
             } catch (e) {

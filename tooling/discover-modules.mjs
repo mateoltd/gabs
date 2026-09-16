@@ -61,9 +61,23 @@ const identities=new Map<string,(typeof staged)[number]>();
 for(const server of staged){const key=server.module.id+'@'+server.module.version;const previous=identities.get(key);if(previous && previous!==server)throw Error('Duplicate staged backend: '+key);identities.set(key,server);}
 export const moduleServers=[...identities.values()];
 `;
+const locals = [];
+for (const dir of modules) {
+  try {
+    await readFile(`modules/${dir}/module-local.ts`);
+    locals.push(dir);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+const localCatalog = `// Generated reviewed local handlers. Import only from a dedicated worker.
+import type {LocalModule} from '@suite/module-sdk/local';
+${locals.map((d, i) => `import l${i} from '../../../modules/${d}/module-local';`).join("\n")}
+export const localModules:LocalModule[]=[${locals.map((_, i) => `l${i}`).join(",")}];`;
 for (const [path, source] of [
   ["index", catalog],
   ["server", serverCatalog],
+  ["local", localCatalog],
 ]) {
   const file = `packages/module-catalog/src/${path}.ts`;
   const output = await format(source, { parser: "typescript" });

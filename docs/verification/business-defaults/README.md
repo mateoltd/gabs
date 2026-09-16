@@ -27,3 +27,7 @@ The uninstrumented repeat passed at 390/848 ms; the final audited-fixture [run](
 The [restore drill](restore.json) now reconciles both migrated business workspaces and namespaces initialized by the trusted host. It verifies balances, movements, reservations, orders and numbering, along with schema history, RLS and the retired-storage write fence. An empty newly initialized workspace may lack its lazy order counter; a migrated workspace or a workspace containing orders may not. Initialization and migration counts can overlap. Managed recovery and full service restoration remain OPS-03.
 
 The preceding commit `2bde7ab` / [CI 35130858941](https://github.com/mateoltd/gabs/actions/runs/35130858941) passed functional/build, browser, three unsigned packaging jobs and restore, but failed read latency at 598 ms; confirmation was 630 ms. Its two-core runner reported Intel Xeon Platinum 8370C. It predates the current scoped defaults and dependency-closure optimization. OPS-07 remains open until the current candidate has remote acceptance.
+
+## Remote follow-up
+
+`c4460ce` / [CI 35134819192](https://github.com/mateoltd/gabs/actions/runs/35134819192) passed code/build and three unsigned packaging jobs. Browser acceptance passed 69 cases; the fresh-company test completed its business assertions but timed out dismissing notifications through captured indexed locators after the list changed. The follow-up waits for natural notification expiry before capturing the page. Load and restore were skipped; no remote performance conclusion can be drawn from this run.

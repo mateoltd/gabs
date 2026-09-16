@@ -27,7 +27,10 @@ for (const group of ["apps", "packages", "modules"])
       browser =
         /^(apps\/web|packages\/(app-web|ui-web)|modules\/[^/]+\/web)\//.test(
           name,
-        ) || /apps\/desktop\/src\/renderer/.test(name),
+        ) ||
+        /apps\/desktop\/src\/renderer/.test(name) ||
+        /^modules\/[^/]+\/(module-local\.ts|local\/)/.test(name) ||
+        /^packages\/platform\/src\/local-worker/.test(name),
       owner = name.match(/^modules\/([^/]+)/)?.[1];
     const inspect = (node) => {
       const moduleNode =
