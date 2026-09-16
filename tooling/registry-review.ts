@@ -72,6 +72,7 @@ function verifySubmission(
       backend: module.backend,
       dependencies: module.dependencies,
       permissions: module.permissions,
+      ...(module.storage ? { storage: module.storage } : {}),
     })
   )
     throw Error("Manifest metadata differs from the signed module contract.");
@@ -80,9 +81,13 @@ function verifySubmission(
     if (canonical(row.server_package.payload.module) !== canonical(module))
       throw Error("Client and server contracts must match exactly.");
   }
-  if (Object.keys(module.operations).length && row.backend_kind === "none")
+  if (
+    (Object.keys(module.operations).length ||
+      Object.keys(module.storage?.migrations ?? {}).length) &&
+    row.backend_kind === "none"
+  )
     throw Error(
-      "Operation-bearing submissions require a signed server component.",
+      "Operation-bearing submissions and storage migrations require a signed server component.",
     );
   return module;
 }

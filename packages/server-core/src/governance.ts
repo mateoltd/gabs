@@ -1,3 +1,4 @@
+import { assertModuleStorage } from "./module-storage";
 import { assertSchema } from "@suite/module-sdk";
 import { randomUUID } from "node:crypto";
 import { type Bootstrap } from "@suite/contracts";
@@ -662,6 +663,7 @@ export async function configureModule(
     .executeTakeFirst();
   const config = input.config ?? existing?.config ?? {};
   if (input.state === "enabled") {
+    await assertModuleStorage(tx, ctx.workspaceId, definition);
     assertSchema(definition.configuration, config);
     requireCondition(
       entitlement?.active,

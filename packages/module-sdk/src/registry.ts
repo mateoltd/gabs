@@ -1,5 +1,7 @@
+import { supportsStorage } from "./storage";
 import { compare, satisfies } from "semver";
 export interface ReleaseManifest {
+  storage?: import("./storage").StorageContract;
   id: string;
   version: string;
   publisher: string;
@@ -9,6 +11,24 @@ export interface ReleaseManifest {
   permissions: readonly string[];
 }
 export { compare as compareVersions, satisfies } from "semver";
+/** Prefer a release that can use current data; retain explicit pins and initial-install metadata. */
+export function storageCompatibleReleases(
+  releases: readonly ReleaseManifest[],
+  versions: ReadonlyMap<string, number>,
+  pins: Record<string, string> = {},
+) {
+  const available = new Set(
+    releases
+      .filter((m) => supportsStorage(m, versions.get(m.id) ?? 1))
+      .map((m) => m.id),
+  );
+  return releases.filter(
+    (m) =>
+      pins[m.id] ||
+      !available.has(m.id) ||
+      supportsStorage(m, versions.get(m.id) ?? 1),
+  );
+}
 export function resolveReleases(
   id: string,
   releases: readonly ReleaseManifest[],

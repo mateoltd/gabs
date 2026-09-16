@@ -33,6 +33,7 @@ export function signPackage(
     backend: module.backend,
     dependencies: module.dependencies,
     permissions: module.permissions,
+    ...(module.storage ? { storage: module.storage } : {}),
   };
   const digest = createHash("sha256").update(canonical(artifact)).digest("hex");
   const key_id = createHash("sha256")

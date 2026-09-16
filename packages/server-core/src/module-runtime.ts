@@ -1,3 +1,4 @@
+import { assertModuleStorage } from "./module-storage";
 import { workspaceModule } from "./module-releases";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
@@ -130,6 +131,7 @@ export async function executeResource(
     "Your role does not allow this operation.",
   );
   await checkModule(tx, ctx.workspaceId, ctx.membershipId, moduleId);
+  await assertModuleStorage(tx, ctx.workspaceId, module);
   requireCondition(
     resource.policy !== "local",
     400,
@@ -250,6 +252,21 @@ export async function executeResource(
     "RECORD_ARCHIVED",
     "This record has been archived.",
   );
+  const stored = await tx
+    .selectFrom("suite.module_storage")
+    .select(["schema_version", "release_version"])
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("module_id", "=", moduleId)
+    .executeTakeFirst();
+  if (stored && stored.schema_version !== (module.storage?.version ?? 1)) {
+    const storageModule = await workspaceModule(
+      tx,
+      ctx.workspaceId,
+      moduleId,
+      stored.release_version,
+    );
+    assertSchema(found(storageModule.resources[command.resource]).schema, data);
+  }
   const version = (old?.version ?? 0) + 1;
   const now = new Date();
   if (old)

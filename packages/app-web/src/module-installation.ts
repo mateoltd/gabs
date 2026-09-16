@@ -7,6 +7,7 @@ import {
 import {
   canonical,
   resolveReleases,
+  storageCompatibleReleases,
   type ReleaseManifest,
 } from "@suite/module-sdk/registry";
 import type { PlatformState, SignedArtifact } from "@suite/module-sdk/platform";
@@ -87,7 +88,13 @@ export async function installModule(
       );
       const plan = resolveReleases(
         id,
-        state.releases.map((r) => r.manifest as unknown as ReleaseManifest),
+        storageCompatibleReleases(
+          state.releases.map((r) => r.manifest as unknown as ReleaseManifest),
+          new Map(
+            (state.storage ?? []).map((s) => [s.module_id, s.schema_version]),
+          ),
+          pins,
+        ),
         "1.0.0",
         "1.0.0",
         pins,

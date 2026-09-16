@@ -1,3 +1,4 @@
+import { defineModuleServer } from "@suite/module-sdk/server";
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import {
@@ -288,5 +289,52 @@ describe("Durable journal", () => {
       () => false,
     );
     expect(calls).toBe(0);
+  });
+});
+
+describe("Module storage contracts", () => {
+  it("requires matching typed migration handlers and rejects ambiguous or backward paths", () => {
+    const module = defineModule({
+      ...contacts,
+      storage: {
+        version: 2,
+        compatible: { minimum: 1, maximum: 2 },
+        migrations: { upgrade: { from: 1, to: 2 } },
+      },
+    });
+    defineModuleServer(module)({}, { upgrade: async () => {} });
+    if (false) {
+      // @ts-expect-error Declared migrations require a handler map.
+      defineModuleServer(module)({});
+      // @ts-expect-error The handler must use a declared migration identifier.
+      defineModuleServer(module)({}, { typo: async () => {} });
+    }
+    expect(() =>
+      defineModule({
+        ...module,
+        storage: {
+          ...module.storage,
+          migrations: { upgrade: { from: 2, to: 1 } },
+        },
+      }),
+    ).toThrow(/migration/);
+    expect(() =>
+      defineModule({
+        ...module,
+        storage: {
+          ...module.storage,
+          migrations: {
+            upgrade: { from: 1, to: 2 },
+            duplicate: { from: 1, to: 2 },
+          },
+        },
+      }),
+    ).toThrow(/ambiguous/);
+    expect(() =>
+      defineModule({
+        ...module,
+        storage: { ...module.storage, compatible: { minimum: 1, maximum: 1 } },
+      }),
+    ).toThrow(/compatibility/);
   });
 });

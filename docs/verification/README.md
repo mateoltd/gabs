@@ -143,3 +143,7 @@ Release resolution now fetches selected executable packages after resolving meta
 ## 16 September 2026: official release review console
 
 The protected operator console completes EXT-02's local submission/review/stage/publish interface. The actual CLI, restricted-role HTTP checks, an approval/publication and rejection browser journey, accessibility and narrow layout were verified; all 64 unit/PostgreSQL tests passed. [Evidence, screenshots and limits](registry-console/README.md). EXT-03 is active next; hosted release gates and remote latency remain open.
+
+## 16 September 2026: scoped module storage migrations
+
+EXT-03 is verified locally: signed schema declarations, typed scoped handlers, atomic failure/crash recovery, concurrent retries, reference validation, compatible pins and administrator migration/retry controls. Final checks passed 66 unit/PostgreSQL tests, 58 Chromium journeys, 5 Electron journeys, all builds, formatting and local restore including module schema history and tenant isolation. Local p95 reads/confirmation: 150/233 ms. [Detailed evidence, screenshots and limitations](module-migrations/README.md). EXT-04 is active next. Remote CI at `e5be7b0` failed its unchanged read-latency target at 925 ms; that gate remains open.

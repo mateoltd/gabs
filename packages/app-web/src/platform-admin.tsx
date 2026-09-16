@@ -1,3 +1,5 @@
+import { storageContract } from "@suite/module-sdk";
+import type { ReleaseManifest } from "@suite/module-sdk/registry";
 import { Table } from "@suite/ui-web";
 import { PERMISSIONS } from "@suite/contracts";
 import { deviceId, installModule } from "./module-installation";
@@ -5,7 +7,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleDefinition } from "@suite/module-catalog";
-import { canonical, resolveReleases } from "@suite/module-sdk/registry";
+import {
+  canonical,
+  resolveReleases,
+  compareVersions,
+} from "@suite/module-sdk/registry";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import {
   effectivePermissions,
@@ -70,7 +76,8 @@ export function ModuleLifecycle(
     [busy, setBusy] = useState(""),
     [selected, setSelected] = useState(""),
     [config, setConfig] = useState<Record<string, unknown>>({}),
-    [pin, setPin] = useState("");
+    [pin, setPin] = useState(""),
+    [migrationVersion, setMigrationVersion] = useState("");
   const admin = props.bootstrap.permissions.includes("modules.manage");
   const command = async (
     action: string,
@@ -100,6 +107,16 @@ export function ModuleLifecycle(
   const install = (id: string) => installModule(props, state.data!, id, true);
   if (state.isPending) return <Loading />;
   const selectedModule = state.data?.modules.find((m) => m.id === selected);
+  const migrationReleases = (state.data?.releases ?? [])
+    .filter((r) => r.module_id === selected)
+    .sort((a, b) => compareVersions(b.version, a.version));
+  const storedSchema =
+    state.data?.storage?.find((s) => s.module_id === selected)
+      ?.schema_version ?? 1;
+  const targetStorage = storageContract(
+    (migrationReleases.find((r) => r.version === migrationVersion)?.manifest ??
+      {}) as unknown as ReleaseManifest,
+  );
   const store = state.data?.settings.find((s) => s.key === "store-policy");
   if (!admin && store?.value.mode === "blocked")
     return (
@@ -210,6 +227,14 @@ export function ModuleLifecycle(
                   <Button
                     onClick={() => {
                       setSelected(module.id);
+                      setError(undefined);
+                      setMigrationVersion(
+                        state.data.releases
+                          .filter((r) => r.module_id === module.id)
+                          .sort((a, b) =>
+                            compareVersions(b.version, a.version),
+                          )[0]?.version ?? "",
+                      );
                       setConfig(
                         state.data.config.find((c) => c.moduleId === module.id)
                           ?.config ?? {},
@@ -334,6 +359,72 @@ export function ModuleLifecycle(
                 </div>
               );
             })}
+            {migrationReleases.some(
+              (r) =>
+                storageContract(r.manifest as unknown as ReleaseManifest)
+                  .version > 1,
+            ) && (
+              <section
+                className="form-stack"
+                aria-label="Module storage migration"
+              >
+                <h3>Stored data schema</h3>
+                <p>
+                  Current schema: {storedSchema}. Migrations move forward and
+                  preserve existing data if they fail. Older releases must
+                  declare compatibility with the resulting schema.
+                </p>
+                <Field label="Migration target release">
+                  <Select
+                    value={migrationVersion}
+                    onValueChange={(v) => setMigrationVersion(v ?? "")}
+                  >
+                    {migrationReleases.map((release) => (
+                      <SelectOption
+                        key={release.version}
+                        value={release.version}
+                      >
+                        {release.version} (schema{" "}
+                        {
+                          storageContract(
+                            release.manifest as unknown as ReleaseManifest,
+                          ).version
+                        }
+                        )
+                      </SelectOption>
+                    ))}
+                  </Select>
+                </Field>
+                {targetStorage.version > storedSchema && (
+                  <ul>
+                    {Object.entries(targetStorage.migrations)
+                      .filter(([, step]) => step.from >= storedSchema)
+                      .map(([name, step]) => (
+                        <li key={name}>
+                          {name}: schema {step.from} to {step.to}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+                <Button
+                  disabled={
+                    !!busy ||
+                    !migrationVersion ||
+                    targetStorage.version <= storedSchema
+                  }
+                  onClick={() =>
+                    void act(selected, () =>
+                      command("migrate", {
+                        moduleId: selected,
+                        version: migrationVersion,
+                      }),
+                    )
+                  }
+                >
+                  Migrate storage
+                </Button>
+              </section>
+            )}
             <Field label="Pinned version (empty follows current release)">
               <Input value={pin} onChange={(e) => setPin(e.target.value)} />
             </Field>

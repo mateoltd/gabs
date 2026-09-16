@@ -1,3 +1,4 @@
+import { moduleStorageVersions } from "./module-storage";
 import { readFile } from "node:fs/promises";
 import {
   moduleDefinition,
@@ -8,6 +9,7 @@ import { PLATFORM_PERMISSIONS } from "@suite/contracts";
 import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
 import {
   resolveReleases,
+  storageCompatibleReleases,
   type ReleaseManifest,
 } from "@suite/module-sdk/registry";
 import { verifyPackage } from "../../module-sdk/node/signing";
@@ -24,7 +26,9 @@ export async function resolveWorkspaceRelease(
   workspaceId: string,
   id: string,
   allowUnpublishedBuiltin = false,
+  targetVersion?: string,
 ) {
+  const storage = await moduleStorageVersions(tx, workspaceId);
   const releases = await tx
     .selectFrom("suite.module_releases")
     .select(["module_id", "version", "manifest"])
@@ -42,11 +46,15 @@ export async function resolveWorkspaceRelease(
       .filter((r) => r.value.version)
       .map((r) => [r.key.slice(4), String(r.value.version)]),
   );
+  if (targetVersion) pins[id] = targetVersion;
+  const manifests = releases.map(
+    (r) => r.manifest as unknown as ReleaseManifest,
+  );
   let plan: ReleaseManifest[];
   try {
     plan = resolveReleases(
       id,
-      releases.map((r) => r.manifest as unknown as ReleaseManifest),
+      storageCompatibleReleases(manifests, storage, pins),
       "1.0.0",
       "1.0.0",
       pins,
@@ -86,8 +94,15 @@ export async function workspaceModule(
   tx: Tx,
   workspaceId: string,
   id: string,
+  version?: string,
 ): Promise<ModuleDefinition> {
-  const plan = await resolveWorkspaceRelease(tx, workspaceId, id, true);
+  const plan = await resolveWorkspaceRelease(
+    tx,
+    workspaceId,
+    id,
+    true,
+    version,
+  );
   if (!plan.length) return found(moduleDefinition(id));
   return hydrateModule(
     found(plan.find((p) => p.module_id === id))
@@ -95,15 +110,27 @@ export async function workspaceModule(
   );
 }
 
-export async function workspaceDependencyIds(
+export async function workspaceDependencies(
   tx: Tx,
   workspaceId: string,
   id: string,
 ) {
   const plan = await resolveWorkspaceRelease(tx, workspaceId, id, true);
-  if (plan.length) return plan.map((release) => release.module_id);
+  if (plan.length)
+    return plan.map((release) =>
+      hydrateModule(release.artifact as unknown as ModuleDefinition),
+    );
   found(moduleDefinition(id));
-  return moduleDependencies(id);
+  return moduleDependencies(id).map((name) => found(moduleDefinition(name)));
+}
+export async function workspaceDependencyIds(
+  tx: Tx,
+  workspaceId: string,
+  id: string,
+) {
+  return (await workspaceDependencies(tx, workspaceId, id)).map(
+    (module) => module.id,
+  );
 }
 
 export async function registeredModuleIds(tx: Tx) {

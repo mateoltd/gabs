@@ -56,8 +56,15 @@ try {
   );
   if (Object.values(invariant.rows[0]).some((v) => Number(v) !== 0))
     throw Error("Restored business invariants failed");
+  const migrationInvariant = await restored.query(
+    `SELECT count(*) AS invalid_schema_history FROM suite.module_migrations m
+     LEFT JOIN suite.module_storage s USING(workspace_id,module_id)
+     WHERE s.schema_version IS NULL OR s.schema_version < m.to_version`,
+  );
+  if (Number(migrationInvariant.rows[0].invalid_schema_history) !== 0)
+    throw Error("Restored module schema history is inconsistent");
   const counts = await restored.query(
-    "SELECT (SELECT count(*) FROM suite.workspaces) workspaces,(SELECT count(*) FROM suite.orders) orders,(SELECT count(*) FROM suite.stock_movements) movements",
+    "SELECT (SELECT count(*) FROM suite.workspaces) workspaces,(SELECT count(*) FROM suite.orders) orders,(SELECT count(*) FROM suite.stock_movements) movements,(SELECT count(*) FROM suite.module_storage) module_schemas,(SELECT count(*) FROM suite.module_migrations) module_migrations",
   );
   const role = await restored.connect();
   try {
@@ -65,6 +72,11 @@ try {
     await role.query("SET LOCAL ROLE suite_app");
     const hidden = await role.query("SELECT * FROM suite.orders");
     if (hidden.rowCount) throw Error("Unscoped restored RLS leaked orders");
+    for (const table of ["module_storage", "module_migrations"]) {
+      const hidden = await role.query(`SELECT * FROM suite.${table}`);
+      if (hidden.rowCount)
+        throw Error("Unscoped restored RLS leaked module schemas");
+    }
     await role.query("ROLLBACK");
   } finally {
     role.release();
@@ -75,8 +87,8 @@ try {
     durationSeconds: Math.round((Date.now() - start) / 1000),
     dumpBytes: dump.length,
     counts: counts.rows[0],
-    invariants: invariant.rows[0],
-    rls: "Unscoped application role sees no orders",
+    invariants: { ...invariant.rows[0], ...migrationInvariant.rows[0] },
+    rls: "Unscoped application role sees no orders, module schemas or migration history",
     limitation:
       "This verifies logical recovery locally. Managed PITR, offsite backup retention and infrastructure recovery require a staging exercise.",
   };

@@ -1,3 +1,10 @@
+import { validateStorageContract, type StorageContract } from "./storage";
+export {
+  storageContract,
+  supportsStorage,
+  type StorageContract,
+  type MigrationContext,
+} from "./storage";
 import {
   Type,
   type Static,
@@ -83,6 +90,7 @@ export function operation<const O extends Operation>(definition: O): O {
   return definition;
 }
 export interface ModuleDefinition {
+  storage?: StorageContract;
   id: string;
   name: string;
   version: string;
@@ -123,6 +131,7 @@ export function defineModule<const M extends ModuleDefinition>(
     navigation?: { view?: keyof NonNullable<M["views"]> & string };
   },
 ): M {
+  if (definition.storage) validateStorageContract(definition.storage);
   if (!identifier.test(definition.id))
     throw new Error("Module IDs must be lowercase slugs.");
   if (definition.navigation) {

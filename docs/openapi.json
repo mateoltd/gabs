@@ -11428,6 +11428,12 @@
                       {
                         "type": "string",
                         "enum": [
+                          "migrate"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
                           "pin"
                         ]
                       }

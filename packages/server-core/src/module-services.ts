@@ -1,3 +1,4 @@
+import { assertModuleStorage } from "./module-storage";
 import { assertSchema, type ModuleDefinition } from "@suite/module-sdk";
 import { canonical, satisfies } from "@suite/module-sdk/registry";
 import {
@@ -39,6 +40,7 @@ export async function executeModuleOperation(
       operation.permission,
       module.id,
     );
+    await assertModuleStorage(tx, ctx.workspaceId, module);
     requireCondition(
       operation.policy !== "local",
       400,

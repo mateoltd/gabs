@@ -2,6 +2,11 @@ import type { ModuleDefinition } from "./index";
 import type { OrganizationPolicy } from "./governance";
 export interface PlatformState {
   modules: ModuleDefinition[];
+  storage?: {
+    module_id: string;
+    schema_version: number;
+    release_version: string;
+  }[];
   installations: {
     module_id: string;
     device_id: string;

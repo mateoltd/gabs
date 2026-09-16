@@ -6,7 +6,8 @@ import { moduleDefinition } from "@suite/module-catalog";
 import { sql } from "kysely";
 import type { Tx } from "./database";
 import { requireCondition } from "./errors";
-import { workspaceDependencyIds } from "./module-releases";
+import { workspaceDependencies } from "./module-releases";
+import { assertModuleStorage, lockModuleStorage } from "./module-storage";
 import type { Permission, ModuleId } from "@suite/contracts";
 export interface Actor {
   id: string;
@@ -114,7 +115,8 @@ export async function checkModule(
   membershipId: string,
   moduleId: ModuleId,
 ) {
-  const ids = await workspaceDependencyIds(tx, workspaceId, moduleId);
+  const definitions = await workspaceDependencies(tx, workspaceId, moduleId);
+  const ids = definitions.map((module) => module.id);
   const modules = await tx
     .selectFrom("suite.module_activations as m")
     .innerJoin("suite.entitlements as e", (j) =>
@@ -132,7 +134,9 @@ export async function checkModule(
     .where("m.workspace_id", "=", workspaceId)
     .where("m.module_id", "in", ids)
     .execute();
-  for (const id of ids) {
+  for (const definition of definitions) {
+    const id = definition.id;
+    await assertModuleStorage(tx, workspaceId, definition);
     const module = modules.find((m) => m.module_id === id);
     requireCondition(
       module?.active && module.state === "enabled",
@@ -149,6 +153,7 @@ export async function checkModule(
   }
 }
 export async function lockWorkspace(tx: Tx, id: string) {
+  await lockModuleStorage(tx, id);
   await tx
     .selectFrom("suite.workspaces")
     .select("id")

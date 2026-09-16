@@ -11,6 +11,21 @@ type Time = ColumnType<Date, Date | string | undefined, Date | string>;
 type Base = { id: string; created_at: Time };
 type Tenant = { workspace_id: string };
 export interface Database {
+  "suite.module_storage": Tenant & {
+    module_id: string;
+    schema_version: number;
+    release_version: string;
+    updated_at: Time;
+  };
+  "suite.module_migrations": Tenant & {
+    module_id: string;
+    from_version: number;
+    to_version: number;
+    migration_id: string;
+    release_version: string;
+    actor_id: string;
+    applied_at: Time;
+  };
   "suite.module_publishers": { id: string; name: string; status: string };
   "suite.module_submissions": {
     id: string;
@@ -248,16 +263,28 @@ export type DB = Kysely<Database>;
 export type Tx = Transaction<Database>;
 export function connectDatabase(url = process.env.DATABASE_URL) {
   if (!url) throw Error("DATABASE_URL is required");
-  return new Kysely<Database>({
-    dialect: new PostgresDialect({
-      pool: new Pool({
-        connectionString: url,
-        max: 20,
-        connectionTimeoutMillis: 5000,
-        statement_timeout: 15000,
-      }),
-    }),
+  const pool = new Pool({
+    connectionString: url,
+    max: 20,
+    connectionTimeoutMillis: 5000,
+    statement_timeout: 15000,
   });
+  // pg emits errors outside pending queries on both checked-out and idle clients.
+  // Report the signal without credentials; pending transactions still reject normally.
+  pool.on("connect", (client) =>
+    client.on("error", (error: Error & { code?: string }) => {
+      console.error(
+        JSON.stringify({
+          event: "database.connection.error",
+          code: error.code ?? "CONNECTION_LOST",
+        }),
+      );
+    }),
+  );
+  pool.on("error", () => {
+    /* Already reported by the client listener; pg removes the idle connection. */
+  });
+  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 }
 export async function inWorkspace<T>(
   db: DB,

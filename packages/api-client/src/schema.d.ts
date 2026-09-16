@@ -5320,7 +5320,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    action: "organization" | "store-policy" | "grant" | "appearance" | "install" | "uninstall" | "pin";
+                    action: "organization" | "store-policy" | "grant" | "appearance" | "install" | "uninstall" | "migrate" | "pin";
                     value: {
                         [key: string]: unknown;
                     };

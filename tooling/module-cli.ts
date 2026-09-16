@@ -162,7 +162,10 @@ if (command === "keygen") {
   await mkdir(".local/modules", { recursive: true });
   const path = `.local/modules/${module.id}-${module.version}.json`;
   await writeFile(path, JSON.stringify(pkg, null, 2));
-  if (Object.keys(module.operations).length) {
+  if (
+    Object.keys(module.operations).length ||
+    Object.keys(module.storage?.migrations ?? {}).length
+  ) {
     const builtin = moduleServers.find(
       (server) =>
         server.kind === "trusted" &&

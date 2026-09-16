@@ -1,3 +1,5 @@
+import { migrateModuleStorage } from "../../../packages/server-core/src/module-migrations";
+import { lockModuleStorage } from "../../../packages/server-core/src/module-storage";
 import { executeModuleOperation } from "../../../packages/server-core/src/module-services";
 import { moduleServers } from "@suite/module-catalog/server";
 import {
@@ -343,6 +345,11 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           .execute();
         return {
           modules: definitions,
+          storage: await tx
+            .selectFrom("suite.module_storage")
+            .select(["module_id", "schema_version", "release_version"])
+            .where("workspace_id", "=", ctx.workspaceId)
+            .execute(),
           installations: installs,
           releases: releases.filter((r) =>
             definitions.some((m) => m.id === r.module_id),
@@ -452,6 +459,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 "appearance",
                 "install",
                 "uninstall",
+                "migrate",
                 "pin",
               ].map((v) => T.Literal(v)),
             ),
@@ -479,6 +487,11 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           req.id,
           permission,
         );
+        await lockModuleStorage(
+          tx,
+          ctx.workspaceId,
+          req.body.action === "migrate",
+        );
         return idempotent(
           tx,
           ctx,
@@ -488,6 +501,25 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           async () => {
             await lockWorkspace(tx, ctx.workspaceId);
             const value = req.body.value;
+            if (req.body.action === "migrate") {
+              assertSchema(
+                T.Object(
+                  {
+                    moduleId: slug,
+                    version: T.String({ minLength: 1, maxLength: 40 }),
+                  },
+                  { additionalProperties: false },
+                ),
+                value,
+              );
+              return migrateModuleStorage(
+                tx,
+                ctx,
+                value.moduleId,
+                value.version,
+                moduleServers,
+              );
+            }
             if (
               req.body.action === "install" ||
               req.body.action === "uninstall"
