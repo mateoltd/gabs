@@ -1,3 +1,4 @@
+import { createStores, type ModuleStores, type StoreTransport } from "./store";
 import {
   assertSchema,
   createModuleClient,
@@ -76,6 +77,7 @@ export interface ModuleContext<M extends ModuleDefinition> {
   readonly configuration: Readonly<Configuration<M>>;
   hasPermission(permission: M["permissions"][number]): boolean;
   resource: ModuleResources<M>;
+  store: ModuleStores<M>;
   emit<K extends keyof ModuleEvents<M> & string>(
     event: K,
     payload: Static<ModuleEvents<M>[K]>,
@@ -99,6 +101,7 @@ export interface ModuleCapabilities {
   permissions: readonly string[];
   configuration: unknown;
   resource: ModuleTransport;
+  store?: StoreTransport;
   emit(event: string, payload: unknown): Promise<void>;
   service(name: string, input: unknown): Promise<unknown>;
 }
@@ -116,6 +119,7 @@ export function createModuleContext<M extends ModuleDefinition>(
       module.permissions.includes(permission) &&
       capabilities.permissions.includes(permission),
     resource: createModuleClient(module, capabilities.resource).resource,
+    store: createStores(module, capabilities.store),
     emit(name: string, payload: unknown) {
       const schema = module.events?.[name];
       if (!schema) throw Error(`Undeclared event: ${module.id}.${name}`);

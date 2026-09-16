@@ -152,6 +152,8 @@ async function applyMigration(
       "Stage the exact reviewed migration backend before changing stored data.",
     );
   for (const step of steps) {
+    const validNamespace = (name: string) =>
+      identifier.test(name.startsWith("$") ? name.slice(1) : name);
     let closed = false,
       failed = false,
       failure: unknown;
@@ -181,10 +183,28 @@ async function applyMigration(
       workspaceId: ctx.workspaceId,
       from: step.from,
       to: step.to,
+      store: (name) => {
+        requireCondition(
+          identifier.test(name),
+          400,
+          "INVALID_STORE",
+          "Use a private store name in this module.",
+        );
+        const namespace = `$${name}`;
+        return Object.freeze({
+          scan: (after?: string) => context.scan(namespace, after),
+          create: (data: Record<string, unknown>, id?: string) =>
+            context.create(namespace, data, id),
+          archive: (id: string, version: number) =>
+            context.archive(namespace, id, version),
+          write: (id: string, data: Record<string, unknown>, version: number) =>
+            context.write(namespace, id, data, version),
+        });
+      },
       scan: (resource, after) =>
         guarded(async () => {
           requireCondition(
-            identifier.test(resource),
+            validNamespace(resource),
             400,
             "INVALID_RESOURCE",
             "Migration resources must be valid names in this module namespace.",
@@ -207,12 +227,15 @@ async function applyMigration(
       create: (resource, data, id = randomUUID()) =>
         guarded(async () => {
           requireCondition(
-            Object.hasOwn(module.resources, resource),
+            resource.startsWith("$")
+              ? Object.hasOwn(module.stores ?? {}, resource.slice(1))
+              : Object.hasOwn(module.resources, resource),
             400,
             "INVALID_RESOURCE",
             "Create records only in resources declared by the target module.",
           );
-          await validateReferences(tx, ctx, module, resource, data);
+          if (!resource.startsWith("$"))
+            await validateReferences(tx, ctx, module, resource, data);
           await tx
             .insertInto("suite.module_records")
             .values({
@@ -243,7 +266,7 @@ async function applyMigration(
       archive: (resource, id, expectedVersion) =>
         guarded(async () => {
           requireCondition(
-            identifier.test(resource) && Number.isSafeInteger(expectedVersion),
+            validNamespace(resource) && Number.isSafeInteger(expectedVersion),
             400,
             "INVALID_RECORD",
             "Supply a resource and current record version.",
@@ -283,7 +306,7 @@ async function applyMigration(
       write: (resource, id, data, expectedVersion) =>
         guarded(async () => {
           requireCondition(
-            identifier.test(resource) && Number.isSafeInteger(expectedVersion),
+            validNamespace(resource) && Number.isSafeInteger(expectedVersion),
             400,
             "INVALID_RECORD",
             "Supply a resource and current record version.",
@@ -375,7 +398,15 @@ async function applyMigration(
       .execute();
   }
   // Validate every retained record, including archived records, before committing the schema version.
-  for (const [resource, definition] of Object.entries(module.resources)) {
+  for (const [resource, definition] of Object.entries({
+    ...module.resources,
+    ...Object.fromEntries(
+      Object.entries(module.stores ?? {}).map(([name, store]) => [
+        `$${name}`,
+        store,
+      ]),
+    ),
+  })) {
     let cursor: string | undefined;
     for (;;) {
       let query = tx
@@ -393,6 +424,30 @@ async function applyMigration(
       if (records.length < 100) break;
       cursor = records.at(-1)!.id;
     }
+    if (resource.startsWith("$"))
+      for (const field of module.stores![resource.slice(1)].unique) {
+        const value = sql`data -> ${field}`;
+        const duplicate = await tx
+          .selectFrom("suite.module_records")
+          .select(value.as("value"))
+          .where("workspace_id", "=", ctx.workspaceId)
+          .where("module_id", "=", moduleId)
+          .where("resource", "=", resource)
+          .where("archived", "=", false)
+          .where(
+            sql<boolean>`${value} IS NOT NULL AND ${value} != 'null'::jsonb`,
+          )
+          .groupBy("value")
+          .having(sql<boolean>`count(*) > 1`)
+          .limit(1)
+          .executeTakeFirst();
+        requireCondition(
+          !duplicate,
+          409,
+          "STORE_UNIQUE_CONFLICT",
+          `Migration creates duplicate values for ${resource.slice(1)}.${field}.`,
+        );
+      }
   }
   await tx
     .insertInto("suite.module_storage")

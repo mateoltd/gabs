@@ -85,12 +85,12 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
           : `name:field.text(), category:${schema === 2 ? "field.text()" : "Type.Optional(field.text())"}`;
       await writeFile(
         resolve(folder, "module.ts"),
-        `import {defineModule,resource,field,Type} from '@suite/module-sdk'; export default defineModule({id:'${id}',name:'Migration notes',version:'${version}',description:'Migration acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.notes.read','${id}.notes.write'],configuration:Type.Object({}),operations:{},resources:{notes:resource({${properties},sibling:Type.Optional(field.reference('${id}','notes')),assignee:Type.Optional(field.member()),contact:Type.Optional(field.reference('contacts','people'))},{title:'Notes'})},storage:{version:${schema},compatible:{minimum:${schema},maximum:${max}},migrations:${schema === 2 ? "{'add-category':{from:1,to:2}}" : "{}"}}});`,
+        `import {defineModule,resource,store,field,Type} from '@suite/module-sdk'; export default defineModule({id:'${id}',name:'Migration notes',version:'${version}',description:'Migration acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.notes.read','${id}.notes.write'],configuration:Type.Object({}),operations:{},stores:{balances:store({${properties}},{unique:['name']})},resources:{notes:resource({${properties},sibling:Type.Optional(field.reference('${id}','notes')),assignee:Type.Optional(field.member()),contact:Type.Optional(field.reference('contacts','people'))},{title:'Notes'})},storage:{version:${schema},compatible:{minimum:${schema},maximum:${max}},migrations:${schema === 2 ? "{'add-category':{from:1,to:2}}" : "{}"}}});`,
       );
       if (schema === 2)
         await writeFile(
           resolve(folder, "module-server.ts"),
-          `import {defineModuleServer} from '@suite/module-sdk/server'; import module from './module'; export default defineModuleServer(module)({}, {'add-category':async(ctx)=>{let cursor;do{const page=await ctx.scan('notes',cursor);for(const row of page.items){await ctx.write('notes',row.id,{...row.data,category:'general',...(row.data.name==='invalid-write'?{sibling:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{}),...(row.data.name==='invalid-member'?{assignee:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{}),...(row.data.name==='invalid-cross-module'?{contact:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{})},row.version);if(row.data.name==='invalid-create')await ctx.create('notes',{name:'Invalid',category:'general',sibling:'ffffffff-ffff-4fff-8fff-ffffffffffff'});if(row.data.name==='fail')throw Error('Fixture migration rejected');}cursor=page.next??undefined;}while(cursor);const legacy=await ctx.scan('legacy');for(const row of legacy.items){await ctx.create('notes',{name:row.data.name,category:'general'},row.id);await ctx.archive('legacy',row.id,row.version);}}});`,
+          `import {defineModuleServer} from '@suite/module-sdk/server'; import module from './module'; export default defineModuleServer(module)({}, {'add-category':async(ctx)=>{const balances=ctx.store('balances');const privatePage=await balances.scan();for(const row of privatePage.items)await balances.write(row.id,{...row.data,category:'general'},row.version);const oldStore=ctx.store('old-balances');for(const row of (await oldStore.scan()).items){await balances.create({...row.data,category:'general'},row.id);await oldStore.archive(row.id,row.version);}let cursor;do{const page=await ctx.scan('notes',cursor);for(const row of page.items){await ctx.write('notes',row.id,{...row.data,category:'general',...(row.data.name==='invalid-write'?{sibling:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{}),...(row.data.name==='invalid-member'?{assignee:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{}),...(row.data.name==='invalid-cross-module'?{contact:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{})},row.version);if(row.data.name==='invalid-create')await ctx.create('notes',{name:'Invalid',category:'general',sibling:'ffffffff-ffff-4fff-8fff-ffffffffffff'});if(row.data.name==='fail')throw Error('Fixture migration rejected');}cursor=page.next??undefined;}while(cursor);const legacy=await ctx.scan('legacy');for(const row of legacy.items){await ctx.create('notes',{name:row.data.name,category:'general'},row.id);await ctx.archive('legacy',row.id,row.version);}}});`,
         );
       const module = (
         await import(pathToFileURL(resolve(folder, "module.ts")).href)
@@ -153,6 +153,17 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
               archived: false,
               updated_at: new Date(),
             },
+            ...["balances", "old-balances"].map((name) => ({
+              workspace_id: ws,
+              module_id: id,
+              resource: `$${name}`,
+              id: randomUUID(),
+              data: { name: `Private ${name}` },
+              created_by: user.id,
+              version: 1,
+              archived: false,
+              updated_at: new Date(),
+            })),
             {
               workspace_id: ws,
               module_id: "foreign-module",
@@ -381,7 +392,58 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
       "update suite.module_records set data=$3 where workspace_id=$1 and module_id=$2 and id=$4",
       [workspace, id, { name: "first", sibling: second }, first],
     );
+    // Private-store migrations must reject duplicate unique values and roll back their earlier writes.
+    const duplicate = randomUUID();
+    await admin.query(
+      "insert into suite.module_records(workspace_id,module_id,resource,id,data,created_by) values($1,$2,'$balances',$3,$4,$5)",
+      [workspace, id, duplicate, { name: "Private old-balances" }, user.id],
+    );
+    await expect(apply()).rejects.toMatchObject({
+      code: "STORE_UNIQUE_CONFLICT",
+    });
+    expect(
+      (
+        await admin.query(
+          "select version from suite.module_records where workspace_id=$1 and module_id=$2 and resource='$old-balances'",
+          [workspace, id],
+        )
+      ).rows,
+    ).toEqual([{ version: 1 }]);
+    await admin.query(
+      "delete from suite.module_records where workspace_id=$1 and module_id=$2 and resource='$balances' and id=$3",
+      [workspace, id, duplicate],
+    );
     const results = await Promise.all([apply(), apply()]);
+    expect(
+      (
+        await admin.query(
+          "select data,version from suite.module_records where workspace_id=$1 and module_id=$2 and resource='$balances' order by data->>'name'",
+          [workspace, id],
+        )
+      ).rows,
+    ).toEqual([
+      { data: { name: "Private balances", category: "general" }, version: 2 },
+      {
+        data: { name: "Private old-balances", category: "general" },
+        version: 1,
+      },
+    ]);
+    expect(
+      (
+        await admin.query(
+          "select archived from suite.module_records where workspace_id=$1 and module_id=$2 and resource='$old-balances'",
+          [workspace, id],
+        )
+      ).rows,
+    ).toEqual([{ archived: true }]);
+    expect(
+      (
+        await admin.query(
+          "select data,version from suite.module_records where workspace_id=$1 and module_id=$2 and resource='$balances'",
+          [foreign, id],
+        )
+      ).rows,
+    ).toEqual([{ data: { name: "Private balances" }, version: 1 }]);
     expect(results.map((r) => r.applied.length).sort()).toEqual([0, 1]);
     const migrated = await snapshot();
     expect(migrated).toHaveLength(104);

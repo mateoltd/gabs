@@ -1,4 +1,5 @@
 import { assertModuleStorage } from "./module-storage";
+import { executeStore } from "./module-stores";
 import { assertSchema, type ModuleDefinition } from "@suite/module-sdk";
 import { canonical, satisfies } from "@suite/module-sdk/registry";
 import {
@@ -113,6 +114,8 @@ export async function executeModuleOperation(
           requestId: ctx.requestId,
           permissions: ctx.permissions,
           configuration: activation.config,
+          store: (name, command) =>
+            guarded(() => executeStore(tx, ctx, module, name, command)),
           resource: (call) =>
             guarded(async () => {
               requireCondition(

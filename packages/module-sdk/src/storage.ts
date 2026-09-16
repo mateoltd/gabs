@@ -59,6 +59,22 @@ export interface MigrationContext {
   readonly workspaceId: string;
   readonly from: number;
   readonly to: number;
+  /** Historical private records remain unknown until the migration validates them. */
+  store(name: string): {
+    scan(
+      after?: string,
+    ): Promise<{ items: MigrationRecord[]; next: string | null }>;
+    create(
+      data: Record<string, unknown>,
+      id?: string,
+    ): Promise<MigrationRecord>;
+    archive(id: string, expectedVersion: number): Promise<void>;
+    write(
+      id: string,
+      data: Record<string, unknown>,
+      expectedVersion: number,
+    ): Promise<void>;
+  };
   scan(
     resource: string,
     after?: string,

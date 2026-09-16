@@ -1,5 +1,12 @@
 import { validateStorageContract, type StorageContract } from "./storage";
 export {
+  store,
+  type Store,
+  type StoreRecord,
+  type StorePage,
+  type StoreClient,
+} from "./store";
+export {
   storageContract,
   supportsStorage,
   type StorageContract,
@@ -13,7 +20,7 @@ import {
   type TSchema,
 } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-export { Type, type Static, type TSchema };
+export { Type, type Static, type TSchema, type TObject };
 export type ExecutionPolicy = "local" | "queued" | "online";
 export type JsonRecord = Record<string, unknown>;
 export const identifier = /^[a-z][a-z0-9-]{0,63}$/;
@@ -91,6 +98,7 @@ export function operation<const O extends Operation>(definition: O): O {
 }
 export interface ModuleDefinition {
   storage?: StorageContract;
+  stores?: Record<string, import("./store").Store>;
   id: string;
   name: string;
   version: string;
@@ -162,9 +170,31 @@ export function defineModule<const M extends ModuleDefinition>(
   for (const name of [
     ...Object.keys(definition.resources),
     ...Object.keys(definition.operations),
+    ...Object.keys(definition.stores ?? {}),
   ]) {
     if (!identifier.test(name))
       throw new Error(`Invalid resource or operation: ${name}`);
+  }
+  for (const [name, store] of Object.entries(definition.stores ?? {})) {
+    if (
+      store.schema.type !== "object" ||
+      !store.schema.properties ||
+      store.schema.additionalProperties !== false
+    )
+      throw Error(`Store ${name} requires a closed object schema.`);
+    if (
+      !Array.isArray(store.unique) ||
+      new Set(store.unique).size !== store.unique.length
+    )
+      throw Error(`Store ${name} requires distinct unique field names.`);
+    for (const key of store.unique) {
+      const field = store.schema.properties[key];
+      if (
+        !Object.hasOwn(store.schema.properties, key) ||
+        !["string", "number", "integer", "boolean"].includes(field.type)
+      )
+        throw Error(`Store ${name} has an invalid unique field: ${key}`);
+    }
   }
   for (const [name, view] of Object.entries(definition.views ?? {})) {
     if (
@@ -515,6 +545,16 @@ export function hydrateModule(module: ModuleDefinition): ModuleDefinition {
                     : {}),
                 },
               },
+            ]),
+          ),
+        }
+      : {}),
+    ...(module.stores
+      ? {
+          stores: Object.fromEntries(
+            Object.entries(module.stores).map(([name, store]) => [
+              name,
+              { ...store, schema: hydrateSchema(store.schema) as TObject },
             ]),
           ),
         }

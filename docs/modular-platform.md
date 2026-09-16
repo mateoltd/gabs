@@ -51,6 +51,27 @@ Declare a provider operation with `public: true`; use `serviceReference(provider
 
 Orders and Inventory retain an explicit `defineTrustedModuleServer` migration bridge for their existing SQL-backed business services. They are reviewed host code; these two bridges still require migration to fully scoped repositories. Trusted code is not a hostile-code sandbox. Independently signed packages now carry reviewed client and scoped server JavaScript, as described in the release workflow.
 
+### Private transactional stores
+
+Use `store` for server-owned data that should not have generated public CRUD. Declare it once alongside resources and operations:
+
+```ts
+stores: {
+  balances: store(
+    { sku: Type.String(), units: Type.Integer({ minimum: 0 }) },
+    { unique: ["sku"] },
+  ),
+}
+```
+
+An operation handler can read `await ctx.store("balances").get(id, { lock: true })`, validate its business rule, and call `replace(id, current.version, nextData)`. The row lock lasts until the entire operation and its service calls commit or roll back. Acquire multiple record locks in a consistent order. An absent or archived record returns `null`; stale versions fail rather than overwriting current data.
+
+`scan({ where, after, limit })` infers its filter fields and returns `{ items, next }`. Filters use JSON containment; scalar values match exactly. Pages default to 50 records and cannot exceed 200. `create(data, { id? })` returns `{ id, data, version }`; `archive(id, version)` retains the data and history. Unique fields are scalar, independent constraints scoped to that module/workspace/store; missing values do not conflict. A record is limited to 1 MiB.
+
+Private-store access is authorized by the enclosing operation. The module cannot select another workspace or module. Cross-module reads and effects require public services and explicit grants. Store data and commands receive server validation even when callers bypass TypeScript. All writes and their audits participate in the existing atomic operation and idempotency mechanism.
+
+Reviewed migrations use `ctx.store(name).scan/create/write/archive` with historical data typed as unknown records. The host validates retained data against the target schema and rejects duplicate unique values before publishing the new stored schema version. Use a forward storage migration when changing stored data contracts. These capabilities require a server transaction; they are not an implementation of standalone local workers. [Verification and remaining migration work](verification/private-stores/README.md).
+
 ```sh
 pnpm module create equipment
 pnpm install

@@ -3,6 +3,7 @@ import {
   type MigrationContext,
   type MigrationHandler,
 } from "./storage";
+export type { StoreCommand, StoreTransport } from "./store";
 import { assertSchema, type ModuleDefinition, type Static } from "./index";
 import {
   createModuleContext,
