@@ -65,12 +65,67 @@ export async function migrateModuleStorage(
     throw error;
   }
 }
+/** Host-coordinated, dependency-ordered changes commit or roll back together.
+ * The caller must select compatible target pins in the same enclosing transaction.
+ */
+export async function migrateModuleStorageBatch(
+  tx: Tx,
+  ctx: Context,
+  targets: readonly { moduleId: string; version: string }[],
+  builtins: readonly InstalledModuleServer[] = [],
+) {
+  requireCondition(
+    targets.length > 0 &&
+      targets.length <= 64 &&
+      new Set(targets.map((t) => t.moduleId)).size === targets.length,
+    400,
+    "INVALID_MIGRATION_BATCH",
+    "Choose distinct modules in dependency order.",
+  );
+  await lockModuleStorage(tx, ctx.workspaceId, true);
+  ctx = await authorize(
+    tx,
+    ctx.actor,
+    ctx.workspaceId,
+    ctx.requestId,
+    "modules.manage",
+  );
+  await sql`savepoint suite_module_batch`.execute(tx);
+  try {
+    const results = [];
+    for (const target of targets)
+      results.push(
+        await applyMigration(
+          tx,
+          ctx,
+          target.moduleId,
+          target.version,
+          builtins,
+          false,
+        ),
+      );
+    await validateConfiguredRollouts(tx, ctx.workspaceId, builtins);
+    await sql`release savepoint suite_module_batch`.execute(tx);
+    return results;
+  } catch (error) {
+    try {
+      await sql`rollback to savepoint suite_module_batch`.execute(tx);
+      await sql`release savepoint suite_module_batch`.execute(tx);
+    } catch {
+      /* A disconnected transaction is rolled back by PostgreSQL. */
+    }
+    invalidateStorageVersions(tx, ctx.workspaceId);
+    throw error;
+  }
+}
+
 async function applyMigration(
   tx: Tx,
   ctx: Context,
   moduleId: string,
   targetVersion: string,
   builtins: readonly InstalledModuleServer[],
+  validateRollouts = true,
 ) {
   requireCondition(
     ctx.permissions.includes("modules.manage"),
@@ -117,6 +172,30 @@ async function applyMigration(
       "This executable cannot use the stored schema. Data migrations are forward-only.",
     );
     return { moduleId, schemaVersion: current, applied: [] as string[] };
+  }
+  if (current === 1 && (moduleId === "orders" || moduleId === "inventory")) {
+    const legacy = await sql<{
+      present: boolean;
+    }>`select exists(select 1 from suite.products where workspace_id=${ctx.workspaceId}::uuid) or exists(select 1 from suite.orders where workspace_id=${ctx.workspaceId}::uuid) as present`.execute(
+      tx,
+    );
+    if (legacy.rows[0].present) {
+      const prepared = await tx
+        .selectFrom("suite.platform_settings")
+        .select("value")
+        .where("workspace_id", "=", ctx.workspaceId)
+        .where("key", "=", "business-storage-import")
+        .executeTakeFirst();
+      requireCondition(
+        prepared?.value.state === "prepared" &&
+          (prepared.value.versions as Record<string, unknown> | undefined)?.[
+            moduleId
+          ] === targetVersion,
+        409,
+        "BUSINESS_MIGRATION_REQUIRED",
+        "Orders and Inventory contain legacy data. Use the coordinated business migration before selecting these releases.",
+      );
+    }
   }
   const count = await tx
     .selectFrom("suite.module_records")
@@ -467,7 +546,8 @@ async function applyMigration(
     )
     .execute();
   invalidateStorageVersions(tx, ctx.workspaceId);
-  await validateConfiguredRollouts(tx, ctx.workspaceId, builtins);
+  if (validateRollouts)
+    await validateConfiguredRollouts(tx, ctx.workspaceId, builtins);
   await audit(
     tx,
     ctx,

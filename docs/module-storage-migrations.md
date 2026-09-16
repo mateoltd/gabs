@@ -67,3 +67,9 @@ Until migration succeeds, resolution prefers releases compatible with the curren
 Stored schemas never move backward. Roll back an executable only when compatible with stored data; otherwise publish a corrective forward migration. Retired resources and archived originals remain stored. Uninstall still preserves business data.
 
 [Local acceptance evidence](verification/module-migrations/README.md). [Device installation/update recovery](module-lifecycle-recovery.md) now has local browser and native acceptance under EXT-04. Mandatory-update rollout, durable aggregate failure dashboards, hosted acceptance and all-platform packaged release acceptance remain tracked separately under EXT-05 and operations work. This manager applies to SDK resource storage; the existing trusted Orders/Inventory SQL bridges remain SDK-01 work.
+
+## Coordinated conversion of legacy business data
+
+Orders/Inventory schema 2 requires the host's coordinated conversion when relational business records exist. The ordinary single-module action refuses to initialize an empty namespace over that data. `migrateLegacyBusinessStorage` holds the workspace's exclusive storage lock, validates balances/reservations/totals/numbering, prepares schema-validated private snapshots, selects explicit mandatory target versions and calls both signed migration handlers in one savepoint-protected transaction. It preserves source tables and accepted receipts. A database fence prevents later legacy writes and requires legacy write transactions to use read-committed isolation.
+
+This host-only coordinator is verified through real signed candidate acceptance. It is not yet exposed in the administrator UI: current application/worker adapters, explicit permission/grant review and pending-work cutover acceptance must be completed before production activation. See [implementation evidence and remaining work](verification/legacy-business-migration/README.md).

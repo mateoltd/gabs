@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-09-16T16:47:19.840Z",
+  "method": "Local logical pg_dump/pg_restore into an isolated database",
+  "durationSeconds": 5,
+  "dumpBytes": 24721660,
+  "counts": {
+    "workspaces": "3036",
+    "orders": "20464",
+    "movements": "4001",
+    "module_schemas": "245",
+    "module_migrations": "131",
+    "sdk_migrated_workspaces": "15"
+  },
+  "invariants": {
+    "invalid_balances": "0",
+    "invalid_reservations": "0",
+    "ledger_mismatches": "0",
+    "invalid_schema_history": "0",
+    "sdk_invalid_balances": "0",
+    "sdk_ledger_mismatches": "0",
+    "sdk_invalid_reservations": "0",
+    "sdk_invalid_orders": "0",
+    "sdk_invalid_counters": "0"
+  },
+  "retiredStorageFence": true,
+  "rls": "Unscoped application role sees no orders, module schemas, migration history or private records",
+  "limitation": "This verifies logical recovery locally. Managed PITR, offsite backup retention and infrastructure recovery require a staging exercise."
+}

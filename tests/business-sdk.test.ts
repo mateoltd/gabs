@@ -16,6 +16,10 @@ import {
 import { defineModuleServer } from "@suite/module-sdk/server";
 import { registerModule } from "@suite/module-catalog";
 import { moduleServers } from "@suite/module-catalog/server";
+import legacyOrders from "../modules/orders/module";
+import legacyInventory from "../modules/inventory/module";
+import { migrateLegacyBusinessStorage } from "../packages/server-core/src/legacy-business-migration";
+import { sql } from "kysely";
 import ordersCandidate from "../modules/orders/releases/2.0.0/module";
 import { serviceContractSource } from "../packages/module-sdk/node/service-contracts";
 import candidate from "../modules/inventory/releases/2.0.0/module";
@@ -358,6 +362,605 @@ const send =
     return response.json();
   };
 const businessOrders = () => createModuleClient(ordersDefinition, send());
+
+async function legacyFixture() {
+  const target = randomUUID();
+  await inWorkspace(db, target, (tx) =>
+    provisionWorkspace(tx, {
+      id: target,
+      userId: authenticatedActor.id,
+      name: "Legacy conversion",
+      kind: "company",
+      modules: ["inventory", "orders"],
+    }),
+  );
+  const stock = createModuleClient(legacyInventory, send(target));
+  const orders = createModuleClient(legacyOrders, send(target));
+  let product = await stock.call("create-product", {
+    sku: "LEGACY",
+    name: "Historical product",
+    priceMinor: 200,
+  });
+  product = await stock.call("stock", {
+    id: product.id,
+    kind: "receipt",
+    quantity: 50,
+    reason: "Opening receipt",
+  });
+  const input = {
+    customerName: "Historical customer",
+    lines: [{ productId: product.id, quantity: 2, priceMinor: 200 }],
+  };
+  const draft = await orders.call("draft", input);
+  const key = randomUUID();
+  const confirmInput = { id: draft.id, version: draft.version };
+  const confirmed = await orders.call("confirm", confirmInput, key);
+  return {
+    target,
+    stock,
+    orders,
+    product,
+    input,
+    confirmed,
+    key,
+    confirmInput,
+  };
+}
+async function convertLegacy(target: string) {
+  return inWorkspace(db, target, async (tx) => {
+    const ctx = await authorize(
+      tx,
+      authenticatedActor,
+      target,
+      randomUUID(),
+      "modules.manage",
+    );
+    return migrateLegacyBusinessStorage(
+      tx,
+      ctx,
+      { inventory: version, orders: version },
+      moduleServers,
+    );
+  });
+}
+async function conversionState(target: string) {
+  return inWorkspace(db, target, async (tx) => ({
+    storage: await tx
+      .selectFrom("suite.module_storage")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("module_id")
+      .execute(),
+    records: await tx
+      .selectFrom("suite.module_records")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("module_id")
+      .orderBy("resource")
+      .orderBy("id")
+      .execute(),
+    revisions: await tx
+      .selectFrom("suite.module_revisions")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("module_id")
+      .orderBy("resource")
+      .orderBy("record_id")
+      .orderBy("version")
+      .execute(),
+    migrations: await tx
+      .selectFrom("suite.module_migrations")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("module_id")
+      .execute(),
+    settings: await tx
+      .selectFrom("suite.platform_settings")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("key")
+      .execute(),
+    audits: await tx
+      .selectFrom("suite.audit")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("id")
+      .execute(),
+    events: await tx
+      .selectFrom("suite.outbox")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("id")
+      .execute(),
+    receipts: await tx
+      .selectFrom("suite.idempotency")
+      .selectAll()
+      .where("workspace_id", "=", target)
+      .orderBy("key")
+      .execute(),
+  }));
+}
+
+it("atomically converts authoritative legacy commitments, preserves identities/history/retries, and resumes through the public SDK", async () => {
+  const f = await legacyFixture();
+  const initialProduct = await f.stock.call("count", {
+    id: f.product.id,
+    stockVersion: f.product.stockVersion + 1,
+    counted: 49,
+    reason: "Physical count",
+  });
+  const draft = await f.orders.call("draft", f.input);
+  let fulfilled = await f.orders.call("draft", f.input);
+  fulfilled = await f.orders.call("confirm", {
+    id: fulfilled.id,
+    version: fulfilled.version,
+  });
+  fulfilled = await f.orders.call("fulfill", {
+    id: fulfilled.id,
+    version: fulfilled.version,
+  });
+  let cancelled = await f.orders.call("draft", f.input);
+  cancelled = await f.orders.call("confirm", {
+    id: cancelled.id,
+    version: cancelled.version,
+  });
+  cancelled = await f.orders.call("cancel", {
+    id: cancelled.id,
+    version: cancelled.version,
+  });
+  const draftCancel = await f.orders.call("draft", f.input);
+  await f.orders.call("cancel", {
+    id: draftCancel.id,
+    version: draftCancel.version,
+  });
+  // Explicit authority/grants are provisioned independently of data conversion.
+  await inWorkspace(db, f.target, async (tx) => {
+    const roles = await tx
+      .selectFrom("suite.roles")
+      .select(["id", "permissions"])
+      .where("workspace_id", "=", f.target)
+      .where("protected", "=", true)
+      .execute();
+    for (const role of roles)
+      await tx
+        .updateTable("suite.roles")
+        .set({
+          permissions: [
+            ...new Set([...role.permissions, ...inventory.permissions]),
+          ],
+        })
+        .where("workspace_id", "=", f.target)
+        .where("id", "=", role.id)
+        .execute();
+    await tx
+      .insertInto("suite.platform_settings")
+      .values({
+        workspace_id: f.target,
+        key: "grant:orders:inventory",
+        value: { services: [...actions] },
+        version: 1,
+      })
+      .execute();
+  });
+  const foreignBefore = await snapshots();
+  const sourceBefore = await inWorkspace(db, f.target, async (tx) => ({
+    products: await tx
+      .selectFrom("suite.products")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .execute(),
+    orders: await tx
+      .selectFrom("suite.orders")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .orderBy("id")
+      .execute(),
+    movements: await tx
+      .selectFrom("suite.stock_movements")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .orderBy("id")
+      .execute(),
+  }));
+  const results = await Promise.all([
+    convertLegacy(f.target.toUpperCase()),
+    convertLegacy(f.target),
+  ]);
+  expect(results[0]).toEqual(results[1]);
+  expect(results[0]).toMatchObject({
+    state: "completed",
+    counts: { products: 1, orders: 5, reservations: 3, counts: 1, counters: 1 },
+  });
+  const snapshot = await conversionState(f.target);
+  expect(snapshot.migrations).toHaveLength(2);
+  expect(snapshot.storage.every((r) => r.schema_version === 2)).toBe(true);
+  expect(
+    snapshot.audits.filter(
+      (r) => r.action === "modules.business-storage.migrated",
+    ),
+  ).toHaveLength(1);
+  expect(
+    snapshot.records
+      .filter((r) => r.resource.startsWith("$legacy-"))
+      .every((r) => r.archived),
+  ).toBe(true);
+  const orders = createModuleClient(ordersDefinition, send(f.target));
+  const stock = createModuleClient(inventory, send(f.target));
+  expect(await orders.call("get", { id: f.confirmed.id })).toMatchObject(
+    f.confirmed,
+  );
+  expect(await orders.call("get", { id: fulfilled.id })).toMatchObject(
+    fulfilled,
+  );
+  expect(await orders.call("get", { id: cancelled.id })).toMatchObject(
+    cancelled,
+  );
+  expect(await stock.call("get", { id: f.product.id })).toMatchObject({
+    onHand: 47,
+    reserved: 2,
+    available: 45,
+    version: initialProduct.version,
+  });
+  expect(await f.orders.call("confirm", f.confirmInput, f.key)).toEqual(
+    f.confirmed,
+  );
+  expect(await conversionState(f.target)).toEqual(snapshot);
+  await orders.call("fulfill", {
+    id: f.confirmed.id,
+    version: f.confirmed.version,
+  });
+  expect(await stock.call("get", { id: f.product.id })).toMatchObject({
+    onHand: 45,
+    reserved: 0,
+    available: 45,
+  });
+  expect(await orders.call("draft", f.input)).toMatchObject({
+    number: f.confirmed.number + 5,
+  });
+  await expect(
+    f.orders.call("confirm", { id: draft.id, version: draft.version }),
+  ).rejects.toMatchObject({ code: "MODULE_UPDATE_REQUIRED" });
+  const sourceAfter = await inWorkspace(db, f.target, async (tx) => ({
+    products: await tx
+      .selectFrom("suite.products")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .execute(),
+    orders: await tx
+      .selectFrom("suite.orders")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .orderBy("id")
+      .execute(),
+    movements: await tx
+      .selectFrom("suite.stock_movements")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .orderBy("id")
+      .execute(),
+  }));
+  expect(sourceAfter).toEqual(sourceBefore);
+  expect(await snapshots()).toEqual(foreignBefore);
+  await expect(
+    inWorkspace(db, f.target, (tx) =>
+      tx
+        .updateTable("suite.stock")
+        .set({ on_hand: 48 })
+        .where("workspace_id", "=", f.target)
+        .execute(),
+    ),
+  ).rejects.toMatchObject({ code: "55000" });
+  await expect(
+    inWorkspace(db, f.target, (tx) =>
+      tx
+        .updateTable("suite.workspaces")
+        .set({ next_order_number: 50 })
+        .where("id", "=", f.target)
+        .execute(),
+    ),
+  ).rejects.toMatchObject({ code: "55000" });
+});
+
+it("rejects contradictory balances, totals, and counters without leaving prepared data or target pins", async () => {
+  const f = await legacyFixture();
+  await expect(
+    inWorkspace(db, f.target, async (tx) =>
+      migrateModuleStorage(
+        tx,
+        await authorize(
+          tx,
+          authenticatedActor,
+          f.target,
+          randomUUID(),
+          "modules.manage",
+        ),
+        "inventory",
+        version,
+        moduleServers,
+      ),
+    ),
+  ).rejects.toMatchObject({ code: "BUSINESS_MIGRATION_REQUIRED" });
+  for (const fault of ["balance", "total", "counter"] as const) {
+    await inWorkspace(db, f.target, async (tx) => {
+      if (fault === "balance")
+        await tx
+          .updateTable("suite.stock")
+          .set({ on_hand: 51 })
+          .where("workspace_id", "=", f.target)
+          .execute();
+      if (fault === "total")
+        await tx
+          .updateTable("suite.orders")
+          .set({ total_minor: 1 })
+          .where("workspace_id", "=", f.target)
+          .execute();
+      if (fault === "counter")
+        await tx
+          .updateTable("suite.workspaces")
+          .set({ next_order_number: 1 })
+          .where("id", "=", f.target)
+          .execute();
+    });
+    const before = await conversionState(f.target);
+    await expect(convertLegacy(f.target)).rejects.toMatchObject({
+      code:
+        fault === "balance"
+          ? "BUSINESS_STOCK_MISMATCH"
+          : fault === "total"
+            ? "BUSINESS_TOTAL_MISMATCH"
+            : "BUSINESS_COUNTER_MISMATCH",
+    });
+    expect(await conversionState(f.target)).toEqual(before);
+    await inWorkspace(db, f.target, async (tx) => {
+      await tx
+        .updateTable("suite.stock")
+        .set({ on_hand: 50 })
+        .where("workspace_id", "=", f.target)
+        .execute();
+      await tx
+        .updateTable("suite.orders")
+        .set({ total_minor: 400 })
+        .where("workspace_id", "=", f.target)
+        .execute();
+      await tx
+        .updateTable("suite.workspaces")
+        .set({ next_order_number: f.confirmed.number + 1 })
+        .where("id", "=", f.target)
+        .execute();
+    });
+  }
+  expect(await convertLegacy(f.target)).toMatchObject({ state: "completed" });
+});
+
+it("rolls back both modules when the second migration fails, even if its caller catches the error", async () => {
+  const f = await legacyFixture();
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.entitlements")
+      .set({ active: false })
+      .where("workspace_id", "=", f.target)
+      .where("module_id", "=", "orders")
+      .execute(),
+  );
+  const before = await conversionState(f.target);
+  await inWorkspace(db, f.target, async (tx) => {
+    const ctx = await authorize(
+      tx,
+      authenticatedActor,
+      f.target,
+      randomUUID(),
+      "modules.manage",
+    );
+    await expect(
+      migrateLegacyBusinessStorage(
+        tx,
+        ctx,
+        { inventory: version, orders: version },
+        moduleServers,
+      ),
+    ).rejects.toMatchObject({ code: "NOT_ENTITLED" });
+    // The transaction can continue; the outer migration savepoint removed all partial work.
+    await sql`select 1`.execute(tx);
+  });
+  expect(await conversionState(f.target)).toEqual(before);
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.entitlements")
+      .set({ active: true })
+      .where("workspace_id", "=", f.target)
+      .where("module_id", "=", "orders")
+      .execute(),
+  );
+  expect(await convertLegacy(f.target)).toMatchObject({ state: "completed" });
+});
+
+it("checks individual order reservations even when aggregate stock still balances", async () => {
+  const f = await legacyFixture();
+  const draft = await f.orders.call("draft", f.input);
+  await f.orders.call("confirm", { id: draft.id, version: draft.version });
+  await inWorkspace(db, f.target, async (tx) => {
+    for (const [id, quantity] of [
+      [f.confirmed.id, 3],
+      [draft.id, 1],
+    ] as const) {
+      await tx
+        .updateTable("suite.order_lines")
+        .set({ quantity })
+        .where("workspace_id", "=", f.target)
+        .where("order_id", "=", id)
+        .execute();
+      await tx
+        .updateTable("suite.orders")
+        .set({ total_minor: quantity * 200 })
+        .where("workspace_id", "=", f.target)
+        .where("id", "=", id)
+        .execute();
+    }
+  });
+  const before = await conversionState(f.target);
+  await expect(convertLegacy(f.target)).rejects.toMatchObject({
+    code: "BUSINESS_RESERVATION_MISMATCH",
+  });
+  expect(await conversionState(f.target)).toEqual(before);
+  // Restore this intentionally invalid fixture so restore drills retain meaningful invariants.
+  await inWorkspace(db, f.target, async (tx) => {
+    await tx
+      .updateTable("suite.order_lines")
+      .set({ quantity: 2 })
+      .where("workspace_id", "=", f.target)
+      .execute();
+    await tx
+      .updateTable("suite.orders")
+      .set({ total_minor: 400 })
+      .where("workspace_id", "=", f.target)
+      .execute();
+  });
+});
+
+it("converts all pages of legacy products and movements without touching another workspace", async () => {
+  const f = await legacyFixture();
+  const ids = Array.from({ length: 205 }, () => randomUUID());
+  await inWorkspace(db, f.target, async (tx) => {
+    await tx
+      .insertInto("suite.products")
+      .values(
+        ids.map((id, index) => ({
+          id,
+          workspace_id: f.target,
+          sku: `BULK-${index}`,
+          name: `Product ${index}`,
+          price_minor: index,
+        })),
+      )
+      .execute();
+    await tx
+      .insertInto("suite.stock")
+      .values(
+        ids.map((product_id) => ({
+          workspace_id: f.target,
+          product_id,
+          on_hand: 10,
+          version: 2,
+        })),
+      )
+      .execute();
+    await tx
+      .insertInto("suite.stock_movements")
+      .values(
+        ids.map((product_id) => ({
+          id: randomUUID(),
+          workspace_id: f.target,
+          product_id,
+          kind: "receipt",
+          on_hand_delta: 10,
+          reserved_delta: 0,
+          reason: "Opening receipt",
+          actor_id: authenticatedActor.id,
+        })),
+      )
+      .execute();
+  });
+  const result = await convertLegacy(f.target);
+  expect(result).toMatchObject({ counts: { products: 206, movements: 207 } });
+  const migrated = await conversionState(f.target);
+  expect(
+    migrated.records.filter((r) => r.resource === "$products"),
+  ).toHaveLength(206);
+  expect(
+    migrated.records.filter((r) => r.resource === "$movements"),
+  ).toHaveLength(207);
+  const stock = createModuleClient(inventory, send(f.target));
+  expect(await stock.call("get", { id: ids.at(-1)! })).toMatchObject({
+    onHand: 10,
+    reserved: 0,
+  });
+}, 60000);
+
+it("fences a legacy SQL write already waiting at cutover and rejects stale transaction isolation", async () => {
+  const f = await legacyFixture();
+  let unlock!: () => void, locked!: () => void, started!: (pid: number) => void;
+  const gate = new Promise<void>((resolve) => {
+    unlock = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    locked = resolve;
+  });
+  const writerReady = new Promise<number>((resolve) => {
+    started = resolve;
+  });
+  const migration = inWorkspace(db, f.target, async (tx) => {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${`module-storage:${f.target}`},0))`.execute(
+      tx,
+    );
+    locked();
+    await gate;
+    const ctx = await authorize(
+      tx,
+      authenticatedActor,
+      f.target,
+      randomUUID(),
+      "modules.manage",
+    );
+    return migrateLegacyBusinessStorage(
+      tx,
+      ctx,
+      { inventory: version, orders: version },
+      moduleServers,
+    );
+  });
+  await ready;
+  const writer = inWorkspace(db, f.target, async (tx) => {
+    started(
+      (await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(tx))
+        .rows[0].pid,
+    );
+    await tx
+      .updateTable("suite.products")
+      .set({ name: "Stale writer" })
+      .where("workspace_id", "=", f.target)
+      .execute();
+  });
+  const rejected = expect(writer).rejects.toMatchObject({ code: "55000" });
+  try {
+    const pid = await writerReady;
+    await expect
+      .poll(
+        async () =>
+          (
+            await sql<{
+              blocked: boolean;
+            }>`select cardinality(pg_blocking_pids(${pid}))>0 as blocked`.execute(
+              db,
+            )
+          ).rows[0].blocked,
+      )
+      .toBe(true);
+  } finally {
+    unlock();
+  }
+  await migration;
+  await rejected;
+  expect(
+    await createModuleClient(inventory, send(f.target)).call("get", {
+      id: f.product.id,
+    }),
+  ).toMatchObject({ name: "Historical product" });
+  await expect(
+    db
+      .transaction()
+      .setIsolationLevel("repeatable read")
+      .execute(async (tx) => {
+        await sql`select set_config('app.workspace_id',${f.target},true)`.execute(
+          tx,
+        );
+        await tx
+          .updateTable("suite.products")
+          .set({ name: "Stale snapshot" })
+          .where("workspace_id", "=", f.target)
+          .execute();
+      }),
+  ).rejects.toMatchObject({ code: "55000" });
+});
 const stock = () => createModuleClient(inventory, send());
 const orders = () => createModuleClient(first, send());
 async function product(units = 10) {

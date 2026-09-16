@@ -15,6 +15,7 @@ const name = "suite_restore_" + randomUUID().replaceAll("-", ""),
   admin = new Pool({ connectionString: url.href }),
   start = Date.now();
 let restored: Pool | undefined;
+let retiredStorageFence = false;
 try {
   const dump = execFileSync(
     "docker",
@@ -63,8 +64,29 @@ try {
   );
   if (Number(migrationInvariant.rows[0].invalid_schema_history) !== 0)
     throw Error("Restored module schema history is inconsistent");
+  const sdkInvariant = await restored.query(`
+    WITH migrated AS (SELECT workspace_id FROM suite.platform_settings WHERE key='business-storage-import' AND value->>'state'='completed'),
+    products AS (SELECT r.* FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='inventory' AND resource='$products' AND NOT archived),
+    movements AS (SELECT r.workspace_id,(data->>'productId')::uuid AS product_id,sum((data->>'onHandDelta')::bigint) AS on_hand,sum((data->>'reservedDelta')::bigint) AS reserved FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='inventory' AND resource='$movements' AND NOT archived GROUP BY r.workspace_id,data->>'productId'),
+    reservations AS (SELECT r.* FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='inventory' AND resource='$reservations' AND NOT archived),
+    reserved AS (SELECT r.workspace_id,(line->>'productId')::uuid AS product_id,sum((line->>'quantity')::bigint) AS quantity FROM reservations r CROSS JOIN LATERAL jsonb_array_elements(data->'lines') line WHERE data->>'state'='reserved' GROUP BY r.workspace_id,line->>'productId'),
+    orders AS (SELECT r.* FROM suite.module_records r JOIN migrated USING(workspace_id) WHERE module_id='orders' AND resource='$orders' AND NOT archived)
+    SELECT
+      (SELECT count(*) FROM products WHERE (data->>'reserved')::bigint<0 OR (data->>'reserved')::bigint>(data->>'onHand')::bigint OR (data->>'available')::bigint<>(data->>'onHand')::bigint-(data->>'reserved')::bigint) AS sdk_invalid_balances,
+      (SELECT count(*) FROM products p LEFT JOIN movements m ON (m.workspace_id,m.product_id)=(p.workspace_id,p.id) WHERE (p.data->>'onHand')::bigint<>coalesce(m.on_hand,0) OR (p.data->>'reserved')::bigint<>coalesce(m.reserved,0)) AS sdk_ledger_mismatches,
+      (SELECT count(*) FROM products p LEFT JOIN reserved r ON (r.workspace_id,r.product_id)=(p.workspace_id,p.id) WHERE (p.data->>'reserved')::bigint<>coalesce(r.quantity,0)) AS sdk_invalid_reservations,
+      (SELECT count(*) FROM orders o LEFT JOIN reservations r ON (r.workspace_id,r.id)=(o.workspace_id,o.id) AND r.data->>'sourceModule'='orders'
+       WHERE (o.data->>'totalMinor')::bigint<>(SELECT coalesce(sum((line->>'quantity')::bigint*(line->>'priceMinor')::bigint),0) FROM jsonb_array_elements(o.data->'lines') line)
+       OR (o.data->>'status'='confirmed' AND coalesce(r.data->>'state','missing')<>'reserved')
+       OR (o.data->>'status'='fulfilled' AND coalesce(r.data->>'state','missing')<>'consumed')
+       OR (o.data->>'status'='cancelled' AND r.id IS NOT NULL AND r.data->>'state'<>'released')
+       OR (o.data->>'status'='draft' AND r.id IS NOT NULL)) AS sdk_invalid_orders,
+      (SELECT count(*) FROM migrated m LEFT JOIN suite.module_records c ON c.workspace_id=m.workspace_id AND c.module_id='orders' AND c.resource='$counters' AND c.id='00000000-0000-4000-8000-000000000001'
+       WHERE c.id IS NULL OR c.archived OR (c.data->>'next')::bigint<=coalesce((SELECT max((o.data->>'number')::bigint) FROM orders o WHERE o.workspace_id=m.workspace_id),0)) AS sdk_invalid_counters`);
+  if (Object.values(sdkInvariant.rows[0]).some((v) => Number(v) !== 0))
+    throw Error("Restored SDK business invariants failed");
   const counts = await restored.query(
-    "SELECT (SELECT count(*) FROM suite.workspaces) workspaces,(SELECT count(*) FROM suite.orders) orders,(SELECT count(*) FROM suite.stock_movements) movements,(SELECT count(*) FROM suite.module_storage) module_schemas,(SELECT count(*) FROM suite.module_migrations) module_migrations",
+    "SELECT (SELECT count(*) FROM suite.workspaces) workspaces,(SELECT count(*) FROM suite.orders) orders,(SELECT count(*) FROM suite.stock_movements) movements,(SELECT count(*) FROM suite.module_storage) module_schemas,(SELECT count(*) FROM suite.module_migrations) module_migrations,(SELECT count(*) FROM suite.platform_settings WHERE key='business-storage-import' AND value->>'state'='completed') sdk_migrated_workspaces",
   );
   const role = await restored.connect();
   try {
@@ -72,12 +94,40 @@ try {
     await role.query("SET LOCAL ROLE suite_app");
     const hidden = await role.query("SELECT * FROM suite.orders");
     if (hidden.rowCount) throw Error("Unscoped restored RLS leaked orders");
-    for (const table of ["module_storage", "module_migrations"]) {
+    for (const table of [
+      "module_storage",
+      "module_migrations",
+      "module_records",
+    ]) {
       const hidden = await role.query(`SELECT * FROM suite.${table}`);
       if (hidden.rowCount)
         throw Error("Unscoped restored RLS leaked module schemas");
     }
     await role.query("ROLLBACK");
+    const migrated = await restored.query(
+      "SELECT p.workspace_id,p.id FROM suite.products p JOIN suite.platform_settings s ON s.workspace_id=p.workspace_id WHERE s.key='business-storage-import' AND s.value->>'state'='completed' LIMIT 1",
+    );
+    if (migrated.rowCount) {
+      await role.query("BEGIN");
+      try {
+        await role.query("SET LOCAL ROLE suite_app");
+        await role.query("SELECT set_config('app.workspace_id',$1,true)", [
+          migrated.rows[0].workspace_id,
+        ]);
+        try {
+          await role.query(
+            "UPDATE suite.products SET name=name WHERE workspace_id=$1 AND id=$2",
+            [migrated.rows[0].workspace_id, migrated.rows[0].id],
+          );
+          throw Error("Restored legacy storage fence allowed a write");
+        } catch (error) {
+          if ((error as { code?: string }).code !== "55000") throw error;
+          retiredStorageFence = true;
+        }
+      } finally {
+        await role.query("ROLLBACK");
+      }
+    }
   } finally {
     role.release();
   }
@@ -87,8 +137,13 @@ try {
     durationSeconds: Math.round((Date.now() - start) / 1000),
     dumpBytes: dump.length,
     counts: counts.rows[0],
-    invariants: { ...invariant.rows[0], ...migrationInvariant.rows[0] },
-    rls: "Unscoped application role sees no orders, module schemas or migration history",
+    invariants: {
+      ...invariant.rows[0],
+      ...migrationInvariant.rows[0],
+      ...sdkInvariant.rows[0],
+    },
+    retiredStorageFence,
+    rls: "Unscoped application role sees no orders, module schemas, migration history or private records",
     limitation:
       "This verifies logical recovery locally. Managed PITR, offsite backup retention and infrastructure recovery require a staging exercise.",
   };

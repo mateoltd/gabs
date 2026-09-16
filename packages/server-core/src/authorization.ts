@@ -34,6 +34,8 @@ export async function authorize(
   permission?: Permission,
   moduleId?: ModuleId,
 ): Promise<Context> {
+  // PostgreSQL UUIDs are case-insensitive; capability lock/cache keys must be too.
+  workspaceId = workspaceId.toLowerCase();
   // One statement reads the current identity, membership and complete grant graph.
   // Nothing is cached across requests; explicit denials still see all workspace roles.
   const membership = await tx

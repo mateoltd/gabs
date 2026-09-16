@@ -10,6 +10,7 @@ export async function lockModuleStorage(
   workspaceId: string,
   exclusive = false,
 ) {
+  workspaceId = workspaceId.toLowerCase();
   let held = locks.get(tx);
   if (!held) {
     held = new Map();
@@ -35,6 +36,7 @@ export async function lockModuleStorage(
   held.set(workspaceId, exclusive ? "exclusive" : "shared");
 }
 export async function moduleStorageVersions(tx: Tx, workspaceId: string) {
+  workspaceId = workspaceId.toLowerCase();
   await lockModuleStorage(tx, workspaceId);
   let cached = versions.get(tx);
   if (!cached) {
@@ -56,7 +58,7 @@ export async function moduleStorageVersions(tx: Tx, workspaceId: string) {
   return cached.get(workspaceId)!;
 }
 export function invalidateStorageVersions(tx: Tx, workspaceId: string) {
-  versions.get(tx)?.delete(workspaceId);
+  versions.get(tx)?.delete(workspaceId.toLowerCase());
 }
 export async function assertModuleStorage(
   tx: Tx,
