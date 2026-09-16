@@ -139,6 +139,7 @@ export async function installModule(
   id: string,
   repair = false,
   active: () => boolean = () => true,
+  intent: "explicit" | "background" = "explicit",
 ) {
   return navigator.locks.request(lifecycleLock(props), async () => {
     const check = () => {
@@ -154,6 +155,19 @@ export async function installModule(
       params: { workspaceId: props.scope.workspaceId },
     });
     const existing = await readModuleStorage(props.platform, props.scope);
+    // A background caller may have queued before a user's removal. Recheck
+    // the server's current device intent while holding the lifecycle lock.
+    if (
+      intent === "background" &&
+      state.installations.some(
+        (i) =>
+          i.module_id === id &&
+          i.device_id === deviceId() &&
+          i.state === "removed",
+      ) &&
+      existing.lifecycle?.[id]?.action !== "install"
+    )
+      return false;
     if (!repair && !existing.lifecycle?.[id]) {
       try {
         const verified = await verifiedInstalledModule(

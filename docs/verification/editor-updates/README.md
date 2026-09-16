@@ -1,6 +1,6 @@
 # Preserving open editors during module updates
 
-16 September 2026. EXT-05 remains active; this closes specific live-editor loss paths.
+16 September 2026. EXT-05 remains active; this closes specific live-editor loss paths. Subsequent [typed custom-state transfer acceptance](../custom-view-state/README.md) supersedes the custom checkpoint/restore gap described in this historical milestone.
 
 ## Generated forms
 

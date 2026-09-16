@@ -5,7 +5,13 @@ import type { SignedArtifact } from "@suite/module-sdk/platform";
 
 /** Every acceptance publication is immutable, including after fixture source changes. */
 export async function publishExecutableFixture(
-  options: { id?: string; name?: string; requiredPrefix?: boolean } = {},
+  options: {
+    id?: string;
+    name?: string;
+    requiredPrefix?: boolean;
+    sourceDirectory?: string;
+    transform?: (filename: string, source: string) => string;
+  } = {},
 ): Promise<SignedArtifact> {
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(resolve(".local/executable-fixture-"));
@@ -19,7 +25,7 @@ export async function publishExecutableFixture(
       "view.css",
     ]) {
       let source = await readFile(
-        `tests/fixtures/custom-notes/${name}`,
+        `${options.sourceDirectory ?? "tests/fixtures/custom-notes"}/${name}`,
         "utf8",
       );
       if (name === "module.ts")
@@ -42,6 +48,7 @@ export async function publishExecutableFixture(
           ".create(input)",
           ".create({ name: ctx.configuration.prefix + input.name })",
         );
+      if (options.transform) source = options.transform(name, source);
       await writeFile(resolve(directory, name), source);
     }
     execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });

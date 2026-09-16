@@ -654,13 +654,15 @@ function Workspace({
         )
           continue;
         try {
-          await installModule(
+          const installed = await installModule(
             current,
             state,
             definition.id,
             false,
             () => active,
+            "background",
           );
+          if (!installed) continue;
           changed = true;
           if (active)
             await Promise.all([

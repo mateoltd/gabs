@@ -113,6 +113,8 @@ export interface ModuleDefinition {
       entry: string;
       stylesheet?: string;
       permission: string;
+      /** Versioned, JSON-only editable state retained by the host during updates. */
+      state?: { version: number; schema: TSchema };
     }
   >;
   navigation?: { path: string; permission: string; view?: string };
@@ -165,6 +167,14 @@ export function defineModule<const M extends ModuleDefinition>(
       throw new Error(`Invalid resource or operation: ${name}`);
   }
   for (const [name, view] of Object.entries(definition.views ?? {})) {
+    if (
+      view.state &&
+      (!Number.isSafeInteger(view.state.version) ||
+        view.state.version < 1 ||
+        !view.state.schema ||
+        typeof view.state.schema !== "object")
+    )
+      throw new Error(`Invalid editable-state contract for view: ${name}`);
     if (!identifier.test(name) || !view.title.trim())
       throw new Error(`Invalid custom view: ${name}`);
     if (!definition.permissions.includes(view.permission))
@@ -459,6 +469,26 @@ export function hydrateModule(module: ModuleDefinition): ModuleDefinition {
   return defineModule({
     ...contract,
     configuration: hydrateSchema(module.configuration) as TObject,
+    ...(module.views
+      ? {
+          views: Object.fromEntries(
+            Object.entries(module.views).map(([key, view]) => [
+              key,
+              {
+                ...view,
+                ...(view.state
+                  ? {
+                      state: {
+                        ...view.state,
+                        schema: hydrateSchema(view.state.schema),
+                      },
+                    }
+                  : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
     ...(module.events
       ? {
           events: Object.fromEntries(

@@ -12,6 +12,7 @@ import {
   publishRelease,
 } from "../../tooling/registry-review";
 import { publishExecutableFixture } from "../executable-fixture";
+import { publishEditableFixture } from "../editable-fixture";
 import { selectValue } from "./controls.helpers";
 
 async function openWorkspace(page: Page, moduleId: string, version: string) {
@@ -460,4 +461,170 @@ test("a custom module keeps its running editor until an explicit discard and upd
   await expect(
     page.getByText("Saved after explicit update", { exact: true }),
   ).toBeVisible();
+});
+
+test("typed custom-view state survives compatible updates and validates publisher conversion before replacement", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  const id = `editable-${randomUUID().slice(0, 8)}`,
+    name = `Editable notes ${id.slice(-8)}`;
+  const first = await publishEditableFixture(id, name);
+  const compatible = await publishEditableFixture(id, name);
+  const invalid = await publishEditableFixture(id, name, 2, true);
+  const brokenView = await publishEditableFixture(id, name, 2, false, true);
+  const converted = await publishEditableFixture(id, name, 2);
+  const { policy, workspace } = await openWorkspace(page, id, first.version);
+  await page.getByRole("link", { name, exact: true }).click();
+  await page
+    .getByLabel("Note name", { exact: true })
+    .fill("Accepted before updating");
+  let releaseReply!: () => void;
+  const reply = new Promise<void>((resolve) => {
+    releaseReply = resolve;
+  });
+  let accepted!: () => void;
+  const committed = new Promise<void>((resolve) => {
+    accepted = resolve;
+  });
+  const operationRoute = `**/module/${id}/workspaces/${workspace}/operations/capture`;
+  await page.route(operationRoute, async (route) => {
+    const response = await route.fetch();
+    expect(response.ok(), await response.text()).toBe(true);
+    accepted();
+    await reply;
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await committed;
+  await policy(compatible.version);
+  // Focus triggers the real installation refresh without expiring the held
+  // HTTP request's 20-second timeout through artificial clock advancement.
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("visibilitychange")),
+  );
+  await expect(
+    page.getByText(
+      `Version ${compatible.version} is ready. Your current view remains open.`,
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review module update" }).click();
+  await expect(
+    page.getByRole("button", { name: "Update and keep input" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Discard unsaved input and update" }),
+  ).toBeDisabled();
+  releaseReply();
+  await expect(page.getByLabel("Note name", { exact: true })).toHaveValue("");
+  await page.unroute(operationRoute);
+  await page.getByRole("button", { name: "Keep current view" }).click();
+  await page
+    .getByLabel("Note name", { exact: true })
+    .fill("Input carried through custom releases");
+  await page.getByRole("button", { name: "Review module update" }).click();
+  await page.getByRole("button", { name: "Update and keep input" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByLabel("Note name", { exact: true })).toHaveValue(
+    "Input carried through custom releases",
+  );
+  await expect(
+    page.getByRole("button", { name: "Review module update" }),
+  ).toHaveCount(0);
+  await policy(invalid.version);
+  await page.clock.fastForward(31000);
+  await expect(
+    page.getByText(
+      `Version ${invalid.version} is ready. Your current view remains open.`,
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review module update" }).click();
+  await page.getByRole("button", { name: "Update and keep input" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
+  await expect(page.getByLabel("Note name", { exact: true })).toHaveValue(
+    "Input carried through custom releases",
+  );
+  await expect(page.getByLabel("Category", { exact: true })).toHaveCount(0);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .include('[role="dialog"]')
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await mkdir("docs/verification/custom-view-state", { recursive: true });
+  await page.screenshot({
+    path: "docs/verification/custom-view-state/failed-conversion.png",
+  });
+  await page.getByRole("button", { name: "Keep current view" }).click();
+  await policy(brokenView.version);
+  await page.clock.fastForward(31000);
+  await expect(
+    page.getByText(
+      `Version ${brokenView.version} is ready. Your current view remains open.`,
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review module update" }).click();
+  await page.getByRole("button", { name: "Update and keep input" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "The updated view could not render",
+  );
+  await expect(page.getByLabel("Note name", { exact: true })).toHaveValue(
+    "Input carried through custom releases",
+  );
+  await expect(page.getByLabel("Category", { exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: "docs/verification/custom-view-state/failed-render.png",
+  });
+  await page.getByRole("button", { name: "Keep current view" }).click();
+  await policy(converted.version);
+  await page.clock.fastForward(31000);
+  await expect(
+    page.getByText(
+      `Version ${converted.version} is ready. Your current view remains open.`,
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review module update" }).click();
+  await page.getByRole("button", { name: "Update and keep input" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByLabel("Note name", { exact: true })).toHaveValue(
+    "Input carried through custom releases",
+  );
+  await expect(page.getByLabel("Category", { exact: true })).toHaveValue(
+    "Restored input",
+  );
+  await page.screenshot({
+    path: "docs/verification/custom-view-state/restored.png",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "docs/verification/custom-view-state/narrow.png",
+  });
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(
+    page.getByText("Input carried through custom releases", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Note name", { exact: true })).toHaveValue("");
+  const admin = new Pool({
+    connectionString: process.env.MIGRATION_DATABASE_URL,
+  });
+  try {
+    const effects = await admin.query(
+      "select (select count(*) from suite.module_records where workspace_id=$1 and module_id=$2)::int as records, (select count(*) from suite.idempotency where workspace_id=$1 and operation=$3)::int as receipts",
+      [workspace, id, `${id}.capture`],
+    );
+    expect(effects.rows[0]).toEqual({ records: 2, receipts: 2 });
+  } finally {
+    await admin.end();
+  }
 });

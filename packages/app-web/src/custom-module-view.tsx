@@ -11,7 +11,14 @@ import {
   validateClientArtifacts,
   type ClientViewBundle,
 } from "@suite/module-sdk/client-artifact";
-import type { ModuleViewProps } from "@suite/module-sdk/ui";
+import {
+  checkpointValue,
+  restoreViewCheckpoint,
+  type ModuleViewProps,
+  type EditableViewState,
+  type ViewCheckpoint,
+  type ViewStateMetadata,
+} from "@suite/module-sdk/ui";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import { canUse, type FeatureProps } from "@suite/platform";
 import { verifyArtifact } from "./module-installation";
@@ -23,7 +30,17 @@ import appCSS from "./styles.css?raw";
 const hostCSS = [baseCSS, controlsCSS, listCSS, appCSS]
   .join("\n")
   .replace(/@import\s+[^;]+;/g, "");
-type View = React.ComponentType<ModuleViewProps<ModuleDefinition>>;
+type View = React.ComponentType<
+  ModuleViewProps<ModuleDefinition> & { state?: EditableViewState<unknown> }
+> & { suiteViewState?: ViewStateMetadata };
+type LoadedView = { View: View; css: string };
+type SurfaceState = {
+  editable?: EditableViewState<unknown>;
+  prepared?: LoadedView;
+  executing?: (change: 1 | -1) => void;
+  rendered?: (digest: string) => void;
+  renderFailed?: (digest: string, error: Error) => void;
+};
 
 export async function loadClientView(bundle: ClientViewBundle): Promise<View> {
   const url = URL.createObjectURL(
@@ -48,12 +65,15 @@ export async function loadClientView(bundle: ClientViewBundle): Promise<View> {
 }
 
 class ViewBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; onError?: (error: Error) => void },
   { error?: Error }
 > {
   state: { error?: Error } = {};
   static getDerivedStateFromError(error: Error) {
     return { error };
+  }
+  componentDidCatch(error: Error) {
+    this.props.onError?.(error);
   }
   render() {
     return this.state.error ? (
@@ -68,6 +88,11 @@ class ViewBoundary extends React.Component<
       this.props.children
     );
   }
+}
+
+function ReportRendered({ ready }: { ready: () => void }) {
+  React.useLayoutEffect(ready, []);
+  return null;
 }
 
 export function ModuleSurface(
@@ -89,6 +114,28 @@ function SurfaceSession(
     publicKey: props.publicKey,
   });
   const [review, setReview] = React.useState(false);
+  const [checkpoint, setCheckpoint] = React.useState<ViewCheckpoint>();
+  const checkpointRef = React.useRef(checkpoint);
+  const activeDigest = React.useRef(installed.pkg.digest);
+  const latest = React.useRef(props);
+  latest.current = props;
+  const [candidate, setCandidate] = React.useState<
+    LoadedView & { digest: string }
+  >();
+  const [updateError, setUpdateError] = React.useState<unknown>();
+  const [prepared, setPrepared] = React.useState<LoadedView>();
+  const rollback = React.useRef<{
+    target: string;
+    installed: typeof installed;
+    prepared: LoadedView | undefined;
+    checkpoint: ViewCheckpoint | undefined;
+  }>(undefined);
+  const activeRequests = React.useRef(0);
+  const [executing, setExecuting] = React.useState(false);
+  const trackExecution = React.useCallback((change: 1 | -1) => {
+    activeRequests.current += change;
+    setExecuting(activeRequests.current > 0);
+  }, []);
   const custom =
     moduleContract(installed.pkg.artifact).navigation?.view ||
     moduleContract(props.pkg.artifact).navigation?.view;
@@ -100,6 +147,144 @@ function SurfaceSession(
     ? installed
     : { pkg: props.pkg, publicKey: props.publicKey };
   const pending = active.pkg.digest !== props.pkg.digest;
+  const runningModule = React.useMemo(
+    () => hydrateModule(moduleContract(active.pkg.artifact)),
+    [active.pkg.digest],
+  );
+  const viewId = runningModule.navigation?.view;
+  const view = viewId ? runningModule.views?.[viewId] : undefined;
+  const targetModule = React.useMemo(
+    () => hydrateModule(moduleContract(props.pkg.artifact)),
+    [props.pkg.digest],
+  );
+  const targetId = targetModule.navigation?.view;
+  const supportsTransfer = !!(
+    view?.state &&
+    targetId &&
+    targetModule.views?.[targetId]?.state
+  );
+  React.useEffect(() => {
+    let active = true;
+    setCandidate(undefined);
+    if (pending && supportsTransfer && targetId)
+      void (async () => {
+        await verifyArtifact(props.pkg, props.publicKey);
+        const bundle = validateClientArtifacts(props.pkg.artifact)[targetId];
+        const View = await loadClientView(bundle);
+        if (!View.suiteViewState)
+          throw Error(
+            "This release does not expose its declared editable-state contract.",
+          );
+        restoreViewCheckpoint(
+          targetModule,
+          targetId,
+          View.suiteViewState,
+          undefined,
+        );
+        if (active)
+          setCandidate({ View, css: bundle.css, digest: props.pkg.digest });
+      })().catch((error) => {
+        if (active) setUpdateError(error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.pkg.digest, props.publicKey, pending, supportsTransfer, targetId]);
+  React.useEffect(() => setUpdateError(undefined), [props.pkg.digest]);
+  const adopt = (keepInput: boolean) => {
+    try {
+      if (activeRequests.current)
+        throw Error(
+          "Wait for the current request to finish before updating this view.",
+        );
+      let next: ViewCheckpoint | undefined;
+      if (keepInput) {
+        if (
+          !candidate ||
+          candidate.digest !== props.pkg.digest ||
+          !targetId ||
+          !candidate.View.suiteViewState
+        )
+          throw Error(
+            "The updated view is not ready. Keep the current view and try again.",
+          );
+        try {
+          next = restoreViewCheckpoint(
+            targetModule,
+            targetId,
+            candidate.View.suiteViewState,
+            checkpointRef.current,
+          );
+        } catch (cause) {
+          throw new Error(
+            "This update could not preserve your input. Your current view remains open.",
+            { cause },
+          );
+        }
+      }
+      rollback.current = keepInput
+        ? {
+            target: props.pkg.digest,
+            installed,
+            prepared,
+            checkpoint: checkpointRef.current,
+          }
+        : undefined;
+      checkpointRef.current = next;
+      setCheckpoint(next);
+      activeDigest.current = props.pkg.digest;
+      setPrepared(
+        candidate?.digest === props.pkg.digest ? candidate : undefined,
+      );
+      setInstalled({ pkg: props.pkg, publicKey: props.publicKey });
+      setUpdateError(undefined);
+      setReview(false);
+    } catch (error) {
+      setUpdateError(error);
+    }
+  };
+  const editable: EditableViewState<unknown> | undefined =
+    view?.state && viewId
+      ? {
+          value: checkpoint?.value,
+          save: (value) => {
+            if (
+              activeDigest.current !== active.pkg.digest ||
+              !canUse(
+                latest.current.bootstrap,
+                runningModule.id,
+                view.permission,
+              )
+            )
+              throw Error(
+                "This editable view is no longer active or authorized.",
+              );
+            const next = Object.freeze({
+              viewId,
+              moduleVersion: runningModule.version,
+              version: view.state!.version,
+              value: checkpointValue(view.state!.schema, value),
+            });
+            checkpointRef.current = next;
+            setCheckpoint(next);
+          },
+          clear: () => {
+            if (
+              activeDigest.current !== active.pkg.digest ||
+              !canUse(
+                latest.current.bootstrap,
+                runningModule.id,
+                view.permission,
+              )
+            )
+              throw Error(
+                "This editable view is no longer active or authorized.",
+              );
+            checkpointRef.current = undefined;
+            setCheckpoint(undefined);
+          },
+        }
+      : undefined;
   return (
     <>
       {pending && (
@@ -113,23 +298,64 @@ function SurfaceSession(
           </ui.Button>
         </div>
       )}
-      <InstalledSurface {...props} {...active} />
+      <InstalledSurface
+        {...props}
+        {...active}
+        editable={editable}
+        prepared={prepared}
+        executing={trackExecution}
+        rendered={(digest) => {
+          if (rollback.current?.target === digest) rollback.current = undefined;
+        }}
+        renderFailed={(digest, error) => {
+          const previous = rollback.current;
+          if (!previous || previous.target !== digest) return;
+          rollback.current = undefined;
+          activeDigest.current = previous.installed.pkg.digest;
+          checkpointRef.current = previous.checkpoint;
+          setCheckpoint(previous.checkpoint);
+          setInstalled(previous.installed);
+          setPrepared(previous.prepared);
+          setUpdateError(
+            new Error(
+              "The updated view could not render. Your previous input is preserved.",
+              { cause: error },
+            ),
+          );
+          setReview(true);
+        }}
+      />
       <ui.Modal
         open={review && pending}
         onOpenChange={setReview}
         title="Update this module"
-        description="This custom view cannot automatically transfer its unsaved input. Copy or finish your work before replacing it."
+        description={
+          supportsTransfer
+            ? "Keep your input while updating this view. The new release validates any converted input before replacing the current view."
+            : "This custom view cannot automatically transfer its unsaved input. Copy or finish your work before replacing it."
+        }
       >
+        <ui.ErrorMessage error={updateError} />
+        {executing && (
+          <p role="status">
+            Waiting for the current request to finish before updating this view.
+          </p>
+        )}
         <div className="actions">
           <ui.Button onClick={() => setReview(false)}>
             Keep current view
           </ui.Button>
-          <ui.Button
-            onClick={() => {
-              setInstalled({ pkg: props.pkg, publicKey: props.publicKey });
-              setReview(false);
-            }}
-          >
+          {supportsTransfer && (
+            <ui.Button
+              disabled={
+                executing || !candidate || candidate.digest !== props.pkg.digest
+              }
+              onClick={() => adopt(true)}
+            >
+              Update and keep input
+            </ui.Button>
+          )}
+          <ui.Button disabled={executing} onClick={() => adopt(false)}>
             Discard unsaved input and update
           </ui.Button>
         </div>
@@ -139,7 +365,10 @@ function SurfaceSession(
 }
 
 function InstalledSurface(
-  props: FeatureProps & { pkg: SignedArtifact; publicKey: string },
+  props: FeatureProps & {
+    pkg: SignedArtifact;
+    publicKey: string;
+  } & SurfaceState,
 ) {
   const module = React.useMemo(
     () => hydrateModule(moduleContract(props.pkg.artifact)),
@@ -169,11 +398,13 @@ function CustomModuleView(
     publicKey: string;
     module: ModuleDefinition;
     viewId: string;
-  },
+  } & SurfaceState,
 ) {
   const { module, viewId } = props;
   const view = module.views![viewId];
-  const [loaded, setLoaded] = React.useState<{ View: View; css: string }>();
+  const [loaded, setLoaded] = React.useState<LoadedView | undefined>(
+    props.prepared,
+  );
   const [error, setError] = React.useState<unknown>();
   const allowed = canUse(props.bootstrap, module.id, view.permission);
   const latest = React.useRef(props);
@@ -188,11 +419,22 @@ function CustomModuleView(
   React.useEffect(() => {
     let active = true;
     if (!allowed) return;
+    if (props.prepared) {
+      setLoaded(props.prepared);
+      return;
+    }
     void (async () => {
       await verifyArtifact(props.pkg, props.publicKey);
       if (!active) return;
       const bundle = validateClientArtifacts(props.pkg.artifact)[viewId];
       const View = await loadClientView(bundle);
+      if (view.state) {
+        if (!View.suiteViewState)
+          throw Error(
+            "This release does not expose its declared editable-state contract.",
+          );
+        restoreViewCheckpoint(module, viewId, View.suiteViewState, undefined);
+      }
       if (active) setLoaded({ View, css: bundle.css });
     })().catch((error) => {
       if (active) setError(error);
@@ -226,32 +468,38 @@ function CustomModuleView(
           module.operations[call.operation!].policy === "local"
         )
           throw Error("This operation requires a standalone local workspace.");
-        return call.action === "operation"
-          ? current.client.request({
-              operation: "moduleOperation",
-              params: {
-                workspaceId: current.scope.workspaceId,
-                moduleId: module.id,
-                operationName: call.operation!,
-              },
-              body: call.input,
-              idempotencyKey: call.key,
-              moduleVersion: call.moduleVersion,
-            })
-          : current.client.request({
-              operation: "moduleRequest",
-              params: {
-                workspaceId: current.scope.workspaceId,
-                moduleId: module.id,
-              },
-              body: {
-                action: call.action,
-                resource: call.resource,
-                input: call.input,
-              },
-              idempotencyKey: call.key,
-              moduleVersion: call.moduleVersion,
-            });
+        const mutation = !["list", "get"].includes(call.action);
+        if (mutation) current.executing?.(1);
+        try {
+          return await (call.action === "operation"
+            ? current.client.request({
+                operation: "moduleOperation",
+                params: {
+                  workspaceId: current.scope.workspaceId,
+                  moduleId: module.id,
+                  operationName: call.operation!,
+                },
+                body: call.input,
+                idempotencyKey: call.key,
+                moduleVersion: call.moduleVersion,
+              })
+            : current.client.request({
+                operation: "moduleRequest",
+                params: {
+                  workspaceId: current.scope.workspaceId,
+                  moduleId: module.id,
+                },
+                body: {
+                  action: call.action,
+                  resource: call.resource,
+                  input: call.input,
+                },
+                idempotencyKey: call.key,
+                moduleVersion: call.moduleVersion,
+              }));
+        } finally {
+          if (mutation) current.executing?.(-1);
+        }
       }),
     [module],
   );
@@ -266,7 +514,9 @@ function CustomModuleView(
   if (!loaded) return <ui.Loading />;
   const { View } = loaded;
   return (
-    <ViewBoundary>
+    <ViewBoundary
+      onError={(error) => props.renderFailed?.(props.pkg.digest, error)}
+    >
       <ui.HostCustomSandbox
         label={view.title}
         css={`
@@ -274,6 +524,7 @@ function CustomModuleView(
         `}
       >
         <View
+          state={props.editable}
           client={client}
           scope={props.scope}
           online={props.online}
@@ -281,6 +532,7 @@ function CustomModuleView(
             canUse(props.bootstrap, module.id, permission)
           }
         />
+        <ReportRendered ready={() => props.rendered?.(props.pkg.digest)} />
       </ui.HostCustomSandbox>
     </ViewBoundary>
   );

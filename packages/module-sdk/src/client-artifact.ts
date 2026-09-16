@@ -1,7 +1,7 @@
 import type { ModuleDefinition } from "./index";
 
 export interface ClientViewBundle {
-  format: "suite-view-v1";
+  format: "suite-view-v1" | "suite-view-v2";
   javascript: string;
   css: string;
 }
@@ -33,7 +33,7 @@ export function validateClientArtifacts(
     if (
       !Object.hasOwn(views, name) ||
       !value ||
-      value.format !== "suite-view-v1"
+      value.format !== (views[name]?.state ? "suite-view-v2" : "suite-view-v1")
     )
       throw Error(
         `Unsupported executable view contract: ${name}. Update the host or rebuild the module.`,

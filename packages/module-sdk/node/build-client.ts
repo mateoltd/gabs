@@ -128,7 +128,7 @@ export async function buildClientViews(
         `View ${name} CSS must be self-contained; external imports and URLs are unsupported.`,
       );
     bundles[name] = {
-      format: "suite-view-v1",
+      format: view.state ? "suite-view-v2" : "suite-view-v1",
       javascript: `export function createView(__suiteHost) {\n${js.text}\nreturn SuiteView.default;\n}\n`,
       css,
     };

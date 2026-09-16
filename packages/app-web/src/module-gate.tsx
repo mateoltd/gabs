@@ -106,6 +106,7 @@ export function ModuleGate(
         false,
         () => !signal.aborted,
       );
+      if (!installed) return false;
       registerModule(
         hydrateModule(installed.pkg.artifact as unknown as ModuleDefinition),
       );

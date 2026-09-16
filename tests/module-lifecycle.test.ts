@@ -373,6 +373,21 @@ it("recovers exact device changes across download interruption, uncertain accept
       uninstallModule({ ...props }, root, removalId),
     ]);
     expect(await auditCount("uninstall")).toBe(1);
+    const installsAfterRemoval = await auditCount("install");
+    expect(
+      await installModule(
+        props,
+        initial,
+        root,
+        false,
+        () => true,
+        "background",
+      ),
+    ).toBe(false);
+    expect(await auditCount("install")).toBe(installsAfterRemoval);
+    expect(
+      (await readModuleStorage(props.platform, props.scope)).lifecycle?.[root],
+    ).toBeUndefined();
     expect((await stored()).installed[root]).toBeUndefined();
     expect((await stored()).drafts[`${root}:notes`]).toEqual({
       name: "Unsynced work",
