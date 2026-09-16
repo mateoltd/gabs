@@ -139,3 +139,7 @@ The existing-company activation journey now verifies configuration, entitlement 
 ## 16 September 2026: registry resolution query scope
 
 Release resolution now fetches selected executable packages after resolving metadata. Local load, integrity and authorization regression evidence is recorded in [registry resolution](registry-resolution/README.md). Remote CI performance remains unverified; targets were not relaxed.
+
+## 16 September 2026: official release review console
+
+The protected operator console completes EXT-02's local submission/review/stage/publish interface. The actual CLI, restricted-role HTTP checks, an approval/publication and rejection browser journey, accessibility and narrow layout were verified; all 64 unit/PostgreSQL tests passed. [Evidence, screenshots and limits](registry-console/README.md). EXT-03 is active next; hosted release gates and remote latency remain open.

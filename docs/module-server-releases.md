@@ -15,6 +15,14 @@ The registry now keeps immutable client/server submissions, review decisions, st
 
 Buying, organization activation/configuration, permission grants, user assignment and device installation remain separate. Registry publication no longer mutates every company's roles or activation records. Administrators grant access in their own workspace. Ordinary employees cannot turn registry publication into runtime access.
 
+## Graphical operator console
+
+Run `pnpm module console` with the same protected registry connection. The terminal prints a loopback address and a random access code. Open that address, unlock the console, and select or upload a submission. Inspect its contract, requested permissions and exact client/server artifacts before entering a review reason. Approval enables server staging; publication remains unavailable until the required backend is staged. Rejected submissions cannot publish. The history records the database operator for each transition.
+
+The console binds only to `127.0.0.1` (port 4322 by default, configurable with `REGISTRY_CONSOLE_PORT`). It checks Host and Origin, requires a CSRF token for authenticated writes, limits unlock attempts, and uses an HTTP-only session. Credentials remain in the operator process. Locking or restarting revokes browser access; inactive sessions expire after 30 minutes, with an eight-hour absolute maximum. Use a distinct authenticated registry database login for each human operator. Do not expose this local tool through a public proxy.
+
+[Interface, security and browser evidence](verification/registry-console/README.md).
+
 ## Organization activation
 
 After registry publication, an administrator can discover the release in Modules even if the company predates the module. Configure validates the workspace's selected signed schema and enabled dependencies. Publishing requires an active entitlement and creates the company activation record when it does not exist. Employees do not see draft modules.
@@ -37,4 +45,4 @@ The host's existing trusted Orders/Inventory bridges remain supported as builtin
 
 Real PostgreSQL tests exercise premature publication, immutable submission/review, altered signatures, restricted release-tool privileges, concurrent publish retries, failed staging, server-side business rollback, revoked permissions and old-version pins. The fifth custom-view fixture builds, submits, reviews, stages and publishes both packages through the real CLI; Chromium and Electron save through its independently deployed server operation against the compiled API.
 
-The official CLI workflow is usable. The publisher review web interface, external publisher authentication/approval, per-module migrations, hosted deployment acceptance and trust rotation are not implemented by this change. External publishers remain outside the initial official-only release policy. EXT-02 stays active while its review interface and remaining acceptance are completed; EXT-03 owns schema migration work.
+The official CLI and protected graphical operator workflow are verified locally under EXT-02. External publisher authentication/approval, per-module migrations, hosted deployment acceptance and trust rotation remain incomplete. External publishers remain outside the initial official-only policy. EXT-03 owns schema migration work; EXT-06 and the operations gates retain hosted distribution and release acceptance.

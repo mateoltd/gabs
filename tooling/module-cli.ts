@@ -47,6 +47,43 @@ if (command === "keygen") {
   console.log(
     "Created local module signing keys. Never commit the private key.",
   );
+} else if (command === "console") {
+  const { buildRegistryConsole } = await import("./registry-console/build");
+  const { startRegistryConsole } = await import("./registry-console/server");
+  const url =
+    process.env.REGISTRY_DATABASE_URL ||
+    (["development", "test"].includes(process.env.NODE_ENV ?? "")
+      ? process.env.MIGRATION_DATABASE_URL
+      : undefined);
+  if (!url)
+    throw Error(
+      "REGISTRY_DATABASE_URL is required for protected release tooling.",
+    );
+  const pool = new Pool({ connectionString: url });
+  try {
+    const consoleServer = await startRegistryConsole({
+      pool,
+      publicKey:
+        process.env.MODULE_SIGNING_PUBLIC_KEY ??
+        (await readFile(`${keys}/public.pem`, "utf8")),
+      assets: await buildRegistryConsole(),
+      port: Number(process.env.REGISTRY_CONSOLE_PORT ?? 4322),
+      builtins: moduleServers,
+    });
+    console.log(
+      `Registry operator console: ${consoleServer.origin}\nAccess code: ${consoleServer.accessCode}\nKeep this terminal open. Decisions use the authenticated registry database identity.`,
+    );
+    const close = async () => {
+      await consoleServer.close();
+      await pool.end();
+      process.exit(0);
+    };
+    process.once("SIGINT", () => void close());
+    process.once("SIGTERM", () => void close());
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
 } else if (command === "create") {
   if (!name || !identifier.test(name))
     throw Error("Usage: pnpm module create <lowercase-module-id>");
@@ -236,5 +273,5 @@ if (command === "keygen") {
   console.log(JSON.stringify(pkg.manifest, null, 2));
 } else
   throw Error(
-    "Commands: create, dev, check, test, keygen, build, submit, submissions, review, stage, publish, inspect",
+    "Commands: create, dev, check, test, keygen, build, submit, submissions, review, stage, publish, inspect, console",
   );
