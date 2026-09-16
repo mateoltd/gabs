@@ -35,7 +35,7 @@ At the user's request, browser tests run headless and native tests start minimiz
 
 Only declared state transfers. Arbitrary React state, ongoing workers, focus and side effects are not captured automatically. These checkpoints are in memory and do not establish crash persistence, navigation/profile-removal recovery or durable custom-operation recovery. A publisher still has to handle uncertain business results correctly; saved editing input is not an acceptance receipt. Initial-render recovery does not claim recovery from every later effect or arbitrary publisher bug.
 
-Generated native unsaved-editor handoff, rollout progress/failure reporting and connected suspension delivery remain EXT-05 work. Signed installed-runtime acceptance on every OS, external providers and the separately queued final UI-refinement goal remain unfinished.
+Generated native unsaved-editor handoff was subsequently verified in [native editor acceptance](../native-editor-updates/README.md). Rollout progress/failure reporting and connected suspension delivery remain EXT-05 work. Signed installed-runtime acceptance on every OS, external providers and the separately queued final UI-refinement goal remain unfinished.
 
 ## Previous remote candidates
 
