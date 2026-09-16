@@ -1,5 +1,7 @@
 # Project execution
 
+- Run browser E2E headless and desktop E2E minimized without taking focus or opening Dock windows. Preserve the default minimized test configuration so the user can keep using their computer. Ask before any acceptance step that genuinely requires an interactive foreground window.
+
 ## Parity goal and continuity
 
 - Current user direction: resume feature parity after the GitHub checkpoint. Preserve existing UI while completing functionality; the current UI is not user-approved as polished or acceptable. After every parity acceptance gate is verified, complete the parity goal and create the separately authorized UI refinement goal described in `docs/ui-refinement-goal.md`. Do not start that second goal early. Reconciliation evidence is historical, not a final design approval.

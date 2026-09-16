@@ -3,7 +3,11 @@ export default defineConfig({
   testDir: "./tests/e2e",
   workers: 1,
   timeout: 45000,
-  use: { baseURL: "http://localhost:4300", trace: "retain-on-failure" },
+  use: {
+    baseURL: "http://localhost:4300",
+    trace: "retain-on-failure",
+    headless: true,
+  },
   projects: [{ name: "chromium", use: devices["Desktop Chrome"] }],
   webServer: [
     {

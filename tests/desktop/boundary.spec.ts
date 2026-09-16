@@ -39,6 +39,15 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
       keys: Object.keys(window.suiteDesktop!),
       storage: Object.keys(localStorage),
     }));
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().every(
+            (window) => window.isMinimized() && !window.isFocused(),
+          ),
+        ),
+      )
+      .toBe(true);
     expect(boundary.node).toBe("undefined");
     expect(boundary.process).toBe("undefined");
     expect(boundary.keys).not.toContain("token");

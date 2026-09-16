@@ -55,6 +55,8 @@ declare const __RUNTIME_CONFIG__: {
   updateUrl: string;
 };
 const config = __RUNTIME_CONFIG__;
+const minimizedTest =
+  !app.isPackaged && process.env.SUITE_DESKTOP_TEST_MINIMIZED === "1";
 const devAuth =
   !app.isPackaged &&
   process.env.NODE_ENV === "development" &&
@@ -354,8 +356,10 @@ async function login(options: LoginOptions) {
             "Content-Security-Policy": "default-src 'none'",
           });
           res.end("<h1>Signed in</h1><p>You can return to Common.</p>");
-          win?.show();
-          win?.focus();
+          if (!minimizedTest) {
+            win?.show();
+            win?.focus();
+          }
           finish();
         } catch (e) {
           res.writeHead(400);
@@ -708,6 +712,7 @@ async function start() {
   });
   handlers();
   const createWindow = () => {
+    if (minimizedTest) app.dock?.hide();
     win = new BrowserWindow({
       width: 1360,
       height: 900,
@@ -731,6 +736,7 @@ async function start() {
         sandbox: true,
         webSecurity: true,
         devTools: !app.isPackaged,
+        backgroundThrottling: !minimizedTest,
       },
     });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -749,13 +755,18 @@ async function start() {
         },
       }),
     );
-    win.once("ready-to-show", () => win?.show());
+    win.once("ready-to-show", () => {
+      if (minimizedTest) win?.minimize();
+      else win?.show();
+    });
     void win.loadURL("suite://app/index.html");
   };
   createWindow();
   app.on("second-instance", () => {
-    win?.show();
-    win?.focus();
+    if (!minimizedTest) {
+      win?.show();
+      win?.focus();
+    }
   });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

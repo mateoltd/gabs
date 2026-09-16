@@ -1,4 +1,6 @@
 import { defineConfig } from "@playwright/test";
+// Native acceptance must not take over the user's desktop.
+process.env.SUITE_DESKTOP_TEST_MINIMIZED = "1";
 export default defineConfig({
   testDir: "tests/desktop",
   workers: 1,
