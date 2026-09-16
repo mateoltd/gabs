@@ -168,7 +168,22 @@ test("queued offline capture survives a reload and synchronizes on reconnect", a
   page,
   context,
 }) => {
-  await workspace(page);
+  const workspaceId = await workspace(page);
+  const me = await (await page.request.get("/api/v1/me")).json();
+  const submitted: { key?: string; version?: string }[] = [];
+  page.on("request", (request) => {
+    if (
+      request
+        .url()
+        .includes(`/module/contacts/workspaces/${workspaceId}/records`) &&
+      request.method() === "POST" &&
+      request.postDataJSON()?.action === "create"
+    )
+      submitted.push({
+        key: request.headers()["idempotency-key"],
+        version: request.headers()["x-module-version"],
+      });
+  });
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByRole("button", { name: "Enable on this device", exact: true })
@@ -202,10 +217,52 @@ test("queued offline capture survives a reload and synchronizes on reconnect", a
   await expect(
     page.getByRole("heading", { name: "Pending changes" }),
   ).toBeVisible();
+  const pending = await page.evaluate(
+    async ({ userId, workspaceId }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open("suite-offline-v1");
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      try {
+        const state = await new Promise<{
+          journal: {
+            call: {
+              moduleVersion?: string;
+              key?: string;
+              input: { data?: { name?: string } };
+            };
+          }[];
+        }>((resolve, reject) => {
+          const get = db
+            .transaction("records")
+            .objectStore("records")
+            .get(`${userId}/${workspaceId}/module-state`);
+          get.onsuccess = () => resolve(get.result);
+          get.onerror = () => reject(get.error);
+        });
+        return state.journal.find(
+          (entry) => entry.call.input.data?.name === "Offline capture",
+        )!.call;
+      } finally {
+        db.close();
+      }
+    },
+    { userId: me.user.id, workspaceId },
+  );
+  expect(pending.moduleVersion).toBe("1.1.0");
   await context.setOffline(false);
   await expect(
     page.getByRole("cell", { name: "Offline capture", exact: true }),
   ).toBeVisible({ timeout: 25000 });
+  expect(submitted.length).toBeGreaterThan(0);
+  expect(
+    submitted.every(
+      (request) =>
+        request.version === pending.moduleVersion &&
+        request.key === pending.key,
+    ),
+  ).toBe(true);
 });
 
 test("high contrast keeps the principal text pairs above 7:1 in every archetype", async ({

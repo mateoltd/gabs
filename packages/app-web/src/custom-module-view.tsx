@@ -162,6 +162,7 @@ function CustomModuleView(
               },
               body: call.input,
               idempotencyKey: call.key,
+              moduleVersion: call.moduleVersion,
             })
           : current.client.request({
               operation: "moduleRequest",
@@ -175,6 +176,7 @@ function CustomModuleView(
                 input: call.input,
               },
               idempotencyKey: call.key,
+              moduleVersion: call.moduleVersion,
             });
       }),
     [module],

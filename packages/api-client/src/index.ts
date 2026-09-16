@@ -69,6 +69,8 @@ export function httpTransport(
     if (csrf) headers["X-CSRF-Token"] = csrf;
     if (request.idempotencyKey)
       headers["Idempotency-Key"] = request.idempotencyKey;
+    if (request.moduleVersion !== undefined)
+      headers["X-Module-Version"] = request.moduleVersion;
     if (request.version !== undefined)
       headers["If-Match"] = `"${request.version}"`;
     const response = await fetch(baseUrl + op.path, {
@@ -107,6 +109,7 @@ export class SuiteClient {
             },
             body: call.input,
             idempotencyKey: call.key,
+            moduleVersion: call.moduleVersion,
           })
         : this.request({
             operation: "moduleRequest",
@@ -117,6 +120,7 @@ export class SuiteClient {
               input: call.input,
             },
             idempotencyKey: call.key,
+            moduleVersion: call.moduleVersion,
           }),
     );
   }

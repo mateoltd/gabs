@@ -120,8 +120,16 @@ export async function executeResource(
   ctx: Context,
   moduleId: string,
   command: ResourceCommand,
+  definition?: ModuleDefinition,
 ) {
-  const module = await workspaceModule(tx, ctx.workspaceId, moduleId);
+  const module =
+    definition ?? (await workspaceModule(tx, ctx.workspaceId, moduleId));
+  requireCondition(
+    module.id === moduleId,
+    403,
+    "CAPABILITY_DENIED",
+    "The resource contract belongs to another module.",
+  );
   const resource = found(module.resources[command.resource]);
   const permission = `${moduleId}.${command.resource}.${["list", "get"].includes(command.action) ? "read" : "write"}`;
   requireCondition(

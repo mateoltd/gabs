@@ -241,6 +241,8 @@ export interface ResourcePage<T = JsonRecord> {
 }
 export interface ModuleCall {
   moduleId: string;
+  /** Signed module release used to author this request, retained when queued. */
+  moduleVersion?: string;
   resource?: string;
   action: "list" | "get" | "create" | "update" | "archive" | "operation";
   operation?: string;
@@ -250,8 +252,10 @@ export interface ModuleCall {
 export type ModuleTransport = (call: ModuleCall) => Promise<unknown>;
 export function createModuleClient<M extends ModuleDefinition>(
   module: M,
-  transport: ModuleTransport,
+  send: ModuleTransport,
 ) {
+  const transport: ModuleTransport = (call) =>
+    send({ ...call, moduleVersion: module.version });
   async function call<K extends keyof M["operations"] & string>(
     name: K,
     input: Static<M["operations"][K]["input"]>,

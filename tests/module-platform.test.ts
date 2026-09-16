@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
+import contacts from "../modules/contacts/module";
+import projects from "../modules/projects/module";
 import { createApp } from "../apps/api/src/app";
 import {
   connectDatabase,
@@ -19,11 +21,18 @@ async function call(
   action: string,
   input: unknown,
   key = randomUUID(),
+  moduleVersion?: string,
 ) {
   const res = await server.app.inject({
     method: "POST",
     url: `/api/v1/module/${moduleId}/workspaces/${workspace}/records`,
-    headers: { ...headers, "idempotency-key": key },
+    headers: {
+      ...headers,
+      "idempotency-key": key,
+      ...(moduleVersion === undefined
+        ? {}
+        : { "x-module-version": moduleVersion }),
+    },
     payload: { action, resource, input },
   });
   return { status: res.statusCode, body: res.json() };
@@ -68,6 +77,92 @@ afterAll(async () => {
   await db.destroy();
 });
 describe("Public module runtime", () => {
+  it("rejects stale client contracts before writes and idempotent replay", async () => {
+    const id = randomUUID(),
+      key = randomUUID();
+    const input = {
+      id,
+      data: {
+        name: "Versioned company",
+        kind: "organization",
+        relationship: "customer",
+      },
+    };
+    const stale = await call(
+      "contacts",
+      "contacts",
+      "create",
+      input,
+      key,
+      "0.0.1",
+    );
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe("MODULE_UPDATE_REQUIRED");
+    expect(
+      await inWorkspace(db, workspace, (tx) =>
+        tx
+          .selectFrom("suite.module_records")
+          .select("id")
+          .where("id", "=", id)
+          .execute(),
+      ),
+    ).toEqual([]);
+    const accepted = await call(
+      "contacts",
+      "contacts",
+      "create",
+      input,
+      key,
+      contacts.version,
+    );
+    expect(accepted.status).toBe(200);
+    expect(
+      (
+        await call(
+          "contacts",
+          "contacts",
+          "create",
+          input,
+          key,
+          contacts.version,
+        )
+      ).body,
+    ).toEqual(accepted.body);
+    expect(
+      (await call("contacts", "contacts", "create", input, key, "0.0.1")).body
+        .code,
+    ).toBe("MODULE_UPDATE_REQUIRED");
+    expect(
+      (await call("contacts", "contacts", "create", input, key)).body.code,
+    ).toBe("IDEMPOTENCY_CONFLICT");
+    expect(
+      (
+        await call(
+          "contacts",
+          "contacts",
+          "list",
+          {},
+          randomUUID(),
+          "bad,version",
+        )
+      ).status,
+    ).toBe(400);
+    // Legacy persisted work keeps its original unversioned hash; never relabel it as a new release.
+    const legacyId = randomUUID(),
+      legacyKey = randomUUID();
+    const legacy = { ...input, id: legacyId };
+    const first = await call(
+      "contacts",
+      "contacts",
+      "create",
+      legacy,
+      legacyKey,
+    );
+    expect(first.status).toBe(200);
+    expect(
+      (await call("contacts", "contacts", "create", legacy, legacyKey)).body,
+    ).toEqual(first.body);
+  });
   it("validates schemas before persistence", async () => {
     const result = await call("contacts", "contacts", "create", {
       id: randomUUID(),
@@ -474,9 +569,16 @@ describe("Workspace member references", () => {
     const directory = await server.app.inject({
       method: "GET",
       url: `/api/v1/module/projects/workspaces/${workspace}/members/tasks/assigneeId`,
-      headers,
+      headers: { ...headers, "x-module-version": projects.version },
     });
     expect(directory.statusCode).toBe(200);
+    const staleDirectory = await server.app.inject({
+      method: "GET",
+      url: `/api/v1/module/projects/workspaces/${workspace}/members/tasks/assigneeId`,
+      headers: { ...headers, "x-module-version": "0.0.1" },
+    });
+    expect(staleDirectory.statusCode).toBe(409);
+    expect(staleDirectory.json().code).toBe("MODULE_UPDATE_REQUIRED");
     expect(directory.json().items).toHaveLength(1);
     const memberId = directory.json().items[0].id;
     const project = await call("projects", "projects", "create", {

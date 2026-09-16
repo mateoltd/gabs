@@ -70,6 +70,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
       params: { workspaceId: scope.workspaceId, moduleId: call.moduleId },
       body: { action: call.action, resource: call.resource, input: call.input },
       idempotencyKey: call.key,
+      moduleVersion: call.moduleVersion,
     });
   const read = async () => {
     const s = await readModuleStorage(platform, scope);
@@ -90,6 +91,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
     queryFn: async () => {
       const result = (await send({
         moduleId,
+        moduleVersion: module.version,
         resource,
         action: "list",
         input: { search, cursor, archived },
@@ -157,6 +159,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
             const directory: import("@suite/module-sdk").MemberPage =
               await client.request({
                 operation: "moduleMembers",
+                moduleVersion: module.version,
                 params: {
                   workspaceId: scope.workspaceId,
                   moduleId,
@@ -228,6 +231,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
       assertSchema(definition.schema, form);
       const call: ModuleCall = attempt.current ?? {
         moduleId,
+        moduleVersion: module.version,
         resource,
         action: editing ? "update" : "create",
         input: editing
@@ -440,6 +444,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
                               try {
                                 await send({
                                   moduleId,
+                                  moduleVersion: module.version,
                                   resource,
                                   action: "archive",
                                   input: {
@@ -497,6 +502,7 @@ export function ModuleView(props: FeatureProps & { moduleId: string }) {
                         entry.call.action === "update"
                           ? ((await send({
                               moduleId,
+                              moduleVersion: module.version,
                               resource,
                               action: "get",
                               input: { id: command.id },

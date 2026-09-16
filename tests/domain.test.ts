@@ -94,6 +94,21 @@ describe("offline and native boundaries", () => {
     ).toBe(false);
   });
   it("rejects arbitrary native URLs, routes and filesystem scopes", () => {
+    const moduleRequest = {
+      operation: "moduleRequest",
+      params: { workspaceId: randomUUID(), moduleId: "contacts" },
+      moduleVersion: "1.1.0",
+    };
+    expect(validateOperation(moduleRequest).moduleVersion).toBe("1.1.0");
+    expect(() =>
+      validateOperation({
+        ...moduleRequest,
+        moduleVersion: "1.0.0\r\nAuthorization: evil",
+      }),
+    ).toThrow();
+    expect(() =>
+      validateOperation({ ...moduleRequest, operation: "me" }),
+    ).toThrow();
     expect(() =>
       validateOperation({ operation: "fetch", url: "file:///etc/passwd" }),
     ).toThrow();

@@ -51,6 +51,23 @@ const policy: OrganizationPolicy = {
   groups: [],
 };
 describe("Module authoring and trust", () => {
+  it("retains the authored release identity on every typed resource request", async () => {
+    const sent: ModuleCall[] = [];
+    const client = createModuleClient(contacts, async (call) => {
+      sent.push(structuredClone(call));
+      return {};
+    });
+    await client.resource("contacts").list();
+    await client.resource("contacts").get("one");
+    await client
+      .resource("contacts")
+      .create({ name: "A", kind: "organization", relationship: "customer" });
+    await client.resource("contacts").archive("one", 1);
+    expect(sent).toHaveLength(4);
+    expect(sent.every((call) => call.moduleVersion === contacts.version)).toBe(
+      true,
+    );
+  });
   it("infers schemas and rejects invalid records at runtime", () => {
     expect(() =>
       assertSchema(contacts.resources.contacts.schema, {

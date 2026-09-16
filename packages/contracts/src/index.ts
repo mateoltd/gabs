@@ -469,6 +469,7 @@ export interface OperationRequest {
   body?: unknown;
   idempotencyKey?: string;
   version?: number;
+  moduleVersion?: string;
 }
 export function operationPath(request: OperationRequest) {
   const operation = OPERATIONS[request.operation];

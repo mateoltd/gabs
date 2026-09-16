@@ -11259,6 +11259,17 @@
             "in": "path",
             "name": "operationName",
             "required": true
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-module-version",
+            "required": false
           }
         ],
         "responses": {
@@ -11325,6 +11336,17 @@
             "in": "path",
             "name": "field",
             "required": true
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-module-version",
+            "required": false
           }
         ],
         "responses": {
@@ -11594,6 +11616,17 @@
             "in": "path",
             "name": "moduleId",
             "required": true
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-module-version",
+            "required": false
           }
         ],
         "responses": {

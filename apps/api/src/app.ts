@@ -126,6 +126,7 @@ export async function createApp(
       "If-Match",
       "Authorization",
       "X-Desktop-Version",
+      "X-Module-Version",
     ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   });

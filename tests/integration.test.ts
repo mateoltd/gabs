@@ -724,28 +724,61 @@ describe("real PostgreSQL transactions and tenant security", () => {
       {},
       { "if-match": '"1"' },
     );
+    const job = await inWorkspace(db, workspace, (tx) =>
+      tx
+        .selectFrom("suite.outbox")
+        .selectAll()
+        .where("event_type", "=", "orders.confirmed")
+        .where(sql<boolean>`payload->>'recordId'=${o.id}`)
+        .executeTakeFirstOrThrow(),
+    );
+    // Prioritize this fixture's event, independently of unrelated work already queued locally.
+    await inWorkspace(db, workspace, (tx) =>
+      tx
+        .updateTable("suite.outbox")
+        .set({ created_at: new Date(0) })
+        .where("id", "=", job.id)
+        .execute(),
+    );
     const claims = await sql<{
       id: string;
       workspace_id: string;
-    }>`select * from suite.claim_jobs(20)`.execute(worker);
-    for (const c of claims.rows)
-      await inWorkspace(db, c.workspace_id, (tx) =>
+    }>`select * from suite.claim_jobs(1)`.execute(worker);
+    expect(claims.rows.map((c) => c.id)).toEqual([job.id]);
+    await inWorkspace(db, workspace, (tx) =>
+      tx
+        .updateTable("suite.outbox")
+        .set({ locked_until: new Date(0) })
+        .where("id", "=", job.id)
+        .execute(),
+    );
+    await runBatch(worker);
+    const notifications = () =>
+      inWorkspace(db, workspace, (tx) =>
         tx
-          .updateTable("suite.outbox")
-          .set({ locked_until: new Date(0) })
-          .where("id", "=", c.id)
+          .selectFrom("suite.notifications")
+          .selectAll()
+          .where("event_id", "=", job.id)
           .execute(),
       );
-    for (let i = 0; i < 15; i++) if ((await runBatch(worker)) === 0) break;
-    const rows = await inWorkspace(db, workspace, (tx) =>
-      tx.selectFrom("suite.notifications").selectAll().execute(),
+    const first = await notifications();
+    expect(first).toHaveLength(1);
+    expect(first[0].user_id).toBe(owner.id);
+    // Re-deliver the same event after a simulated lost acknowledgement, not a different job.
+    await inWorkspace(db, workspace, (tx) =>
+      tx
+        .updateTable("suite.outbox")
+        .set({
+          completed_at: null,
+          locked_until: null,
+          available_at: new Date(0),
+          attempts: 0,
+        })
+        .where("id", "=", job.id)
+        .execute(),
     );
-    expect(rows.length).toBeGreaterThan(0);
     await runBatch(worker);
-    const next = await inWorkspace(db, workspace, (tx) =>
-      tx.selectFrom("suite.notifications").selectAll().execute(),
-    );
-    expect(next.length).toBe(rows.length);
+    expect(await notifications()).toEqual(first);
     await expect(
       inWorkspace(worker, workspace, (tx) =>
         tx.updateTable("suite.stock").set({ on_hand: 100 }).execute(),

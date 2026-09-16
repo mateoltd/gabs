@@ -166,7 +166,11 @@ const send = async (call: ModuleCall) => {
   const response = await app.app.inject({
     method: "POST",
     url: `/api/v1/module/${call.moduleId}/workspaces/${workspace}/operations/${call.operation}`,
-    headers: { ...headers, "idempotency-key": call.key! },
+    headers: {
+      ...headers,
+      "idempotency-key": call.key!,
+      ...(call.moduleVersion ? { "x-module-version": call.moduleVersion } : {}),
+    },
     payload: call.input as object,
   });
   if (response.statusCode !== 200)
@@ -267,6 +271,25 @@ describe("Scoped module services", () => {
       }),
     ).rejects.toMatchObject({ status: 500 });
     expect(await counts()).toEqual(before);
+  });
+  it("rejects a stale operation contract before invoking its server or returning a receipt", async () => {
+    const key = randomUUID();
+    const input = { name: "Versioned service" };
+    const request: ModuleCall = {
+      moduleId: consumer.id,
+      moduleVersion: consumer.version,
+      action: "operation",
+      operation: "run",
+      input,
+      key,
+    };
+    const result = await send(request);
+    const after = await counts();
+    expect(await send(request)).toEqual(result);
+    await expect(
+      send({ ...request, moduleVersion: "0.0.1" }),
+    ).rejects.toMatchObject({ status: 409, code: "MODULE_UPDATE_REQUIRED" });
+    expect(await counts()).toEqual(after);
   });
   it("rechecks current actor permissions even when the service grant remains", async () => {
     await inWorkspace(db, workspace, async (tx) => {

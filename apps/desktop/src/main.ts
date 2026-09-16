@@ -254,6 +254,8 @@ async function execute(raw: OperationRequest) {
   if (request.body !== undefined) headers["Content-Type"] = "application/json";
   if (request.idempotencyKey)
     headers["Idempotency-Key"] = request.idempotencyKey;
+  if (request.moduleVersion !== undefined)
+    headers["X-Module-Version"] = request.moduleVersion;
   if (request.version !== undefined)
     headers["If-Match"] = `"${request.version}"`;
   const res = await fetch(config.apiOrigin + op.path, {

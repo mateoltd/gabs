@@ -54,6 +54,7 @@ export function validateOperation(value: unknown): OperationRequest {
           "body",
           "idempotencyKey",
           "version",
+          "moduleVersion",
         ].includes(k),
     )
   )
@@ -64,6 +65,15 @@ export function validateOperation(value: unknown): OperationRequest {
     (!Number.isSafeInteger(r.version) || r.version < 1)
   )
     throw Error("Invalid version");
+  if (
+    r.moduleVersion !== undefined &&
+    (typeof r.moduleVersion !== "string" ||
+      !/^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/.test(r.moduleVersion) ||
+      !["moduleRequest", "moduleOperation", "moduleMembers"].includes(
+        r.operation,
+      ))
+  )
+    throw Error("Invalid module version");
   if (
     r.idempotencyKey !== undefined &&
     (typeof r.idempotencyKey !== "string" ||

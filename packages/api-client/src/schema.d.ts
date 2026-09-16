@@ -5219,7 +5219,9 @@ export interface operations {
     moduleOperation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
             path: {
                 workspaceId: string;
                 moduleId: string;
@@ -5248,7 +5250,9 @@ export interface operations {
                 cursor?: string;
                 search?: string;
             };
-            header?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
             path: {
                 workspaceId: string;
                 moduleId: string;
@@ -5341,7 +5345,9 @@ export interface operations {
     moduleRequest: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
             path: {
                 workspaceId: string;
                 moduleId: string;

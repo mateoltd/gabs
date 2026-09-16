@@ -1,3 +1,4 @@
+import { assertClientModuleVersion } from "../../../packages/server-core/src/client-module-version";
 import { changeDeviceInstallation } from "../../../packages/server-core/src/module-installations";
 import { migrateModuleStorage } from "../../../packages/server-core/src/module-migrations";
 import {
@@ -56,6 +57,18 @@ const input = T.Object(
     archived: T.Optional(T.Boolean()),
   },
   { additionalProperties: false },
+);
+const moduleHeaders = T.Object(
+  {
+    "x-module-version": T.Optional(
+      T.String({
+        minLength: 1,
+        maxLength: 40,
+        pattern: "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+      }),
+    ),
+  },
+  { additionalProperties: true },
 );
 const strings = T.Array(T.String({ maxLength: 200 }), {
   maxItems: 500,
@@ -125,6 +138,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
     {
       schema: {
         operationId: "moduleOperation",
+        headers: moduleHeaders,
         params: T.Object({
           workspaceId: id,
           moduleId: slug,
@@ -151,6 +165,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           operation.permission,
           definition.id,
         );
+        assertClientModuleVersion(definition, req.headers["x-module-version"]);
         requireCondition(
           operation.policy !== "local",
           400,
@@ -163,7 +178,12 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           ctx,
           req.headers["idempotency-key"] as string | undefined,
           `${definition.id}.${req.params.operationName}`,
-          req.body,
+          req.headers["x-module-version"] === undefined
+            ? req.body
+            : {
+                moduleVersion: req.headers["x-module-version"],
+                input: req.body,
+              },
           () =>
             executeModuleOperation(
               tx,
@@ -189,6 +209,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
     {
       schema: {
         operationId: "moduleMembers",
+        headers: moduleHeaders,
         params: T.Object({
           workspaceId: id,
           moduleId: slug,
@@ -216,6 +237,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           ctx.workspaceId,
           req.params.moduleId,
         );
+        assertClientModuleVersion(module, req.headers["x-module-version"]);
         const resource = found(module.resources[req.params.resource]);
         requireCondition(
           resource.schema.properties?.[req.params.field]?.["x-membership"],
@@ -387,6 +409,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
     {
       schema: {
         operationId: "moduleRequest",
+        headers: moduleHeaders,
         params,
         body: T.Object(
           {
@@ -412,6 +435,12 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           undefined,
           req.params.moduleId,
         );
+        const clientVersion = req.headers["x-module-version"];
+        const definition =
+          clientVersion === undefined
+            ? undefined
+            : await workspaceModule(tx, ctx.workspaceId, req.params.moduleId);
+        if (definition) assertClientModuleVersion(definition, clientVersion);
         const execute = async () => {
           try {
             return await executeResource(
@@ -419,6 +448,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
               ctx,
               req.params.moduleId,
               req.body,
+              definition,
             );
           } catch (e) {
             if (e instanceof ValidationError) {
@@ -433,7 +463,9 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           ctx,
           req.headers["idempotency-key"] as string | undefined,
           `${req.params.moduleId}.${req.body.resource}.${req.body.action}`,
-          req.body,
+          clientVersion === undefined
+            ? req.body
+            : { moduleVersion: clientVersion, input: req.body },
           execute,
         );
       }),

@@ -123,11 +123,17 @@ export async function executeModuleOperation(
                 "CAPABILITY_DENIED",
                 "Use declared services for cross-module access.",
               );
-              return executeResource(tx, ctx, module.id, {
-                action: call.action,
-                resource: call.resource,
-                input: call.input,
-              } as ResourceCommand);
+              return executeResource(
+                tx,
+                ctx,
+                module.id,
+                {
+                  action: call.action,
+                  resource: call.resource,
+                  input: call.input,
+                } as ResourceCommand,
+                module,
+              );
             }),
           emit: (event, payload) =>
             guarded(async () => {

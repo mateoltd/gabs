@@ -97,6 +97,45 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
       ]);
     });
     expect(artifactBoundary).toEqual([true, true, true, true]);
+    const moduleRelease = await page.evaluate(async () => {
+      // Use an isolated, provisioned company instead of shared mutable seed data.
+      const workspaceId = crypto.randomUUID();
+      const created = await window.suiteDesktop!.execute({
+        operation: "workspaceCreate",
+        body: {
+          id: workspaceId,
+          name: "Native contract acceptance",
+          currency: "EUR",
+        },
+        idempotencyKey: crypto.randomUUID(),
+      });
+      if (created.status !== 200)
+        throw Error("Could not provision contract fixture");
+      const params = { workspaceId, moduleId: "contacts" };
+      const stale = await window.suiteDesktop!.execute({
+        operation: "moduleRequest",
+        params,
+        moduleVersion: "0.0.1",
+        body: { action: "list", resource: "contacts", input: {} },
+      });
+      const current = await window.suiteDesktop!.execute({
+        operation: "moduleRequest",
+        params,
+        moduleVersion: "1.1.0",
+        body: { action: "list", resource: "contacts", input: {} },
+      });
+      return {
+        stale,
+        current,
+        security: await window.suiteDesktop!.securityStatus(),
+      };
+    });
+    expect(moduleRelease.stale).toMatchObject({
+      status: 409,
+      body: { code: "MODULE_UPDATE_REQUIRED" },
+    });
+    expect(moduleRelease.current.status).toBe(200);
+    expect(moduleRelease.security.updateRequired).toBe(false);
     const persisted = await page.evaluate(async () => {
       const me = (await window.suiteDesktop!.execute({ operation: "me" }))
         .body as { user: { id: string }; workspaces: { id: string }[] };
