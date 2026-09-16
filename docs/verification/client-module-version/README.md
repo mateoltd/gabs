@@ -25,3 +25,5 @@ Explicit accepted-client release sets, safe mixed-version dispatch, mandatory/op
 ## Receipt authorization correction
 
 Review of the new version checks exposed an existing resource replay gap: the route checked module access before idempotency lookup, but the resource permission was checked only inside execution. An accepted receipt could therefore be returned after the corresponding write permission was revoked. The route now checks the action's current resource permission before looking up any receipt. Versioned and legacy requests both deny replay after revocation, preserve independent read access, and return the original single result after authorization is restored. Custom operation routes already check their declared permission before replay.
+
+The final full check passed all 73 tests. Its first run exposed a pre-existing export fixture assumption that ten worker batches would drain all unrelated local jobs. The test now prioritizes its own export event and restores suspension state in `finally`; the production queue, retry limits and assertions are unchanged. The rebuilt API and formatting passed after the replay correction.

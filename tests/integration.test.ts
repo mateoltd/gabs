@@ -795,29 +795,41 @@ describe("real PostgreSQL transactions and tenant security", () => {
         .where("module_id", "=", "orders")
         .execute(),
     );
-    for (let i = 0; i < 10; i++) if ((await runBatch(worker)) === 0) break;
-    await inWorkspace(db, workspace, async (tx) => {
+    try {
+      // Process this export independently of unrelated fixture backlog.
+      await inWorkspace(db, workspace, (tx) =>
+        tx
+          .updateTable("suite.outbox")
+          .set({ created_at: new Date(0) })
+          .where("workspace_id", "=", workspace)
+          .where(sql<boolean>`payload->>'recordId'=${exportJob.body.id}`)
+          .execute(),
+      );
+      await runBatch(worker);
+      await inWorkspace(db, workspace, async (tx) => {
+        expect(
+          (
+            await tx
+              .selectFrom("suite.exports")
+              .select("state")
+              .where("id", "=", exportJob.body.id)
+              .executeTakeFirstOrThrow()
+          ).state,
+        ).toBe("failed");
+      });
       expect(
-        (
-          await tx
-            .selectFrom("suite.exports")
-            .select("state")
-            .where("id", "=", exportJob.body.id)
-            .executeTakeFirstOrThrow()
-        ).state,
-      ).toBe("failed");
-    });
-    expect(
-      (await request("GET", path(`/exports/${exportJob.body.id}/download`)))
-        .status,
-    ).toBe(403);
-    await inWorkspace(db, workspace, (tx) =>
-      tx
-        .updateTable("suite.module_activations")
-        .set({ state: "enabled" })
-        .where("module_id", "=", "orders")
-        .execute(),
-    );
+        (await request("GET", path(`/exports/${exportJob.body.id}/download`)))
+          .status,
+      ).toBe(403);
+    } finally {
+      await inWorkspace(db, workspace, (tx) =>
+        tx
+          .updateTable("suite.module_activations")
+          .set({ state: "enabled" })
+          .where("module_id", "=", "orders")
+          .execute(),
+      );
+    }
   });
   it("shows exports as failed after repeatedly crashed leases exhaust retries", async () => {
     const created = await request("POST", path("/exports"), {});
