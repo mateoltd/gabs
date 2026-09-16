@@ -1402,7 +1402,12 @@ function Session() {
         onExit={() => setLocalMode(false)}
         registry={
           personal
-            ? { client, workspaceId: personal.id, online: online && !!me.data }
+            ? {
+                client,
+                userId: me.data!.user.id,
+                workspaceId: personal.id,
+                online: online && !!me.data,
+              }
             : undefined
         }
       />

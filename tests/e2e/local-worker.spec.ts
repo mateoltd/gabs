@@ -6,7 +6,7 @@ import type { Page } from "@playwright/test";
 async function fixture(page: Page) {
   const source = await build({
     stdin: {
-      contents: `export * from './packages/platform/src/local-profiles';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {default as module} from './modules/contacts/module';`,
+      contents: `export * from './packages/platform/src/local-profiles';export {resumeLocalDownload} from './packages/app-web/src/local-module-download';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {default as module} from './modules/contacts/module';`,
       resolveDir: process.cwd(),
     },
     write: false,
@@ -691,4 +691,203 @@ test("local dependency sets migrate atomically, preserve consumers and resume th
   expect(result.active[1].releases["2.1.0"].configuration).toEqual({
     prefix: "Consumer: ",
   });
+});
+
+test("encrypted local download sets reject invalid bytes, foreign sources, cancellation and stale-window commits", async ({
+  page,
+}) => {
+  const provider = await publishLocalPackage({
+    name: "Download contract provider",
+  });
+  const root = await publishLocalPackage({
+    dependencies: { [provider.pkg.module_id]: "^1" },
+    dependencyPackages: [provider.pkg],
+  });
+  const newer = await publishLocalPackage({
+    id: root.pkg.module_id,
+    version: "1.1.0",
+    dependencies: { [provider.pkg.module_id]: "^1" },
+    dependencyPackages: [provider.pkg],
+  });
+  await fixture(page);
+  await page.goto("/");
+  const result = await page.evaluate(
+    async ({ provider, root, newer }) => {
+      const path = "/local-profile-proof.mjs";
+      const sdk = (await import(
+        path
+      )) as typeof import("../../packages/platform/src/local-profiles") &
+        Pick<
+          typeof import("@suite/module-sdk"),
+          "hydrateModule" | "createModuleClient"
+        > &
+        Pick<
+          typeof import("../../packages/app-web/src/local-module-download"),
+          "resumeLocalDownload"
+        >;
+      const pass = "correct horse battery staple";
+      let session = await sdk.createLocalProfile("Download contracts", pass);
+      const profile = session.id,
+        source = { userId: "account-one", workspaceId: "personal-one" };
+      const definitions = [provider, root].map((p) =>
+        sdk.hydrateModule(
+          p.pkg
+            .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+        ),
+      );
+      const id = await session.beginDownload(
+        root.pkg.module_id,
+        source,
+        definitions,
+      );
+      const failure = async (run: () => Promise<unknown>) => {
+        try {
+          await run();
+          return "NOT_REJECTED";
+        } catch (error) {
+          return (error as Error).message;
+        }
+      };
+      const repeated = await session.beginDownload(
+        root.pkg.module_id,
+        source,
+        definitions,
+      );
+      const invalid = structuredClone(provider.pkg);
+      invalid.artifact.name = "Invalid";
+      const corrupt = await failure(() =>
+        session.saveDownload(id, invalid, provider.publicKey),
+      );
+      const changed = await failure(() =>
+        session.saveDownload(id, newer.pkg, newer.publicKey),
+      );
+      const incomplete = await failure(() => session.installDownload(id, {}));
+      await session.saveDownload(id, provider.pkg, provider.publicKey);
+      await session.saveDownload(id, provider.pkg, provider.publicKey);
+      session.lock();
+      session = await sdk.unlockLocalProfile(profile, pass);
+      const recovered = session.data.downloads![id].modules.filter(
+        (m) => m.release,
+      ).length;
+      const offline = await failure(() =>
+        sdk.resumeLocalDownload(
+          session,
+          id,
+          undefined,
+          new AbortController().signal,
+        ),
+      );
+      let networkCalls = 0;
+      const foreign = await failure(() =>
+        sdk.resumeLocalDownload(
+          session,
+          id,
+          {
+            userId: "account-two",
+            workspaceId: source.workspaceId,
+            online: true,
+            client: {
+              request: async () => {
+                networkCalls++;
+                throw Error("Network must not run");
+              },
+            } as unknown as import("../../packages/api-client/src").SuiteClient,
+          },
+          new AbortController().signal,
+        ),
+      );
+      const abort = new AbortController();
+      abort.abort();
+      const cancelled = await failure(() =>
+        session.saveDownload(id, root.pkg, root.publicKey, {
+          signal: abort.signal,
+        }),
+      );
+      const afterCancel = session.data.downloads![id].modules.filter(
+        (m) => m.release,
+      ).length;
+      const competitor = await sdk.unlockLocalProfile(profile, pass);
+      await session.saveDownload(id, root.pkg, root.publicKey);
+      const stale = await failure(() =>
+        competitor.saveDownload(id, root.pkg, root.publicKey),
+      );
+      competitor.lock();
+      const invalidConfiguration = await failure(() =>
+        session.installDownload(id, { [root.pkg.module_id]: { prefix: 1 } }),
+      );
+      const retained = Boolean(session.data.downloads?.[id]);
+      session.lock();
+      session = await sdk.unlockLocalProfile(profile, pass);
+      await sdk.resumeLocalDownload(
+        session,
+        id,
+        undefined,
+        new AbortController().signal,
+      );
+      await session.installDownload(id, {
+        [root.pkg.module_id]: { prefix: "Downloaded: " },
+      });
+      const accepted = Object.values(
+        session.data.installationAttempts ?? {},
+      ).every((a) => a.state === "accepted");
+      const removed = !session.data.downloads?.[id];
+      const client = sdk.createModuleClient(definitions[1], (call) =>
+        session.execute(definitions[1], call),
+      );
+      await client.call("capture", { text: "Retained record" });
+      const records = JSON.stringify(session.data.records);
+      const other = await session.beginDownload(root.pkg.module_id, source, [
+        definitions[1],
+      ]);
+      await session.saveDownload(other, root.pkg, root.publicKey);
+      await session.dismissDownload(other);
+      const preserved =
+        JSON.stringify(session.data.records) === records &&
+        session.data.modules?.[root.pkg.module_id].active;
+      const isolated = await sdk.createLocalProfile(
+        "Isolated download profile",
+        pass,
+      );
+      const isolatedCount = Object.keys(isolated.data.downloads ?? {}).length;
+      isolated.lock();
+      session.lock();
+      return {
+        id,
+        repeated,
+        corrupt,
+        changed,
+        incomplete,
+        recovered,
+        offline,
+        foreign,
+        networkCalls,
+        cancelled,
+        afterCancel,
+        stale,
+        invalidConfiguration,
+        retained,
+        accepted,
+        removed,
+        preserved,
+        isolatedCount,
+      };
+    },
+    { provider, root, newer },
+  );
+  expect(result.repeated).toBe(result.id);
+  expect(result.corrupt).toMatch(/signature|checksum/i);
+  expect(result.changed).toContain("release changed");
+  expect(result.incomplete).toContain("Finish downloading");
+  expect(result.recovered).toBe(1);
+  expect(result.offline).toContain("Reconnect");
+  expect(result.foreign).toContain("original account");
+  expect(result.networkCalls).toBe(0);
+  expect(result.cancelled).toContain("cancelled");
+  expect(result.afterCancel).toBe(1);
+  expect(result.stale).toContain("another window");
+  expect(result.invalidConfiguration).not.toBe("NOT_REJECTED");
+  expect(
+    result.retained && result.accepted && result.removed && result.preserved,
+  ).toBe(true);
+  expect(result.isolatedCount).toBe(0);
 });

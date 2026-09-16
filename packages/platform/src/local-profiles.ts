@@ -33,6 +33,17 @@ export interface LocalRelease {
   publicKey: string;
   configuration: unknown;
 }
+export interface LocalDownload {
+  rootModuleId: string;
+  source: { userId: string; workspaceId: string };
+  createdAt: number;
+  modules: {
+    moduleId: string;
+    moduleVersion: string;
+    title: string;
+    release?: LocalRelease;
+  }[];
+}
 export interface LocalInstallation {
   schemaVersion?: number;
   migrations?: {
@@ -72,6 +83,7 @@ export type LocalInstallationAttempt = {
     }
 );
 export interface LocalData {
+  downloads?: Record<string, LocalDownload>;
   installationAttempts?: Record<string, LocalInstallationAttempt>;
   attempts?: Record<string, LocalAttempt>;
   modules?: Record<string, LocalInstallation>;
@@ -117,6 +129,23 @@ export interface LocalSession {
   id: string;
   name: string;
   readonly data: LocalData;
+  beginDownload(
+    rootModuleId: string,
+    source: LocalDownload["source"],
+    modules: readonly Pick<ModuleDefinition, "id" | "version" | "name">[],
+  ): Promise<string>;
+  saveDownload(
+    id: string,
+    pkg: SignedArtifact,
+    publicKey: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<void>;
+  dismissDownload(id: string): Promise<void>;
+  installDownload(
+    id: string,
+    configuration: Record<string, unknown>,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<void>;
   /** The host supplies the official registry trust key, never a key from the package. */
   install(
     pkg: SignedArtifact,
@@ -240,6 +269,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     rootModuleId: string,
     releases: readonly LocalRelease[],
     options: { signal?: AbortSignal; timeoutMs?: number },
+    downloadId?: string,
   ) {
     if (!releases.length || releases.length > 100)
       throw Error("Choose between one and 100 local module releases.");
@@ -340,9 +370,12 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       related: normalized.filter((r) => r.package.module_id !== rootModuleId),
       state: "pending",
     };
+    const downloads = { ...data.downloads };
+    if (downloadId) delete downloads[downloadId];
     await commit(
       {
         ...data,
+        downloads,
         installationAttempts: {
           ...data.installationAttempts,
           [attemptId]: attempt,
@@ -481,6 +514,134 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     name: vault.name,
     get data() {
       return structuredClone(data);
+    },
+    beginDownload(rootModuleId, source, modules) {
+      const planned: LocalDownload = {
+        rootModuleId,
+        source: { ...source },
+        createdAt: Date.now(),
+        modules: modules.map((m) => ({
+          moduleId: m.id,
+          moduleVersion: m.version,
+          title: m.name,
+        })),
+      };
+      return enqueue(async () => {
+        if (
+          !planned.source.userId ||
+          !planned.source.workspaceId ||
+          !planned.modules.length ||
+          planned.modules.length > 100 ||
+          !planned.modules.some((m) => m.moduleId === rootModuleId) ||
+          new Set(planned.modules.map((m) => m.moduleId)).size !==
+            planned.modules.length
+        )
+          throw Error(
+            "Choose a valid local download set with its source account and workspace.",
+          );
+        const existing = Object.entries(data.downloads ?? {}).find(
+          ([, d]) => d.rootModuleId === rootModuleId,
+        );
+        if (existing) {
+          const selection = (d: LocalDownload) =>
+            canonical({
+              source: d.source,
+              modules: d.modules
+                .map((m) => [m.moduleId, m.moduleVersion])
+                .sort(([a], [b]) => a.localeCompare(b)),
+            });
+          if (selection(existing[1]) !== selection(planned))
+            throw Error(
+              "Resume or discard the saved download before choosing another release or account.",
+            );
+          return existing[0];
+        }
+        const id = crypto.randomUUID();
+        await commit({
+          ...data,
+          downloads: { ...data.downloads, [id]: planned },
+        });
+        return id;
+      });
+    },
+    saveDownload(id, pkg, publicKey, options = {}) {
+      const candidate = structuredClone(pkg),
+        signal = options.signal;
+      return enqueue(async () => {
+        const download = data.downloads?.[id];
+        if (!download)
+          throw Error("This saved download is no longer available.");
+        await verifyArtifact(candidate, publicKey);
+        const module = hydrateModule(moduleContract(candidate.artifact));
+        const expected = download.modules.find((m) => m.moduleId === module.id);
+        if (!expected || expected.moduleVersion !== module.version)
+          throw Error(
+            "The available release changed during download. Discard this download and browse personal modules again.",
+          );
+        if (
+          !Object.values(module.resources).some((r) => r.standalone) &&
+          !Object.values(module.operations).some((op) => op.policy === "local")
+        )
+          throw Error("This module does not support standalone local work.");
+        if (expected.release) {
+          if (
+            canonical(expected.release.package) !== canonical(candidate) ||
+            expected.release.publicKey !== publicKey
+          )
+            throw Error(
+              "Saved release bytes are immutable. Discard the download before selecting different bytes or a signing key.",
+            );
+          return;
+        }
+        const installed = data.modules?.[module.id];
+        const release: LocalRelease = {
+          package: candidate,
+          publicKey,
+          configuration:
+            installed?.releases[module.version]?.configuration ??
+            installed?.releases[installed.version]?.configuration ??
+            {},
+        };
+        await commit(
+          {
+            ...data,
+            downloads: {
+              ...data.downloads,
+              [id]: {
+                ...download,
+                modules: download.modules.map((m) =>
+                  m === expected ? { ...m, release } : m,
+                ),
+              },
+            },
+          },
+          signal,
+        );
+      });
+    },
+    dismissDownload(id) {
+      return enqueue(async () => {
+        const downloads = { ...data.downloads };
+        delete downloads[id];
+        await commit({ ...data, downloads });
+      });
+    },
+    installDownload(id, configuration, options = {}) {
+      const configurations = structuredClone(configuration),
+        execution = { ...options };
+      return enqueue(async () => {
+        const download = data.downloads?.[id];
+        if (!download || download.modules.some((m) => !m.release))
+          throw Error(
+            "Finish downloading all required releases before installing.",
+          );
+        const releases = download.modules.map((m) => ({
+          ...m.release!,
+          configuration: configurations[m.moduleId] ?? m.release!.configuration,
+        }));
+        // Download removal and the recoverable installation attempt commit together.
+        await installReleaseSet(download.rootModuleId, releases, execution, id);
+      });
     },
     install(pkg, publicKey, configuration = {}, options = {}) {
       const release = structuredClone({

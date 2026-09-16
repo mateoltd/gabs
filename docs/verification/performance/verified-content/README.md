@@ -33,4 +33,4 @@ All 153 unit/PostgreSQL tests in 30 files, strict type/boundary/copy checks and 
 - The [local logical restore](restore.json) passed with zero relational/scoped business invariant violations, namespace isolation and the retired-storage write fence intact. This does not verify hosted point-in-time recovery or offsite infrastructure.
 - The final cache eviction refinement passed all three focused cache tests. No source changes followed the broad regression/build/load/browser runs.
 
-Exact candidate remote acceptance is pending. No release-readiness or full functionality-parity claim is made.
+Remote candidate `d609718`, [CI 35148323090](https://github.com/mateoltd/gabs/actions/runs/35148323090), passed all 76 browser cases, code/build, three unsigned desktop packaging jobs and a three-second logical restore. Uninstrumented p95 improved to 638/1,598 ms, but both unchanged 500/1,000 ms targets still failed. The diagnostic repeat was 680/1,454 ms. OPS-07 remains active for further profiling and implementation; no release-readiness or full functionality-parity claim is made.

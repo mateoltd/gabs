@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { SuiteClient } from "@suite/api-client";
 import {
   hydrateModule,
   localStorageContract,
   type ModuleDefinition,
 } from "@suite/module-sdk";
-import { verifyArtifact } from "@suite/module-sdk/verification";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import {
   availableLocalModules,
@@ -22,11 +20,11 @@ import {
   Table,
   type FormSchema,
 } from "@suite/ui-web";
-export interface LocalRegistry {
-  client: SuiteClient;
-  workspaceId: string;
-  online: boolean;
-}
+import {
+  resumeLocalDownload,
+  type LocalRegistry,
+} from "./local-module-download";
+export type { LocalRegistry } from "./local-module-download";
 export function LocalModules({
   session,
   registry,
@@ -41,6 +39,7 @@ export function LocalModules({
   const [open, setOpen] = useState(false),
     [available, setAvailable] = useState<ModuleDefinition[]>(),
     [selected, setSelected] = useState<{
+      downloadId?: string;
       module: ModuleDefinition;
       pkg: SignedArtifact;
       publicKey: string;
@@ -53,10 +52,18 @@ export function LocalModules({
     }>(),
     [configuration, setConfiguration] = useState<Record<string, unknown>>({}),
     [busy, setBusy] = useState(false),
+    [downloading, setDownloading] = useState(false),
     [error, setError] = useState<unknown>(),
     [notice, setNotice] = useState("");
   const controller = useRef<AbortController>(undefined);
   const form = useRef<HTMLFormElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error || downloading)
+      panel.current
+        ?.closest<HTMLElement>('[role="dialog"]')
+        ?.scrollTo({ top: 0 });
+  }, [error, downloading]);
   useEffect(() => {
     if (selected)
       form.current
@@ -72,6 +79,31 @@ export function LocalModules({
   ).flatMap(([id, attempt]) =>
     attempt.state === "accepted" ? [] : [{ id, ...attempt }],
   );
+  const downloads = Object.entries(session.data.downloads ?? {});
+  const continueDownload = async (id: string, signal: AbortSignal) => {
+    setDownloading(true);
+    try {
+      await resumeLocalDownload(session, id, registry, signal, changed);
+      const download = session.data.downloads![id];
+      const prepared = download.modules.map((item) => ({
+        module: hydrateModule(
+          item.release!.package.artifact as unknown as ModuleDefinition,
+        ),
+        pkg: item.release!.package,
+        publicKey: item.release!.publicKey,
+        configuration: item.release!.configuration as Record<string, unknown>,
+      }));
+      const root = prepared.find((m) => m.module.id === download.rootModuleId)!;
+      setSelected({
+        ...root,
+        downloadId: id,
+        related: prepared.filter((m) => m !== root),
+      });
+      setConfiguration(root.configuration);
+    } finally {
+      setDownloading(false);
+    }
+  };
   const modules = availableLocalModules(session.data).filter(
     (m) =>
       Object.values(m.resources).some((r) => r.standalone) ||
@@ -143,7 +175,7 @@ export function LocalModules({
         title="Local modules"
         description="Standalone modules and their data stay in this encrypted profile."
       >
-        <div className="form-stack">
+        <div className="form-stack" ref={panel}>
           <ErrorMessage error={error} />
           {notice && <p role="status">{notice}</p>}
           {selected ? (
@@ -153,22 +185,42 @@ export function LocalModules({
               onSubmit={(event) => {
                 event.preventDefault();
                 void action(async (signal) => {
-                  await session.installSet(
-                    selected.module.id,
-                    [
-                      {
-                        package: selected.pkg,
-                        publicKey: selected.publicKey,
-                        configuration,
-                      },
-                      ...(selected.related ?? []).map((item) => ({
-                        package: item.pkg,
-                        publicKey: item.publicKey,
-                        configuration: item.configuration,
-                      })),
-                    ],
-                    { signal },
-                  );
+                  const releases = [
+                    {
+                      package: selected.pkg,
+                      publicKey: selected.publicKey,
+                      configuration,
+                    },
+                    ...(selected.related ?? []).map((item) => ({
+                      package: item.pkg,
+                      publicKey: item.publicKey,
+                      configuration: item.configuration,
+                    })),
+                  ];
+                  if (selected.downloadId) {
+                    try {
+                      await session.installDownload(
+                        selected.downloadId,
+                        Object.fromEntries(
+                          releases.map((r) => [
+                            r.package.module_id,
+                            r.configuration,
+                          ]),
+                        ),
+                        { signal },
+                      );
+                    } finally {
+                      if (!session.data.downloads?.[selected.downloadId])
+                        setSelected(
+                          (current) =>
+                            current && { ...current, downloadId: undefined },
+                        );
+                    }
+                  } else {
+                    await session.installSet(selected.module.id, releases, {
+                      signal,
+                    });
+                  }
                   setNotice(
                     `${selected.module.name} is ready in this local profile.`,
                   );
@@ -251,6 +303,69 @@ export function LocalModules({
             </form>
           ) : (
             <>
+              {downloads.length > 0 && (
+                <>
+                  <h3>Saved downloads</h3>
+                  <p className="small">
+                    Verified releases stay in this encrypted profile. Finish
+                    downloading, then review configuration before installation.
+                  </p>
+                  <ul
+                    className="local-installations"
+                    aria-label="Saved local downloads"
+                  >
+                    {downloads.map(([id, download]) => {
+                      const root = download.modules.find(
+                        (m) => m.moduleId === download.rootModuleId,
+                      )!;
+                      const saved = download.modules.filter(
+                        (m) => m.release,
+                      ).length;
+                      return (
+                        <li key={id}>
+                          <h4>{root.title}</h4>
+                          <p className="small">Version {root.moduleVersion}</p>
+                          <p role="status">
+                            {saved} of {download.modules.length} releases saved
+                          </p>
+                          <div className="module-toolbar">
+                            <Button
+                              disabled={busy}
+                              onClick={() =>
+                                void action((signal) =>
+                                  continueDownload(id, signal),
+                                )
+                              }
+                            >
+                              {saved === download.modules.length
+                                ? "Review installation"
+                                : "Resume download"}
+                            </Button>
+                            <Button
+                              disabled={busy}
+                              onClick={() =>
+                                void action(async () => {
+                                  await session.dismissDownload(id);
+                                  setNotice(
+                                    "Download discarded. Installed modules and records are preserved.",
+                                  );
+                                })
+                              }
+                            >
+                              Discard download
+                            </Button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {downloading && (
+                    <Button onClick={() => controller.current?.abort()}>
+                      Cancel download
+                    </Button>
+                  )}
+                </>
+              )}
               {unfinished.length > 0 && (
                 <>
                   <h3>Unfinished installations</h3>
@@ -507,7 +622,7 @@ export function LocalModules({
                       <Button
                         disabled={busy || !registry?.online}
                         onClick={() =>
-                          void action(async () => {
+                          void action(async (signal) => {
                             if (!registry?.online)
                               throw Error(
                                 "Reconnect to check access before installing.",
@@ -517,52 +632,15 @@ export function LocalModules({
                               module,
                               available,
                             );
-                            const trust = await registry.client.request({
-                              operation: "moduleTrust",
-                            });
-                            const downloaded = [];
-                            for (const candidate of plan) {
-                              const pkg = await registry.client.request({
-                                operation: "moduleArtifact",
-                                params: {
-                                  workspaceId: registry.workspaceId,
-                                  moduleId: candidate.id,
-                                },
-                              });
-                              await verifyArtifact(pkg, trust.publicKey);
-                              const contract = hydrateModule(
-                                pkg.artifact as unknown as ModuleDefinition,
-                              );
-                              if (
-                                contract.id !== candidate.id ||
-                                contract.version !== candidate.version
-                              )
-                                throw Error(
-                                  "The available release changed during download. Browse personal modules again before installing.",
-                                );
-                              const installed =
-                                session.data.modules?.[candidate.id];
-                              downloaded.push({
-                                module: contract,
-                                pkg,
-                                publicKey: trust.publicKey,
-                                configuration: (installed?.releases[pkg.version]
-                                  ?.configuration ??
-                                  installed?.releases[installed.version]
-                                    ?.configuration ??
-                                  {}) as Record<string, unknown>,
-                              });
-                            }
-                            const root = downloaded.find(
-                              (item) => item.module.id === module.id,
-                            )!;
-                            setSelected({
-                              ...root,
-                              related: downloaded.filter(
-                                (item) => item.module.id !== module.id,
-                              ),
-                            });
-                            setConfiguration(root.configuration);
+                            const id = await session.beginDownload(
+                              module.id,
+                              {
+                                userId: registry.userId,
+                                workspaceId: registry.workspaceId,
+                              },
+                              plan,
+                            );
+                            await continueDownload(id, signal);
                           })
                         }
                       >

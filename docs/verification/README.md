@@ -301,3 +301,7 @@ Remote `0112be1` / [CI 35143593433](https://github.com/mateoltd/gabs/actions/run
 ## Verified package reuse and scoped runtime performance
 
 Bounded exact-content/signing-key caches and read-only snapshot release selection reduce repeated registry work while retaining current database authority checks. All 153 tests, four builds, four headless business journeys and local logical restore passed; local uninstrumented p95 was 170/596 ms versus 410/900 ms before changes. A separate diagnostic records 800 queries across 50 reads versus the prior 1,100. [Evidence and limitations](performance/verified-content/README.md). OPS-07 remains open pending exact candidate remote acceptance; full parity and final UI refinement remain outstanding.
+
+## Durable local module downloads
+
+Verified packages now persist before full installation staging, with account/workspace-bound missing-package recovery and offline configuration review. All 153 unit/PostgreSQL tests, four builds, eight headless browser cases and three distinct minimized native cases passed. A visual scroll issue was corrected and rechecked at wide/narrow/native sizes. [Evidence, screenshots and remaining scope](local-downloads/README.md). SDK-02, OPS-07 and full parity remain active.

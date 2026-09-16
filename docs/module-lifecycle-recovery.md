@@ -38,6 +38,14 @@ Pin changes validate affected active modules, dependency selections and stored-s
 
 Suspension and revocation reject server installation acceptance and receipt replays. A disconnected client cannot learn new corporate policy before reconnecting or its existing offline lease expires. Mandatory/optional rollout controls, targeted deployment cohorts, pushed invalidation and lifecycle dashboards remain EXT-05/GOV-04/OPS-02 work.
 
+## Standalone local profiles
+
+Standalone profiles use their encrypted local vault and local authority. Their saved download set records the selected root/dependency versions and source account/personal workspace. Each verified package is committed separately; reconnecting resumes only missing packages through current server access checks. A different account/workspace cannot resume those requests. Once every package is present, configuration review and installation can finish offline.
+
+`LocalSession.beginDownload`, `saveDownload`, `dismissDownload` and `installDownload` expose this host lifecycle. Installing revalidates the complete release set and consumes the download in the same durable commit that stages the recoverable installation attempt. Downloading alone never activates code. Invalid configuration keeps the saved set; interruption after staging uses the existing installation recovery. Discarding downloads preserves installed code, business records and operation receipts. See [verified web/native recovery](verification/local-downloads/README.md).
+
+Recovery is per complete package, without HTTP byte-range resumption. This explicitly local workflow does not finalize corporate business changes or replace corporate entitlement/lease checks. Local lifecycle history and a general retained-release selector remain in SDK-02.
+
 ## Release scope
 
 [Local acceptance](verification/module-recovery/README.md) covers browser reload, complete native Electron process restart, failure recovery, exact selections, corruption, compatible rollback and data-preserving uninstall. This candidate changes the unreleased installation command contract: clients must send exact selections and consume receipts. Rebuild clients with the candidate. Mixed released-client protocol compatibility, hosted trust rotation and signed/notarized cross-platform update acceptance remain separate release gates; this document does not claim them complete.

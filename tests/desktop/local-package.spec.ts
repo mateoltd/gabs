@@ -87,6 +87,49 @@ test("minimized Electron executes a signed local package in its packaged worker 
     });
   let app = await launch();
   try {
+    const initial = await app.firstWindow();
+    await initial.waitForLoadState("domcontentloaded");
+    const downloadedProfile = await initial.evaluate(
+      async ({ javascript, published, dependency }) => {
+        const url = URL.createObjectURL(
+          new Blob([javascript], { type: "text/javascript" }),
+        );
+        const sdk = (await import(
+          url
+        )) as typeof import("../../packages/platform/src/local-profiles") &
+          typeof import("@suite/module-sdk");
+        URL.revokeObjectURL(url);
+        const session = await sdk.createLocalProfile(
+          "Native signed notes",
+          "correct horse battery staple",
+        );
+        const id = await session.beginDownload(
+          published.pkg.module_id,
+          { userId: "native-fixture", workspaceId: "native-personal" },
+          [dependency, published].map((r) =>
+            sdk.hydrateModule(
+              r.pkg
+                .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+            ),
+          ),
+        );
+        for (const release of [dependency, published])
+          await session.saveDownload(id, release.pkg, release.publicKey);
+        const profileId = session.id;
+        session.lock();
+        return profileId;
+      },
+      { javascript, published, dependency },
+    );
+    expect(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().every(
+          (w) => w.isMinimized() && !w.isFocused(),
+        ),
+      ),
+    ).toBe(true);
+    await app.close();
+    app = await launch();
     const run = async (saved?: {
       profileId: string;
       key: string;
@@ -97,6 +140,51 @@ test("minimized Electron executes a signed local package in its packaged worker 
       await page.waitForLoadState("domcontentloaded");
       await page.context().setOffline(true);
       const workerStarted = page.waitForEvent("worker");
+      if (!saved) {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page
+          .getByRole("button", {
+            name: /^(Use a local profile|Open local profiles)$/,
+          })
+          .click();
+        await selectValue(page, "Profile", downloadedProfile);
+        await page
+          .getByLabel("Passphrase", { exact: true })
+          .fill("correct horse battery staple");
+        await page
+          .getByRole("button", { name: "Unlock profile", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Manage local modules", exact: true })
+          .click();
+        const downloads = page.getByRole("list", {
+          name: "Saved local downloads",
+          exact: true,
+        });
+        await expect(
+          downloads.getByText("2 of 2 releases saved", { exact: true }),
+        ).toBeVisible();
+        await mkdir("docs/verification/local-downloads", { recursive: true });
+        await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
+        await page.screenshot({
+          path: "docs/verification/local-downloads/desktop-ready.png",
+        });
+        await downloads
+          .getByRole("button", { name: "Review installation", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Save local installation", exact: true })
+          .click();
+        await expect(
+          page.getByText(
+            "Local package notes is ready in this local profile.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await page
+          .getByRole("button", { name: "Close dialog", exact: true })
+          .click();
+      }
       if (saved) {
         await page.emulateMedia({ reducedMotion: "reduce" });
         await page
@@ -166,6 +254,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
           dependency,
           upgradedDependency,
           saved,
+          downloadedProfile,
         }) => {
           const url = URL.createObjectURL(
             new Blob([javascript], { type: "text/javascript" }),
@@ -176,18 +265,10 @@ test("minimized Electron executes a signed local package in its packaged worker 
           const sdk = (await import(url)) as SDK;
           URL.revokeObjectURL(url);
           const password = "correct horse battery staple";
-          const session = saved
-            ? await sdk.unlockLocalProfile(saved.profileId, password)
-            : await sdk.createLocalProfile("Native signed notes", password);
-          if (!saved)
-            await session.installSet(
-              published.pkg.module_id,
-              [published, dependency].map((r) => ({
-                package: r.pkg,
-                publicKey: r.publicKey,
-                configuration: {},
-              })),
-            );
+          const session = await sdk.unlockLocalProfile(
+            saved?.profileId ?? downloadedProfile,
+            password,
+          );
           const module = sdk.hydrateModule(
             published.pkg
               .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
@@ -252,6 +333,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
           dependency,
           upgradedDependency,
           saved,
+          downloadedProfile,
         },
       );
       expect((await workerStarted).url()).toBe(`suite://app/assets/${worker}`);
