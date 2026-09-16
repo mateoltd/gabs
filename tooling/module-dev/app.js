@@ -1,5 +1,6 @@
+import { updatePreview, hidePreview } from "/preview.js";
 const $ = (id) => document.getElementById(id);
-let state, revision;
+let state, revision, buildStatus;
 const text = (tag, value) => {
   const element = document.createElement(tag);
   element.textContent = value;
@@ -8,11 +9,14 @@ const text = (tag, value) => {
 async function request(body) {
   const response = await fetch("/action", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-module-dev-revision": revision,
+    },
     body: JSON.stringify(body),
   });
   const data = await response.json();
-  if (!response.ok) throw Error(data.message);
+  if (!response.ok) throw Object.assign(Error(data.message), data);
   state = { ...state, ...data };
   renderState();
   return data;
@@ -20,7 +24,7 @@ async function request(body) {
 function feedback(message) {
   $("feedback").textContent = message;
 }
-function table(rows) {
+function table(rows, label) {
   if (!rows.length) return text("p", "No entries.");
   const table = document.createElement("table"),
     head = document.createElement("tr");
@@ -41,14 +45,23 @@ function table(rows) {
     );
     table.append(tr);
   }
-  return table;
+  const scroll = document.createElement("div");
+  scroll.className = "table-scroll";
+  scroll.tabIndex = 0;
+  scroll.setAttribute("role", "region");
+  scroll.setAttribute("aria-label", label);
+  scroll.append(table);
+  return scroll;
 }
 function renderState() {
   $("online").checked = state.online;
   $("records").replaceChildren(
     ...Object.entries(state.records).flatMap(([name, rows]) => [
       text("h3", name),
-      table(rows.map((r) => ({ id: r.id, ...r.data, version: r.version }))),
+      table(
+        rows.map((r) => ({ id: r.id, ...r.data, version: r.version })),
+        `${name} records`,
+      ),
     ]),
   );
   $("journal").replaceChildren(
@@ -59,9 +72,14 @@ function renderState() {
         attempts: e.attempts,
         error: e.error ?? "",
       })),
+      "Operation journal data",
     ),
   );
   $("events").textContent = JSON.stringify(state.events, null, 2);
+  updatePreview(
+    state,
+    async (call) => (await request({ action: "execute", call })).result,
+  );
 }
 function contract() {
   const [kind, name] = $("contract").value.split(":");
@@ -184,6 +202,21 @@ async function load() {
   const response = await fetch("/state");
   state = await response.json();
   revision = state.revision;
+  $("workspace").dataset.revision = revision;
+  buildStatus = state.status;
+  $("workspace").hidden = state.status !== "ready";
+  $("build-status").textContent =
+    state.status === "building"
+      ? "Building module and checking types…"
+      : state.status === "error"
+        ? "Build failed. Fix the source to rebuild automatically."
+        : "Ready. Each source or fixture change starts a fresh simulation.";
+  $("build-error").hidden = !state.error;
+  $("build-error").textContent = state.error ?? "";
+  if (state.status !== "ready") {
+    hidePreview();
+    return;
+  }
   $("title").textContent = `${state.module.name} ${state.module.version}`;
   for (const [kind, definitions] of [
     ["resource", state.module.resources],
@@ -219,6 +252,7 @@ setInterval(async () => {
   try {
     const response = await fetch("/state");
     const next = await response.json();
-    if (next.revision !== revision) location.reload();
+    if (next.revision !== revision || next.status !== buildStatus)
+      location.reload();
   } catch {}
 }, 1500);

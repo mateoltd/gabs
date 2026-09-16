@@ -313,3 +313,9 @@ Schema-aware planning, offline retained-release selection and atomic local histo
 ## Module-owned development scenarios
 
 [SDK-03 scenario acceptance](module-scenarios/README.md) verifies actual module-owned CLI execution, isolated fixtures, named failures, inferred authoring types and independent-directory dependency checks. Eight focused tests, strict types/boundaries/copy rules, Contacts CLI scenarios and a real temporary scaffold/test/cleanup cycle passed. No application UI changed; browser/native suites were not repeated. Custom React preview and cross-module fixtures remain active SDK-03 work.
+
+## Custom React development preview
+
+[SDK-03 preview acceptance](module-preview/README.md) covers an independent module's real public React/SDK/UI execution, permission/offline controls, typed rejection, editable state and recovery from source/render failures. Two headless journeys passed after final labeling/spacing fixes; wide/narrow captures and scoped accessibility were inspected. Strict checks passed. This is automatic simulation-resetting reload, not state-preserving Fast Refresh. Cross-module fixtures and missing private-store/audit simulator capabilities remain active work.
+
+Remote `17673e8` / [CI 35152829899](https://github.com/mateoltd/gabs/actions/runs/35152829899) passed 160 unit/PostgreSQL tests, 79 browser cases, code/build, three unsigned desktop packages and a six-second logical restore. Load still failed at 558/1,584 ms against unchanged 500/1,000 ms targets. OPS-07 and full release acceptance remain open.

@@ -49,7 +49,8 @@ button {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+.table-scroll:focus-visible {
   outline: 1px solid Highlight;
   outline-offset: -2px;
 }
@@ -63,6 +64,16 @@ td {
   padding: 8px;
   border-bottom: 1px solid GrayText;
   overflow-wrap: anywhere;
+}
+th {
+  white-space: nowrap;
+}
+.table-scroll {
+  max-width: 100%;
+  overflow: auto;
+}
+#preview-root > select {
+  margin-bottom: 16px;
 }
 pre {
   white-space: pre-wrap;

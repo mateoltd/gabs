@@ -13,41 +13,52 @@
         Isolated fixtures and simulated authorization. Source changes reload
         this view and reset simulation data.
       </p>
-      <section>
-        <h2>Environment</h2>
-        <label
-          ><input type="checkbox" id="online" checked /> Server online</label
-        ><button id="sync">Synchronize pending work</button>
-        <details>
-          <summary>Permission simulator</summary>
-          <div id="permissions"></div>
-        </details>
-      </section>
-      <section>
-        <h2>Resources and operations</h2>
-        <label
-          >Contract
-          <select id="contract"></select
-        ></label>
-        <p id="policy"></p>
-        <form id="form">
-          <div id="fields"></div>
-          <button type="submit">Submit</button>
-        </form>
-        <p id="feedback" role="status"></p>
-      </section>
-      <section>
-        <h2>Accepted records</h2>
-        <div id="records"></div>
-      </section>
-      <section>
-        <h2>Operation journal</h2>
-        <div id="journal"></div>
-      </section>
-      <section>
-        <h2>Emitted events</h2>
-        <pre id="events"></pre>
-      </section>
+      <p id="build-status" role="status"></p>
+      <pre id="build-error" role="alert" hidden></pre>
+      <div id="workspace" hidden>
+        <section>
+          <h2>Environment</h2>
+          <label
+            ><input type="checkbox" id="online" checked /> Server online</label
+          ><button id="sync">Synchronize pending work</button>
+          <details>
+            <summary>Permission simulator</summary>
+            <div id="permissions"></div>
+          </details>
+        </section>
+        <section id="custom-preview" hidden>
+          <h2>Custom React preview</h2>
+          <p>
+            Uses the public view contract and host UI kit. Preview requests need
+            simulated server acceptance; capture provisional work in the
+            inspector below.
+          </p>
+          <div id="preview-root"></div>
+        </section>
+        <section>
+          <h2>Resources and operations</h2>
+          <label for="contract">Contract</label>
+          <select id="contract"></select>
+          <p id="policy"></p>
+          <form id="form">
+            <div id="fields"></div>
+            <button type="submit">Submit</button>
+          </form>
+          <p id="feedback" role="status"></p>
+        </section>
+        <section>
+          <h2>Accepted records</h2>
+          <div id="records"></div>
+        </section>
+        <section>
+          <h2>Operation journal</h2>
+          <div id="journal"></div>
+        </section>
+        <section>
+          <h2>Emitted events</h2>
+          <pre id="events"></pre>
+        </section>
+      </div>
     </main>
     <script type="module" src="/app.js"></script>
   </body>
