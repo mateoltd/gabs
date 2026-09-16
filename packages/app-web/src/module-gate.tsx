@@ -1,3 +1,4 @@
+import { ApiError } from "@suite/api-client";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -121,7 +122,9 @@ export function ModuleGate(
     },
   });
   if (query.isPending || (query.isFetching && !query.data)) return <Loading />;
-  if (query.error)
+  const accessDenied =
+    query.error instanceof ApiError && [401, 403].includes(query.error.status);
+  if (query.error && (!query.data || accessDenied))
     return (
       <>
         <ErrorMessage error={query.error} />
@@ -138,7 +141,19 @@ export function ModuleGate(
         <Link to="/modules">Manage modules</Link>
       </>
     );
-  return typeof props.children === "function"
-    ? props.children(query.data)
-    : props.children;
+  return (
+    <>
+      {query.error && (
+        <div>
+          <ErrorMessage error={query.error} />
+          <Button onClick={() => void query.refetch()}>
+            Retry installation
+          </Button>
+        </div>
+      )}
+      {typeof props.children === "function"
+        ? props.children(query.data)
+        : props.children}
+    </>
+  );
 }

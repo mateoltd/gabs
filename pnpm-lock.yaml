@@ -349,6 +349,9 @@ importers:
       '@suite/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@suite/module-sdk':
+        specifier: workspace:*
+        version: link:../../packages/module-sdk
       '@suite/platform':
         specifier: workspace:*
         version: link:../../packages/platform

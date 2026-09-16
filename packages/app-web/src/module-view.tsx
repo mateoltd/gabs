@@ -10,6 +10,7 @@ import {
   type TSchema,
 } from "@suite/module-sdk";
 import { canUse, type FeatureProps } from "@suite/platform";
+import { ModuleInputRecoverySchema } from "@suite/module-sdk/platform";
 import {
   changeModuleStorage,
   enqueue,
@@ -40,7 +41,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
   );
   const [resource, setResource] = useState(names[0]);
-  const definition = module.resources[resource];
+  const retainedDefinitions = useRef({ ...module.resources });
+  Object.assign(retainedDefinitions.current, module.resources);
+  const definition =
+    module.resources[resource] ?? retainedDefinitions.current[resource];
+  const resourceAvailable = !!module.resources[resource];
   const [reviewId, setReviewId] = useState<string>();
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const attempt = useRef<ModuleCall | undefined>(undefined);
@@ -55,6 +60,66 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     [refs, setRefs] = useState<
       Record<string, { value: string; label: string }[]>
     >({});
+  const [editingVersion, setEditingVersion] = useState(module.version);
+  const [carriedInput, setCarriedInput] = useState<{
+    version: string;
+    resource: string;
+    data: Record<string, unknown>;
+    record: ResourceRecord | null;
+  }>();
+  if (editingVersion !== module.version) {
+    if (editing !== undefined)
+      setCarriedInput({
+        version: editingVersion,
+        resource,
+        data: structuredClone(form),
+        record: editing,
+      });
+    setEditingVersion(module.version);
+  }
+  useEffect(() => {
+    if (editing === undefined) {
+      setCarriedInput(undefined);
+      if (!resourceAvailable && names.length) setResource(names[0]);
+    }
+  }, [editing, resourceAvailable, module.version]);
+  const obsoleteFields = Object.keys(form).filter(
+    (key) => !(key in definition.schema.properties),
+  );
+  const exportInput = async () => {
+    try {
+      const input = carriedInput ?? {
+        version: module.version,
+        resource,
+        data: form,
+        record: editing ?? null,
+      };
+      const recovery = {
+        kind: "module-input-recovery",
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+        moduleId,
+        moduleVersion: input.version,
+        resource: input.resource,
+        input: {
+          data: input.data,
+          ...(input.record
+            ? { id: input.record.id, baseVersion: input.record.version }
+            : {}),
+        },
+        ...(attempt.current
+          ? { status: "unconfirmed", pendingRequest: attempt.current }
+          : { status: "unsaved" }),
+      };
+      assertSchema(ModuleInputRecoverySchema, recovery);
+      await platform.saveFile(
+        `module-input-${crypto.randomUUID()}.json`,
+        JSON.stringify(recovery, null, 2),
+      );
+    } catch (error) {
+      setError(error);
+    }
+  };
   const pageKey = `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`;
   const draftKey = `${moduleId}/${resource}`;
   const allowed = canUse(bootstrap, moduleId, `${moduleId}.${resource}.read`);
@@ -88,7 +153,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       cursor,
       archived,
     ],
-    enabled: online && allowed,
+    enabled: online && allowed && resourceAvailable,
     queryFn: async () => {
       const result = (await send({
         moduleId,
@@ -116,7 +181,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     };
   }, [scope.userId, scope.workspaceId, pageKey]);
   useEffect(() => {
-    if (!online || !allowed) return;
+    if (!online || !allowed || !resourceAvailable) return;
     let active = true;
     const sync = async () => {
       try {
@@ -225,7 +290,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     return () => {
       active = false;
     };
-  }, [resource, editing !== undefined, online]);
+  }, [resource, editing !== undefined, online, module.version]);
   if (!allowed)
     return (
       <Empty
@@ -246,7 +311,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     setBusy(true);
     setError(undefined);
     try {
-      assertSchema(definition.schema, form);
+      if (!attempt.current) {
+        if (!resourceAvailable)
+          throw Error(
+            "This resource was removed in the current release. Export your input before closing the editor.",
+          );
+        assertSchema(definition.schema, form);
+      }
       const call: ModuleCall = attempt.current ?? {
         moduleId,
         moduleVersion: module.version,
@@ -325,6 +396,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           write && (
             <Button
               variant="primary"
+              disabled={!resourceAvailable}
               onClick={() => {
                 setForm({});
                 setReviewId(undefined);
@@ -557,7 +629,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           }
         }}
         title={editing ? "Edit record" : "New record"}
-        description={`Save ${definition.title.toLowerCase()} in this workspace.`}
+        description={
+          resourceAvailable
+            ? `Save ${definition.title.toLowerCase()} in this workspace.`
+            : "Recover input from a removed resource."
+        }
       >
         <form
           className="form-stack"
@@ -566,6 +642,59 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             void save();
           }}
         >
+          {carriedInput && (
+            <section className="form-stack" aria-label="Preserved input">
+              <p role="status">
+                Updated to {module.version}. Your input is preserved.
+              </p>
+              <details>
+                <summary>Input before update</summary>
+                <pre
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {JSON.stringify(carriedInput.data, null, 2)}
+                </pre>
+              </details>
+              <Button type="button" onClick={() => void exportInput()}>
+                Export input before update
+              </Button>
+            </section>
+          )}
+          {!resourceAvailable && (
+            <p role="alert">
+              This release removed {definition.title.toLowerCase()}. Your input
+              remains here, but cannot be saved to the removed resource. Export
+              it before closing.
+            </p>
+          )}
+          {!!obsoleteFields.length && (
+            <section
+              className="form-stack"
+              aria-label="Fields removed by update"
+            >
+              <h3>Fields removed by update</h3>
+              <p>
+                These values are retained. Remove each obsolete field explicitly
+                to save with the current schema.
+              </p>
+              {obsoleteFields.map((key) => (
+                <div key={key} className="form-stack">
+                  <span>
+                    {fieldLabel(key)}: {JSON.stringify(form[key])}
+                  </span>
+                  <Button
+                    type="button"
+                    disabled={!!attempt.current}
+                    onClick={() =>
+                      setForm(({ [key]: _removed, ...rest }) => rest)
+                    }
+                  >
+                    Remove {fieldLabel(key)} from this edit
+                  </Button>
+                </div>
+              ))}
+            </section>
+          )}
           <fieldset
             disabled={!!attempt.current}
             className="module-form-fields form-stack"
@@ -592,7 +721,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </p>
           )}
           <ErrorMessage error={error} />
-          <Button type="submit" variant="primary" disabled={busy}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={busy || (!resourceAvailable && !attempt.current)}
+          >
             {online ? "Save" : "Save pending change"}
           </Button>
         </form>

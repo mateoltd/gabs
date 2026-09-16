@@ -73,6 +73,74 @@ class ViewBoundary extends React.Component<
 export function ModuleSurface(
   props: FeatureProps & { pkg: SignedArtifact; publicKey: string },
 ) {
+  return (
+    <SurfaceSession
+      key={`${props.scope.userId}:${props.scope.workspaceId}:${props.pkg.module_id}`}
+      {...props}
+    />
+  );
+}
+
+function SurfaceSession(
+  props: FeatureProps & { pkg: SignedArtifact; publicKey: string },
+) {
+  const [installed, setInstalled] = React.useState({
+    pkg: props.pkg,
+    publicKey: props.publicKey,
+  });
+  const [review, setReview] = React.useState(false);
+  const custom =
+    moduleContract(installed.pkg.artifact).navigation?.view ||
+    moduleContract(props.pkg.artifact).navigation?.view;
+  // Generated forms retain their React state across schema changes. Arbitrary
+  // custom component state cannot be transferred without a publisher contract.
+  if (!custom && installed.pkg.digest !== props.pkg.digest)
+    setInstalled({ pkg: props.pkg, publicKey: props.publicKey });
+  const active = custom
+    ? installed
+    : { pkg: props.pkg, publicKey: props.publicKey };
+  const pending = active.pkg.digest !== props.pkg.digest;
+  return (
+    <>
+      {pending && (
+        <div className="notice" role="status">
+          <span>
+            Version {props.pkg.version} is ready. Your current view remains
+            open.
+          </span>
+          <ui.Button onClick={() => setReview(true)}>
+            Review module update
+          </ui.Button>
+        </div>
+      )}
+      <InstalledSurface {...props} {...active} />
+      <ui.Modal
+        open={review && pending}
+        onOpenChange={setReview}
+        title="Update this module"
+        description="This custom view cannot automatically transfer its unsaved input. Copy or finish your work before replacing it."
+      >
+        <div className="actions">
+          <ui.Button onClick={() => setReview(false)}>
+            Keep current view
+          </ui.Button>
+          <ui.Button
+            onClick={() => {
+              setInstalled({ pkg: props.pkg, publicKey: props.publicKey });
+              setReview(false);
+            }}
+          >
+            Discard unsaved input and update
+          </ui.Button>
+        </div>
+      </ui.Modal>
+    </>
+  );
+}
+
+function InstalledSurface(
+  props: FeatureProps & { pkg: SignedArtifact; publicKey: string },
+) {
   const module = React.useMemo(
     () => hydrateModule(moduleContract(props.pkg.artifact)),
     [props.pkg.digest],
@@ -80,7 +148,7 @@ export function ModuleSurface(
   if (!module.navigation?.view)
     return (
       <ModuleView
-        key={`${props.scope.userId}:${props.scope.workspaceId}:${props.pkg.digest}`}
+        key={`${props.scope.userId}:${props.scope.workspaceId}:${module.id}`}
         {...props}
         module={module}
       />

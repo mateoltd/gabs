@@ -27,6 +27,8 @@ import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import * as oidc from "openid-client";
+import { assertSchema } from "@suite/module-sdk";
+import { ModuleInputRecoverySchema } from "@suite/module-sdk/platform";
 import {
   operationPath,
   type OperationRequest,
@@ -605,14 +607,33 @@ function handlers() {
     sender(event);
     if (
       typeof filename !== "string" ||
-      !/^orders-[0-9a-f-]+\.csv$/i.test(filename) ||
       typeof content !== "string" ||
       content.length > 20 * 1024 * 1024
     )
       throw Error("Invalid export");
+    const recovery =
+      /^module-input-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/i.test(
+        filename,
+      );
+    if (recovery) {
+      const input: unknown = JSON.parse(content);
+      assertSchema(ModuleInputRecoverySchema, input);
+      if (
+        input.status === "unconfirmed" &&
+        (input.pendingRequest.moduleId !== input.moduleId ||
+          input.pendingRequest.resource !== input.resource)
+      )
+        throw Error("Invalid recovery request");
+    } else if (!/^orders-[0-9a-f-]+\.csv$/i.test(filename)) {
+      throw Error("Invalid export");
+    }
     const result = await dialog.showSaveDialog(win!, {
       defaultPath: filename,
-      filters: [{ name: "CSV export", extensions: ["csv"] }],
+      filters: [
+        recovery
+          ? { name: "Module input recovery", extensions: ["json"] }
+          : { name: "CSV export", extensions: ["csv"] },
+      ],
     });
     if (!result.canceled && result.filePath)
       await writeFile(result.filePath, content, { mode: 0o600 });

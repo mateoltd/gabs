@@ -1,6 +1,6 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import { createRequire } from "node:module";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 const require = createRequire(resolve("apps/desktop/package.json"));
@@ -57,6 +57,65 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
       }
     });
     expect(rejected).toBe(true);
+
+    // Only replace the OS destination picker. Validate the real preload, IPC
+    // boundary and resulting file bytes; the renderer never selects a path.
+    const exportPath = resolve(profile, "recovery.json");
+    await app.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+    }, exportPath);
+    const exportBoundary = await page.evaluate(async () => {
+      const recovery = {
+        kind: "module-input-recovery",
+        userId: crypto.randomUUID(),
+        workspaceId: crypto.randomUUID(),
+        moduleId: "contacts",
+        moduleVersion: "1.0.0",
+        resource: "contacts",
+        input: { data: { name: "Retained desktop input" } },
+        status: "unconfirmed",
+        pendingRequest: {
+          moduleId: "contacts",
+          moduleVersion: "1.0.0",
+          resource: "contacts",
+          key: crypto.randomUUID(),
+          action: "create",
+          input: {
+            id: crypto.randomUUID(),
+            data: { name: "Retained desktop input" },
+          },
+        },
+      };
+      const filename = `module-input-${crypto.randomUUID()}.json`;
+      const denied = async (name: string, value: unknown) => {
+        try {
+          await window.suiteDesktop!.saveFile(name, JSON.stringify(value));
+          return false;
+        } catch {
+          return true;
+        }
+      };
+      const rejected = await Promise.all([
+        denied(`../${filename}`, recovery),
+        denied("arbitrary.json", recovery),
+        denied(filename, { shell: "arbitrary data" }),
+        denied(filename, { ...recovery, pendingRequest: undefined }),
+        denied(filename, {
+          ...recovery,
+          pendingRequest: { ...recovery.pendingRequest, moduleId: "another" },
+        }),
+        denied(filename, {
+          ...recovery,
+          pendingRequest: { ...recovery.pendingRequest, action: "update" },
+        }),
+      ]);
+      await window.suiteDesktop!.saveFile(filename, JSON.stringify(recovery));
+      return { recovery, rejected };
+    });
+    expect(exportBoundary.rejected).toEqual(Array(6).fill(true));
+    expect(JSON.parse(await readFile(exportPath, "utf8"))).toEqual(
+      exportBoundary.recovery,
+    );
 
     const artifactBoundary = await page.evaluate(async () => {
       const me = (await window.suiteDesktop!.execute({ operation: "me" }))

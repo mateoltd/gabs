@@ -71,3 +71,75 @@ export const ModuleRolloutSchema = Type.Object(
   { additionalProperties: false },
 );
 export type ModuleRollout = Static<typeof ModuleRolloutSchema>;
+
+const RecoveryId = Type.String({ minLength: 1, maxLength: 128 });
+const RecoveryName = Type.String({ pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" });
+const RecoveryVersion = Type.String({ minLength: 1, maxLength: 40 });
+const RecoveryData = Type.Record(Type.String(), Type.Unknown());
+const RecoveryInput = Type.Object(
+  {
+    data: RecoveryData,
+    id: Type.Optional(RecoveryId),
+    baseVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
+const recoveryRequestProperties = {
+  moduleId: RecoveryName,
+  moduleVersion: RecoveryVersion,
+  resource: RecoveryName,
+  key: RecoveryId,
+};
+const RecoveryRequest = Type.Union([
+  Type.Object(
+    {
+      ...recoveryRequestProperties,
+      action: Type.Literal("create"),
+      input: Type.Object(
+        { id: RecoveryId, data: RecoveryData },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...recoveryRequestProperties,
+      action: Type.Literal("update"),
+      input: Type.Object(
+        {
+          id: RecoveryId,
+          data: RecoveryData,
+          baseVersion: Type.Integer({ minimum: 1 }),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+]);
+const recoveryProperties = {
+  kind: Type.Literal("module-input-recovery"),
+  userId: RecoveryId,
+  workspaceId: RecoveryId,
+  moduleId: RecoveryName,
+  moduleVersion: RecoveryVersion,
+  resource: RecoveryName,
+  input: RecoveryInput,
+};
+/** User-exported input, never proof of server acceptance or authorization. */
+export const ModuleInputRecoverySchema = Type.Union([
+  Type.Object(
+    { ...recoveryProperties, status: Type.Literal("unsaved") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...recoveryProperties,
+      status: Type.Literal("unconfirmed"),
+      pendingRequest: RecoveryRequest,
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type ModuleInputRecovery = Static<typeof ModuleInputRecoverySchema>;

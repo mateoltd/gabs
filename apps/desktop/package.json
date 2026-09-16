@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@suite/module-sdk": "workspace:*",
     "@suite/platform": "workspace:*",
     "@suite/contracts": "workspace:*",
     "@suite/api-client": "workspace:*",

@@ -166,6 +166,11 @@ test("inventory stock summary filters the workspace and preserves stock and hist
   await expect(
     page.getByRole("checkbox", { name: "Low stock only" }),
   ).toBeChecked();
+  // The checkbox updates before the server's filtered result replaces the
+  // explicitly busy previous rows. Assert the settled result, not that interval.
+  await expect(
+    page.getByRole("tabpanel", { name: "Inventory", exact: true }),
+  ).toHaveAttribute("aria-busy", "false");
   await expect(page.locator(".inventory-table tbody tr").first()).toBeVisible();
   const stockRows = await page
     .locator(".inventory-table tbody tr")
