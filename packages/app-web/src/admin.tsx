@@ -130,7 +130,9 @@ export function People(props: FeatureProps) {
     try {
       await fn();
       close?.();
-      await refresh();
+      // Completion is the accepted mutation; background reads must not keep
+      // unrelated dialogs locked while their queries are refreshed.
+      void refresh();
     } catch (e) {
       setError(e);
       onError(e);

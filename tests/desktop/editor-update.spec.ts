@@ -385,6 +385,32 @@ for (const uncertainReply of [false, true])
             page.getByRole("button", { name: "New other", exact: true }),
           ).toBeEnabled();
         }
+        await page.getByRole("link", { name: "Modules", exact: true }).click();
+        const moduleCard = page
+          .locator(".module-install-card")
+          .filter({ has: page.getByRole("heading", { name, exact: true }) });
+        await moduleCard
+          .getByRole("button", { name: "View devices", exact: true })
+          .click();
+        const devices = page.getByRole("dialog", {
+          name: `Devices using ${name}`,
+          exact: true,
+        });
+        await expect(
+          devices.getByText(
+            "1 of 1 known devices have a server-accepted release. 0 reported an installation failure.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await expect(
+          devices.getByText("Ready reported", { exact: true }),
+        ).toBeVisible();
+        if (!uncertainReply) {
+          await mkdir("docs/verification/module-fleet", { recursive: true });
+          await page.screenshot({
+            path: "docs/verification/module-fleet/electron.png",
+          });
+        }
       } finally {
         await app?.close();
         await registry.end();

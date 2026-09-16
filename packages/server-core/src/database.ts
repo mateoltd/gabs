@@ -85,6 +85,19 @@ export interface Database {
     state: string;
     updated_at: Time;
   };
+  "suite.installation_reports": Tenant & {
+    user_id: string;
+    device_id: string;
+    module_id: string;
+    attempt_id: string;
+    sequence: number;
+    version: string;
+    phase: string;
+    error_code: string | null;
+    receipt_id: string | null;
+    created_at: Time;
+    updated_at: Time;
+  };
   "suite.module_releases": {
     module_id: string;
     version: string;

@@ -6,6 +6,7 @@ import {
 } from "./module-artifacts";
 import type { Platform, Scope } from "./index";
 import type {
+  InstallationReport,
   InstallationSelection,
   SignedArtifact,
 } from "@suite/module-sdk/platform";
@@ -25,6 +26,10 @@ export interface InstallationAttempt {
   error?: string;
 }
 export interface ModuleStorage {
+  installationReports?: Record<
+    string,
+    { report: InstallationReport; delivered: boolean }
+  >;
   lifecycle?: Record<string, InstallationAttempt>;
   lifecycleErrors?: Record<string, string>;
   journal: JournalEntry[];

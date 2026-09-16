@@ -5,6 +5,9 @@ import m1 from "../../../modules/inventory/module";
 import m2 from "../../../modules/orders/module";
 import m3 from "../../../modules/projects/module";
 export const moduleDefinitions: ModuleDefinition[] = [m0, m1, m2, m3];
+export const bundledModuleIds: readonly string[] = Object.freeze(
+  moduleDefinitions.map((m) => m.id),
+);
 export function registerModule(module: ModuleDefinition) {
   const i = moduleDefinitions.findIndex((m) => m.id === module.id);
   if (i < 0) moduleDefinitions.push(module);

@@ -143,3 +143,65 @@ export const ModuleInputRecoverySchema = Type.Union([
   ),
 ]);
 export type ModuleInputRecovery = Static<typeof ModuleInputRecoverySchema>;
+
+/** Observations from a device, never authority for installation or business access. */
+export const InstallationReportSchema = Type.Object(
+  {
+    moduleId: Type.String({ pattern: "^[a-z][a-z0-9-]{0,63}$" }),
+    deviceId: Type.String({ pattern: "^[a-zA-Z0-9-]{8,100}$" }),
+    attemptId: Type.String({
+      pattern:
+        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    }),
+    sequence: Type.Integer({ minimum: 1, maximum: 2147483647 }),
+    version: Type.String({ minLength: 1, maxLength: 40 }),
+    phase: Type.Union(
+      (["downloading", "confirming", "ready", "failed"] as const).map((v) =>
+        Type.Literal(v),
+      ),
+    ),
+    errorCode: Type.Optional(
+      Type.Union(
+        (
+          [
+            "download",
+            "verification",
+            "policy",
+            "storage",
+            "connection",
+            "unknown",
+          ] as const
+        ).map((v) => Type.Literal(v)),
+      ),
+    ),
+    receiptId: Type.Optional(
+      Type.String({
+        pattern:
+          "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export type InstallationReport = Static<typeof InstallationReportSchema>;
+export interface ModuleFleet {
+  targetVersion: string;
+  acceptedVersions: string[];
+  total: number;
+  accepted: number;
+  failed: number;
+  items: {
+    userId: string;
+    userName: string;
+    deviceId: string;
+    version: string | null;
+    state: string | null;
+    confirmedAt: string | null;
+    reportVersion: string | null;
+    phase: string | null;
+    errorCode: string | null;
+    reportedAt: string | null;
+    receiptMatches: boolean;
+  }[];
+  nextOffset: number | null;
+}

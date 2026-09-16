@@ -1,5 +1,6 @@
 import {
   installModule,
+  flushInstallationReports,
   verifiedInstalledModule,
   uninstallModule,
   deviceId,
@@ -607,6 +608,7 @@ function Workspace({
     };
     void (async () => {
       let changed = false;
+      await flushInstallationReports(current);
       const pending = await readModuleStorage(current.platform, current.scope);
       for (const [id, attempt] of Object.entries(pending.lifecycle ?? {})) {
         if (!active) break;

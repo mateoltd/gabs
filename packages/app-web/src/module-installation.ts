@@ -16,6 +16,7 @@ import {
   type ReleaseManifest,
 } from "@suite/module-sdk/registry";
 import type {
+  InstallationReport,
   InstallationSelection,
   PlatformState,
   SignedArtifact,
@@ -77,11 +78,72 @@ const lifecycleLock = (props: FeatureProps) =>
 const sameReleases = (a: InstallationSelection[], b: InstallationSelection[]) =>
   canonical([...a].sort((x, y) => x.moduleId.localeCompare(y.moduleId))) ===
   canonical([...b].sort((x, y) => x.moduleId.localeCompare(y.moduleId)));
+/** Pending observations survive reconnects; they cannot grant runtime access. */
+export async function flushInstallationReports(props: FeatureProps) {
+  const pending =
+    (await readModuleStorage(props.platform, props.scope))
+      .installationReports ?? {};
+  for (const [id, item] of Object.entries(pending)) {
+    if (item.delivered) continue;
+    try {
+      await props.client.request({
+        operation: "installationReport",
+        params: { workspaceId: props.scope.workspaceId },
+        body: item.report,
+      });
+      await changeModuleStorage(props.platform, props.scope, (s) => {
+        const current = s.installationReports?.[id];
+        if (
+          current?.report.attemptId === item.report.attemptId &&
+          current.report.sequence === item.report.sequence
+        )
+          current.delivered = true;
+      });
+    } catch {
+      /* Keep this observation for a later connected attempt. */
+    }
+  }
+}
+async function reportInstallation(
+  props: FeatureProps,
+  id: string,
+  attempt: InstallationAttempt,
+  phase: InstallationReport["phase"],
+  errorCode?: InstallationReport["errorCode"],
+  receiptId?: string,
+) {
+  if (attempt.action !== "install") return;
+  try {
+    await changeModuleStorage(props.platform, props.scope, (s) => {
+      const previous = s.installationReports?.[id]?.report;
+      (s.installationReports ??= {})[id] = {
+        delivered: false,
+        report: {
+          moduleId: id,
+          deviceId: attempt.deviceId,
+          attemptId: attempt.requestId,
+          sequence:
+            previous?.attemptId === attempt.requestId
+              ? previous.sequence + 1
+              : 1,
+          version: attempt.releases.find((r) => r.moduleId === id)!.version,
+          phase,
+          ...(errorCode ? { errorCode } : {}),
+          ...(receiptId ? { receiptId } : {}),
+        },
+      };
+    });
+    await flushInstallationReports(props);
+  } catch {
+    /* Reporting failure must not alter an installation's outcome. */
+  }
+}
 async function recordFailure(
   props: FeatureProps,
   id: string,
   attempt: InstallationAttempt,
   error: unknown,
+  failureCode: InstallationReport["errorCode"] = "unknown",
 ) {
   await changeModuleStorage(props.platform, props.scope, (s) => {
     if (s.lifecycle?.[id]?.requestId !== attempt.requestId) return;
@@ -100,6 +162,13 @@ async function recordFailure(
       delete s.lifecycle[id];
     else s.lifecycle[id].error = message;
   });
+  await reportInstallation(
+    props,
+    id,
+    attempt,
+    "failed",
+    error instanceof ApiError ? "policy" : failureCode,
+  );
 }
 async function acknowledge(
   props: FeatureProps,
@@ -256,7 +325,9 @@ export async function installModule(
       });
     }
     const current = attempt;
+    let failureCode: InstallationReport["errorCode"] = "download";
     try {
+      await reportInstallation(props, id, current, current.phase);
       const trust = await props.client.request({ operation: "moduleTrust" });
       const packages: SignedArtifact[] = [];
       for (const release of releases) {
@@ -271,6 +342,7 @@ export async function installModule(
             pkg = undefined;
           }
         if (!pkg) {
+          failureCode = "download";
           pkg = await props.client.request({
             operation: "moduleArtifact",
             params: {
@@ -278,6 +350,7 @@ export async function installModule(
               moduleId: release.moduleId,
             },
           });
+          failureCode = "verification";
           await verifyArtifact(pkg, trust.publicKey);
           if (
             pkg.module_id !== release.moduleId ||
@@ -291,6 +364,7 @@ export async function installModule(
             );
           check();
           const verified = pkg;
+          failureCode = "storage";
           await changeModuleStorage(props.platform, props.scope, (s) => {
             (s.downloads ??= {})[cacheKey] = verified;
           });
@@ -298,10 +372,14 @@ export async function installModule(
         packages.push(pkg);
       }
       check();
+      failureCode = "storage";
       await changeModuleStorage(props.platform, props.scope, (s) => {
         s.lifecycle![id].phase = "confirming";
       });
+      await reportInstallation(props, id, current, "confirming");
+      failureCode = "connection";
       const receipt = await acknowledge(props, id, current);
+      failureCode = "storage";
       check();
       await changeModuleStorage(props.platform, props.scope, (s) => {
         check();
@@ -318,13 +396,21 @@ export async function installModule(
         delete s.lifecycle?.[id];
         delete s.lifecycleErrors?.[id];
       });
+      await reportInstallation(
+        props,
+        id,
+        current,
+        "ready",
+        undefined,
+        receipt.id,
+      );
       return {
         pkg: packages.find((p) => p.module_id === id)!,
         publicKey: trust.publicKey,
       };
     } catch (error) {
       try {
-        await recordFailure(props, id, current, error);
+        await recordFailure(props, id, current, error, failureCode);
       } catch {
         /* A storage failure must not hide the original failed commit. */
       }

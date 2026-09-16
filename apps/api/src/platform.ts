@@ -1,4 +1,12 @@
-import { ModuleRolloutSchema } from "@suite/module-sdk/platform";
+import {
+  recordInstallationReport,
+  moduleFleet,
+} from "../../../packages/server-core/src/installation-reports";
+import {
+  InstallationReportSchema,
+  type InstallationReport,
+  ModuleRolloutSchema,
+} from "@suite/module-sdk/platform";
 import {
   clientModule,
   receiptContract,
@@ -116,6 +124,57 @@ const OrganizationSchema = T.Object(
   { additionalProperties: false },
 );
 export async function registerPlatform(app: FastifyInstance, db: DB) {
+  app.post<{ Params: { workspaceId: string }; Body: InstallationReport }>(
+    "/api/v1/workspaces/:workspaceId/installation-reports",
+    {
+      preValidation: async (req) => {
+        assertSchema(InstallationReportSchema, req.body);
+      },
+      schema: {
+        operationId: "installationReport",
+        params: T.Object({ workspaceId: id }),
+        body: InstallationReportSchema,
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+        );
+        return recordInstallationReport(tx, ctx, req.body);
+      }),
+  );
+  app.get<{
+    Params: { workspaceId: string; moduleId: string };
+    Querystring: { offset?: number };
+  }>(
+    "/api/v1/workspaces/:workspaceId/modules/:moduleId/devices",
+    {
+      schema: {
+        operationId: "moduleFleet",
+        params: T.Object({ workspaceId: id, moduleId: slug }),
+        querystring: T.Object(
+          { offset: T.Optional(T.Integer({ minimum: 0, maximum: 1000000 })) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+          "modules.manage",
+        );
+        return moduleFleet(tx, ctx, req.params.moduleId, req.query.offset ?? 0);
+      }),
+  );
+
   const publicKey = async () =>
     process.env.MODULE_SIGNING_PUBLIC_KEY ??
     (await readFile(

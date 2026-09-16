@@ -1,3 +1,4 @@
+import { ModuleFleetDialog } from "./module-fleet";
 import { storageContract } from "@suite/module-sdk";
 import type { ReleaseManifest } from "@suite/module-sdk/registry";
 import { Table } from "@suite/ui-web";
@@ -68,6 +69,7 @@ export function ModuleLifecycle(
 ) {
   const state = usePlatformState(props),
     qc = useQueryClient();
+  const [fleetModule, setFleetModule] = useState("");
   const [error, setError] = useState<unknown>(),
     [errorModule, setErrorModule] = useState(""),
     [busy, setBusy] = useState(""),
@@ -313,6 +315,11 @@ export function ModuleLifecycle(
                     }}
                   >
                     Configure
+                  </Button>
+                )}
+                {admin && (
+                  <Button onClick={() => setFleetModule(module.id)}>
+                    View devices
                   </Button>
                 )}
                 {props.bootstrap.permissions.includes("roles.manage") && (
@@ -565,6 +572,18 @@ export function ModuleLifecycle(
           </div>
         )}
       </Modal>
+      {admin && fleetModule && (
+        <ModuleFleetDialog
+          key={fleetModule}
+          {...props}
+          moduleId={fleetModule}
+          name={
+            state.data?.modules.find((m) => m.id === fleetModule)?.name ??
+            fleetModule
+          }
+          close={() => setFleetModule("")}
+        />
+      )}
     </section>
   );
 }

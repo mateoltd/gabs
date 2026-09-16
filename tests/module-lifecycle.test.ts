@@ -17,6 +17,7 @@ import {
 } from "../packages/platform/src/module-storage";
 import {
   installModule,
+  flushInstallationReports,
   uninstallModule,
   verifiedInstalledModule,
 } from "../packages/app-web/src/module-installation";
@@ -160,6 +161,7 @@ it("recovers exact device changes across download interruption, uncertain accept
         id: workspaceId,
         userId: user.id,
         name: "Lifecycle",
+        modules: [dependency, root],
         kind: "company",
       }),
     );
@@ -168,9 +170,12 @@ it("recovers exact device changes across download interruption, uncertain accept
     let failDownload = false,
       loseResponse = false,
       corruptDownload = false,
-      changePolicy = false;
+      changePolicy = false,
+      failReports = false;
     const transport: Transport = async (request) => {
       sent.push(structuredClone(request));
+      if (request.operation === "installationReport" && failReports)
+        throw Error("Report connection interrupted");
       if (
         request.operation === "moduleArtifact" &&
         request.params?.moduleId === root &&
@@ -261,17 +266,29 @@ it("recovers exact device changes across download interruption, uncertain accept
           )
         ).rows[0].count,
       );
+    const fleet = () =>
+      client.request({
+        operation: "moduleFleet",
+        params: { workspaceId, moduleId: root },
+      });
     const initial = await state();
     loseResponse = true;
     await expect(installModule(props, initial, dependency)).rejects.toThrow(
       "Response lost after commit",
     );
     const dependencyAttempt = (await stored()).lifecycle![dependency].requestId;
+    const dependencyAcceptedAt = (await state()).installations.find(
+      (i) => i.module_id === dependency,
+    )!.updated_at;
     await Promise.all([
       installModule(props, initial, root),
       installModule(props, initial, root),
     ]);
     expect(await auditCount("install")).toBe(1);
+    expect(
+      (await state()).installations.find((i) => i.module_id === dependency)!
+        .updated_at,
+    ).toBe(dependencyAcceptedAt);
     // Another module may accept this same dependency while its original reply is uncertain.
     await installModule(props, await state(), dependency);
     expect((await stored()).lifecycle?.[dependency]).toBeUndefined();
@@ -293,6 +310,12 @@ it("recovers exact device changes across download interruption, uncertain accept
     await expect(installModule(props, upgrade, root)).rejects.toThrow(
       "Download interrupted",
     );
+    expect(await fleet()).toMatchObject({
+      total: 1,
+      accepted: 0,
+      failed: 1,
+      items: [{ phase: "failed", version: "1.0.0", reportVersion: "1.1.0" }],
+    });
     const pending = (await stored()).lifecycle![root];
     expect((await stored()).downloads?.[`${dependency}@1.1.0`]).toBeTruthy();
     expect((await stored()).installed[root].version).toBe("1.0.0");
@@ -315,7 +338,25 @@ it("recovers exact device changes across download interruption, uncertain accept
       "Disk write interrupted",
     );
     expect((await stored()).lifecycle![root].requestId).toBe(pending.requestId);
+    expect(await fleet()).toMatchObject({
+      accepted: 1,
+      failed: 1,
+      items: [{ phase: "failed", version: "1.1.0" }],
+    });
+    failReports = true;
     await installModule({ ...props }, upgrade, root);
+    expect((await stored()).installationReports?.[root]).toMatchObject({
+      delivered: false,
+      report: { phase: "ready" },
+    });
+    failReports = false;
+    await flushInstallationReports(props);
+    expect(await fleet()).toMatchObject({
+      accepted: 1,
+      failed: 0,
+      items: [{ phase: "ready", receiptMatches: true }],
+    });
+    expect((await stored()).installationReports?.[root]?.delivered).toBe(true);
     expect(await auditCount("install")).toBe(2);
     expect((await stored()).lifecycle?.[root]).toBeUndefined();
     expect((await stored()).installed[root].version).toBe("1.1.0");

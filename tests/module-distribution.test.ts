@@ -95,6 +95,7 @@ describe("Independent module distribution", () => {
           id: workspace,
           userId: user.id,
           name: "Distribution",
+          modules: [id],
           kind: "company",
         }),
       );

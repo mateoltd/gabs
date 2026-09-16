@@ -325,6 +325,14 @@ export const OPERATIONS = {
     path: "/api/v1/workspaces/:workspaceId/billing",
   },
   moduleTrust: { method: "GET", path: "/api/v1/module-trust" },
+  installationReport: {
+    method: "POST",
+    path: "/api/v1/workspaces/:workspaceId/installation-reports",
+  },
+  moduleFleet: {
+    method: "GET",
+    path: "/api/v1/workspaces/:workspaceId/modules/:moduleId/devices",
+  },
   platformState: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/platform",

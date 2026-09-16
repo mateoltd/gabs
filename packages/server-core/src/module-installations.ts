@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import {
   Type,
@@ -164,6 +165,10 @@ export async function changeDeviceInstallation(
           action === "install" && release.moduleId !== moduleId && prior
             ? prior.receipt_id
             : receipt.id;
+        const updatedAt =
+          action === "install" && release.moduleId !== moduleId && prior
+            ? prior.updated_at
+            : sql<Date>`clock_timestamp()`;
         await tx
           .insertInto("suite.module_installations")
           .values({
@@ -174,7 +179,7 @@ export async function changeDeviceInstallation(
             version: release.version,
             state: action === "install" ? "installed" : "removed",
             receipt_id: receiptId,
-            updated_at: new Date(),
+            updated_at: updatedAt,
           })
           .onConflict((oc) =>
             oc
@@ -183,7 +188,7 @@ export async function changeDeviceInstallation(
                 version: release.version,
                 state: action === "install" ? "installed" : "removed",
                 receipt_id: receiptId,
-                updated_at: new Date(),
+                updated_at: updatedAt,
               }),
           )
           .execute();

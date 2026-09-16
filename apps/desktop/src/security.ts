@@ -83,10 +83,19 @@ export function validateOperation(value: unknown): OperationRequest {
   if (
     r.query &&
     Object.keys(r.query).some(
-      (k) => !["cursor", "limit", "search", "status", "stock"].includes(k),
+      (k) =>
+        !["cursor", "limit", "search", "status", "stock"].includes(k) &&
+        !(r.operation === "moduleFleet" && k === "offset"),
     )
   )
     throw Error("Invalid query");
+  if (
+    r.query?.offset !== undefined &&
+    (!Number.isSafeInteger(r.query.offset) ||
+      Number(r.query.offset) < 0 ||
+      Number(r.query.offset) > 1000000)
+  )
+    throw Error("Invalid device page");
   operationPath(r);
   return r;
 }

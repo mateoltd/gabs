@@ -1,4 +1,5 @@
-import { moduleDefinitions } from "@suite/module-catalog";
+import { found } from "./errors";
+import { bundledModuleIds, moduleDefinition } from "@suite/module-catalog";
 import { randomUUID } from "node:crypto";
 import { ROLE_PRESETS } from "@suite/contracts";
 import type { DB, Tx } from "./database";
@@ -13,6 +14,8 @@ export async function provisionWorkspace(
     name: string;
     kind: "personal" | "company";
     currency?: string;
+    /** Trusted onboarding template; registry discovery never assigns modules. */
+    modules?: readonly string[];
   },
 ) {
   await tx
@@ -53,7 +56,8 @@ export async function provisionWorkspace(
         })
         .execute();
   }
-  for (const { id: moduleId } of moduleDefinitions) {
+  for (const moduleId of new Set(input.modules ?? bundledModuleIds)) {
+    found(moduleDefinition(moduleId));
     await tx
       .insertInto("suite.entitlements")
       .values({

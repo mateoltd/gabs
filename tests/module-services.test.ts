@@ -146,6 +146,7 @@ beforeAll(async () => {
       id: workspace,
       userId: actor.id,
       name: "Services",
+      modules: [provider.id, consumer.id],
       kind: "company",
     }),
   );

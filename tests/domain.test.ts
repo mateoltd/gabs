@@ -100,6 +100,19 @@ describe("offline and native boundaries", () => {
       moduleVersion: "1.1.0",
     };
     expect(validateOperation(moduleRequest).moduleVersion).toBe("1.1.0");
+    const fleetRequest = {
+      operation: "moduleFleet",
+      params: { workspaceId: crypto.randomUUID(), moduleId: "contacts" },
+      query: { offset: 50 },
+    };
+    expect(validateOperation(fleetRequest).query?.offset).toBe(50);
+    for (const offset of [-1, 1.5, "50", 1000001])
+      expect(() =>
+        validateOperation({ ...fleetRequest, query: { offset } }),
+      ).toThrow();
+    expect(() =>
+      validateOperation({ ...fleetRequest, operation: "platformState" }),
+    ).toThrow();
     expect(() =>
       validateOperation({
         ...moduleRequest,

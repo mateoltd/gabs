@@ -11221,6 +11221,182 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/installation-reports": {
+      "post": {
+        "operationId": "installationReport",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "moduleId",
+                  "deviceId",
+                  "attemptId",
+                  "sequence",
+                  "version",
+                  "phase"
+                ],
+                "properties": {
+                  "moduleId": {
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                    "type": "string"
+                  },
+                  "deviceId": {
+                    "pattern": "^[a-zA-Z0-9-]{8,100}$",
+                    "type": "string"
+                  },
+                  "attemptId": {
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                    "type": "string"
+                  },
+                  "sequence": {
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "type": "integer"
+                  },
+                  "version": {
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "downloading"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "confirming"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "ready"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "failed"
+                        ]
+                      }
+                    ]
+                  },
+                  "errorCode": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "download"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "verification"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "policy"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "storage"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "connection"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "unknown"
+                        ]
+                      }
+                    ]
+                  },
+                  "receiptId": {
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/modules/{moduleId}/devices": {
+      "get": {
+        "operationId": "moduleFleet",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 0,
+              "maximum": 1000000,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "moduleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/operations/{operationName}": {
       "post": {
         "operationId": "moduleOperation",
