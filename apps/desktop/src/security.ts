@@ -69,9 +69,12 @@ export function validateOperation(value: unknown): OperationRequest {
     r.moduleVersion !== undefined &&
     (typeof r.moduleVersion !== "string" ||
       !/^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/.test(r.moduleVersion) ||
-      !["moduleRequest", "moduleOperation", "moduleMembers"].includes(
-        r.operation,
-      ))
+      ![
+        "moduleRequest",
+        "moduleOperation",
+        "moduleQuery",
+        "moduleMembers",
+      ].includes(r.operation))
   )
     throw Error("Invalid module version");
   if (

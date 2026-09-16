@@ -21,6 +21,14 @@ export default defineModule({
   ],
   configuration: Type.Object({}, { additionalProperties: false }),
   operations: {
+    names: operation({
+      kind: "query",
+      title: "Read notes",
+      policy: "online",
+      permission: "custom-notes.notes.read",
+      input: Type.Object({}, { additionalProperties: false }),
+      output: Type.Array(Type.String()),
+    }),
     capture: operation({
       title: "Save note",
       policy: "online",

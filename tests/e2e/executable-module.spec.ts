@@ -92,7 +92,11 @@ test("installs an independent signed TSX view, keeps styles local and persists r
     await expect(
       region.getByText("A record from an independent module", { exact: true }),
     ).toBeVisible();
+    const read = page.waitForResponse(
+      (response) => response.url().includes(`/queries/names`) && response.ok(),
+    );
     await page.reload();
+    await read;
     await expect(
       region.getByText("A record from an independent module", { exact: true }),
     ).toBeVisible();

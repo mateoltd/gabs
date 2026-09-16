@@ -29,7 +29,7 @@ Logs: `/tmp/gabs-query-check.log`, `/tmp/gabs-query-final-test.log`, `/tmp/gabs-
 
 ## Remaining SDK-01 work
 
-- Read-only operation dispatch and consistent read/export transactions. These candidate operations still use the generic command dispatcher, including operation audits and idempotency receipts. Query capabilities inside a business command remain transactional; this does not make a paginated multi-request export a point-in-time snapshot.
+- Follow-up: [read-only operation acceptance](../read-only-operations/README.md) now replaces command dispatch for candidate reads with a consistent per-request snapshot and no effect receipts/audits. Complete worker exports still require one snapshot across all pages; multi-request pagination is not point-in-time export consistency.
 - Authoritative relational extraction, cross-record validation, reservation reconciliation and coordinated schema migration of both modules.
 - Current API/client/UI adapters, worker export/event integration, explicit role/service grants and supported version/queue migration before production 2.0 selection.
 - Large-data and deployed latency acceptance of the final read paths. Functional query tests do not establish suitable indexes or production query-plan performance. OPS-07 remains open for the existing remote read budget.

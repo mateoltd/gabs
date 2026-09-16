@@ -14,6 +14,7 @@ import {
 } from "./context";
 export {
   type ModuleContext,
+  type QueryContext,
   type OperationContext,
   type ModuleCapabilities,
   ModuleBusinessError,

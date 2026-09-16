@@ -100,6 +100,13 @@ describe("offline and native boundaries", () => {
       moduleVersion: "1.1.0",
     };
     expect(validateOperation(moduleRequest).moduleVersion).toBe("1.1.0");
+    expect(
+      validateOperation({
+        ...moduleRequest,
+        operation: "moduleQuery",
+        params: { ...moduleRequest.params, operationName: "overview" },
+      }).moduleVersion,
+    ).toBe("1.1.0");
     const fleetRequest = {
       operation: "moduleFleet",
       params: { workspaceId: crypto.randomUUID(), moduleId: "contacts" },

@@ -34,7 +34,8 @@ type Result<K extends OperationId> = K extends "moduleFleet"
                       ok: boolean;
                       installation?: import("@suite/module-sdk/platform").InstallationReceipt;
                     }
-                  : K extends "moduleRequest" | "moduleOperation"
+                  : K extends
+                        "moduleRequest" | "moduleOperation" | "moduleQuery"
                     ? unknown
                     : K extends keyof operations
                       ? operations[K] extends {
@@ -106,7 +107,8 @@ export class SuiteClient {
     return createModuleClient(definition, (call) =>
       call.action === "operation"
         ? this.request({
-            operation: "moduleOperation",
+            operation:
+              call.kind === "query" ? "moduleQuery" : "moduleOperation",
             params: {
               workspaceId,
               moduleId: definition.id,
@@ -135,7 +137,8 @@ export class SuiteClient {
   ): Promise<Result<K>> {
     const controller = new AbortController();
     if (
-      OPERATIONS[request.operation].method === "GET" &&
+      (OPERATIONS[request.operation].method === "GET" ||
+        request.operation === "moduleQuery") &&
       request.params?.workspaceId
     )
       this.reads.set(controller, request.params.workspaceId);

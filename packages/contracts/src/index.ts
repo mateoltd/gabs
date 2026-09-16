@@ -342,6 +342,10 @@ export const OPERATIONS = {
     method: "POST",
     path: "/api/v1/workspaces/:workspaceId/platform",
   },
+  moduleQuery: {
+    method: "POST",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/queries/:operationName",
+  },
   moduleOperation: {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/operations/:operationName",

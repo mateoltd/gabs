@@ -88,6 +88,8 @@ export interface Operation<
   output: O;
   errors?: E;
   policy: ExecutionPolicy;
+  /** Queries are online, read-only server operations without effect receipts. */
+  kind?: "command" | "query";
   permission: string;
   title: string;
   legacyOperation?: string;
@@ -96,7 +98,10 @@ export interface Operation<
   /** Callable only through a declared, granted module service. */
   serviceOnly?: boolean;
 }
-export function operation<const O extends Operation>(definition: O): O {
+export function operation<const O extends Operation>(
+  definition: O &
+    (O extends { kind: "query" } ? { policy: "online" } : unknown),
+): O {
   return definition;
 }
 export interface ModuleDefinition {
@@ -231,6 +236,10 @@ export function defineModule<const M extends ModuleDefinition>(
   )
     throw new Error(`Unknown navigation view: ${definition.navigation.view}`);
   for (const op of Object.values(definition.operations)) {
+    if (op.kind && op.kind !== "command" && op.kind !== "query")
+      throw Error("Unknown operation kind.");
+    if (op.kind === "query" && op.policy !== "online")
+      throw Error("Read-only queries require online execution.");
     if (op.serviceOnly && !op.public)
       throw Error(
         "A service-only operation must be public to module consumers.",
@@ -300,6 +309,7 @@ export interface ModuleCall {
   resource?: string;
   action: "list" | "get" | "create" | "update" | "archive" | "operation";
   operation?: string;
+  kind?: "query";
   input: unknown;
   key?: string;
 }
@@ -322,7 +332,7 @@ export function createModuleClient<M extends ModuleDefinition>(
       action: "operation",
       operation: name,
       input,
-      key,
+      ...(op.kind === "query" ? { kind: "query" as const } : { key }),
     });
     assertSchema(op.output, result);
     return result;
@@ -601,4 +611,5 @@ export {
   type OperationError,
   type ModuleContext,
   type OperationContext,
+  type QueryContext,
 } from "./context";

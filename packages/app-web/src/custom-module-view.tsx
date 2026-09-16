@@ -468,12 +468,14 @@ function CustomModuleView(
           module.operations[call.operation!].policy === "local"
         )
           throw Error("This operation requires a standalone local workspace.");
-        const mutation = !["list", "get"].includes(call.action);
+        const mutation =
+          call.kind !== "query" && !["list", "get"].includes(call.action);
         if (mutation) current.executing?.(1);
         try {
           return await (call.action === "operation"
             ? current.client.request({
-                operation: "moduleOperation",
+                operation:
+                  call.kind === "query" ? "moduleQuery" : "moduleOperation",
                 params: {
                   workspaceId: current.scope.workspaceId,
                   moduleId: module.id,

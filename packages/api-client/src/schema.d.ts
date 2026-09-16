@@ -580,6 +580,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/queries/{operationName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["moduleQuery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/operations/{operationName}": {
         parameters: {
             query?: never;
@@ -5364,6 +5380,34 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    moduleQuery: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
+            path: {
+                workspaceId: string;
+                moduleId: string;
+                operationName: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
         responses: {
             /** @description Default Response */
             200: {

@@ -33,6 +33,14 @@ export async function executeModuleOperation(
     active: string[] = [],
   ): Promise<unknown> => {
     const operation = found(module.operations[name]);
+    const readOnly = operation.kind === "query";
+    const writable = () =>
+      requireCondition(
+        !readOnly,
+        403,
+        "QUERY_WRITE_DENIED",
+        "Read-only operations cannot change data, lock records, emit events or call commands.",
+      );
     requireCondition(
       !operation.serviceOnly || active.length > 0,
       403,
@@ -76,8 +84,15 @@ export async function executeModuleOperation(
     );
     assertSchema(operation.input, value);
     {
-      if (server.kind === "trusted")
+      if (server.kind === "trusted") {
+        requireCondition(
+          !readOnly,
+          409,
+          "QUERY_BACKEND_REQUIRED",
+          "Read-only operations require a scoped backend.",
+        );
         return await server.execute(name, value, { tx, ctx });
+      }
       const activation = found(
         await tx
           .selectFrom("suite.module_activations")
@@ -134,6 +149,7 @@ export async function executeModuleOperation(
           configuration: activation.config,
           audit: (action, targetId) =>
             guarded(async () => {
+              writable();
               requireCondition(
                 module.audit?.includes(action) &&
                   typeof targetId === "string" &&
@@ -146,9 +162,19 @@ export async function executeModuleOperation(
               await audit(tx, ctx, `${module.id}.${action}`, targetId);
             }),
           store: (name, command) =>
-            guarded(() => executeStore(tx, ctx, module, name, command)),
+            guarded(() => {
+              if (
+                !["get", "scan", "query", "aggregate"].includes(
+                  command.action,
+                ) ||
+                (command.action === "get" && command.lock)
+              )
+                writable();
+              return executeStore(tx, ctx, module, name, command);
+            }),
           resource: (call) =>
             guarded(async () => {
+              if (!["get", "list"].includes(call.action)) writable();
               requireCondition(
                 call.moduleId === module.id &&
                   call.resource &&
@@ -171,6 +197,7 @@ export async function executeModuleOperation(
             }),
           emit: (event, payload) =>
             guarded(async () => {
+              writable();
               const schema = found(module.events?.[event]);
               assertSchema(schema, payload);
               await publish(tx, ctx, `module.${module.id}.event.${event}`, {
@@ -194,6 +221,7 @@ export async function executeModuleOperation(
                 reference.moduleId,
               );
               const contract = found(target.operations[reference.operation]);
+              if (contract.kind !== "query") writable();
               requireCondition(
                 contract.public && satisfies(target.version, range),
                 409,
@@ -244,7 +272,8 @@ export async function executeModuleOperation(
       closed = true;
       if (failed) throw failure;
       assertSchema(operation.output, result);
-      await audit(tx, ctx, `${module.id}.operation.${name}`, module.id);
+      if (!readOnly)
+        await audit(tx, ctx, `${module.id}.operation.${name}`, module.id);
       return result;
     }
   };

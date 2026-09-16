@@ -1,4 +1,9 @@
-import { createStores, type ModuleStores, type StoreTransport } from "./store";
+import {
+  createStores,
+  type ModuleStores,
+  type ModuleReadStores,
+  type StoreTransport,
+} from "./store";
 import {
   assertSchema,
   createModuleClient,
@@ -112,10 +117,50 @@ export interface ModuleContext<M extends ModuleDefinition> {
     input: Static<ModuleServices<M>[K]["contract"]["input"]>,
   ): Promise<ServiceResult<M, K>>;
 }
+type ReadServices<M extends ModuleDefinition> = {
+  [K in keyof ModuleServices<M>]: ModuleServices<M>[K]["contract"] extends {
+    kind: "query";
+  }
+    ? K
+    : never;
+}[keyof ModuleServices<M>];
+export type QueryContext<M extends ModuleDefinition> = Omit<
+  ModuleContext<M>,
+  "store" | "resource" | "audit" | "emit" | "service" | "serviceAttempt"
+> & {
+  store: ModuleReadStores<M>;
+  resource<K extends keyof M["resources"] & string>(
+    name: K,
+  ): {
+    get(
+      id: string,
+    ): Promise<
+      import("./index").ResourceRecord<Static<M["resources"][K]["schema"]>>
+    >;
+    list(input?: {
+      search?: string;
+      cursor?: string;
+      limit?: number;
+      archived?: boolean;
+    }): Promise<
+      import("./index").ResourcePage<Static<M["resources"][K]["schema"]>>
+    >;
+  };
+  service<K extends ReadServices<M> & string>(
+    name: K,
+    input: Static<ModuleServices<M>[K]["contract"]["input"]>,
+  ): Promise<Static<ModuleServices<M>[K]["contract"]["output"]>>;
+  serviceAttempt<K extends ReadServices<M> & string>(
+    name: K,
+    input: Static<ModuleServices<M>[K]["contract"]["input"]>,
+  ): Promise<ServiceResult<M, K>>;
+};
 export type OperationContext<
   M extends ModuleDefinition,
   K extends keyof M["operations"],
-> = ModuleContext<M> & {
+> = (M["operations"][K] extends { kind: "query" }
+  ? QueryContext<M>
+  : ModuleContext<M>) & {
   reject(error: OperationError<M, K>): never;
 };
 /** Narrow, host-implemented capabilities. No database handle or privileged process object. */

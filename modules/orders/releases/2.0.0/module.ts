@@ -166,6 +166,7 @@ export default defineModule({
       errors: error,
     }),
     get: operation({
+      kind: "query",
       title: "Order",
       policy: "online",
       permission: "orders.read",
@@ -174,6 +175,7 @@ export default defineModule({
       errors: error,
     }),
     overview: operation({
+      kind: "query",
       title: "Order summary",
       policy: "online",
       permission: "orders.read",
@@ -192,6 +194,7 @@ export default defineModule({
       errors: error,
     }),
     "export-page": operation({
+      kind: "query",
       title: "Export orders",
       policy: "online",
       permission: "orders.export",
@@ -217,6 +220,7 @@ export default defineModule({
       errors: error,
     }),
     list: operation({
+      kind: "query",
       title: "Orders",
       policy: "online",
       permission: "orders.read",

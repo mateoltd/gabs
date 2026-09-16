@@ -7,10 +7,7 @@ export default defineView(module, function Notes({ client, online }) {
   const [names, setNames] = useState<string[]>([]);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
-  const refresh = async () =>
-    setNames(
-      (await client.resource("notes").list()).items.map((row) => row.data.name),
-    );
+  const refresh = async () => setNames(await client.call("names", {}));
   useEffect(() => {
     void refresh().catch(setError);
   }, [client]);

@@ -170,6 +170,7 @@ export default defineModule({
       errors: error,
     }),
     get: operation({
+      kind: "query",
       title: "Product",
       policy: "online",
       permission: "inventory.availability.read",
@@ -178,6 +179,7 @@ export default defineModule({
       errors: error,
     }),
     products: operation({
+      kind: "query",
       title: "Products",
       policy: "online",
       permission: "inventory.availability.read",
@@ -197,6 +199,7 @@ export default defineModule({
       errors: error,
     }),
     overview: operation({
+      kind: "query",
       title: "Stock summary",
       policy: "online",
       permission: "inventory.availability.read",
@@ -217,6 +220,7 @@ export default defineModule({
       errors: error,
     }),
     movements: operation({
+      kind: "query",
       title: "Movement history",
       policy: "online",
       permission: "inventory.read",

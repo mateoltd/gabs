@@ -199,6 +199,93 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
     Params: { workspaceId: string; moduleId: string; operationName: string };
     Body: unknown;
   }>(
+    "/api/v1/module/:moduleId/workspaces/:workspaceId/queries/:operationName",
+    {
+      schema: {
+        operationId: "moduleQuery",
+        headers: moduleHeaders,
+        params: T.Object({
+          workspaceId: id,
+          moduleId: slug,
+          operationName: slug,
+        }),
+        body: T.Unknown(),
+      },
+    },
+    async (req, reply) => {
+      reply.header("cache-control", "no-store");
+      return inWorkspace(
+        db,
+        req.params.workspaceId,
+        async (tx) => {
+          const ctx = await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+            undefined,
+            req.params.moduleId,
+          );
+          const definition = await clientModule(
+            tx,
+            ctx.workspaceId,
+            req.params.moduleId,
+            req.headers["x-module-version"],
+            moduleServers,
+          );
+          const operation = found(
+            definition.operations[req.params.operationName],
+          );
+          requireCondition(
+            operation.kind === "query",
+            400,
+            "NOT_A_QUERY",
+            "Use the command endpoint for business effects.",
+          );
+          const current = await workspaceModule(
+            tx,
+            ctx.workspaceId,
+            definition.id,
+          );
+          const currentOperation = found(
+            current.operations[req.params.operationName],
+          );
+          requireCondition(
+            currentOperation.kind === "query",
+            409,
+            "QUERY_CONTRACT_CHANGED",
+            "Update this module before reading this operation.",
+          );
+          requireCondition(
+            !operation.serviceOnly && !currentOperation.serviceOnly,
+            403,
+            "SERVICE_ONLY",
+            "This operation requires a declared and granted module service call.",
+          );
+          requireCondition(
+            ctx.permissions.includes(operation.permission) &&
+              ctx.permissions.includes(currentOperation.permission),
+            403,
+            "FORBIDDEN",
+            "Your role does not allow this action.",
+          );
+          return executeModuleOperation(
+            tx,
+            ctx,
+            definition,
+            req.params.operationName,
+            req.body,
+            moduleServers,
+          );
+        },
+        { readOnly: true },
+      );
+    },
+  );
+  app.post<{
+    Params: { workspaceId: string; moduleId: string; operationName: string };
+    Body: unknown;
+  }>(
     "/api/v1/module/:moduleId/workspaces/:workspaceId/operations/:operationName",
     {
       schema: {
@@ -230,6 +317,12 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         );
         const operation = found(
           definition.operations[req.params.operationName],
+        );
+        requireCondition(
+          operation.kind !== "query",
+          400,
+          "QUERY_ENDPOINT_REQUIRED",
+          "Use the read-only query endpoint for this operation.",
         );
         requireCondition(
           !operation.serviceOnly &&

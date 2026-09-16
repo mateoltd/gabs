@@ -66,6 +66,29 @@ pnpm module build ./modules/orders/releases/2.0.0 --dependency ./modules/invento
 
 Omit `--check` when creating a new snapshot; use `--update` to explicitly regenerate an existing one after reviewing provider changes. Generated references retain input/output/error types and include only public services. Declare the dependency and request separate administrator service grants. Unsupported schema shapes fail with a field path. Build dependency directories can be supplied repeatedly; neither exporting nor building publishes a release.
 
+### Read-only operations
+
+Declare `kind: "query"` with `policy: "online"` for an authoritative read:
+
+```ts
+summary: operation({
+  kind: "query",
+  policy: "online",
+  title: "Read summary",
+  permission: "example.read",
+  input: Type.Object({}),
+  output: Type.Object({ count: Type.Integer() }),
+}),
+```
+
+`client.call("summary", {})` infers the same input/output/error types as commands and automatically uses `/api/v1/module/{module_id}/workspaces/{workspace_id}/queries/{operation_name}`. Web and bounded Electron transports carry the signed module version. Queries use POST for validated structured input but create no idempotency receipts or operation audits; a supplied request key does not cache their result. Responses carry `Cache-Control: no-store`. Offline cache access remains a separate working-set capability, not a queued query.
+
+A query handler receives only reads from its resources/private stores and declared query services. Types reject mutation methods, record locks, events, audits and calls to command services. The host enforces these restrictions even when module code bypasses TypeScript; caught or detached violations still fail the transaction. Read-only contracts require a scoped backend.
+
+Each top-level query executes with fresh request authorization in one PostgreSQL repeatable-read, read-only transaction. Related reads and query-service calls see that request's snapshot. Accepted older contracts also require the current operation's permission, query kind and direct-call visibility. Calls from a command into a query service retain the command's transaction/isolation; the query service still cannot write. An authorization change committed after a query snapshot starts affects subsequent requests.
+
+A new HTTP page is a new snapshot. Paginating an export across requests does **not** freeze its contents; the worker's eventual complete export must run all its pages in one authorized snapshot transaction. Existing operations without `kind` remain commands, including locking product-resolution services.
+
 ### Private transactional stores
 
 Use `store` for server-owned data that should not have generated public CRUD. Declare it once alongside resources and operations:

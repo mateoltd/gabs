@@ -8,7 +8,7 @@ type Context = OperationContext<typeof module, keyof typeof module.operations>;
 type Product = Static<typeof module.stores.products.schema>;
 type Row = StoreRecord<Product>;
 type Effect = Static<typeof module.stores.movements.schema>["kind"];
-const view = (ctx: Context, row: Row) => {
+const view = (ctx: Pick<Context, "hasPermission">, row: Row) => {
   const p = row.data;
   return {
     id: row.id,
@@ -24,8 +24,20 @@ const view = (ctx: Context, row: Row) => {
       : {}),
   };
 };
-async function product(ctx: Context, id: string, lock = false) {
-  const row = await ctx.store("products").get(id, { lock });
+async function product(
+  ctx: Pick<OperationContext<typeof module, "get">, "store" | "reject">,
+  id: string,
+) {
+  const row = await ctx.store("products").get(id);
+  if (!row)
+    return ctx.reject({
+      code: "NOT_FOUND",
+      message: "This product is not available in this workspace.",
+    });
+  return row;
+}
+async function lockedProduct(ctx: Context, id: string) {
+  const row = await ctx.store("products").get(id, { lock: true });
   if (!row)
     return ctx.reject({
       code: "NOT_FOUND",
@@ -41,7 +53,7 @@ async function move(
   reason: string,
   orderId?: string,
 ) {
-  const row = await product(ctx, productId, true),
+  const row = await lockedProduct(ctx, productId),
     previous = row.data;
   if (
     !Number.isSafeInteger(quantity) ||
@@ -168,7 +180,7 @@ export default defineModuleServer(module)(
       return view(ctx, row);
     },
     "edit-product": async (ctx, input) => {
-      const row = await product(ctx, input.id, true);
+      const row = await lockedProduct(ctx, input.id);
       if (row.data.productVersion !== input.version)
         return ctx.reject({
           code: "VERSION_CONFLICT",
@@ -258,7 +270,7 @@ export default defineModuleServer(module)(
     receipt: (ctx, input) => changeStock(ctx, input, "receipt"),
     adjustment: (ctx, input) => changeStock(ctx, input, "adjustment"),
     count: async (ctx, input) => {
-      const row = await product(ctx, input.id, true);
+      const row = await lockedProduct(ctx, input.id);
       if (input.reason.trim().length < 3)
         return ctx.reject({
           code: "INVALID_INPUT",
@@ -314,7 +326,7 @@ export default defineModuleServer(module)(
         });
       const rows = [];
       for (const id of ids) {
-        const row = await product(ctx, id, true);
+        const row = await lockedProduct(ctx, id);
         if (!row.data.active)
           return ctx.reject({
             code: "PRODUCT_INACTIVE",

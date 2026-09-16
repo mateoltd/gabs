@@ -11656,6 +11656,64 @@
         }
       }
     },
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/queries/{operationName}": {
+      "post": {
+        "operationId": "moduleQuery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "moduleId",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "operationName",
+            "required": true
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-module-version",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/operations/{operationName}": {
       "post": {
         "operationId": "moduleOperation",

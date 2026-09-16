@@ -64,6 +64,18 @@ export type ModuleStores<M extends ModuleDefinition> = <
   name: K,
 ) => StoreClient<Static<Stores<M>[K]["schema"]>>;
 
+export interface ReadStoreClient<T> extends Pick<
+  StoreClient<T>,
+  "scan" | "query" | "aggregate"
+> {
+  get(id: string, options?: { lock?: false }): Promise<StoreRecord<T> | null>;
+}
+export type ModuleReadStores<M extends ModuleDefinition> = <
+  K extends keyof Stores<M> & string,
+>(
+  name: K,
+) => ReadStoreClient<Static<Stores<M>[K]["schema"]>>;
+
 export function createStores<M extends ModuleDefinition>(
   module: M,
   transport?: StoreTransport,

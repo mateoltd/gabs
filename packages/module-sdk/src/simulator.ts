@@ -123,25 +123,72 @@ export function createModuleSimulator<M extends ModuleDefinition>(
           "BACKEND_UNAVAILABLE",
           "Stage a scoped module-server.ts to simulate this operation.",
         );
-      try {
-        return await options.server.execute(call.operation!, call.input, {
-          actor: { id: "simulated-user", membershipId: "simulated-member" },
-          workspaceId: "simulated-workspace",
-          requestId: call.key ?? crypto.randomUUID(),
-          permissions,
-          configuration: options.configuration ?? {},
-          resource: execute,
-          emit: async (name, payload) => {
-            events.push({ name, payload: structuredClone(payload) });
-          },
-          service: async () => {
+      const readOnly = module.operations[call.operation!].kind === "query";
+      let failure: unknown;
+      let closed = false;
+      const pending = new Set<Promise<unknown>>();
+      const guarded = <T>(
+        write: boolean,
+        run: () => Promise<T>,
+      ): Promise<T> => {
+        const task = Promise.resolve().then(() => {
+          if (closed || (readOnly && write))
             throw rejected(
-              409,
-              "SERVICE_UNAVAILABLE",
-              "Cross-module services require a provider integration test.",
+              403,
+              "QUERY_WRITE_DENIED",
+              "Read-only operations cannot change data or emit events.",
             );
-          },
+          return run();
         });
+        pending.add(task);
+        void task.then(
+          () => pending.delete(task),
+          (error) => {
+            failure ??= error;
+            pending.delete(task);
+          },
+        );
+        return task;
+      };
+      try {
+        let result: unknown;
+        try {
+          result = await options.server.execute(call.operation!, call.input, {
+            actor: { id: "simulated-user", membershipId: "simulated-member" },
+            workspaceId: "simulated-workspace",
+            requestId: call.key ?? crypto.randomUUID(),
+            permissions,
+            configuration: options.configuration ?? {},
+            resource: (request) =>
+              guarded(!["get", "list"].includes(request.action), () =>
+                execute(request),
+              ),
+            audit: () =>
+              guarded(true, async () => {
+                throw rejected(
+                  409,
+                  "AUDIT_UNAVAILABLE",
+                  "Audit storage requires an authoritative server test.",
+                );
+              }),
+            emit: (name, payload) =>
+              guarded(true, async () => {
+                events.push({ name, payload: structuredClone(payload) });
+              }),
+            service: async () => {
+              throw rejected(
+                409,
+                "SERVICE_UNAVAILABLE",
+                "Cross-module services require a provider integration test.",
+              );
+            },
+          });
+        } finally {
+          while (pending.size) await Promise.allSettled([...pending]);
+          closed = true;
+        }
+        if (failure) throw failure;
+        return result;
       } catch (error) {
         if (error instanceof ModuleBusinessError)
           throw Object.assign(rejected(422, error.code, error.message), {
@@ -228,8 +275,11 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       policy(call);
       if (!online && !options.personal)
         throw rejected(503, "OFFLINE", "The simulated server is offline.");
+      const readOnly =
+        call.action === "operation" &&
+        module.operations[call.operation!].kind === "query";
       const request = canonical(call),
-        prior = call.key ? receipts.get(call.key) : undefined;
+        prior = !readOnly && call.key ? receipts.get(call.key) : undefined;
       if (prior) {
         if (prior.request !== request)
           throw rejected(
@@ -243,7 +293,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         eventCount = events.length;
       try {
         const result = await execute(call);
-        if (call.key)
+        if (!readOnly && call.key)
           receipts.set(call.key, { request, result: structuredClone(result) });
         return result;
       } catch (error) {

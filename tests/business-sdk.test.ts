@@ -341,10 +341,10 @@ const send =
   async (call: ModuleCall) => {
     const response = await app.app.inject({
       method: "POST",
-      url: `/api/v1/module/${call.moduleId}/workspaces/${target}/operations/${call.operation}`,
+      url: `/api/v1/module/${call.moduleId}/workspaces/${target}/${call.kind === "query" ? "queries" : "operations"}/${call.operation}`,
       headers: {
         ...headers,
-        "idempotency-key": call.key!,
+        ...(call.key ? { "idempotency-key": call.key } : {}),
         ...(call.moduleVersion
           ? { "x-module-version": call.moduleVersion }
           : {}),

@@ -326,10 +326,17 @@ export async function inWorkspace<T>(
   db: DB,
   workspaceId: string,
   fn: (tx: Tx) => Promise<T>,
+  options: { readOnly?: boolean } = {},
 ): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await db.transaction().execute(async (tx) => {
+      const transaction = options.readOnly
+        ? db
+            .transaction()
+            .setIsolationLevel("repeatable read")
+            .setAccessMode("read only")
+        : db.transaction();
+      return await transaction.execute(async (tx) => {
         await sql`select set_config('app.workspace_id',${workspaceId},true)`.execute(
           tx,
         );

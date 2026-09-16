@@ -59,7 +59,19 @@ async function resolveDraft(ctx: Context, input: Static<typeof draft>) {
       ),
   };
 }
-async function get(ctx: Context, id: string, version?: number) {
+async function get(
+  ctx: Pick<OperationContext<typeof module, "get">, "store" | "reject">,
+  id: string,
+) {
+  const row = await ctx.store("orders").get(id);
+  if (!row)
+    return ctx.reject({
+      code: "NOT_FOUND",
+      message: "This order is not available in this workspace.",
+    });
+  return row;
+}
+async function getForWrite(ctx: Context, id: string, version: number) {
   const row = await ctx
     .store("orders")
     .get(id, { lock: version !== undefined });
@@ -85,7 +97,7 @@ async function transition(
   input: { id: string; version: number },
   action: "confirm" | "fulfill" | "cancel",
 ) {
-  const row = await get(ctx, input.id, input.version);
+  const row = await getForWrite(ctx, input.id, input.version);
   const status = row.data.status;
   if (
     !(action === "confirm" && status === "draft") &&
@@ -174,7 +186,7 @@ export default defineModuleServer(module)(
       return view(row);
     },
     edit: async (ctx, input) => {
-      const row = await get(ctx, input.id, input.version);
+      const row = await getForWrite(ctx, input.id, input.version);
       if (row.data.status !== "draft")
         return ctx.reject({
           code: "INVALID_TRANSITION",
