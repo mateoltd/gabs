@@ -92,6 +92,8 @@ export interface Operation<
   legacyOperation?: string;
   /** Expose this operation to explicitly granted module consumers. */
   public?: boolean;
+  /** Callable only through a declared, granted module service. */
+  serviceOnly?: boolean;
 }
 export function operation<const O extends Operation>(definition: O): O {
   return definition;
@@ -112,6 +114,7 @@ export interface ModuleDefinition {
   operations: Record<string, Operation>;
   configuration: TObject;
   events?: Record<string, TSchema>;
+  audit?: readonly string[];
   services?: Record<string, import("./context").ServiceReference>;
   customUI?: boolean;
   views?: Record<
@@ -227,9 +230,19 @@ export function defineModule<const M extends ModuleDefinition>(
   )
     throw new Error(`Unknown navigation view: ${definition.navigation.view}`);
   for (const op of Object.values(definition.operations)) {
+    if (op.serviceOnly && !op.public)
+      throw Error(
+        "A service-only operation must be public to module consumers.",
+      );
     if (!definition.permissions.includes(op.permission))
       throw new Error(`Undeclared permission: ${op.permission}`);
   }
+  for (const name of definition.audit ?? [])
+    if (
+      name.length > 128 ||
+      !name.split(".").every((part) => identifier.test(part))
+    )
+      throw Error(`Invalid audit action: ${name}`);
   for (const name of Object.keys(definition.resources)) {
     for (const verb of ["read", "write"])
       if (!definition.permissions.includes(`${definition.id}.${name}.${verb}`))

@@ -76,7 +76,9 @@ export function resolveReleases(
       if (result) return result;
     }
   }
-  const selected = solve([{ id, range: "*", path: [] }], new Map());
+  // An explicit root pin opts into that exact prerelease. Dependency ranges still
+  // enforce their own prerelease policy; ordinary discovery selects stable releases.
+  const selected = solve([{ id, range: pins[id] ?? "*", path: [] }], new Map());
   if (!selected)
     throw Error(
       `No compatible official release set for ${id}. Check version pins, dependencies, and cycles.`,

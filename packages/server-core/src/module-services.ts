@@ -33,6 +33,12 @@ export async function executeModuleOperation(
     active: string[] = [],
   ): Promise<unknown> => {
     const operation = found(module.operations[name]);
+    requireCondition(
+      !operation.serviceOnly || active.length > 0,
+      403,
+      "SERVICE_ONLY",
+      "This operation requires a declared and granted module service call.",
+    );
     const ctx = await authorize(
       tx,
       initialContext.actor,
@@ -112,8 +118,33 @@ export async function executeModuleOperation(
           actor: { id: ctx.actor.id, membershipId: ctx.membershipId },
           workspaceId: ctx.workspaceId,
           requestId: ctx.requestId,
+          ...(active.length
+            ? {
+                caller: {
+                  moduleId: active
+                    .at(-1)!
+                    .slice(0, active.at(-1)!.lastIndexOf(".")),
+                  operation: active
+                    .at(-1)!
+                    .slice(active.at(-1)!.lastIndexOf(".") + 1),
+                },
+              }
+            : {}),
           permissions: ctx.permissions,
           configuration: activation.config,
+          audit: (action, targetId) =>
+            guarded(async () => {
+              requireCondition(
+                module.audit?.includes(action) &&
+                  typeof targetId === "string" &&
+                  targetId.length > 0 &&
+                  targetId.length <= 200,
+                400,
+                "INVALID_AUDIT",
+                "Use a declared audit action and bounded target identifier.",
+              );
+              await audit(tx, ctx, `${module.id}.${action}`, targetId);
+            }),
           store: (name, command) =>
             guarded(() => executeStore(tx, ctx, module, name, command)),
           resource: (call) =>

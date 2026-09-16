@@ -292,6 +292,30 @@ describe("Scoped module services", () => {
     ).rejects.toMatchObject({ status: 409, code: "MODULE_UPDATE_REQUIRED" });
     expect(await counts()).toEqual(after);
   });
+  it("blocks direct receipt replay after an operation becomes service-only", async () => {
+    const client = createModuleClient(provider, send),
+      key = randomUUID();
+    const input = { name: "Formerly public request" };
+    await client.call("create", input, key);
+    const before = await counts();
+    registerModule(
+      defineModule({
+        ...provider,
+        operations: {
+          create: { ...provider.operations.create, serviceOnly: true },
+        },
+      }),
+    );
+    try {
+      await expect(client.call("create", input, key)).rejects.toMatchObject({
+        code: "SERVICE_ONLY",
+        status: 403,
+      });
+      expect(await counts()).toEqual(before);
+    } finally {
+      registerModule(provider);
+    }
+  });
   it("rechecks current actor permissions even when the service grant remains", async () => {
     await inWorkspace(db, workspace, async (tx) => {
       const roles = await tx

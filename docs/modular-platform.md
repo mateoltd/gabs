@@ -49,7 +49,11 @@ For custom corporate operations, define schemas with `operation` and add a revie
 
 Declare a provider operation with `public: true`; use `serviceReference(provider, "operation")` in a consumer's `services` map and declare the provider dependency. An administrator separately grants each public service under module configuration. The host rechecks actor permissions, activation, assignment, grant and exact service contract on every call. Custom events use `module.<id>.event.<name>` to avoid collisions with host events. All records, audit entries, outgoing events and the outer idempotency receipt share one transaction. A caught failed capability call still aborts the transaction; detached capability calls are drained before commit. Service recursion is bounded and cyclic calls fail.
 
-Orders and Inventory retain an explicit `defineTrustedModuleServer` migration bridge for their existing SQL-backed business services. They are reviewed host code; these two bridges still require migration to fully scoped repositories. Trusted code is not a hostile-code sandbox. Independently signed packages now carry reviewed client and scoped server JavaScript, as described in the release workflow.
+Set `serviceOnly: true` alongside `public: true` when only declared module consumers may invoke an operation. Direct clients are denied, including saved-receipt replay. The provider receives the immutable, host-supplied `ctx.caller` (`moduleId` and `operation`) for ownership checks. This identity never replaces the actor's permissions or the separate service grant.
+
+Declare module-local actions such as `audit: ["order.confirmed"]`; `await ctx.audit("order.confirmed", orderId)` infers the action name and writes an audit prefixed by the module ID. Audit calls are server capabilities and share the operation transaction. Invalid caught or detached audit calls still abort it.
+
+Orders and Inventory retain an explicit `defineTrustedModuleServer` migration bridge for their existing SQL-backed business services. They are reviewed host code; these two bridges still require migration to fully scoped repositories. The [Inventory 2.0 scoped candidate](verification/inventory-sdk/README.md) has signed API acceptance but is not the default release; the relational-data rollout and Orders migration remain open. Trusted code is not a hostile-code sandbox. Independently signed packages now carry reviewed client and scoped server JavaScript, as described in the release workflow.
 
 ### Private transactional stores
 
@@ -64,7 +68,7 @@ stores: {
 }
 ```
 
-An operation handler can read `await ctx.store("balances").get(id, { lock: true })`, validate its business rule, and call `replace(id, current.version, nextData)`. The row lock lasts until the entire operation and its service calls commit or roll back. Acquire multiple record locks in a consistent order. An absent or archived record returns `null`; stale versions fail rather than overwriting current data.
+An operation handler can read `await ctx.store("balances").get(id, { lock: true })`, validate its business rule, and call `replace(id, current.version, nextData)`. The row lock lasts until the entire operation and its service calls commit or roll back. Acquire multiple record locks in a consistent order. An absent or archived record returns `null`; a logical ID lock also protects first-time creation after a locked absent read. UUID casing does not change lock identity. Stale versions fail rather than overwriting current data.
 
 `scan({ where, after, limit })` infers its filter fields and returns `{ items, next }`. Filters use JSON containment; scalar values match exactly. Pages default to 50 records and cannot exceed 200. `create(data, { id? })` returns `{ id, data, version }`; `archive(id, version)` retains the data and history. Unique fields are scalar, independent constraints scoped to that module/workspace/store; missing values do not conflict. A record is limited to 1 MiB.
 

@@ -74,10 +74,17 @@ export interface ModuleContext<M extends ModuleDefinition> {
   readonly actor: Readonly<{ id: string; membershipId: string }>;
   readonly workspaceId: string;
   readonly requestId: string;
+  readonly caller?: Readonly<{ moduleId: string; operation: string }>;
   readonly configuration: Readonly<Configuration<M>>;
   hasPermission(permission: M["permissions"][number]): boolean;
   resource: ModuleResources<M>;
   store: ModuleStores<M>;
+  audit(
+    action: M extends { audit: readonly (infer K extends string)[] }
+      ? K
+      : never,
+    targetId: string,
+  ): Promise<void>;
   emit<K extends keyof ModuleEvents<M> & string>(
     event: K,
     payload: Static<ModuleEvents<M>[K]>,
@@ -98,10 +105,12 @@ export interface ModuleCapabilities {
   actor: { id: string; membershipId: string };
   workspaceId: string;
   requestId: string;
+  caller?: { moduleId: string; operation: string };
   permissions: readonly string[];
   configuration: unknown;
   resource: ModuleTransport;
   store?: StoreTransport;
+  audit?(action: string, targetId: string): Promise<void>;
   emit(event: string, payload: unknown): Promise<void>;
   service(name: string, input: unknown): Promise<unknown>;
 }
@@ -114,12 +123,26 @@ export function createModuleContext<M extends ModuleDefinition>(
     actor: Object.freeze({ ...capabilities.actor }),
     workspaceId: capabilities.workspaceId,
     requestId: capabilities.requestId,
+    ...(capabilities.caller
+      ? { caller: Object.freeze({ ...capabilities.caller }) }
+      : {}),
     configuration: structuredClone(capabilities.configuration),
     hasPermission: (permission: string) =>
       module.permissions.includes(permission) &&
       capabilities.permissions.includes(permission),
     resource: createModuleClient(module, capabilities.resource).resource,
     store: createStores(module, capabilities.store),
+    audit(action: string, targetId: string) {
+      if (!capabilities.audit)
+        throw Error(
+          "Audit recording requires an authoritative host capability.",
+        );
+      // The host validates declarations inside its tracked transaction. A caught
+      // invalid audit must roll back earlier writes just like a failed store call.
+      const task = capabilities.audit(action, targetId);
+      void task.catch(() => undefined);
+      return task;
+    },
     emit(name: string, payload: unknown) {
       const schema = module.events?.[name];
       if (!schema) throw Error(`Undeclared event: ${module.id}.${name}`);

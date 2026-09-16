@@ -1,15 +1,12 @@
 import { moduleStorageVersions } from "./module-storage";
 import { readFile } from "node:fs/promises";
-import {
-  moduleDefinition,
-  moduleDefinitions,
-  moduleDependencies,
-} from "@suite/module-catalog";
+import { moduleDefinition, moduleDefinitions } from "@suite/module-catalog";
 import { PLATFORM_PERMISSIONS } from "@suite/contracts";
 import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
 import {
   resolveReleases,
   storageCompatibleReleases,
+  satisfies,
   type ReleaseManifest,
 } from "@suite/module-sdk/registry";
 import { verifyPackage } from "../../module-sdk/node/signing";
@@ -120,8 +117,33 @@ export async function workspaceDependencies(
     return plan.map((release) =>
       hydrateModule(release.artifact as unknown as ModuleDefinition),
     );
-  found(moduleDefinition(id));
-  return moduleDependencies(id).map((name) => found(moduleDefinition(name)));
+  // An unpublished development consumer may call a published/pinned provider.
+  // Resolve that provider's workspace contract, never the host's older builtin.
+  const selected = new Map<string, ModuleDefinition>();
+  async function visit(name: string, path: string[] = [], range?: string) {
+    if (path.includes(name))
+      throw new AppError(
+        409,
+        "RELEASE_INCOMPATIBLE",
+        "Circular module dependency.",
+      );
+    const definition =
+      selected.get(name) ?? (await workspaceModule(tx, workspaceId, name));
+    if (range && !satisfies(definition.version, range))
+      throw new AppError(
+        409,
+        "RELEASE_INCOMPATIBLE",
+        `${name}@${definition.version} does not satisfy ${range}.`,
+      );
+    if (selected.has(name)) return;
+    for (const [dependency, required] of Object.entries(
+      definition.dependencies,
+    ))
+      await visit(dependency, [...path, name], required);
+    selected.set(name, definition);
+  }
+  await visit(id);
+  return [...selected.values()];
 }
 export async function workspaceDependencyIds(
   tx: Tx,

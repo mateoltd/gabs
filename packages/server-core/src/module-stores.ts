@@ -76,13 +76,18 @@ export async function executeStore(
     assertSchema(definition.schema, row.data);
     return { id: row.id, data: row.data, version: row.version };
   };
-  // Consistent lock ordering also covers a get-for-update followed by a unique-field edit.
-  if (
-    definition.unique.length &&
-    command.action !== "scan" &&
-    (command.action !== "get" || command.lock)
-  )
-    await lockKey(tx, `store:${ctx.workspaceId}:${module.id}:${name}`);
+  // A row lock cannot protect an absent record. Lock the logical ID first, too.
+  const recordId =
+    command.action === "create"
+      ? (command.id ?? randomUUID())
+      : command.action === "scan"
+        ? undefined
+        : command.id;
+  if (recordId && (command.action !== "get" || command.lock))
+    await lockKey(
+      tx,
+      `store-record:${ctx.workspaceId}:${module.id}:${name}:${recordId.toLowerCase()}`,
+    );
   if (command.action === "get") {
     let query = active().where("id", "=", command.id);
     if (command.lock) query = query.forUpdate();
@@ -121,6 +126,10 @@ export async function executeStore(
     for (const field of definition.unique) {
       if (command.data[field] === undefined || command.data[field] === null)
         continue;
+      await lockKey(
+        tx,
+        `store-unique:${ctx.workspaceId}:${module.id}:${name}:${field}:${JSON.stringify(command.data[field])}`,
+      );
       let query = active().where(
         sql<boolean>`data @> ${JSON.stringify({ [field]: command.data[field] })}::jsonb`,
       );
@@ -142,7 +151,7 @@ export async function executeStore(
         workspace_id: ctx.workspaceId,
         module_id: module.id,
         resource,
-        id: command.id ?? randomUUID(),
+        id: recordId!,
         data: command.data,
         created_by: ctx.actor.id,
         version: 1,

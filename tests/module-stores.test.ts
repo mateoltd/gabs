@@ -52,10 +52,18 @@ const definition = defineModule({
   configuration: Type.Object({}),
   resources: {},
   stores: { balances },
+  audit: ["balance.initialized"],
   events: {
     reserved: Type.Object({ id: Type.String(), quantity: Type.Integer() }),
   },
   operations: {
+    increment: operation({
+      title: "Increment a possibly absent balance",
+      policy: "online",
+      permission: `${moduleId}.run`,
+      input: Type.Object({ id: Type.String() }),
+      output: Type.Integer(),
+    }),
     seed: operation({
       title: "Seed",
       policy: "online",
@@ -94,9 +102,44 @@ const definition = defineModule({
       input: Type.Object({ sku: Type.String(), detached: Type.Boolean() }),
       output: Type.Boolean(),
     }),
+    "fail-audit": operation({
+      title: "Audit rollback",
+      policy: "online",
+      permission: `${moduleId}.run`,
+      input: Type.Object({ detached: Type.Boolean() }),
+      output: Type.Boolean(),
+    }),
   },
 });
 const server = defineModuleServer(definition)({
+  "fail-audit": async (ctx, input) => {
+    const row = await ctx
+      .store("balances")
+      .create({ sku: "AUDIT-FAIL", units: 1 });
+    await ctx.emit("reserved", { id: row.id, quantity: 1 });
+    // @ts-expect-error Exercise a runtime caller violating the declared action contract.
+    const pending = ctx.audit("undeclared", row.id);
+    if (input.detached) void pending;
+    else await pending.catch(() => undefined);
+    return true;
+  },
+  increment: async (ctx, input) => {
+    const table = ctx.store("balances");
+    const current = await table.get(input.id, { lock: true });
+    if (current)
+      return (
+        await table.replace(current.id, current.version, {
+          ...current.data,
+          units: current.data.units + 1,
+        })
+      ).data.units;
+    const created = await table.create(
+      { sku: "SEQUENCE", units: 1 },
+      { id: input.id },
+    );
+    await ctx.audit("balance.initialized", created.id);
+    return 1;
+  },
   seed: (ctx, input) => ctx.store("balances").create(input),
   read: (ctx, input) => ctx.store("balances").get(input.id),
   reserve: async (ctx, input) => {
@@ -168,6 +211,8 @@ const consumerServer = defineModuleServer(consumer)({
   },
 });
 function typeProof(ctx: ModuleContext<typeof definition>) {
+  // @ts-expect-error Only declared audit actions are available.
+  ctx.audit("other-module.deleted", "id");
   // @ts-expect-error Only this module's declared stores exist.
   ctx.store("other-module.balances");
   // @ts-expect-error Store values are inferred, not untyped bodies.
@@ -286,6 +331,28 @@ const counts = () =>
     ),
   }));
 
+it("serializes first-use records, including differently cased UUIDs, and audits initialization once", async () => {
+  const id = randomUUID();
+  const results = await Promise.all(
+    Array.from({ length: 6 }, (_, index) =>
+      client().call("increment", { id: index % 2 ? id.toUpperCase() : id }),
+    ),
+  );
+  expect(results.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
+  expect((await client().call("read", { id }))?.data.units).toBe(6);
+  expect(
+    await scope((tx) =>
+      tx
+        .selectFrom("suite.audit")
+        .select("action")
+        .where("workspace_id", "=", workspace)
+        .where("target_id", "=", id)
+        .where("action", "=", `${moduleId}.balance.initialized`)
+        .execute(),
+    ),
+  ).toHaveLength(1);
+});
+
 it("locks private balances across concurrent API requests without overselling or duplicate retry effects", async () => {
   const item = await client().call("seed", { sku: "CONCURRENT", units: 10 });
   const keys = [randomUUID(), randomUUID()];
@@ -322,6 +389,10 @@ it("enforces unique keys concurrently and rolls back caught or detached failures
     await expect(
       client().call("fail", { sku: `FAIL-${detached}`, detached }),
     ).rejects.toMatchObject({ code: "STORE_UNIQUE_CONFLICT" });
+    expect(await counts()).toEqual(before);
+    await expect(
+      client().call("fail-audit", { detached }),
+    ).rejects.toMatchObject({ code: "INVALID_AUDIT" });
     expect(await counts()).toEqual(before);
   }
 });

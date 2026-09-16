@@ -232,6 +232,13 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           definition.operations[req.params.operationName],
         );
         requireCondition(
+          !operation.serviceOnly &&
+            !current.operations[req.params.operationName]?.serviceOnly,
+          403,
+          "SERVICE_ONLY",
+          "This operation requires a declared and granted module service call.",
+        );
+        requireCondition(
           ctx.permissions.includes(operation.permission) &&
             (!current.operations[req.params.operationName] ||
               ctx.permissions.includes(

@@ -125,6 +125,35 @@ describe("Module authoring and trust", () => {
       }),
     ).toThrow();
   });
+  it("requires explicit prerelease selection and still enforces consumer compatibility", () => {
+    const preview = { ...contacts, version: "2.0.0-preview.1" };
+    const releases = [contacts, preview, projects];
+    expect(
+      resolveReleases("contacts", releases, "1.0.0", "1.0.0").at(-1)?.version,
+    ).toBe(contacts.version);
+    expect(
+      resolveReleases("contacts", releases, "1.0.0", "1.0.0", {
+        contacts: preview.version,
+      }).at(-1)?.version,
+    ).toBe(preview.version);
+    expect(() =>
+      resolveReleases("projects", releases, "1.0.0", "1.0.0", {
+        contacts: preview.version,
+      }),
+    ).toThrow();
+    const compatible = {
+      ...projects,
+      dependencies: { contacts: preview.version },
+    };
+    expect(
+      resolveReleases(
+        "projects",
+        [contacts, preview, compatible],
+        "1.0.0",
+        "1.0.0",
+      ).map((m) => m.version),
+    ).toEqual([preview.version, projects.version]);
+  });
   it("detects modified artifacts and foreign signing keys", () => {
     const pair = generateKeyPairSync("ed25519"),
       other = generateKeyPairSync("ed25519");
