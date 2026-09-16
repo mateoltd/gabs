@@ -183,7 +183,8 @@ export default defineModule({
       permission: "inventory.availability.read",
       input: Type.Object(
         {
-          cursor: Type.Optional(id),
+          cursor: Type.Optional(Type.String({ maxLength: 24576 })),
+          search: Type.Optional(Type.String({ maxLength: 200 })),
           limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
           stock: Type.Optional(Type.Literal("low")),
         },
@@ -191,7 +192,46 @@ export default defineModule({
       ),
       output: Type.Object({
         items: Type.Array(product),
-        nextCursor: Type.Union([id, Type.Null()]),
+        nextCursor: Type.Union([Type.String(), Type.Null()]),
+      }),
+      errors: error,
+    }),
+    overview: operation({
+      title: "Stock summary",
+      policy: "online",
+      permission: "inventory.availability.read",
+      input: Type.Object({}, { additionalProperties: false }),
+      output: Type.Object({
+        products: Type.Integer(),
+        available: Type.Number(),
+        lowStock: Type.Integer(),
+        lowStockItems: Type.Array(
+          Type.Object({
+            id,
+            name: Type.String(),
+            sku: Type.String(),
+            available: Type.Integer(),
+          }),
+        ),
+      }),
+      errors: error,
+    }),
+    movements: operation({
+      title: "Movement history",
+      policy: "online",
+      permission: "inventory.read",
+      input: Type.Object(
+        {
+          cursor: Type.Optional(Type.String({ maxLength: 24576 })),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+          productId: Type.Optional(id),
+          search: Type.Optional(Type.String({ maxLength: 200 })),
+        },
+        { additionalProperties: false },
+      ),
+      output: Type.Object({
+        items: Type.Array(Type.Object({ id, ...movement.schema.properties })),
+        nextCursor: Type.Union([Type.String(), Type.Null()]),
       }),
       errors: error,
     }),

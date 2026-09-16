@@ -83,6 +83,23 @@ An operation handler can read `await ctx.store("balances").get(id, { lock: true 
 
 `scan({ where, after, limit })` infers its filter fields and returns `{ items, next }`. Filters use JSON containment; scalar values match exactly. Pages default to 50 records and cannot exceed 200. `create(data, { id? })` returns `{ id, data, version }`; `archive(id, version)` retains the data and history. Unique fields are scalar, independent constraints scoped to that module/workspace/store; missing values do not conflict. A record is limited to 1 MiB.
 
+Use `query` for richer bounded reads and `aggregate` for complete totals:
+
+```ts
+const page = await ctx.store("balances").query({
+  search: { fields: ["sku"], text: "SUPPLY" },
+  ranges: { units: { gte: 1 } },
+  orderBy: [{ field: "units", direction: "asc" }],
+  limit: 50,
+  cursor,
+});
+const totals = await ctx.store("balances").aggregate({ sum: ["units"] });
+```
+
+Search/range/sort/sum fields and aggregate results are inferred. Queries allow up to eight search/range fields, three scalar sort fields and 200 rows per page. Strings sort by byte order, numbers numerically, missing values last, with record IDs breaking ties. Search is a literal case-insensitive substring, using the database locale. `aggregate({ groupBy, sum, maxGroups })` returns complete `{ count, sums, groups }`; more than 200 groups or unsafe integer totals fail explicitly. `scan` retains its original UUID `after` convention; `query` returns encrypted `next` tokens for its `cursor` parameter.
+
+Configure the shared production `MODULE_QUERY_CURSOR_KEY` secret on API/worker instances. Tokens hide sort values and bind their query/account/workspace scope. Development can use process-local keys; restart or key rotation requires a fresh list query. Cursors preserve an archived anchor's sort position, but do not create a snapshot across separate requests. [Detailed acceptance and remaining read-dispatch work](verification/store-queries/README.md).
+
 Private-store access is authorized by the enclosing operation. The module cannot select another workspace or module. Cross-module reads and effects require public services and explicit grants. Store data and commands receive server validation even when callers bypass TypeScript. All writes and their audits participate in the existing atomic operation and idempotency mechanism.
 
 Reviewed migrations use `ctx.store(name).scan/create/write/archive` with historical data typed as unknown records. The host validates retained data against the target schema and rejects duplicate unique values before publishing the new stored schema version. Use a forward storage migration when changing stored data contracts. These capabilities require a server transaction; they are not an implementation of standalone local workers. [Verification and remaining migration work](verification/private-stores/README.md).

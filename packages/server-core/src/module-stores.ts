@@ -1,3 +1,4 @@
+import { queryStore } from "./module-queries";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import { Type, assertSchema, type ModuleDefinition } from "@suite/module-sdk";
@@ -57,6 +58,8 @@ export async function executeStore(
     "This module has not declared that private store.",
   );
   const definition = module.stores![name];
+  if (command.action === "query" || command.action === "aggregate")
+    return queryStore(tx, ctx, module.id, name, definition, command);
   assertSchema(commands, command);
   // '$' is not a legal public resource identifier. No resource route can expose a store.
   const resource = `$${name}`;

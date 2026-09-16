@@ -8,7 +8,7 @@ type Context = OperationContext<typeof module, keyof typeof module.operations>;
 type Data = Static<typeof module.stores.orders.schema>;
 const counterId = "00000000-0000-4000-8000-000000000001";
 const view = (row: StoreRecord<Data>) => {
-  const { orderVersion, ...data } = row.data;
+  const { orderVersion, fulfilledOn: _fulfilledOn, ...data } = row.data;
   return { id: row.id, version: orderVersion, ...data };
 };
 function validateDraft(ctx: Context, input: Static<typeof draft>) {
@@ -133,6 +133,7 @@ async function transition(
     ...row.data,
     orderVersion: row.data.orderVersion + 1,
     status: next,
+    ...(next === "fulfilled" ? { fulfilledOn: now.slice(0, 10) } : {}),
     updatedAt: now,
     activity: activity(row.data.activity, next, now),
   });
@@ -195,9 +196,76 @@ export default defineModuleServer(module)(
     fulfill: (ctx, input) => transition(ctx, input, "fulfill"),
     cancel: (ctx, input) => transition(ctx, input, "cancel"),
     get: async (ctx, input) => view(await get(ctx, input.id)),
+    overview: async (ctx) => {
+      const store = ctx.store("orders");
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const start = new Date(today.getTime() - 6 * 86400000);
+      const totals = await store.aggregate({ groupBy: "status" });
+      const daily = await store.aggregate({
+        where: { status: "fulfilled" },
+        ranges: {
+          fulfilledOn: {
+            gte: start.toISOString().slice(0, 10),
+            lte: today.toISOString().slice(0, 10),
+          },
+        },
+        groupBy: "fulfilledOn",
+      });
+      const ready = await store.query({
+        where: { status: "confirmed" },
+        orderBy: [{ field: "createdAt", direction: "asc" }],
+        limit: 5,
+      });
+      const recent = await store.query({
+        orderBy: [{ field: "createdAt", direction: "desc" }],
+        limit: 6,
+      });
+      const count = (status: Data["status"]) =>
+        totals.groups.find((g) => g.key === status)?.count ?? 0;
+      return {
+        draft: count("draft"),
+        confirmed: count("confirmed"),
+        fulfilled: count("fulfilled"),
+        cancelled: count("cancelled"),
+        fulfilledDaily: Array.from({ length: 7 }, (_, index) => {
+          const date = new Date(start.getTime() + index * 86400000)
+            .toISOString()
+            .slice(0, 10);
+          return {
+            date,
+            count: daily.groups.find((g) => g.key === date)?.count ?? 0,
+          };
+        }),
+        ready: ready.items.map(view),
+        recent: recent.items.map(view),
+      };
+    },
+    "export-page": async (ctx, input) => {
+      const store = ctx.store("orders");
+      const total = await store.aggregate();
+      const page = await store.query({
+        cursor: input.cursor,
+        limit: input.limit,
+        orderBy: [{ field: "number", direction: "asc" }],
+      });
+      return {
+        total: total.count,
+        items: page.items.map(({ data }) => ({
+          number: data.number,
+          customerName: data.customerName,
+          status: data.status,
+          totalMinor: data.totalMinor,
+        })),
+        nextCursor: page.next,
+      };
+    },
     list: async (ctx, input) => {
-      const page = await ctx.store("orders").scan({
-        after: input.cursor,
+      const page = await ctx.store("orders").query({
+        cursor: input.cursor,
+        ...(input.search?.trim()
+          ? { search: { fields: ["customerName"], text: input.search.trim() } }
+          : {}),
         limit: input.limit,
         ...(input.status ? { where: { status: input.status } } : {}),
       });
@@ -227,6 +295,12 @@ export default defineModuleServer(module)(
                 ).size !== row.data.lines.length
               )
                 throw Error("Imported order lines and total are inconsistent.");
+              if (row.data.status === "fulfilled") {
+                const date = new Date(row.data.updatedAt);
+                if (!Number.isFinite(date.getTime()))
+                  throw Error("Imported fulfillment date is invalid.");
+                row.data.fulfilledOn = date.toISOString().slice(0, 10);
+              }
               highest = Math.max(highest, row.data.number);
             } else {
               assertSchema(module.stores.counters.schema, row.data);

@@ -28,6 +28,12 @@ The ordering matters: a challenge must complete before the later Action inspects
 
 API secrets: DATABASE_URL, AUTH0_CLIENT_SECRET. Public configuration: AUTH0_ISSUER (including trailing slash), AUTH0_CLIENT_ID, AUTH0_DESKTOP_CLIENT_ID, AUTH0_AUDIENCE, AUTH0_MFA_CLAIM, APP_ORIGIN, API_ORIGIN. Set AUTH_MODE=oidc, NODE_ENV=production and HOST=0.0.0.0. Development auth refuses production mode and non-loopback binding.
 
+## Private module query cursors
+
+Set `MODULE_QUERY_CURSOR_KEY` through the secret manager for production API and worker processes that execute private-store queries. It must be a shared 32-byte key encoded as 64 hexadecimal characters; never send it to web or desktop clients. A missing or invalid production key rejects private queries. It encrypts and authenticates pagination sort values, separately from package signing and business authority.
+
+Keep the same key across instances and restarts. Rotation invalidates existing pagination tokens; clients must reload the list. This changes no business records or pending operations. Development/test may omit the variable and use a process-local key with the same reload requirement after restart. See [query acceptance and limits](verification/store-queries/README.md).
+
 ## Containers and exports
 
 Build the Dockerfile targets `api`, `worker`, and `web`. Run the migration job first, then the API and worker, then the compatible clients. The nginx example serves immutable asset files, no-cache HTML/service worker, restrictive content policy and same-origin API/auth proxying. Put it behind a managed HTTPS edge; configure HSTS there and keep direct API/worker access private.

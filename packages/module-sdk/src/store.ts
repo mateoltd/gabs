@@ -1,3 +1,4 @@
+import type { StoreQueries, StoreQueryCommand } from "./store-query";
 import {
   Type,
   type Static,
@@ -31,6 +32,7 @@ export interface StorePage<T> {
   next: string | null;
 }
 export type StoreCommand =
+  | StoreQueryCommand
   | { action: "get"; id: string; lock?: boolean }
   | { action: "scan"; where?: JsonRecord; after?: string; limit?: number }
   | { action: "create"; id?: string; data: JsonRecord }
@@ -45,7 +47,7 @@ type Stores<M extends ModuleDefinition> = M extends {
 }
   ? S
   : Record<string, never>;
-export interface StoreClient<T> {
+export interface StoreClient<T> extends StoreQueries<T> {
   get(id: string, options?: { lock?: boolean }): Promise<StoreRecord<T> | null>;
   scan(options?: {
     where?: Partial<T>;
@@ -103,6 +105,28 @@ export function createStores<M extends ModuleDefinition>(
             return page;
           }),
         );
+      },
+      query(
+        options: Omit<
+          Extract<StoreQueryCommand, { action: "query" }>,
+          "action"
+        > = {},
+      ) {
+        return track(
+          call({ action: "query", ...options }).then((value) => {
+            const page = value as StorePage<JsonRecord>;
+            page.items.forEach(validate);
+            return page;
+          }),
+        );
+      },
+      aggregate(
+        options: Omit<
+          Extract<StoreQueryCommand, { action: "aggregate" }>,
+          "action"
+        > = {},
+      ) {
+        return track(call({ action: "aggregate", ...options }));
       },
       create(data: JsonRecord, options: { id?: string } = {}) {
         return track(

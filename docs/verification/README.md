@@ -233,3 +233,7 @@ The [Inventory 2.0 scoped candidate](inventory-sdk/README.md) passes signed API/
 ## Orders SDK candidate, 16 September 2026
 
 The [Orders candidate and typed service contracts](orders-sdk/README.md) add private numbering/order stores, authoritative totals/snapshots, Inventory transactions, typed error translation and prepared-import validation. All 112 unit/PostgreSQL tests and four builds passed; the CLI checked/exported provider contracts and built the independent Orders package. All eight selected headless browser and three minimized Electron journeys passed. The default business releases remain unchanged; SDK-01 stays active for read models, relational conversion, client adapters and coordinated rollout.
+
+## Scoped queries and business summaries, 16 September 2026
+
+[Scoped query acceptance](store-queries/README.md) adds typed filters/search/ranges/sorts, bounded encrypted pagination and complete aggregates. Both candidate business modules use these capabilities for read models and exports. All 118 unit/PostgreSQL tests and four builds passed; 25 affected tests passed after the locale-search refinement, then eight store tests passed with accented-text coverage. Three selected headless browser and three hidden Electron journeys passed. SDK-01 remains active for read-only dispatch, authoritative migration and application/worker integration; default releases and UI remain unchanged.

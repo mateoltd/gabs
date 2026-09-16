@@ -51,7 +51,15 @@ const definition = defineModule({
   permissions: [`${moduleId}.run`] as const,
   configuration: Type.Object({}),
   resources: {},
-  stores: { balances },
+  stores: {
+    balances,
+    "query-records": store({
+      label: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+      units: Type.Integer({ minimum: 0 }),
+      group: Type.String(),
+      active: Type.Boolean(),
+    }),
+  },
   audit: ["balance.initialized"],
   events: {
     reserved: Type.Object({ id: Type.String(), quantity: Type.Integer() }),
@@ -213,6 +221,22 @@ const consumerServer = defineModuleServer(consumer)({
 function typeProof(ctx: ModuleContext<typeof definition>) {
   // @ts-expect-error Only declared audit actions are available.
   ctx.audit("other-module.deleted", "id");
+  // @ts-expect-error Search is restricted to string fields.
+  ctx.store("balances").query({ search: { fields: ["units"], text: "x" } });
+  // @ts-expect-error Numeric ranges cannot receive text.
+  ctx.store("balances").query({ ranges: { units: { gt: "2" } } });
+  // @ts-expect-error Aggregates cannot sum text fields.
+  ctx.store("balances").aggregate({ sum: ["sku"] });
+  void ctx
+    .store("balances")
+    .aggregate({ sum: ["units"], groupBy: "sku" })
+    .then((result) => {
+      const units: number = result.sums.units;
+      const key: string | null = result.groups[0].key;
+      // @ts-expect-error Only requested sums are present.
+      result.sums.sku;
+      return { units, key };
+    });
   // @ts-expect-error Only this module's declared stores exist.
   ctx.store("other-module.balances");
   // @ts-expect-error Store values are inferred, not untyped bodies.
@@ -531,4 +555,235 @@ it("requires explicit cross-module grants and commits or rolls back both private
         .execute(),
     ),
   ).toEqual([{ data: { product: row.id, quantity: 4 } }]);
+});
+
+it("queries scalar fields with stable ties, nulls, literal search and scoped filter-bound cursors", async () => {
+  const fixture = [
+    { label: "Alpha", units: 2, group: "query", active: true },
+    { label: "alpha", units: 10, group: "query", active: true },
+    { label: "Café_100%", units: 10, group: "query", active: true },
+    { label: null, units: 1, group: "query", active: false },
+    { units: 10, group: "query", active: true },
+    { label: "BetaX100anything", units: 40, group: "query", active: true },
+  ];
+  const ids: string[] = [];
+  for (const data of fixture) {
+    const row = (await scope((tx, ctx) =>
+      executeStore(tx, ctx, definition, "query-records", {
+        action: "create",
+        data,
+      }),
+    )) as { id: string };
+    ids.push(row.id);
+  }
+  const query = (
+    options: Omit<
+      Extract<
+        import("@suite/module-sdk/server").StoreCommand,
+        { action: "query" }
+      >,
+      "action"
+    >,
+  ) =>
+    scope((tx, ctx) =>
+      executeStore(tx, ctx, definition, "query-records", {
+        action: "query",
+        ...options,
+      }),
+    ) as unknown as Promise<{
+      items: { id: string; data: (typeof fixture)[number] }[];
+      next: string | null;
+    }>;
+  for (const direction of ["asc", "desc"] as const) {
+    const options = {
+      where: { group: "query" },
+      orderBy: [
+        { field: "units", direction },
+        { field: "label", direction },
+      ],
+      limit: 2,
+    };
+    const full = await query({ ...options, limit: 100 });
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await query({ ...options, cursor });
+      seen.push(...page.items.map((row) => row.id));
+      cursor = page.next ?? undefined;
+    } while (cursor);
+    expect(seen).toEqual(full.items.map((row) => row.id));
+    expect(new Set(seen).size).toBe(6);
+    expect(full.items.map((r) => r.data.units)).toEqual(
+      direction === "asc" ? [1, 2, 10, 10, 10, 40] : [40, 10, 10, 10, 2, 1],
+    );
+  }
+  expect(
+    (await query({ search: { fields: ["label"], text: "ALPHA" } })).items,
+  ).toHaveLength(2);
+  expect(
+    (await query({ search: { fields: ["label"], text: "_100%" } })).items.map(
+      (r) => r.data.label,
+    ),
+  ).toEqual(["Café_100%"]);
+  expect(
+    (await query({ search: { fields: ["label"], text: "CAFÉ" } })).items,
+  ).toHaveLength(1);
+  expect(
+    (
+      await query({
+        ranges: { units: { gte: 10, lt: 40 } },
+        where: { active: true },
+      })
+    ).items,
+  ).toHaveLength(3);
+  const first = await query({
+    where: { group: "query" },
+    orderBy: [{ field: "label", direction: "asc" }],
+    limit: 1,
+  });
+  // The cursor retains its sort values even when its anchor record is archived.
+  const anchor = (await scope((tx, ctx) =>
+    executeStore(tx, ctx, definition, "query-records", {
+      action: "get",
+      id: first.items[0].id,
+    }),
+  )) as { version: number };
+  await scope((tx, ctx) =>
+    executeStore(tx, ctx, definition, "query-records", {
+      action: "archive",
+      id: first.items[0].id,
+      version: anchor.version,
+    }),
+  );
+  expect(
+    (
+      await query({
+        where: { group: "query" },
+        orderBy: [{ field: "label", direction: "asc" }],
+        cursor: first.next!,
+      })
+    ).items,
+  ).toHaveLength(5);
+  await expect(
+    query({
+      where: { group: "changed" },
+      orderBy: [{ field: "label", direction: "asc" }],
+      cursor: first.next!,
+    }),
+  ).rejects.toMatchObject({ code: "INVALID_STORE_CURSOR" });
+  await expect(
+    scope((tx, ctx) =>
+      executeStore(
+        tx,
+        { ...ctx, workspaceId: otherWorkspace },
+        definition,
+        "query-records",
+        {
+          action: "query",
+          where: { group: "query" },
+          orderBy: [{ field: "label", direction: "asc" }],
+          cursor: first.next!,
+        },
+      ),
+    ),
+  ).rejects.toMatchObject({ code: "INVALID_STORE_CURSOR" });
+  for (const options of [
+    {
+      orderBy: [
+        {
+          field: "units); select * from suite.users; --",
+          direction: "asc" as const,
+        },
+      ],
+    },
+    { search: { fields: ["units"], text: "10" } },
+    { ranges: { label: { gt: 10 } } },
+    { limit: 201 },
+    { cursor: "not-a-cursor" },
+  ])
+    await expect(query(options)).rejects.toThrow();
+});
+it("aggregates all filtered records, scopes groups, and rejects truncated or unsafe totals", async () => {
+  await scope(async (tx, ctx) => {
+    for (let i = 0; i < 205; i++)
+      await executeStore(tx, ctx, definition, "query-records", {
+        action: "create",
+        data: {
+          group: i < 200 ? "aggregate-a" : "aggregate-b",
+          units: 2,
+          active: true,
+        },
+      });
+  });
+  const aggregate = (
+    options: Omit<
+      Extract<
+        import("@suite/module-sdk/server").StoreCommand,
+        { action: "aggregate" }
+      >,
+      "action"
+    >,
+  ) =>
+    scope((tx, ctx) =>
+      executeStore(tx, ctx, definition, "query-records", {
+        action: "aggregate",
+        ...options,
+      }),
+    );
+  expect(
+    await aggregate({
+      search: { fields: ["group"], text: "aggregate-" },
+      sum: ["units"],
+      groupBy: "group",
+    }),
+  ).toEqual({
+    count: 205,
+    sums: { units: 410 },
+    groups: [
+      { key: "aggregate-a", count: 200, sums: { units: 400 } },
+      { key: "aggregate-b", count: 5, sums: { units: 10 } },
+    ],
+  });
+  expect(
+    await aggregate({
+      where: { group: "absent" },
+      sum: ["units"],
+      groupBy: "group",
+    }),
+  ).toEqual({ count: 0, sums: { units: 0 }, groups: [] });
+  await expect(
+    aggregate({
+      search: { fields: ["group"], text: "aggregate-" },
+      groupBy: "group",
+      maxGroups: 1,
+    }),
+  ).rejects.toMatchObject({ code: "AGGREGATE_GROUP_LIMIT" });
+  await expect(aggregate({ sum: ["group"] })).rejects.toMatchObject({
+    code: "INVALID_STORE_QUERY",
+  });
+  expect(
+    await scope((tx, ctx) =>
+      executeStore(
+        tx,
+        ctx,
+        { ...definition, id: "foreign-store-module" },
+        "query-records",
+        { action: "aggregate", sum: ["units"] },
+      ),
+    ),
+  ).toEqual({ count: 0, sums: { units: 0 }, groups: [] });
+  await scope(async (tx, ctx) => {
+    for (let i = 0; i < 2; i++)
+      await executeStore(tx, ctx, definition, "query-records", {
+        action: "create",
+        data: {
+          group: "overflow",
+          units: Number.MAX_SAFE_INTEGER,
+          active: true,
+        },
+      });
+  });
+  await expect(
+    aggregate({ where: { group: "overflow" }, sum: ["units"] }),
+  ).rejects.toMatchObject({ code: "AGGREGATE_OVERFLOW" });
 });

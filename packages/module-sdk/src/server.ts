@@ -1,3 +1,4 @@
+export type { StoreQueryCommand, StoreQueryFilter } from "./store-query";
 import {
   storageContract,
   type MigrationContext,

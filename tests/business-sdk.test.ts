@@ -1244,3 +1244,154 @@ it("preserves imported order versions, history and numbering, rejecting inconsis
   });
   expect(fresh).toMatchObject({ number: 100, version: 1 });
 });
+it("queries all matching Inventory products and computes summaries beyond one page", async () => {
+  const before = await stock().call("overview", {});
+  const products = [];
+  for (let start = 0; start < 55; start += 5)
+    products.push(
+      ...(await Promise.all(
+        Array.from({ length: Math.min(5, 55 - start) }, (_, offset) =>
+          stock().call("create-product", {
+            sku: `AAA-QUERY-${String(start + offset).padStart(3, "0")}`,
+            name: `Query 100%_item ${start + offset}`,
+            priceMinor: 100,
+          }),
+        ),
+      )),
+    );
+  await stock().call("create-product", {
+    sku: "CONTROL-QUERY",
+    name: "Query 100anythingXitem",
+    priceMinor: 100,
+  });
+  const seen: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await stock().call("products", {
+      search: "100%_ITEM",
+      limit: 7,
+      cursor,
+    });
+    seen.push(...page.items.map((p) => p.id));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  expect(new Set(seen)).toEqual(new Set(products.map((p) => p.id)));
+  const summary = await stock().call("overview", {});
+  expect(summary).toMatchObject({
+    products: before.products + 56,
+    available: before.available,
+    lowStock: before.lowStock + 56,
+  });
+  expect(summary.lowStockItems.map((p) => p.sku)).toEqual(
+    products.slice(0, 5).map((p) => p.sku),
+  );
+  expect(
+    await createModuleClient(inventory, send(foreign)).call("overview", {}),
+  ).toEqual({ products: 0, available: 0, lowStock: 0, lowStockItems: [] });
+  const p = await product(12);
+  await stock().call("adjustment", {
+    id: p.id,
+    quantity: -2,
+    reason: "History adjustment",
+  });
+  const firstPage = await stock().call("movements", {
+    productId: p.id.toUpperCase(),
+    limit: 1,
+  });
+  expect(firstPage.items).toMatchObject([
+    { kind: "adjustment", onHandDelta: -2, reason: "History adjustment" },
+  ]);
+  const secondPage = await stock().call("movements", {
+    productId: p.id.toUpperCase(),
+    limit: 1,
+    cursor: firstPage.nextCursor!,
+  });
+  expect(secondPage.items).toMatchObject([
+    { kind: "receipt", onHandDelta: 12 },
+  ]);
+  expect(secondPage.nextCursor).toBeNull();
+});
+it("queries Orders with complete status/daily summaries and numerically ordered bounded exports", async () => {
+  const before = await businessOrders().call("overview", {}),
+    p = await product();
+  const drafts = [];
+  for (let start = 0; start < 55; start += 5)
+    drafts.push(
+      ...(await Promise.all(
+        Array.from({ length: Math.min(5, 55 - start) }, (_, offset) =>
+          businessOrders().call("draft", {
+            customerName: `Search customer ${start + offset}`,
+            lines: [{ productId: p.id, quantity: 1, priceMinor: 300 }],
+          }),
+        ),
+      )),
+    );
+  for (let i = 0; i < 3; i++) {
+    const confirmed = await businessOrders().call("confirm", {
+      id: drafts[i].id,
+      version: drafts[i].version,
+    });
+    if (i < 2)
+      await businessOrders().call("fulfill", {
+        id: confirmed.id,
+        version: confirmed.version,
+      });
+  }
+  await businessOrders().call("cancel", {
+    id: drafts[3].id,
+    version: drafts[3].version,
+  });
+  const seen: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await businessOrders().call("list", {
+      search: "SEARCH CUSTOMER",
+      limit: 7,
+      cursor,
+    });
+    seen.push(...page.items.map((o) => o.id));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  expect(new Set(seen)).toEqual(new Set(drafts.map((o) => o.id)));
+  const summary = await businessOrders().call("overview", {});
+  expect(summary).toMatchObject({
+    draft: before.draft + 51,
+    confirmed: before.confirmed + 1,
+    fulfilled: before.fulfilled + 2,
+    cancelled: before.cancelled + 1,
+  });
+  expect(summary.fulfilledDaily.slice(0, 6)).toEqual(
+    before.fulfilledDaily.slice(0, 6),
+  );
+  expect(summary.fulfilledDaily[6].count).toBe(
+    before.fulfilledDaily[6].count + 2,
+  );
+  expect(summary.ready.map((o) => o.id)).toContain(drafts[2].id);
+  expect(summary.recent.map((o) => o.id)).toEqual(
+    [...drafts]
+      .sort(
+        (a, b) =>
+          b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
+      )
+      .slice(0, 6)
+      .map((o) => o.id),
+  );
+  const numbers: number[] = [];
+  let exportCursor: string | undefined;
+  do {
+    const page = await businessOrders().call("export-page", {
+      cursor: exportCursor,
+      limit: 7,
+    });
+    expect(page.items.length).toBeLessThanOrEqual(7);
+    expect(page.total).toBe(
+      summary.draft + summary.confirmed + summary.fulfilled + summary.cancelled,
+    );
+    numbers.push(...page.items.map((o) => o.number));
+    exportCursor = page.nextCursor ?? undefined;
+  } while (exportCursor);
+  expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+  expect(new Set(numbers).size).toBe(
+    summary.draft + summary.confirmed + summary.fulfilled + summary.cancelled,
+  );
+});

@@ -1,3 +1,4 @@
+export type { StoreQuery, StoreFilter, StoreAggregate } from "./store-query";
 import { validateStorageContract, type StorageContract } from "./storage";
 export {
   store,

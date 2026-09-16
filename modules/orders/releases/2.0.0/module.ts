@@ -32,6 +32,9 @@ const activity = Type.Object(
 );
 const orderData = {
   orderVersion: version,
+  fulfilledOn: Type.Optional(
+    Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" }),
+  ),
   number: Type.Integer({ minimum: 1, maximum: 2147483646 }),
   customerName: draft.properties.customerName,
   status,
@@ -47,7 +50,11 @@ const orderData = {
   ),
   activity: Type.Array(activity, { maxItems: 20 }),
 };
-const { orderVersion: _orderVersion, ...publicOrderData } = orderData;
+const {
+  orderVersion: _orderVersion,
+  fulfilledOn: _fulfilledOn,
+  ...publicOrderData
+} = orderData;
 export const order = Type.Object(
   { id, version, ...publicOrderData },
   { additionalProperties: false },
@@ -166,13 +173,57 @@ export default defineModule({
       output: order,
       errors: error,
     }),
+    overview: operation({
+      title: "Order summary",
+      policy: "online",
+      permission: "orders.read",
+      input: Type.Object({}, { additionalProperties: false }),
+      output: Type.Object({
+        draft: Type.Integer(),
+        confirmed: Type.Integer(),
+        fulfilled: Type.Integer(),
+        cancelled: Type.Integer(),
+        fulfilledDaily: Type.Array(
+          Type.Object({ date: Type.String(), count: Type.Integer() }),
+        ),
+        ready: Type.Array(order),
+        recent: Type.Array(order),
+      }),
+      errors: error,
+    }),
+    "export-page": operation({
+      title: "Export orders",
+      policy: "online",
+      permission: "orders.export",
+      input: Type.Object(
+        {
+          cursor: Type.Optional(Type.String({ maxLength: 24576 })),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+        },
+        { additionalProperties: false },
+      ),
+      output: Type.Object({
+        items: Type.Array(
+          Type.Object({
+            number: orderData.number,
+            customerName: orderData.customerName,
+            status,
+            totalMinor: orderData.totalMinor,
+          }),
+        ),
+        nextCursor: Type.Union([Type.String(), Type.Null()]),
+        total: Type.Integer(),
+      }),
+      errors: error,
+    }),
     list: operation({
       title: "Orders",
       policy: "online",
       permission: "orders.read",
       input: Type.Object(
         {
-          cursor: Type.Optional(id),
+          cursor: Type.Optional(Type.String({ maxLength: 24576 })),
+          search: Type.Optional(Type.String({ maxLength: 200 })),
           limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
           status: Type.Optional(status),
         },
@@ -180,7 +231,7 @@ export default defineModule({
       ),
       output: Type.Object({
         items: Type.Array(order),
-        nextCursor: Type.Union([id, Type.Null()]),
+        nextCursor: Type.Union([Type.String(), Type.Null()]),
       }),
       errors: error,
     }),

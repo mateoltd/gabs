@@ -193,13 +193,65 @@ export default defineModuleServer(module)(
     },
     get: async (ctx, input) => view(ctx, await product(ctx, input.id)),
     products: async (ctx, input) => {
-      const page = await ctx.store("products").scan({
-        after: input.cursor,
+      const page = await ctx.store("products").query({
+        cursor: input.cursor,
+        ...(input.search?.trim()
+          ? { search: { fields: ["sku", "name"], text: input.search.trim() } }
+          : {}),
         limit: input.limit,
         ...(input.stock ? { where: { lowStock: true } } : {}),
       });
       return {
         items: page.items.map((row) => view(ctx, row)),
+        nextCursor: page.next,
+      };
+    },
+    overview: async (ctx) => {
+      const store = ctx.store("products");
+      const totals = await store.aggregate({
+        where: { active: true },
+        sum: ["available"],
+        groupBy: "lowStock",
+      });
+      const low = await store.query({
+        where: { active: true, lowStock: true },
+        orderBy: [
+          { field: "available", direction: "asc" },
+          { field: "sku", direction: "asc" },
+        ],
+        limit: 5,
+      });
+      return {
+        products: totals.count,
+        available: totals.sums.available,
+        lowStock: totals.groups.find((g) => g.key === true)?.count ?? 0,
+        lowStockItems: low.items.map((row) => ({
+          id: row.id,
+          name: row.data.name,
+          sku: row.data.sku,
+          available: row.data.available,
+        })),
+      };
+    },
+    movements: async (ctx, input) => {
+      const page = await ctx.store("movements").query({
+        cursor: input.cursor,
+        limit: input.limit,
+        ...(input.productId
+          ? { where: { productId: input.productId.toLowerCase() } }
+          : {}),
+        ...(input.search?.trim()
+          ? {
+              search: {
+                fields: ["sku", "reason"],
+                text: input.search.trim(),
+              },
+            }
+          : {}),
+        orderBy: [{ field: "createdAt", direction: "desc" }],
+      });
+      return {
+        items: page.items.map((row) => ({ id: row.id, ...row.data })),
         nextCursor: page.next,
       };
     },
