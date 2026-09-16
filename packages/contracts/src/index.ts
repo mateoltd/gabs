@@ -1,4 +1,5 @@
 import ordersDefinition from "../../../modules/orders/module";
+export * from "./business-cutover";
 import { moduleDefinitions } from "@suite/module-catalog";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 export { Type, type Static, type TSchema };
@@ -398,6 +399,10 @@ export const OPERATIONS = {
   orderGet: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/orders/:id",
+  },
+  businessCutoverReview: {
+    method: "POST",
+    path: "/api/v1/workspaces/:workspaceId/business-upgrade/review",
   },
   orderCreate: {
     method: "POST",

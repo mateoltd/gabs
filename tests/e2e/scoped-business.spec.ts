@@ -1,17 +1,15 @@
+import AxeBuilder from "@axe-core/playwright";
 import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { createModuleClient, type ModuleCall } from "@suite/module-sdk";
-import { moduleServers } from "@suite/module-catalog/server";
 import {
   connectDatabase,
   inWorkspace,
   provisionWorkspace,
-  authorize,
   type Actor,
 } from "../../packages/server-core/src";
-import { migrateLegacyBusinessStorage } from "../../packages/server-core/src/legacy-business-migration";
 import { scopedBusinessFixture } from "../fixtures/scoped-business";
 import legacyInventory from "../../modules/inventory/module";
 import legacyOrders from "../../modules/orders/module";
@@ -21,7 +19,7 @@ test("migrated business screens use their verified release for stock, orders, co
   page,
   context,
 }) => {
-  test.setTimeout(90000);
+  test.setTimeout(120000);
   const release = await scopedBusinessFixture(),
     workspace = randomUUID(),
     db = connectDatabase();
@@ -81,58 +79,152 @@ test("migrated business screens use their verified release for stock, orders, co
       customerName: "Before cutover",
       lines: [{ productId: p.id, quantity: 2, priceMinor: 200 }],
     });
-    await inWorkspace(db, workspace, async (tx) => {
-      const role = await tx
-        .selectFrom("suite.roles")
-        .selectAll()
-        .where("workspace_id", "=", workspace)
-        .where("name", "=", "Owner")
-        .executeTakeFirstOrThrow();
-      await tx
-        .updateTable("suite.roles")
-        .set({
-          permissions: [
-            ...new Set([
-              ...role.permissions,
-              ...release.inventory.permissions,
-              ...release.orders.permissions,
-            ]),
-          ],
-        })
-        .where("id", "=", role.id)
-        .execute();
-      await tx
-        .insertInto("suite.platform_settings")
-        .values({
-          workspace_id: workspace,
-          key: "grant:orders:inventory",
-          value: {
-            services: ["resolve-products", "reserve", "release", "consume"],
-          },
-          version: 1,
-        })
-        .execute();
-      const ctx = await authorize(
-        tx,
-        actor,
-        workspace,
-        randomUUID(),
-        "modules.manage",
-      );
-      await migrateLegacyBusinessStorage(
-        tx,
-        ctx,
-        { inventory: release.version, orders: release.version },
-        moduleServers,
-      );
+    await page.reload();
+    await selectValue(page, "Workspace", workspace);
+    await page.getByRole("link", { name: "Modules", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Upgrade business modules", exact: true })
+      .click();
+    await selectValue(page, "Inventory upgrade release", release.version);
+    await selectValue(page, "Orders upgrade release", release.version);
+    await page
+      .getByRole("button", { name: "Review upgrade", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Resolve before upgrading" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Apply reviewed upgrade" }),
+    ).toHaveCount(0);
+    const stockPermission = page.getByRole("checkbox", {
+      name: "Owner: inventory.reservations.write",
+      exact: true,
     });
+    await stockPermission.focus();
+    await page.keyboard.press("Space");
+    await expect(stockPermission).toBeChecked();
+    await page
+      .getByRole("checkbox", {
+        name: "Grant Orders access to Inventory services",
+        exact: true,
+      })
+      .check();
+    await page
+      .getByRole("button", { name: "Review upgrade", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Ready to upgrade" }),
+    ).toBeVisible();
+    await mkdir("docs/verification/business-cutover", { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    const dialog = page.getByRole("dialog", {
+      name: "Upgrade Orders and Inventory",
+      exact: true,
+    });
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .include('[role="dialog"]')
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+    await dialog.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    await page.screenshot({
+      path: "docs/verification/business-cutover/choices.png",
+    });
+    await page
+      .getByRole("button", { name: "Apply reviewed upgrade", exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "docs/verification/business-cutover/review.png",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page
+        .locator("body")
+        .evaluate((body) => body.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await dialog.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    await page.screenshot({
+      path: "docs/verification/business-cutover/choices-narrow.png",
+    });
+    await page
+      .getByRole("button", { name: "Apply reviewed upgrade", exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "docs/verification/business-cutover/review-narrow.png",
+    });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    const upgrades: { key: string; body: unknown }[] = [];
+    await page.route(
+      `**/api/v1/workspaces/${workspace}/platform`,
+      async (route) => {
+        if (route.request().postDataJSON()?.action !== "business-cutover")
+          return route.continue();
+        upgrades.push({
+          key: route.request().headers()["idempotency-key"],
+          body: route.request().postDataJSON(),
+        });
+        if (upgrades.length === 1) {
+          const accepted = await route.fetch();
+          expect(accepted.status(), await accepted.text()).toBe(200);
+          await route.abort("failed");
+        } else await route.continue();
+      },
+    );
+    await page
+      .getByRole("button", { name: "Apply reviewed upgrade", exact: true })
+      .click();
+    // Policy events can reveal the committed completion before a manual retry.
+    await expect(
+      page
+        .getByRole("button", { name: "Retry upgrade", exact: true })
+        .or(page.getByRole("button", { name: "Done", exact: true })),
+    ).toBeVisible();
+    if (
+      await page
+        .getByRole("button", { name: "Retry upgrade", exact: true })
+        .isVisible()
+    ) {
+      await page
+        .getByRole("button", { name: "Retry upgrade", exact: true })
+        .click();
+      expect(upgrades).toHaveLength(2);
+      expect(upgrades[1]).toEqual(upgrades[0]);
+    }
+    await expect(
+      page.getByText(
+        "Orders and Inventory have completed their coordinated upgrade.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page.screenshot({
+      path: "docs/verification/business-cutover/completed.png",
+    });
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", {
+        name: "Business upgrade details",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await page.reload();
+    await expect(
+      page.getByRole("button", {
+        name: "Business upgrade details",
+        exact: true,
+      }),
+    ).toBeVisible();
     const sentVersions: string[] = [];
     page.on("request", (request) => {
       if (request.url().includes(`/workspaces/${workspace}/operations/`))
         sentVersions.push(request.headers()["x-module-version"]);
     });
-    await page.reload();
-    await selectValue(page, "Workspace", workspace);
     await page.getByRole("link", { name: "Inventory", exact: true }).click();
     await expect(
       page.getByRole("row").filter({ hasText: "Retained stock" }),

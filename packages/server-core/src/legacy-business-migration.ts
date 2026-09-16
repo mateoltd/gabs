@@ -151,7 +151,7 @@ async function convert(
     );
     targets.set(id, definition);
   }
-  await reconcile(tx, ws);
+  await reconcileLegacyBusiness(tx, ws);
   const counts = {
     products: 0,
     movements: 0,
@@ -484,7 +484,7 @@ async function convert(
 }
 
 /** Fail before importing anything when the source has contradictory commitments. */
-async function reconcile(tx: Tx, workspace: string) {
+export async function reconcileLegacyBusiness(tx: Tx, workspace: string) {
   const check = async (
     code: string,
     query: ReturnType<typeof sql<{ id: string }>>,
@@ -498,6 +498,20 @@ async function reconcile(tx: Tx, workspace: string) {
       `${message}${row ? ` Record: ${row.id}.` : ""}`,
     );
   };
+  await check(
+    "BUSINESS_TOTAL_MISMATCH",
+    sql<{
+      id: string;
+    }>`select o.id from suite.orders o left join (select order_id,count(*) as lines,sum(quantity::bigint*price_minor) as total from suite.order_lines where workspace_id=${workspace}::uuid group by order_id) l on l.order_id=o.id where o.workspace_id=${workspace}::uuid and (coalesce(l.lines,0) not between 1 and 100 or o.total_minor<>l.total or l.total>9000000000000) limit 1`,
+    "Each order must have 1 to 100 lines and a matching supported total.",
+  );
+  await check(
+    "BUSINESS_COUNTER_MISMATCH",
+    sql<{
+      id: string;
+    }>`select w.id from suite.workspaces w where w.id=${workspace}::uuid and w.next_order_number<=coalesce((select max(number) from suite.orders where workspace_id=w.id),0)`,
+    "The order counter must exceed every existing order number.",
+  );
   await check(
     "BUSINESS_STOCK_MISMATCH",
     sql<{ id: string }>`

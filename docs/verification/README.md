@@ -253,3 +253,9 @@ The [Orders candidate and typed service contracts](orders-sdk/README.md) add pri
 ## 16 September 2026: SDK-01 selected-contract business screens
 
 [Business-screen evidence](business-screens/README.md): selected SDK reads and version-bound commands preserve current UI behavior after migration. Covered migrated stock, counts, product edits, fulfillment, conflict review, offline reload and exact-key/version recovery after a lost accepted response. 130 tests, four builds, three browser journeys and three hidden Electron checks passed, with a further expanded migrated journey and inspected wide/narrow/native captures. Administrator cutover and default scoped releases remain open.
+
+## Administrator business cutover, 16 September 2026
+
+[Coordinated upgrade evidence](business-cutover/README.md) records read-only release/permission review, explicit service grants, stale-policy rejection, atomic grant/data migration and retry/completion recovery. All 134 unit/PostgreSQL tests in 24 files and four builds passed. The real administrator flow and subsequent scoped business work passed headless Chromium and hidden/minimized Electron. Wide, narrow and native dialog captures were inspected. Default scoped releases remain the next SDK-01 work; parity and accepted UI polish remain unachieved.
+
+The preceding remote checkpoint `35128117193` / `9ea4364` passed functional/browser/build, unsigned packaging and restore but failed the unchanged read budget at 725 ms (500 ms target); confirmation passed at 747 ms (1000 ms target). OPS-07 remains open.

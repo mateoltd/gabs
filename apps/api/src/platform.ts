@@ -1,4 +1,14 @@
 import {
+  reviewBusinessCutover,
+  applyBusinessCutover,
+} from "../../../packages/server-core/src/business-cutover";
+import {
+  BusinessCutoverSelectionSchema,
+  BusinessCutoverReviewSchema,
+  BusinessCutoverCommandSchema,
+  type BusinessCutoverSelection,
+} from "@suite/contracts";
+import {
   recordInstallationReport,
   moduleFleet,
 } from "../../../packages/server-core/src/installation-reports";
@@ -124,6 +134,36 @@ const OrganizationSchema = T.Object(
   { additionalProperties: false },
 );
 export async function registerPlatform(app: FastifyInstance, db: DB) {
+  app.post<{ Params: { workspaceId: string }; Body: BusinessCutoverSelection }>(
+    "/api/v1/workspaces/:workspaceId/business-upgrade/review",
+    {
+      schema: {
+        operationId: "businessCutoverReview",
+        params: T.Object({ workspaceId: id }),
+        body: BusinessCutoverSelectionSchema,
+        response: { 200: BusinessCutoverReviewSchema },
+      },
+    },
+    async (req, reply) => {
+      reply.header("cache-control", "no-store");
+      return inWorkspace(
+        db,
+        req.params.workspaceId,
+        async (tx) => {
+          const ctx = await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+            "modules.manage",
+          );
+          return reviewBusinessCutover(tx, ctx, req.body, moduleServers);
+        },
+        { readOnly: true },
+      );
+    },
+  );
+
   app.post<{ Params: { workspaceId: string }; Body: InstallationReport }>(
     "/api/v1/workspaces/:workspaceId/installation-reports",
     {
@@ -678,6 +718,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 "install",
                 "uninstall",
                 "migrate",
+                "business-cutover",
                 "pin",
                 "rollout",
               ].map((v) => T.Literal(v)),
@@ -709,7 +750,8 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         await lockModuleStorage(
           tx,
           ctx.workspaceId,
-          req.body.action === "migrate",
+          req.body.action === "migrate" ||
+            req.body.action === "business-cutover",
         );
         if (req.body.action === "install" || req.body.action === "uninstall")
           return changeDeviceInstallation(
@@ -729,6 +771,10 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           async () => {
             await lockWorkspace(tx, ctx.workspaceId);
             const value = req.body.value;
+            if (req.body.action === "business-cutover") {
+              assertSchema(BusinessCutoverCommandSchema, value);
+              return applyBusinessCutover(tx, ctx, value, moduleServers);
+            }
             if (req.body.action === "migrate") {
               assertSchema(
                 T.Object(

@@ -1,3 +1,4 @@
+import { BusinessCutover } from "./business-cutover";
 import { ModuleFleetDialog } from "./module-fleet";
 import { storageContract } from "@suite/module-sdk";
 import type { ReleaseManifest } from "@suite/module-sdk/registry";
@@ -159,6 +160,13 @@ export function ModuleLifecycle(
               <SelectOption value="blocked">Blocked</SelectOption>
             </Select>
           </Field>
+        )}
+        {admin && state.data && (
+          <BusinessCutover
+            key={props.scope.workspaceId}
+            {...props}
+            state={state.data}
+          />
         )}
       </div>
       <ErrorMessage
@@ -483,6 +491,9 @@ export function ModuleLifecycle(
                   disabled={
                     !!busy ||
                     !migrationVersion ||
+                    ((selected === "orders" || selected === "inventory") &&
+                      storedSchema === 1 &&
+                      targetStorage.version === 2) ||
                     targetStorage.version <= storedSchema
                   }
                   onClick={() =>
@@ -496,6 +507,14 @@ export function ModuleLifecycle(
                 >
                   Migrate storage
                 </Button>
+                {(selected === "orders" || selected === "inventory") &&
+                  storedSchema === 1 &&
+                  targetStorage.version === 2 && (
+                    <p>
+                      Use Upgrade business modules in the module toolbar to
+                      review access and migrate Orders and Inventory together.
+                    </p>
+                  )}
               </section>
             )}
             <Field label="Pinned version (empty follows current release)">

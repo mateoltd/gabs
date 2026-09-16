@@ -11337,6 +11337,288 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/business-upgrade/review": {
+      "post": {
+        "operationId": "businessCutoverReview",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "inventory",
+                  "orders",
+                  "roleGrants",
+                  "grantServices"
+                ],
+                "properties": {
+                  "inventory": {
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "orders": {
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "roleGrants": {
+                    "maxItems": 500,
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "roleId",
+                        "permissions"
+                      ],
+                      "properties": {
+                        "roleId": {
+                          "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
+                          "type": "string"
+                        },
+                        "permissions": {
+                          "maxItems": 50,
+                          "uniqueItems": true,
+                          "type": "array",
+                          "items": {
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "grantServices": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "token",
+                    "ready",
+                    "completed",
+                    "issues",
+                    "releases",
+                    "roles",
+                    "services",
+                    "restrictedMembers",
+                    "restrictedCount",
+                    "counts"
+                  ],
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "ready": {
+                      "type": "boolean"
+                    },
+                    "completed": {
+                      "type": "boolean"
+                    },
+                    "issues": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "releases": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "moduleId",
+                          "version",
+                          "digest",
+                          "permissions",
+                          "newPermissions"
+                        ],
+                        "properties": {
+                          "moduleId": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "permissions": {
+                            "type": "array",
+                            "items": {
+                              "minLength": 1,
+                              "maxLength": 100,
+                              "type": "string"
+                            }
+                          },
+                          "newPermissions": {
+                            "type": "array",
+                            "items": {
+                              "minLength": 1,
+                              "maxLength": 100,
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "permissions",
+                          "additions"
+                        ],
+                        "properties": {
+                          "id": {
+                            "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "permissions": {
+                            "type": "array",
+                            "items": {
+                              "minLength": 1,
+                              "maxLength": 100,
+                              "type": "string"
+                            }
+                          },
+                          "additions": {
+                            "type": "array",
+                            "items": {
+                              "minLength": 1,
+                              "maxLength": 100,
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "services": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "operation",
+                          "permission",
+                          "granted"
+                        ],
+                        "properties": {
+                          "operation": {
+                            "type": "string"
+                          },
+                          "permission": {
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "granted": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "restrictedMembers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "missing"
+                        ],
+                        "properties": {
+                          "id": {
+                            "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "missing": {
+                            "type": "array",
+                            "items": {
+                              "minLength": 1,
+                              "maxLength": 100,
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "restrictedCount": {
+                      "type": "integer"
+                    },
+                    "counts": {
+                      "type": "object",
+                      "required": [
+                        "products",
+                        "orders",
+                        "movements"
+                      ],
+                      "properties": {
+                        "products": {
+                          "type": "integer"
+                        },
+                        "orders": {
+                          "type": "integer"
+                        },
+                        "movements": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/installation-reports": {
       "post": {
         "operationId": "installationReport",
@@ -11833,6 +12115,12 @@
                         "type": "string",
                         "enum": [
                           "migrate"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "business-cutover"
                         ]
                       },
                       {

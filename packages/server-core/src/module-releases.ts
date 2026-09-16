@@ -24,6 +24,7 @@ export async function resolveWorkspaceRelease(
   id: string,
   allowUnpublishedBuiltin = false,
   targetVersion?: string,
+  pinOverrides: Record<string, string> = {},
 ) {
   const storage = await moduleStorageVersions(tx, workspaceId);
   const releases = await tx
@@ -44,6 +45,7 @@ export async function resolveWorkspaceRelease(
       .map((r) => [r.key.slice(4), String(r.value.version)]),
   );
   if (targetVersion) pins[id] = targetVersion;
+  Object.assign(pins, pinOverrides);
   const manifests = releases.map(
     (r) => r.manifest as unknown as ReleaseManifest,
   );

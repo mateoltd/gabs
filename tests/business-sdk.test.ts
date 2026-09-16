@@ -1,3 +1,7 @@
+import {
+  reviewBusinessCutover,
+  applyBusinessCutover,
+} from "../packages/server-core/src/business-cutover";
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
@@ -2291,4 +2295,320 @@ it("exports every migrated order from one snapshot, processes SDK events, and re
     headers,
   });
   expect(revokedDownload.statusCode).toBe(403);
+});
+
+it("reviews coordinated cutover without writes, requires explicit grants, detects stale policy and recovers the exact receipt", async () => {
+  const f = await legacyFixture();
+  const base = {
+    inventory: version,
+    orders: version,
+    roleGrants: [] as { roleId: string; permissions: string[] }[],
+    grantServices: false,
+  };
+  const review = (selection = base) =>
+    app.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${f.target}/business-upgrade/review`,
+      headers,
+      payload: selection,
+    });
+  const before = await conversionState(f.target);
+  const first = await review();
+  expect(first.statusCode, first.body).toBe(200);
+  expect(first.headers["cache-control"]).toBe("no-store");
+  expect(first.json()).toMatchObject({
+    ready: false,
+    completed: false,
+    restrictedCount: 1,
+    counts: { products: 1, orders: 1, movements: 2 },
+  });
+  expect(first.json().issues.map((i: { code: string }) => i.code)).toEqual(
+    expect.arrayContaining(["GRANT_REQUIRED", "PERMISSIONS_REQUIRED"]),
+  );
+  expect(await conversionState(f.target)).toEqual(before);
+  const owner = first
+    .json()
+    .roles.find((r: { name: string }) => r.name === "Owner");
+  const selection = {
+    ...base,
+    grantServices: true,
+    roleGrants: [
+      {
+        roleId: owner.id,
+        permissions: [
+          "inventory.availability.read",
+          "inventory.reservations.write",
+        ],
+      },
+    ],
+  };
+  const ready = await review(selection);
+  expect(ready.statusCode, ready.body).toBe(200);
+  expect(ready.json(), ready.body).toMatchObject({
+    ready: true,
+    restrictedCount: 0,
+  });
+  expect((await review(selection)).json().token).toBe(ready.json().token);
+  const submit = (token: string, key = randomUUID()) =>
+    app.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${f.target}/platform`,
+      headers: { ...headers, "idempotency-key": key },
+      payload: {
+        action: "business-cutover",
+        value: { ...selection, reviewToken: token },
+      },
+    });
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.roles")
+      .set({ name: "Owner updated" })
+      .where("id", "=", owner.id)
+      .execute(),
+  );
+  const stale = await submit(ready.json().token);
+  expect(stale.statusCode, stale.body).toBe(409);
+  expect(stale.json().code).toBe("BUSINESS_REVIEW_STALE");
+  const refreshed = await review(selection);
+  expect(refreshed.json().ready, refreshed.body).toBe(true);
+  const key = randomUUID(),
+    applied = await submit(refreshed.json().token, key);
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(applied.json()).toMatchObject({ state: "completed" });
+  const after = await conversionState(f.target);
+  expect(after.storage.map((r) => r.schema_version)).toEqual([2, 2]);
+  expect(
+    after.settings.find((r) => r.key === "business-upgrade-review")?.value
+      .reviewToken,
+  ).toBe(refreshed.json().token);
+  expect(
+    after.audits.filter((r) => r.action === "roles.business-upgrade.granted"),
+  ).toHaveLength(1);
+  expect(
+    after.audits.filter(
+      (r) => r.action === "modules.business-upgrade.services-granted",
+    ),
+  ).toHaveLength(1);
+  expect((await submit(refreshed.json().token, key)).json()).toEqual(
+    applied.json(),
+  );
+  expect(await conversionState(f.target)).toEqual(after);
+  expect((await review(base)).json().completed).toBe(true);
+  const stock = createModuleClient(inventory, send(f.target));
+  expect(await stock.call("products", { limit: 10 })).toMatchObject({
+    items: [expect.objectContaining({ id: f.product.id })],
+  });
+});
+
+it("rejects foreign roles and unrelated permission grants during business cutover review", async () => {
+  const f = await legacyFixture();
+  const request = (roleGrants: { roleId: string; permissions: string[] }[]) =>
+    app.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${f.target}/business-upgrade/review`,
+      headers,
+      payload: {
+        inventory: version,
+        orders: version,
+        roleGrants,
+        grantServices: true,
+      },
+    });
+  const roles = await inWorkspace(db, f.target, (tx) =>
+    tx
+      .selectFrom("suite.roles")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .execute(),
+  );
+  for (const grants of [
+    [{ roleId: randomUUID(), permissions: ["inventory.availability.read"] }],
+    [
+      {
+        roleId: roles.find((r) => r.name === "Sales")!.id,
+        permissions: ["roles.manage"],
+      },
+    ],
+  ]) {
+    const response = await request(grants);
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.json().code).toBe("INVALID_ROLE_GRANTS");
+  }
+});
+
+it("preserves explicit denials and rechecks role administration authority in cutover review", async () => {
+  const f = await legacyFixture();
+  const { owner, sales, member } = await inWorkspace(
+    db,
+    f.target,
+    async (tx) => {
+      const roles = await tx
+        .selectFrom("suite.roles")
+        .selectAll()
+        .where("workspace_id", "=", f.target)
+        .execute();
+      const owner = roles.find((r) => r.name === "Owner")!,
+        sales = roles.find((r) => r.name === "Sales")!;
+      const member = await tx
+        .selectFrom("suite.memberships")
+        .selectAll()
+        .where("workspace_id", "=", f.target)
+        .where("user_id", "=", authenticatedActor.id)
+        .executeTakeFirstOrThrow();
+      return { owner, sales, member };
+    },
+  );
+  const selection = {
+    inventory: version,
+    orders: version,
+    roleGrants: [
+      { roleId: sales.id, permissions: ["inventory.reservations.write"] },
+    ],
+    grantServices: true,
+  };
+  // The same member has ordinary grants and a denial from Sales. Protected root is unassigned.
+  await inWorkspace(db, f.target, async (tx) => {
+    await tx
+      .deleteFrom("suite.role_assignments")
+      .where("workspace_id", "=", f.target)
+      .where("membership_id", "=", member.id)
+      .execute();
+    await tx
+      .insertInto("suite.role_assignments")
+      .values({
+        workspace_id: f.target,
+        membership_id: member.id,
+        role_id: sales.id,
+      })
+      .execute();
+    await tx
+      .updateTable("suite.roles")
+      .set({
+        permissions: [...sales.permissions, "modules.manage", "roles.manage"],
+      })
+      .where("id", "=", sales.id)
+      .execute();
+    await tx
+      .insertInto("suite.platform_settings")
+      .values({
+        workspace_id: f.target,
+        key: "organization",
+        version: 1,
+        value: {
+          rootId: owner.id,
+          ranks: (
+            await tx
+              .selectFrom("suite.roles")
+              .selectAll()
+              .where("workspace_id", "=", f.target)
+              .execute()
+          ).map((r) => ({
+            id: r.id,
+            name: r.id === owner.id ? "Administrador" : r.name,
+            parents: r.id === owner.id ? [] : [owner.id],
+            inherit: false,
+            denies: r.id === sales.id ? ["inventory.reservations.write"] : [],
+            x: 0,
+            y: 0,
+          })),
+          groups: [],
+        },
+      })
+      .execute();
+  });
+  const request = () =>
+    app.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${f.target}/business-upgrade/review`,
+      headers,
+      payload: selection,
+    });
+  const denied = await request();
+  expect(denied.statusCode).toBe(200);
+  expect(denied.json()).toMatchObject({
+    ready: false,
+    restrictedCount: 1,
+    restrictedMembers: [
+      { id: member.id, missing: ["inventory.reservations.write"] },
+    ],
+  });
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.roles")
+      .set({ permissions: [...sales.permissions, "modules.manage"] })
+      .where("id", "=", sales.id)
+      .execute(),
+  );
+  expect((await request()).statusCode).toBe(403);
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.roles")
+      .set({ permissions: sales.permissions })
+      .where("id", "=", sales.id)
+      .execute(),
+  );
+  expect((await request()).statusCode).toBe(403);
+});
+
+it("rolls back selected permissions and service grants when source conversion fails, even when caught", async () => {
+  const f = await legacyFixture();
+  const owner = await inWorkspace(db, f.target, (tx) =>
+    tx
+      .selectFrom("suite.roles")
+      .selectAll()
+      .where("workspace_id", "=", f.target)
+      .where("name", "=", "Owner")
+      .executeTakeFirstOrThrow(),
+  );
+  const selection = {
+    inventory: version,
+    orders: version,
+    roleGrants: [
+      { roleId: owner.id, permissions: ["inventory.reservations.write"] },
+    ],
+    grantServices: true,
+  };
+  // A malformed historical name is not a balance mismatch. Final import validation must reject it.
+  await inWorkspace(db, f.target, (tx) =>
+    tx
+      .updateTable("suite.products")
+      .set({ name: "" })
+      .where("id", "=", f.product.id)
+      .execute(),
+  );
+  const before = await conversionState(f.target);
+  const review = await inWorkspace(
+    db,
+    f.target,
+    async (tx) =>
+      reviewBusinessCutover(
+        tx,
+        await authorize(tx, authenticatedActor, f.target, randomUUID()),
+        selection,
+        moduleServers,
+      ),
+    { readOnly: true },
+  );
+  expect(review.ready, JSON.stringify(review.issues)).toBe(true);
+  await inWorkspace(db, f.target, async (tx) => {
+    await expect(
+      applyBusinessCutover(
+        tx,
+        await authorize(tx, authenticatedActor, f.target, randomUUID()),
+        { ...selection, reviewToken: review.token },
+        moduleServers,
+      ),
+    ).rejects.toThrow();
+    await sql`select 1`.execute(tx);
+    expect(
+      (
+        await tx
+          .selectFrom("suite.roles")
+          .select("permissions")
+          .where("id", "=", owner.id)
+          .executeTakeFirstOrThrow()
+      ).permissions,
+    ).toEqual(owner.permissions);
+  });
+  expect(await conversionState(f.target)).toEqual(before);
 });

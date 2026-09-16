@@ -2353,6 +2353,9 @@ legend {
 }
 .module-policy-toolbar {
   display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 24px;
 }
 .module-policy-toolbar > .field {

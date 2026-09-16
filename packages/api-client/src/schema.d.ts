@@ -548,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspaceId}/business-upgrade/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["businessCutoverReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspaceId}/installation-reports": {
         parameters: {
             query?: never;
@@ -5323,6 +5339,77 @@ export interface operations {
             };
         };
     };
+    businessCutoverReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    inventory: string;
+                    orders: string;
+                    roleGrants: {
+                        roleId: string;
+                        permissions: string[];
+                    }[];
+                    grantServices: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        token: string;
+                        ready: boolean;
+                        completed: boolean;
+                        issues: {
+                            code: string;
+                            message: string;
+                        }[];
+                        releases: {
+                            moduleId: string;
+                            version: string;
+                            digest: string;
+                            permissions: string[];
+                            newPermissions: string[];
+                        }[];
+                        roles: {
+                            id: string;
+                            name: string;
+                            permissions: string[];
+                            additions: string[];
+                        }[];
+                        services: {
+                            operation: string;
+                            permission: string;
+                            granted: boolean;
+                        }[];
+                        restrictedMembers: {
+                            id: string;
+                            name: string;
+                            missing: string[];
+                        }[];
+                        restrictedCount: number;
+                        counts: {
+                            products: number;
+                            orders: number;
+                            movements: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
     installationReport: {
         parameters: {
             query?: never;
@@ -5517,7 +5604,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    action: "organization" | "store-policy" | "grant" | "appearance" | "install" | "uninstall" | "migrate" | "pin" | "rollout";
+                    action: "organization" | "store-policy" | "grant" | "appearance" | "install" | "uninstall" | "migrate" | "business-cutover" | "pin" | "rollout";
                     value: {
                         [key: string]: unknown;
                     };

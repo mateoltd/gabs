@@ -8,44 +8,46 @@ import {
 } from "@suite/contracts";
 import type { operations } from "./schema";
 export type { paths, operations } from "./schema";
-type Result<K extends OperationId> = K extends "moduleFleet"
-  ? import("@suite/module-sdk/platform").ModuleFleet
-  : K extends "installationReport"
-    ? { ok: boolean }
-    : K extends "moduleMembers"
-      ? import("@suite/module-sdk").MemberPage
-      : K extends "billingState"
-        ? {
-            configured: boolean;
-            modules: string[];
-            status: string;
-            subscribed: boolean;
-          }
-        : K extends "billingCommand"
-          ? { url?: string; ok?: boolean }
-          : K extends "moduleTrust"
-            ? { publicKey: string }
-            : K extends "platformState"
-              ? PlatformState
-              : K extends "moduleArtifact"
-                ? SignedArtifact
-                : K extends "platformCommand"
-                  ? {
-                      ok: boolean;
-                      installation?: import("@suite/module-sdk/platform").InstallationReceipt;
-                    }
-                  : K extends
-                        "moduleRequest" | "moduleOperation" | "moduleQuery"
-                    ? unknown
-                    : K extends keyof operations
-                      ? operations[K] extends {
-                          responses: {
-                            200: { content: { "application/json": infer R } };
-                          };
-                        }
-                        ? R
-                        : never
-                      : unknown;
+type Result<K extends OperationId> = K extends "businessCutoverReview"
+  ? import("@suite/contracts").BusinessCutoverReview
+  : K extends "moduleFleet"
+    ? import("@suite/module-sdk/platform").ModuleFleet
+    : K extends "installationReport"
+      ? { ok: boolean }
+      : K extends "moduleMembers"
+        ? import("@suite/module-sdk").MemberPage
+        : K extends "billingState"
+          ? {
+              configured: boolean;
+              modules: string[];
+              status: string;
+              subscribed: boolean;
+            }
+          : K extends "billingCommand"
+            ? { url?: string; ok?: boolean }
+            : K extends "moduleTrust"
+              ? { publicKey: string }
+              : K extends "platformState"
+                ? PlatformState
+                : K extends "moduleArtifact"
+                  ? SignedArtifact
+                  : K extends "platformCommand"
+                    ? {
+                        ok: boolean;
+                        installation?: import("@suite/module-sdk/platform").InstallationReceipt;
+                      }
+                    : K extends
+                          "moduleRequest" | "moduleOperation" | "moduleQuery"
+                      ? unknown
+                      : K extends keyof operations
+                        ? operations[K] extends {
+                            responses: {
+                              200: { content: { "application/json": infer R } };
+                            };
+                          }
+                          ? R
+                          : never
+                        : unknown;
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -138,7 +140,8 @@ export class SuiteClient {
     const controller = new AbortController();
     if (
       (OPERATIONS[request.operation].method === "GET" ||
-        request.operation === "moduleQuery") &&
+        request.operation === "moduleQuery" ||
+        request.operation === "businessCutoverReview") &&
       request.params?.workspaceId
     )
       this.reads.set(controller, request.params.workspaceId);

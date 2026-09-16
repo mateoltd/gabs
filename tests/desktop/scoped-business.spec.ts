@@ -5,15 +5,12 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { moduleServers } from "@suite/module-catalog/server";
 import {
   connectDatabase,
   inWorkspace,
   provisionWorkspace,
-  authorize,
   type Actor,
 } from "../../packages/server-core/src";
-import { migrateLegacyBusinessStorage } from "../../packages/server-core/src/legacy-business-migration";
 import { scopedBusinessFixture } from "../fixtures/scoped-business";
 import { selectValue } from "../e2e/controls.helpers";
 const require = createRequire(resolve("apps/desktop/package.json"));
@@ -58,45 +55,53 @@ test("hidden desktop uses installed scoped business contracts through bounded IP
         kind: "company",
         modules: ["inventory", "orders"],
       });
-      const role = await tx
-        .selectFrom("suite.roles")
-        .selectAll()
-        .where("workspace_id", "=", workspace)
-        .where("name", "=", "Owner")
-        .executeTakeFirstOrThrow();
-      await tx
-        .updateTable("suite.roles")
-        .set({
-          permissions: [
-            ...new Set([
-              ...role.permissions,
-              ...release.inventory.permissions,
-              ...release.orders.permissions,
-            ]),
-          ],
-        })
-        .where("id", "=", role.id)
-        .execute();
-      await tx
-        .insertInto("suite.platform_settings")
-        .values({
-          workspace_id: workspace,
-          key: "grant:orders:inventory",
-          value: {
-            services: ["resolve-products", "reserve", "release", "consume"],
-          },
-          version: 1,
-        })
-        .execute();
-      await migrateLegacyBusinessStorage(
-        tx,
-        await authorize(tx, actor, workspace, randomUUID(), "modules.manage"),
-        { orders: release.version, inventory: release.version },
-        moduleServers,
-      );
     });
     await page.reload();
     await selectValue(page, "Workspace", workspace);
+    await page.getByRole("link", { name: "Modules", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Upgrade business modules", exact: true })
+      .click();
+    await selectValue(page, "Inventory upgrade release", release.version);
+    await selectValue(page, "Orders upgrade release", release.version);
+    await page
+      .getByRole("checkbox", {
+        name: "Owner: inventory.reservations.write",
+        exact: true,
+      })
+      .check();
+    await page
+      .getByRole("checkbox", {
+        name: "Grant Orders access to Inventory services",
+        exact: true,
+      })
+      .check();
+    await page
+      .getByRole("button", { name: "Review upgrade", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Ready to upgrade" }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Apply reviewed upgrade", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        "Orders and Inventory have completed their coordinated upgrade.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page
+        .locator(".module-release-meta")
+        .filter({ hasText: `Version ${release.version}` }),
+    ).toHaveCount(2);
+    await mkdir("docs/verification/business-cutover", { recursive: true });
+    await page.screenshot({
+      path: "docs/verification/business-cutover/desktop.png",
+    });
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+
     await page.getByRole("link", { name: "Inventory", exact: true }).click();
     await page
       .getByRole("button", { name: "Add product", exact: true })

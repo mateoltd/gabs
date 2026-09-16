@@ -153,6 +153,12 @@ Assigned, entitled, published modules install in the background on the next auth
 
 The registry distributes signed contracts, custom React bundles and scoped server artifacts. The [protected operator workflow](module-server-releases.md) submits, reviews, stages and publishes official releases. Exact reviewed backend versions coexist and dispatch against the workspace's selected signed contract. [Per-module storage migrations](module-storage-migrations.md) preserve data on failure and restrict executable rollback to compatible schemas. Interrupted update/repair and schema-safe rollback have local acceptance. Mandatory rollout and hosted trust-rotation acceptance remain open. The fifth-module proof covers independent reviewed executable loading; it is not a hostile-code sandbox. External publisher onboarding remains future scope.
 
+### Coordinated Orders and Inventory upgrade
+
+While a workspace uses the historical business storage, administrators use **Modules → Upgrade business modules** to select published schema-2 releases, explicitly add introduced role permissions and grant the required Inventory services. **Review upgrade** is read-only and checks releases, staged backends, current access, configuration and source consistency. Resolve reported access/denial issues before applying. A changed policy invalidates the review.
+
+**Apply reviewed upgrade** commits selected permissions, service grants and both data migrations together, makes the selected client releases mandatory, and preserves source history. Failed conversion rolls everything back. After an uncertain response, **Retry upgrade** reuses the exact request; reloading also retrieves the durable completion state. Old clients must update and cannot commit against preserved source tables. Offline cached access lasts only through the existing lease. See [acceptance and limits](verification/business-cutover/README.md). Default releases have not yet been promoted to these scoped candidates.
+
 ## Offline and local work
 
 Corporate offline access defaults to a maximum 24-hour authorization lease. Administrators can shorten it or disable it. Devices opt in before persisting corporate records. The web uses IndexedDB; Electron stores AES-256-GCM encrypted record payloads in SQLite in a utility process, with the master key wrapped by OS credential storage. SQLite record keys and database metadata are not encrypted; this is not SQLCipher or a claim of full-file encryption.
