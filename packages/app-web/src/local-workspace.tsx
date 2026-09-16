@@ -1,8 +1,8 @@
 import { Table } from "@suite/ui-web";
 import { useEffect, useState } from "react";
-import { moduleDefinitions } from "@suite/module-catalog";
 import { createModuleClient, type ResourceRecord } from "@suite/module-sdk";
 import {
+  availableLocalModules,
   listLocalProfiles,
   createLocalProfile,
   unlockLocalProfile,
@@ -33,7 +33,9 @@ export function LocalWorkspace({ onExit }: { onExit: () => void }) {
     [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false),
     [removing, setRemoving] = useState(false);
-  const resources = moduleDefinitions.flatMap((m) =>
+  const resources = availableLocalModules(
+    session?.data ?? { records: {} },
+  ).flatMap((m) =>
     Object.entries(m.resources)
       .sort(([a], [b]) =>
         a === m.id ? -1 : b === m.id ? 1 : a.localeCompare(b),

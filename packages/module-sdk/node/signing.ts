@@ -1,3 +1,4 @@
+import { validateLocalArtifact, type LocalBundle } from "../src/local-artifact";
 import { createHash, sign, verify, createPublicKey } from "node:crypto";
 import {
   validateClientArtifacts,
@@ -18,13 +19,16 @@ export function signPackage(
   module: ModuleDefinition,
   privateKey: string,
   client?: ClientBundles,
+  local?: LocalBundle,
 ): SignedPackage {
   const artifact = JSON.parse(JSON.stringify(module)) as Record<
     string,
     unknown
   >;
   if (client && Object.keys(client).length) artifact.client = client;
+  if (local) artifact.local = local;
   validateClientArtifacts(artifact);
+  validateLocalArtifact(artifact);
   const manifest = {
     id: module.id,
     version: module.version,
@@ -80,5 +84,6 @@ export function verifyPackage(pkg: SignedPackage, publicKey: string) {
   )
     throw Error("Module identity does not match its signed manifest.");
   validateClientArtifacts(pkg.artifact);
+  validateLocalArtifact(pkg.artifact);
   return pkg;
 }

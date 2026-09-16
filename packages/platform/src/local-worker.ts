@@ -1,3 +1,4 @@
+import type { SignedArtifact } from "@suite/module-sdk/platform";
 import type { ModuleDefinition } from "@suite/module-sdk";
 import {
   LocalExecutionError,
@@ -22,7 +23,12 @@ export class LocalWorkerHost {
   run(
     module: ModuleDefinition,
     request: LocalRequest,
-    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+    options: {
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      artifact?: { package: SignedArtifact; publicKey: string };
+      inspect?: boolean;
+    } = {},
   ): Promise<LocalResult> {
     if (this.closed)
       return Promise.reject(
@@ -115,7 +121,12 @@ export class LocalWorkerHost {
           );
       });
       try {
-        worker.postMessage({ module, request });
+        worker.postMessage({
+          module,
+          request,
+          artifact: options.artifact,
+          inspect: options.inspect,
+        });
       } catch (error) {
         finish(error);
       }

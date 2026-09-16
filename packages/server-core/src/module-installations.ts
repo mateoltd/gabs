@@ -1,3 +1,4 @@
+import { requiresServer } from "@suite/module-sdk/local-artifact";
 import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import {
@@ -95,7 +96,7 @@ export async function changeDeviceInstallation(
         "DEPENDENCY_POLICY_CONFLICT",
         `${moduleId} requires ${module.id}@${module.version}, but the workspace selects ${selected.version}. Choose compatible version pins before installation.`,
       );
-      if (Object.keys(module.operations).length)
+      if (requiresServer(module))
         requireCondition(
           await stagedModuleServer(tx, module, servers),
           409,

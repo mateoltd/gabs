@@ -11,7 +11,7 @@ export type ClientBundles = Record<string, ClientViewBundle>;
 export function moduleContract(
   artifact: Record<string, unknown>,
 ): ModuleDefinition {
-  const { client: _client, ...contract } = artifact;
+  const { client: _client, local: _local, ...contract } = artifact;
   return contract as unknown as ModuleDefinition;
 }
 

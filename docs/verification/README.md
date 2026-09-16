@@ -269,3 +269,9 @@ The preceding remote checkpoint `35128117193` / `9ea4364` passed functional/brow
 The [SDK-02 worker foundation](local-worker/README.md) passes 138 unit/PostgreSQL tests, typed local/server capability separation, worker CPU cancellation/restart, atomic local receipts, real browser IndexedDB revision/deletion checks and hidden Electron restart. Existing standalone resource saves use workers without layout changes. Independent local executable distribution and installed custom-operation/upgrade journeys remain open.
 
 The preceding scoped-default commit `c4460ce` / [CI 35134819192](https://github.com/mateoltd/gabs/actions/runs/35134819192) passed code/build, three unsigned packaging jobs and 69 browser cases. Screenshot cleanup in the remaining case timed out on a shifting notification index; it now waits for expiry instead. That run skipped load and restore, leaving remote acceptance open.
+
+## Independent local executables, 16 September 2026
+
+[SDK-02 signed local package acceptance](local-executables/README.md) covers independent CLI build/review/publication, authenticated device installation without a server component, worker signature/contract verification and encrypted profile installation/upgrades/receipt recovery. Current source passes 140 unit/PostgreSQL tests, strict checks, four builds, three focused headless browser cases and two minimized native cases. Electron uses the actual packaged worker under its real CSP and recovers an exact receipt after restart. End-user local installation/custom-operation flows and local schema migrations remain open.
+
+Prior CI `35136781563` / `3d42f93` passed code/build, three unsigned packaging jobs and 70/71 browser cases; its upgrade retry selector raced live completion. The focused correction deterministically exercises exact request replay. Load/restore were skipped in that run; OPS-07 stays open.

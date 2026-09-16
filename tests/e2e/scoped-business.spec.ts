@@ -161,9 +161,26 @@ test("migrated business screens use their verified release for stock, orders, co
     });
     await page.setViewportSize({ width: 1440, height: 960 });
     const upgrades: { key: string; body: unknown }[] = [];
+    const beforeUpgrade = await page.request.get(
+      `/api/v1/workspaces/${workspace}/platform`,
+    );
+    expect(beforeUpgrade.status()).toBe(200);
+    const beforeUpgradeBody = await beforeUpgrade.text();
+    let holdCompletion = true;
     await page.route(
       `**/api/v1/workspaces/${workspace}/platform`,
       async (route) => {
+        // Delay the read-side completion event to deterministically exercise a
+        // lost response and manual retry, even when policy delivery is fast.
+        if (route.request().method() === "GET") {
+          if (holdCompletion)
+            return route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: beforeUpgradeBody,
+            });
+          return route.continue();
+        }
         if (route.request().postDataJSON()?.action !== "business-cutover")
           return route.continue();
         upgrades.push({
@@ -174,29 +191,20 @@ test("migrated business screens use their verified release for stock, orders, co
           const accepted = await route.fetch();
           expect(accepted.status(), await accepted.text()).toBe(200);
           await route.abort("failed");
-        } else await route.continue();
+        } else {
+          holdCompletion = false;
+          await route.continue();
+        }
       },
     );
     await page
       .getByRole("button", { name: "Apply reviewed upgrade", exact: true })
       .click();
-    // Policy events can reveal the committed completion before a manual retry.
-    await expect(
-      page
-        .getByRole("button", { name: "Retry upgrade", exact: true })
-        .or(page.getByRole("button", { name: "Done", exact: true })),
-    ).toBeVisible();
-    if (
-      await page
-        .getByRole("button", { name: "Retry upgrade", exact: true })
-        .isVisible()
-    ) {
-      await page
-        .getByRole("button", { name: "Retry upgrade", exact: true })
-        .click();
-      expect(upgrades).toHaveLength(2);
-      expect(upgrades[1]).toEqual(upgrades[0]);
-    }
+    await page
+      .getByRole("button", { name: "Retry upgrade", exact: true })
+      .click();
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1]).toEqual(upgrades[0]);
     await expect(
       page.getByText(
         "Orders and Inventory have completed their coordinated upgrade.",

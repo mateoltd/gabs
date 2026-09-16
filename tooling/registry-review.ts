@@ -1,3 +1,4 @@
+import { requiresServer } from "@suite/module-sdk/local-artifact";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { hydrateModule } from "@suite/module-sdk";
@@ -81,11 +82,7 @@ function verifySubmission(
     if (canonical(row.server_package.payload.module) !== canonical(module))
       throw Error("Client and server contracts must match exactly.");
   }
-  if (
-    (Object.keys(module.operations).length ||
-      Object.keys(module.storage?.migrations ?? {}).length) &&
-    row.backend_kind === "none"
-  )
+  if (requiresServer(module) && row.backend_kind === "none")
     throw Error(
       "Operation-bearing submissions and storage migrations require a signed server component.",
     );

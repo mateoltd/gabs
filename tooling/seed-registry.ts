@@ -1,3 +1,5 @@
+import { requiresServer } from "@suite/module-sdk/local-artifact";
+import { buildLocalBundle } from "../packages/module-sdk/node/build-local";
 import { generateKeyPairSync, createPublicKey } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { moduleServers } from "@suite/module-catalog/server";
@@ -55,7 +57,15 @@ export async function seedRegistry(db: Pool) {
   );
   for (const module of releases.values()) {
     const client = await buildClientViews(module, `modules/${module.id}`);
-    const pkg = verifyPackage(signPackage(module, privateKey, client), trusted);
+    const pkg = verifyPackage(
+      signPackage(
+        module,
+        privateKey,
+        client,
+        await buildLocalBundle(module, `modules/${module.id}`),
+      ),
+      trusted,
+    );
     const old = (
       await db.query(
         "select digest from suite.module_releases where module_id=$1 and version=$2",
@@ -72,7 +82,7 @@ export async function seedRegistry(db: Pool) {
       pkg,
       null,
       trusted,
-      Object.keys(module.operations).length > 0,
+      requiresServer(module),
     );
     await reviewRelease(
       db,

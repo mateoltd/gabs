@@ -1,3 +1,4 @@
+import { requiresServer } from "@suite/module-sdk/local-artifact";
 import { verifyPackage } from "../../module-sdk/node/signing";
 import { sql } from "kysely";
 import {
@@ -62,7 +63,7 @@ export async function compatibleClientRelease(
       .executeTakeFirst(),
   );
   assertSchema(module.configuration, activation.config);
-  if (Object.keys(module.operations).length) {
+  if (requiresServer(module)) {
     const server = await stagedModuleServer(tx, module, servers);
     requireCondition(
       server && canonical(server.module) === canonical(module),

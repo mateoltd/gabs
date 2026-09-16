@@ -13,7 +13,9 @@
     "./simulator": "./src/simulator.ts",
     "./ui": "./src/ui.ts",
     "./client-artifact": "./src/client-artifact.ts",
-    "./local": "./src/local.ts"
+    "./local": "./src/local.ts",
+    "./local-artifact": "./src/local-artifact.ts",
+    "./verification": "./src/verification.ts"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",

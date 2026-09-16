@@ -534,8 +534,13 @@ export function hydrateSchema(schema: TSchema): TSchema {
   return { ...copy, [Symbol.for("TypeBox.Kind")]: kind };
 }
 export function hydrateModule(module: ModuleDefinition): ModuleDefinition {
-  const { client: _client, ...contract } = module as ModuleDefinition & {
+  const {
+    client: _client,
+    local: _local,
+    ...contract
+  } = module as ModuleDefinition & {
     client?: unknown;
+    local?: unknown;
   };
   return defineModule({
     ...contract,

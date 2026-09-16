@@ -1,3 +1,5 @@
+import { buildLocalBundle } from "../packages/module-sdk/node/build-local";
+import { requiresServer } from "@suite/module-sdk/local-artifact";
 import { buildClientViews } from "../packages/module-sdk/node/build-client";
 import { buildServerPackage } from "../packages/module-sdk/node/build-server";
 import {
@@ -201,14 +203,12 @@ if (command === "keygen") {
     module,
     key,
     await buildClientViews(module, directory),
+    await buildLocalBundle(module, directory),
   );
   await mkdir(".local/modules", { recursive: true });
   const path = `.local/modules/${module.id}-${module.version}.json`;
   await writeFile(path, JSON.stringify(pkg, null, 2));
-  if (
-    Object.keys(module.operations).length ||
-    Object.keys(module.storage?.migrations ?? {}).length
-  ) {
+  if (requiresServer(module)) {
     const builtin = moduleServers.find(
       (server) =>
         server.kind === "trusted" &&
