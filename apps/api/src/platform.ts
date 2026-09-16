@@ -3,17 +3,15 @@ import { moduleServers } from "@suite/module-catalog/server";
 import {
   resolveWorkspaceRelease,
   workspaceModule,
+  workspaceBusinessPermissions,
+  workspaceDependencyIds,
+  registeredModuleIds,
 } from "../../../packages/server-core/src/module-releases";
 import { readFile } from "node:fs/promises";
 import { verifyPackage } from "../../../packages/module-sdk/node/signing";
 import type { FastifyInstance } from "fastify";
 import { Type as T, refreshModuleCatalog } from "@suite/contracts";
-import {
-  moduleDefinitions,
-  moduleDefinition,
-  moduleDependencies,
-  registerModule,
-} from "@suite/module-catalog";
+import { moduleDefinition, registerModule } from "@suite/module-catalog";
 import {
   assertSchema,
   ValidationError,
@@ -316,22 +314,13 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         const admin = ctx.permissions.includes("modules.manage");
         // Include releases published after server startup; executable client-only
         // modules require neither a host rebuild nor a server restart.
-        const publishedIds = await tx
-          .selectFrom("suite.module_releases")
-          .select("module_id")
-          .distinct()
-          .execute();
-        const candidates = [
-          ...new Set([
-            ...moduleDefinitions.map((m) => m.id),
-            ...publishedIds.map((r) => r.module_id),
-          ]),
-        ];
+        const candidates = await registeredModuleIds(tx);
         const definitions = await Promise.all(
           candidates
             .filter(
               (m) =>
                 admin ||
+                ctx.permissions.includes("roles.manage") ||
                 activations.some(
                   (a) => a.module_id === m && a.state === "enabled",
                 ),
@@ -514,7 +503,11 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 ),
                 value,
               );
-              const module = found(moduleDefinition(value.moduleId));
+              const module = await workspaceModule(
+                tx,
+                ctx.workspaceId,
+                value.moduleId,
+              );
               if (req.body.action === "install")
                 await checkModule(
                   tx,
@@ -555,12 +548,15 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                   .where("device_id", "=", value.deviceId)
                   .where("state", "=", "installed")
                   .execute();
+                const dependents = await Promise.all(
+                  existing
+                    .filter((m) => m.module_id !== module.id)
+                    .map((m) =>
+                      workspaceDependencyIds(tx, ctx.workspaceId, m.module_id),
+                    ),
+                );
                 requireCondition(
-                  !existing.some(
-                    (m) =>
-                      m.module_id !== module.id &&
-                      moduleDependencies(m.module_id).includes(module.id),
-                  ),
+                  !dependents.some((ids) => ids.includes(module.id)),
                   409,
                   "DEPENDENTS_INSTALLED",
                   "Uninstall dependent modules first.",
@@ -649,11 +645,19 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 ...policy.ranks.flatMap((r) => r.denies),
                 ...policy.groups.flatMap((g) => [...g.grants, ...g.denies]),
               ];
+              const businessPermissions = await workspaceBusinessPermissions(
+                tx,
+                ctx.workspaceId,
+              );
               requireCondition(
-                requested.every((p) => ctx.permissions.includes(p)),
+                requested.every(
+                  (p) =>
+                    ctx.permissions.includes(p) ||
+                    businessPermissions.includes(p),
+                ),
                 403,
                 "DELEGATION_FORBIDDEN",
-                "You may only administer permissions you hold.",
+                "You may administer registered business permissions and platform permissions you hold.",
               );
               key = "organization";
             } else if (req.body.action === "grant") {
@@ -671,9 +675,13 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 ),
                 value,
               );
+              const source = await workspaceModule(
+                tx,
+                ctx.workspaceId,
+                value.source,
+              );
               requireCondition(
-                value.target in
-                  found(moduleDefinition(value.source)).dependencies,
+                value.target in source.dependencies,
                 400,
                 "UNDECLARED_DEPENDENCY",
                 "The module must declare this dependency.",
@@ -719,7 +727,12 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 ),
                 value,
               );
-              found(moduleDefinition(value.moduleId));
+              requireCondition(
+                (await registeredModuleIds(tx)).includes(value.moduleId),
+                404,
+                "NOT_FOUND",
+                "This module is not registered.",
+              );
               if (value.version) {
                 const release = await tx
                   .selectFrom("suite.module_releases")
@@ -811,7 +824,11 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           undefined,
           req.params.moduleId,
         );
-        const module = found(moduleDefinition(req.params.moduleId));
+        const module = await workspaceModule(
+          tx,
+          ctx.workspaceId,
+          req.params.moduleId,
+        );
         const release = found(
           (await resolveWorkspaceRelease(tx, ctx.workspaceId, module.id)).find(
             (p) => p.module_id === module.id,

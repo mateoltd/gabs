@@ -131,3 +131,7 @@ Migration 013 revokes registry writes from ordinary application/worker roles. Th
 EXT-02 now has an official CLI submission/review/stage/publish workflow and independently signed server loading. PostgreSQL acceptance verifies immutable review, restricted publication, failed staging, retry deduplication, atomic rejection, current permissions and pinned executable versions. The fifth module exercises client and server publication through the CLI and actual web/native UIs against the compiled API.
 
 Final local verification: 63 unit/integration tests, 55 Chromium journeys, 5 Electron journeys, all builds and formatting; fresh migrations/seed and local logical restore passed. Local p95 reads/confirmation: 212/258 ms against unchanged 500/1000 ms targets. The preceding remote commit failed the read latency target despite passing its browser and all unsigned packaging jobs. [Detailed evidence and remaining limits](module-server-releases/README.md).
+
+## 16 September 2026: administrator activation of new modules
+
+The existing-company activation journey now verifies configuration, entitlement rejection, employee visibility, dynamic permissions, member assignment and independently deployed server behavior. Full local acceptance passed 63 unit/PostgreSQL tests, 56 Chromium journeys, 5 Electron journeys, all builds and formatting. [Scope, screenshots and limits](module-activation/README.md). EXT-02 and the overall parity goal remain active; the publisher review interface, migration recovery and other release gates are still open.

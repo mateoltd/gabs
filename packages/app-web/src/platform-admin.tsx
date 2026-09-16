@@ -99,6 +99,7 @@ export function ModuleLifecycle(
   };
   const install = (id: string) => installModule(props, state.data!, id, true);
   if (state.isPending) return <Loading />;
+  const selectedModule = state.data?.modules.find((m) => m.id === selected);
   const store = state.data?.settings.find((s) => s.key === "store-policy");
   if (!admin && store?.value.mode === "blocked")
     return (
@@ -243,23 +244,24 @@ export function ModuleLifecycle(
         onOpenChange={(v) => {
           if (!v) setSelected("");
         }}
-        title={`Configure ${moduleDefinition(selected)?.name ?? selected}`}
+        title={`Configure ${selectedModule?.name ?? selected}`}
         description="Configure required parameters, review grants, and publish to employees."
       >
-        {selected && (
+        {selectedModule && (
           <div className="form-stack">
             <SchemaForm
-              schema={moduleDefinition(selected)!.configuration as FormSchema}
+              schema={selectedModule.configuration as FormSchema}
               value={config}
               onChange={setConfig}
             />
+            <ErrorMessage error={error} />
             <Button
               disabled={!!busy}
               onClick={() =>
                 void act(selected, async () => {
                   const activation = props.bootstrap.modules.find(
                     (m) => m.moduleId === selected,
-                  )!;
+                  );
                   await props.client.request({
                     operation: "moduleEdit",
                     params: {
@@ -268,7 +270,7 @@ export function ModuleLifecycle(
                     },
                     body: {
                       state: "enabled",
-                      accessPolicy: activation.accessPolicy,
+                      accessPolicy: activation?.accessPolicy ?? "admin",
                       config,
                     },
                   });
@@ -278,63 +280,60 @@ export function ModuleLifecycle(
             >
               Validate and publish
             </Button>
-            {Object.keys(moduleDefinition(selected)!.dependencies).map(
-              (dep) => {
-                const grant = state.data?.settings.find(
-                  (s) => s.key === `grant:${selected}:${dep}`,
-                );
-                const services = Array.isArray(grant?.value.services)
-                  ? (grant.value.services as string[])
-                  : [];
-                const publicOperations = Object.entries(
-                  state.data?.modules.find((m) => m.id === dep)?.operations ??
-                    {},
-                ).filter(([, op]) => op.public);
-                return (
-                  <div key={dep} className="space-y-3">
-                    <Field label={`Reference records in ${dep}`}>
+            {Object.keys(selectedModule.dependencies).map((dep) => {
+              const grant = state.data?.settings.find(
+                (s) => s.key === `grant:${selected}:${dep}`,
+              );
+              const services = Array.isArray(grant?.value.services)
+                ? (grant.value.services as string[])
+                : [];
+              const publicOperations = Object.entries(
+                state.data?.modules.find((m) => m.id === dep)?.operations ?? {},
+              ).filter(([, op]) => op.public);
+              return (
+                <div key={dep} className="space-y-3">
+                  <Field label={`Reference records in ${dep}`}>
+                    <Checkbox
+                      checked={grant?.value.read === true}
+                      disabled={!!busy}
+                      onCheckedChange={(read) =>
+                        void act(selected, () =>
+                          command(
+                            "grant",
+                            { source: selected, target: dep, read, services },
+                            grant?.version ?? 0,
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                  {publicOperations.map(([name, op]) => (
+                    <Field key={name} label={`Allow ${dep}: ${op.title}`}>
                       <Checkbox
-                        checked={grant?.value.read === true}
+                        checked={services.includes(name)}
                         disabled={!!busy}
-                        onCheckedChange={(read) =>
+                        onCheckedChange={(allowed) =>
                           void act(selected, () =>
                             command(
                               "grant",
-                              { source: selected, target: dep, read, services },
+                              {
+                                source: selected,
+                                target: dep,
+                                read: grant?.value.read === true,
+                                services: allowed
+                                  ? [...services, name]
+                                  : services.filter((s) => s !== name),
+                              },
                               grant?.version ?? 0,
                             ),
                           )
                         }
                       />
                     </Field>
-                    {publicOperations.map(([name, op]) => (
-                      <Field key={name} label={`Allow ${dep}: ${op.title}`}>
-                        <Checkbox
-                          checked={services.includes(name)}
-                          disabled={!!busy}
-                          onCheckedChange={(allowed) =>
-                            void act(selected, () =>
-                              command(
-                                "grant",
-                                {
-                                  source: selected,
-                                  target: dep,
-                                  read: grant?.value.read === true,
-                                  services: allowed
-                                    ? [...services, name]
-                                    : services.filter((s) => s !== name),
-                                },
-                                grant?.version ?? 0,
-                              ),
-                            )
-                          }
-                        />
-                      </Field>
-                    ))}
-                  </div>
-                );
-              },
-            )}
+                  ))}
+                </div>
+              );
+            })}
             <Field label="Pinned version (empty follows current release)">
               <Input value={pin} onChange={(e) => setPin(e.target.value)} />
             </Field>
@@ -353,7 +352,6 @@ export function ModuleLifecycle(
             >
               Save update policy
             </Button>
-            <ErrorMessage error={error} />
           </div>
         )}
       </Modal>

@@ -1,7 +1,12 @@
-import { moduleDependencies, moduleDefinition } from "@suite/module-catalog";
 import { assertSchema } from "@suite/module-sdk";
 import { randomUUID } from "node:crypto";
-import { BUSINESS_PERMISSIONS, type Bootstrap } from "@suite/contracts";
+import { type Bootstrap } from "@suite/contracts";
+import {
+  workspaceModule,
+  workspaceDependencyIds,
+  workspaceBusinessPermissions,
+  registeredModuleIds,
+} from "./module-releases";
 import { type Tx } from "./database";
 import { type Context, lockWorkspace } from "./authorization";
 import { found, requireCondition } from "./errors";
@@ -14,16 +19,41 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
       .where("id", "=", ctx.workspaceId)
       .executeTakeFirst(),
   );
-  const modules = await tx
-    .selectFrom("suite.module_activations as m")
-    .innerJoin("suite.entitlements as e", (j) =>
-      j
-        .onRef("m.workspace_id", "=", "e.workspace_id")
-        .onRef("m.module_id", "=", "e.module_id"),
-    )
-    .select(["m.module_id", "m.state", "m.access_policy", "e.active"])
-    .where("m.workspace_id", "=", ctx.workspaceId)
-    .execute();
+  const [activations, entitlements] = await Promise.all([
+    tx
+      .selectFrom("suite.module_activations")
+      .select(["module_id", "state", "access_policy"])
+      .where("workspace_id", "=", ctx.workspaceId)
+      .execute(),
+    tx
+      .selectFrom("suite.entitlements")
+      .select(["module_id", "active"])
+      .where("workspace_id", "=", ctx.workspaceId)
+      .execute(),
+  ]);
+  const modules = [
+    ...new Set([
+      ...activations.map((m) => m.module_id),
+      ...entitlements.map((m) => m.module_id),
+    ]),
+  ].map((id) => ({
+    module_id: id,
+    state: activations.find((m) => m.module_id === id)?.state ?? "draft",
+    access_policy:
+      activations.find((m) => m.module_id === id)?.access_policy ?? "admin",
+    active: entitlements.find((m) => m.module_id === id)?.active ?? false,
+  }));
+  const admin = ctx.permissions.includes("modules.manage");
+  const visibleIds = admin
+    ? [
+        ...new Set([
+          ...(await registeredModuleIds(tx)),
+          ...modules.map((m) => m.module_id),
+        ]),
+      ]
+    : modules
+        .filter((m) => m.state === "enabled" && m.active)
+        .map((m) => m.module_id);
   const assigned = await tx
     .selectFrom("suite.module_assignments")
     .select("module_id")
@@ -47,19 +77,16 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
     },
     permissions: ctx.permissions,
     roleNames: ctx.roleNames,
-    modules: modules
-      .filter(
-        (m) =>
-          ctx.permissions.includes("modules.manage") ||
-          (m.state === "enabled" && m.active),
-      )
-      .map((m) => ({
-        moduleId: m.module_id,
-        state: m.state,
-        accessPolicy: m.access_policy,
-        entitled: m.active,
-        assigned: assigned.some((a) => a.module_id === m.module_id),
-      })) as Bootstrap["modules"],
+    modules: visibleIds.map((id) => {
+      const m = modules.find((m) => m.module_id === id);
+      return {
+        moduleId: id,
+        state: m?.state ?? "draft",
+        accessPolicy: m?.access_policy ?? "admin",
+        entitled: m?.active ?? false,
+        assigned: assigned.some((a) => a.module_id === id),
+      };
+    }) as Bootstrap["modules"],
     offlineHours: w.offline_hours,
     seatLimit: w.seat_limit,
     memberCount: Number(count.n),
@@ -120,7 +147,15 @@ export async function assignModules(
   membershipId: string,
   moduleIds: string[],
 ) {
-  const ids = [...new Set(moduleIds.flatMap((id) => moduleDependencies(id)))];
+  const ids = [
+    ...new Set(
+      (
+        await Promise.all(
+          moduleIds.map((id) => workspaceDependencyIds(tx, workspaceId, id)),
+        )
+      ).flat(),
+    ),
+  ];
   for (const id of ids) {
     const module = await tx
       .selectFrom("suite.module_activations as m")
@@ -320,10 +355,9 @@ export async function saveRole(
   input: { name: string; permissions: string[] },
   id?: string,
 ) {
+  const permitted = await workspaceBusinessPermissions(tx, ctx.workspaceId);
   requireCondition(
-    input.permissions.every((p) =>
-      (BUSINESS_PERMISSIONS as string[]).includes(p),
-    ),
+    input.permissions.every((p) => permitted.includes(p)),
     400,
     "INVALID_PERMISSION",
     "Custom roles can grant registered business permissions only.",
@@ -613,34 +647,31 @@ export async function configureModule(
   },
 ) {
   await lockWorkspace(tx, ctx.workspaceId);
-  const entitlement = found(
-    await tx
-      .selectFrom("suite.entitlements")
-      .select("active")
-      .where("workspace_id", "=", ctx.workspaceId)
-      .where("module_id", "=", id)
-      .executeTakeFirst(),
-  );
+  const definition = await workspaceModule(tx, ctx.workspaceId, id);
+  const entitlement = await tx
+    .selectFrom("suite.entitlements")
+    .select("active")
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("module_id", "=", id)
+    .executeTakeFirst();
+  const existing = await tx
+    .selectFrom("suite.module_activations")
+    .select("config")
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("module_id", "=", id)
+    .executeTakeFirst();
+  const config = input.config ?? existing?.config ?? {};
   if (input.state === "enabled") {
-    const existing = await tx
-      .selectFrom("suite.module_activations")
-      .select("config")
-      .where("workspace_id", "=", ctx.workspaceId)
-      .where("module_id", "=", id)
-      .executeTakeFirstOrThrow();
-    assertSchema(
-      found(moduleDefinition(id)).configuration,
-      input.config ?? existing.config,
-    );
+    assertSchema(definition.configuration, config);
     requireCondition(
-      entitlement.active,
+      entitlement?.active,
       409,
       "NOT_ENTITLED",
       "This module is not included in the workspace entitlement.",
     );
-    for (const dependency of Object.keys(
-      moduleDefinition(id)?.dependencies ?? {},
-    )) {
+    for (const dependency of (
+      await workspaceDependencyIds(tx, ctx.workspaceId, id)
+    ).filter((dependency) => dependency !== id)) {
       const inventory = await tx
         .selectFrom("suite.module_activations as m")
         .innerJoin("suite.entitlements as e", (j) =>
@@ -661,14 +692,21 @@ export async function configureModule(
     }
   }
   await tx
-    .updateTable("suite.module_activations")
-    .set({
+    .insertInto("suite.module_activations")
+    .values({
+      workspace_id: ctx.workspaceId,
+      module_id: id,
       state: input.state,
       access_policy: input.accessPolicy,
-      ...(input.config ? { config: input.config } : {}),
+      config,
     })
-    .where("workspace_id", "=", ctx.workspaceId)
-    .where("module_id", "=", id)
+    .onConflict((oc) =>
+      oc.columns(["workspace_id", "module_id"]).doUpdateSet({
+        state: input.state,
+        access_policy: input.accessPolicy,
+        config,
+      }),
+    )
     .execute();
   await audit(tx, ctx, "modules.configured", id);
   return { ok: true };
@@ -707,7 +745,7 @@ export async function requestAccess(
     "An administrator must assign this module.",
   );
   // Validate readiness without granting access yet.
-  const required = moduleDependencies(moduleId);
+  const required = await workspaceDependencyIds(tx, ctx.workspaceId, moduleId);
   for (const id of required) {
     const m = await tx
       .selectFrom("suite.module_activations as m")

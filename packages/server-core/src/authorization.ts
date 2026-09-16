@@ -2,11 +2,11 @@ import {
   effectivePermissions,
   type OrganizationPolicy,
 } from "@suite/module-sdk/governance";
-import { moduleDependencies, moduleDefinition } from "@suite/module-catalog";
+import { moduleDefinition } from "@suite/module-catalog";
 import { sql } from "kysely";
 import type { Tx } from "./database";
 import { requireCondition } from "./errors";
-import { resolveWorkspaceRelease } from "./module-releases";
+import { workspaceDependencyIds } from "./module-releases";
 import type { Permission, ModuleId } from "@suite/contracts";
 export interface Actor {
   id: string;
@@ -114,15 +114,7 @@ export async function checkModule(
   membershipId: string,
   moduleId: ModuleId,
 ) {
-  const releases = await resolveWorkspaceRelease(
-    tx,
-    workspaceId,
-    moduleId,
-    true,
-  );
-  const ids = releases.length
-    ? releases.map((r) => r.module_id)
-    : moduleDependencies(moduleId);
+  const ids = await workspaceDependencyIds(tx, workspaceId, moduleId);
   const modules = await tx
     .selectFrom("suite.module_activations as m")
     .innerJoin("suite.entitlements as e", (j) =>

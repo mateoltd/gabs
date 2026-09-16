@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { moduleDefinition } from "@suite/module-catalog";
+import {
+  moduleDefinition,
+  moduleDefinitions,
+  moduleDependencies,
+} from "@suite/module-catalog";
+import { PLATFORM_PERMISSIONS } from "@suite/contracts";
 import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
 import {
   resolveReleases,
@@ -71,5 +76,46 @@ export async function workspaceModule(
   return hydrateModule(
     found(plan.find((p) => p.module_id === id))
       .artifact as unknown as ModuleDefinition,
+  );
+}
+
+export async function workspaceDependencyIds(
+  tx: Tx,
+  workspaceId: string,
+  id: string,
+) {
+  const plan = await resolveWorkspaceRelease(tx, workspaceId, id, true);
+  if (plan.length) return plan.map((release) => release.module_id);
+  found(moduleDefinition(id));
+  return moduleDependencies(id);
+}
+
+export async function registeredModuleIds(tx: Tx) {
+  const published = await tx
+    .selectFrom("suite.module_releases")
+    .select("module_id")
+    .distinct()
+    .execute();
+  return [
+    ...new Set([
+      ...moduleDefinitions.map((m) => m.id),
+      ...published.map((r) => r.module_id),
+    ]),
+  ];
+}
+
+/** Both policy editors validate against the workspace's selected signed contracts. */
+export async function workspaceBusinessPermissions(
+  tx: Tx,
+  workspaceId: string,
+) {
+  const definitions = await Promise.all(
+    (await registeredModuleIds(tx)).map((id) =>
+      workspaceModule(tx, workspaceId, id),
+    ),
+  );
+  return [...new Set(definitions.flatMap((m) => m.permissions))].filter(
+    (permission) =>
+      !(PLATFORM_PERMISSIONS as readonly string[]).includes(permission),
   );
 }

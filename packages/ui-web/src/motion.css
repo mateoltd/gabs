@@ -170,13 +170,6 @@
 .results-motion-content {
   min-width: 0;
   min-height: 0;
-  transition: opacity var(--duration-quick) ease-out;
-}
-.results-motion[aria-busy="true"] > .results-motion-content {
-  opacity: 0.5;
-}
-.results-motion:has(.content-skeleton) > .results-motion-content {
-  opacity: 1;
 }
 #order-results > .results-motion-content {
   display: flex;

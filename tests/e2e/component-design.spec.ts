@@ -28,6 +28,15 @@ test("breadcrumb navigates and the separate rail menu switches workspaces", asyn
     "Orders",
   );
   await expect(breadcrumb.locator("[aria-haspopup]")).toHaveCount(0);
+  const results = page.locator("#order-results");
+  await expect(results).toHaveAttribute("aria-busy", "false");
+  await results.evaluate(async (element) => {
+    await Promise.all(
+      element
+        .getAnimations({ subtree: true })
+        .map((animation) => animation.finished),
+    );
+  });
   const workspace = page.locator(".sidebar").getByRole("button", {
     name: "Switch workspace",
     exact: true,

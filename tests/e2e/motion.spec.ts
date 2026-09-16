@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { selectValue } from "./controls.helpers";
 
 test.use({ serviceWorkers: "block" });
@@ -181,6 +182,17 @@ test("pagination retains rows during a slow request and returns to the previous 
     page.getByRole("button", { name: "Next page", exact: true }),
   ).toBeDisabled();
   expect((await table.boundingBox())?.height).toBe(before?.height);
+  await expect(
+    page.locator("#inventory-results > .results-motion-content"),
+  ).toHaveCSS("opacity", "1");
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .include("#inventory-results")
+        .withRules(["color-contrast"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
   release();
   await expect(
     page.getByText("Second page product", { exact: true }),

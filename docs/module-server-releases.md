@@ -15,6 +15,14 @@ The registry now keeps immutable client/server submissions, review decisions, st
 
 Buying, organization activation/configuration, permission grants, user assignment and device installation remain separate. Registry publication no longer mutates every company's roles or activation records. Administrators grant access in their own workspace. Ordinary employees cannot turn registry publication into runtime access.
 
+## Organization activation
+
+After registry publication, an administrator can discover the release in Modules even if the company predates the module. Configure validates the workspace's selected signed schema and enabled dependencies. Publishing requires an active entitlement and creates the company activation record when it does not exist. Employees do not see draft modules.
+
+People & access derives business permissions and module assignments from the same release catalogue. Create a role with the module's declared permissions, then assign the role and module to a member. Assignment does not implicitly grant operation permissions. Opening an authorized module uses the normal verified installation path. Purchasing an entitlement remains a separate commerce step.
+
+[Browser acceptance](verification/module-activation/README.md) exercises this path without inserting activation rows, role permissions or module assignments as fixtures.
+
 ## Executable server contract
 
 `module-server.ts` exports `defineModuleServer(module)({...handlers})` using public scoped capabilities. The compiler produces a self-contained `suite-server-v1` factory and shares the host SDK, including runtime validators and typed business errors. Source imports stay within the module or the public SDK. The artifact signature covers the exact module contract, JavaScript and format. Server code is not included in client downloads.

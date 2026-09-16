@@ -4,10 +4,13 @@ import { resolve } from "node:path";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 
 /** Every acceptance publication is immutable, including after fixture source changes. */
-export async function publishExecutableFixture(): Promise<SignedArtifact> {
+export async function publishExecutableFixture(
+  options: { id?: string; name?: string; requiredPrefix?: boolean } = {},
+): Promise<SignedArtifact> {
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(resolve(".local/executable-fixture-"));
   const version = `1.0.${Date.now()}`;
+  const id = options.id ?? "custom-notes";
   try {
     for (const name of [
       "module.ts",
@@ -21,10 +24,28 @@ export async function publishExecutableFixture(): Promise<SignedArtifact> {
       );
       if (name === "module.ts")
         source = source.replace('version: "1.0.0"', `version: "${version}"`);
+      source = source
+        .replaceAll("custom-notes", id)
+        .replaceAll("Custom notes", options.name ?? "Custom notes");
+      if (options.requiredPrefix && name === "module.ts") {
+        const configuration =
+          "configuration: Type.Object({}, { additionalProperties: false }),";
+        if (!source.includes(configuration))
+          throw Error("Fixture configuration template changed.");
+        source = source.replace(
+          configuration,
+          "configuration: Type.Object({ prefix: Type.String({ minLength: 1 }) }, { additionalProperties: false }),",
+        );
+      }
+      if (options.requiredPrefix && name === "module-server.ts")
+        source = source.replace(
+          ".create(input)",
+          ".create({ name: ctx.configuration.prefix + input.name })",
+        );
       await writeFile(resolve(directory, name), source);
     }
     execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });
-    const artifactPath = `.local/modules/custom-notes-${version}.json`;
+    const artifactPath = `.local/modules/${id}-${version}.json`;
     const submission = execFileSync(
       "pnpm",
       [

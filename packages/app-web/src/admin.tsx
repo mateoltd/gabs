@@ -1,5 +1,9 @@
 import { Table } from "@suite/ui-web";
-import { ModuleLifecycle, Appearance } from "./platform-admin";
+import {
+  ModuleLifecycle,
+  Appearance,
+  usePlatformState,
+} from "./platform-admin";
 import { moduleDefinition } from "@suite/module-catalog";
 import {
   useToast,
@@ -51,6 +55,7 @@ import {
 import { type FeatureProps } from "@suite/platform";
 import {
   BUSINESS_PERMISSIONS,
+  PLATFORM_PERMISSIONS,
   type Static,
   type Permission,
   type MemberSchema,
@@ -80,6 +85,13 @@ const permissionLabels: Record<Permission, string> = {
 const permissionLabel = (permission: string) =>
   permissionLabels[permission as Permission] ?? permission;
 export function People(props: FeatureProps) {
+  const moduleState = usePlatformState(props);
+  const businessPermissions = [
+    ...new Set(
+      moduleState.data?.modules.flatMap((m) => m.permissions) ??
+        BUSINESS_PERMISSIONS,
+    ),
+  ].filter((p) => !(PLATFORM_PERMISSIONS as readonly string[]).includes(p));
   const { client, scope, bootstrap, onError } = props,
     params = { workspaceId: scope.workspaceId },
     qc = useQueryClient();
@@ -649,24 +661,46 @@ export function People(props: FeatureProps) {
             </fieldset>
             <fieldset>
               <legend>Module assignments</legend>
-              {["inventory", "orders"].map((id) => (
-                <label key={id} className="check-row">
-                  <Checkbox
-                    checked={member.modules.includes(id)}
-                    onCheckedChange={(e) =>
-                      setMember({
-                        ...member,
-                        modules: e
-                          ? [...member.modules, id]
-                          : member.modules.filter((m) => m !== id),
-                      })
-                    }
-                  />
-                  {id === "orders"
-                    ? "Orders (includes Inventory)"
-                    : "Inventory"}
-                </label>
-              ))}
+              {moduleState.data?.modules.map((module) => {
+                const activation = bootstrap.modules.find(
+                  (m) => m.moduleId === module.id,
+                );
+                const ready =
+                  activation?.entitled && activation.state === "enabled";
+                const dependencies = Object.keys(module.dependencies).map(
+                  (id) =>
+                    moduleState.data?.modules.find((m) => m.id === id)?.name ??
+                    id,
+                );
+                return (
+                  <label key={module.id} className="check-row">
+                    <Checkbox
+                      checked={member.modules.includes(module.id)}
+                      disabled={!ready && !member.modules.includes(module.id)}
+                      onCheckedChange={(checked) =>
+                        setMember({
+                          ...member,
+                          modules: checked
+                            ? [...member.modules, module.id]
+                            : member.modules.filter((id) => id !== module.id),
+                        })
+                      }
+                    />
+                    <span>
+                      {module.name}
+                      {dependencies.length
+                        ? ` (includes ${dependencies.join(", ")})`
+                        : ""}
+                      {!ready && (
+                        <span className="small muted">
+                          : requires an enabled license and publication
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+              <ErrorMessage error={moduleState.error} />
             </fieldset>
             <label className="check-row">
               <Checkbox
@@ -731,7 +765,7 @@ export function People(props: FeatureProps) {
             <legend>Allowed actions</legend>
             {(role !== "new" && role?.protected
               ? role.permissions
-              : BUSINESS_PERMISSIONS
+              : businessPermissions
             ).map((p) => (
               <label className="check-row" key={p}>
                 <Checkbox
@@ -753,7 +787,11 @@ export function People(props: FeatureProps) {
           <ErrorMessage error={error} />
           {(role === "new" || !role?.protected) && (
             <div className="form-footer">
-              <Button variant="primary" disabled={busy} type="submit">
+              <Button
+                variant="primary"
+                disabled={busy || moduleState.isPending || !!moduleState.error}
+                type="submit"
+              >
                 Save role
               </Button>
             </div>
