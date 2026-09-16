@@ -119,7 +119,13 @@ describe("Independent module distribution", () => {
         headers,
         payload: {
           action: "install",
-          value: { moduleId: id, deviceId },
+          value: {
+            moduleId: id,
+            deviceId,
+            releases: [
+              { moduleId: id, version: pkg.version, digest: pkg.digest },
+            ],
+          },
         },
       });
       expect(install.statusCode).toBe(200);

@@ -7,7 +7,11 @@ import { registerModule } from "@suite/module-catalog";
 import type { FeatureProps } from "@suite/platform";
 import { readModuleStorage } from "@suite/platform/module-storage";
 import { Loading, Empty, ErrorMessage, Button } from "@suite/ui-web";
-import { installModule, deviceId, verifyArtifact } from "./module-installation";
+import {
+  installModule,
+  deviceId,
+  verifiedInstalledModule,
+} from "./module-installation";
 export function ModuleGate(
   props: FeatureProps & {
     moduleId: string;
@@ -19,7 +23,7 @@ export function ModuleGate(
         }) => ReactNode);
   },
 ) {
-  const query = useQuery({
+  const query = useQuery<false | { pkg: SignedArtifact; publicKey: string }>({
     networkMode: "always",
     staleTime: 0,
     placeholderData: (previous, query) =>
@@ -36,27 +40,19 @@ export function ModuleGate(
       props.online,
     ],
     refetchInterval: props.online ? 30000 : false,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const storage = await readModuleStorage(props.platform, props.scope);
-      const installed = storage.installed[props.moduleId];
       if (!props.online) {
-        const activation = props.bootstrap.modules.find(
-          (m) => m.moduleId === props.moduleId,
+        const verified = await verifiedInstalledModule(
+          props,
+          storage,
+          props.moduleId,
         );
-        if (
-          !activation?.entitled ||
-          !activation.assigned ||
-          activation.state !== "enabled"
-        )
-          return false;
-        if (!installed?.signed || !installed.publicKey) return false;
-        await verifyArtifact(installed.signed, installed.publicKey);
+        if (!verified) return false;
         registerModule(
-          hydrateModule(
-            installed.signed.artifact as unknown as ModuleDefinition,
-          ),
+          hydrateModule(verified.pkg.artifact as unknown as ModuleDefinition),
         );
-        return { pkg: installed.signed, publicKey: installed.publicKey };
+        return verified;
       }
       const state = await props.client.request({
         operation: "platformState",
@@ -75,31 +71,39 @@ export function ModuleGate(
         (i) => i.module_id === props.moduleId && i.device_id === deviceId(),
       );
       if (device?.state === "removed") return false;
-      const definition = state.modules.find((m) => m.id === props.moduleId);
-      if (
-        device?.state === "installed" &&
-        installed?.version === definition?.version &&
-        installed.signed &&
-        installed.publicKey
-      ) {
+      if (storage.lifecycle?.[props.moduleId]?.action === "uninstall")
+        return false;
+      if (!storage.lifecycle?.[props.moduleId]) {
         try {
-          await verifyArtifact(installed.signed, installed.publicKey);
-          registerModule(
-            hydrateModule(
-              installed.signed.artifact as unknown as ModuleDefinition,
-            ),
+          const verified = await verifiedInstalledModule(
+            props,
+            storage,
+            props.moduleId,
+            state,
           );
-          return { pkg: installed.signed, publicKey: installed.publicKey };
+          if (verified) {
+            registerModule(
+              hydrateModule(
+                verified.pkg.artifact as unknown as ModuleDefinition,
+              ),
+            );
+            return verified;
+          }
         } catch {
-          /* Repair an invalid cached artifact from the official registry. */
+          /* Repair a corrupt local release set through the registry. */
         }
       }
-      const pkg = await installModule(props, state, props.moduleId);
-      registerModule(
-        hydrateModule(pkg.artifact as unknown as ModuleDefinition),
+      const installed = await installModule(
+        props,
+        state,
+        props.moduleId,
+        false,
+        () => !signal.aborted,
       );
-      const trust = await props.client.request({ operation: "moduleTrust" });
-      return { pkg, publicKey: trust.publicKey };
+      registerModule(
+        hydrateModule(installed.pkg.artifact as unknown as ModuleDefinition),
+      );
+      return installed;
     },
   });
   if (query.isPending || (query.isFetching && !query.data)) return <Loading />;

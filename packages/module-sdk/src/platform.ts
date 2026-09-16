@@ -42,3 +42,17 @@ export interface SignedArtifact {
   key_id: string;
   artifact: Record<string, unknown>;
 }
+
+/** Exact immutable bytes selected for a device installation. */
+export interface InstallationSelection {
+  moduleId: string;
+  version: string;
+  digest: string;
+}
+export interface InstallationReceipt {
+  id: string;
+  action: "install" | "uninstall";
+  moduleId: string;
+  deviceId: string;
+  releases: InstallationSelection[];
+}

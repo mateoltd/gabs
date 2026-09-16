@@ -18,6 +18,17 @@ export const browserPlatform: Platform = {
   async save(scope, kind, value) {
     await (await db()).put("records", value, key(scope, kind));
   },
+  async pruneModuleArtifacts(scope, keep) {
+    const store = await db();
+    const tx = store.transaction("records", "readwrite");
+    const prefix = `${scope.userId}/${scope.workspaceId}/module-artifact/`;
+    const retained = new Set(keep.map((k) => key(scope, k)));
+    for (const k of await tx.store.getAllKeys(
+      IDBKeyRange.bound(prefix, prefix + "\uffff"),
+    ))
+      if (!retained.has(String(k))) await tx.store.delete(k);
+    await tx.done;
+  },
   async purgeWorkspace(scope) {
     const store = await db();
     const tx = store.transaction("records", "readwrite");
@@ -67,6 +78,7 @@ export function getPlatform(): Platform {
     load: <T>(s: Scope, k: CacheKey) =>
       native.cacheRead(s, k) as Promise<T | undefined>,
     save: (s, k, v) => native.cacheWrite(s, k, v),
+    pruneModuleArtifacts: (s, keep) => native.cachePruneArtifacts(s, keep),
     purgeWorkspace: (s) => native.cachePurge(s),
     purgeUser: (userId) => native.cachePurge({ userId }),
     identity: () => native.identity(),

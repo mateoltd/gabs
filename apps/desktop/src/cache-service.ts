@@ -58,3 +58,6 @@ export const cacheRead = (key: string) => send("read", { key });
 export const cacheWrite = (key: string, value: unknown) =>
   send("write", { key, value });
 export const cachePurge = (key: string) => send("purge", { key });
+
+export const cachePruneArtifacts = (key: string, keep: string[]) =>
+  send("prune-artifacts", { key, keep });

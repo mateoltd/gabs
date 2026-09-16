@@ -17,6 +17,8 @@ const bridge: DesktopBridge = {
   cacheRead: (scope, key) => ipcRenderer.invoke("suite:cache-read", scope, key),
   cacheWrite: (scope, key, value) =>
     ipcRenderer.invoke("suite:cache-write", scope, key, value),
+  cachePruneArtifacts: (scope, keep) =>
+    ipcRenderer.invoke("suite:cache-prune-artifacts", scope, keep),
   cachePurge: (scope) => ipcRenderer.invoke("suite:cache-purge", scope),
   identity: () => ipcRenderer.invoke("suite:identity"),
   rememberIdentity: (value) => ipcRenderer.invoke("suite:remember", value),

@@ -58,6 +58,45 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
     });
     expect(rejected).toBe(true);
 
+    const artifactBoundary = await page.evaluate(async () => {
+      const me = (await window.suiteDesktop!.execute({ operation: "me" }))
+        .body as { user: { id: string }; workspaces: { id: string }[] };
+      const scope = { userId: me.user.id, workspaceId: me.workspaces[0].id };
+      const denied = async (fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+          return false;
+        } catch {
+          return true;
+        }
+      };
+      return Promise.all([
+        denied(() =>
+          window.suiteDesktop!.cacheWrite(
+            scope,
+            "module-artifact/../../credentials" as never,
+            "bad",
+          ),
+        ),
+        denied(() =>
+          window.suiteDesktop!.cachePruneArtifacts(scope, ["drafts" as never]),
+        ),
+        denied(() =>
+          window.suiteDesktop!.cachePruneArtifacts(
+            { ...scope, userId: "another-user" },
+            [],
+          ),
+        ),
+        denied(() =>
+          window.suiteDesktop!.cacheWrite(
+            scope,
+            `module-artifact/${"a".repeat(64)}/0`,
+            "x".repeat(2 * 1024 * 1024),
+          ),
+        ),
+      ]);
+    });
+    expect(artifactBoundary).toEqual([true, true, true, true]);
     const persisted = await page.evaluate(async () => {
       const me = (await window.suiteDesktop!.execute({ operation: "me" }))
         .body as { user: { id: string }; workspaces: { id: string }[] };

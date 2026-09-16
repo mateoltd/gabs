@@ -1,5 +1,11 @@
 import { LanTransport, type RelayEnvelope } from "./lan";
-import { openCache, cacheRead, cacheWrite, cachePurge } from "./cache-service";
+import {
+  openCache,
+  cacheRead,
+  cacheWrite,
+  cachePurge,
+  cachePruneArtifacts,
+} from "./cache-service";
 import { randomBytes } from "node:crypto";
 import {
   app,
@@ -26,7 +32,12 @@ import {
   type OperationRequest,
   type LoginOptions,
 } from "@suite/contracts";
-import type { Scope, CacheKey, RememberedIdentity } from "@suite/platform";
+import {
+  isModuleArtifactKey,
+  type Scope,
+  type CacheKey,
+  type RememberedIdentity,
+} from "@suite/platform";
 import {
   validateOperation,
   validateScope,
@@ -161,9 +172,14 @@ function cacheKey(scope: Scope, key: CacheKey) {
   validateScope(scope, userId);
   if (
     !scope.workspaceId ||
-    !["snapshot", "drafts", "pending", "module-state", "relay-inbox"].includes(
-      key,
-    )
+    (!isModuleArtifactKey(key) &&
+      ![
+        "snapshot",
+        "drafts",
+        "pending",
+        "module-state",
+        "relay-inbox",
+      ].includes(key))
   )
     throw Error("Invalid cache key");
   return `${scope.userId}/${scope.workspaceId}/${key}`;
@@ -527,13 +543,28 @@ function handlers() {
   ipcMain.handle("suite:cache-write", async (event, scope, key, value) => {
     sender(event);
     const path = cacheKey(scope, key);
-    if (JSON.stringify(value).length > 2 * 1024 * 1024)
+    if (Buffer.byteLength(JSON.stringify(value), "utf8") > 2 * 1024 * 1024)
       throw Error("Offline storage size limit reached.");
     if (!secureAvailable() && key !== "pending")
       throw Error(
         "Protected storage is unavailable. Use session-only mode on this device.",
       );
     await writeSecure(path, value);
+  });
+  ipcMain.handle("suite:cache-prune-artifacts", async (event, scope, keep) => {
+    sender(event);
+    cacheKey(scope, "module-state");
+    if (
+      !Array.isArray(keep) ||
+      keep.length > 65536 ||
+      !keep.every(isModuleArtifactKey)
+    )
+      throw Error("Invalid artifact retention list");
+    await ensureCache();
+    await cachePruneArtifacts(
+      `${scope.userId}/${scope.workspaceId}/module-artifact/`,
+      keep.map((k) => `${scope.userId}/${scope.workspaceId}/${k}`),
+    );
   });
   ipcMain.handle("suite:cache-purge", async (event, scope) => {
     sender(event);

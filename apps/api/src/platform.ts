@@ -1,12 +1,15 @@
+import { changeDeviceInstallation } from "../../../packages/server-core/src/module-installations";
 import { migrateModuleStorage } from "../../../packages/server-core/src/module-migrations";
-import { lockModuleStorage } from "../../../packages/server-core/src/module-storage";
+import {
+  assertModuleStorage,
+  lockModuleStorage,
+} from "../../../packages/server-core/src/module-storage";
 import { executeModuleOperation } from "../../../packages/server-core/src/module-services";
 import { moduleServers } from "@suite/module-catalog/server";
 import {
   resolveWorkspaceRelease,
   workspaceModule,
   workspaceBusinessPermissions,
-  workspaceDependencyIds,
   registeredModuleIds,
 } from "../../../packages/server-core/src/module-releases";
 import { readFile } from "node:fs/promises";
@@ -25,13 +28,8 @@ import {
   type OrganizationPolicy,
 } from "@suite/module-sdk/governance";
 import {
-  resolveReleases,
-  type ReleaseManifest,
-} from "@suite/module-sdk/registry";
-import {
   inWorkspace,
   authorize,
-  checkModule,
   idempotent,
   audit,
   found,
@@ -492,6 +490,15 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           ctx.workspaceId,
           req.body.action === "migrate",
         );
+        if (req.body.action === "install" || req.body.action === "uninstall")
+          return changeDeviceInstallation(
+            tx,
+            ctx,
+            req.body.action,
+            req.body.value,
+            req.headers["idempotency-key"] as string | undefined,
+            moduleServers,
+          );
         return idempotent(
           tx,
           ctx,
@@ -519,129 +526,6 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 value.version,
                 moduleServers,
               );
-            }
-            if (
-              req.body.action === "install" ||
-              req.body.action === "uninstall"
-            ) {
-              assertSchema(
-                T.Object(
-                  {
-                    moduleId: slug,
-                    deviceId: T.String({ pattern: "^[a-zA-Z0-9-]{8,100}$" }),
-                    version: T.Optional(T.String({ maxLength: 40 })),
-                  },
-                  { additionalProperties: false },
-                ),
-                value,
-              );
-              const module = await workspaceModule(
-                tx,
-                ctx.workspaceId,
-                value.moduleId,
-              );
-              if (req.body.action === "install")
-                await checkModule(
-                  tx,
-                  ctx.workspaceId,
-                  ctx.membershipId,
-                  module.id,
-                );
-              const pinRows = await tx
-                .selectFrom("suite.platform_settings")
-                .selectAll()
-                .where("workspace_id", "=", ctx.workspaceId)
-                .where("key", "like", "pin:%")
-                .execute();
-              const pins = Object.fromEntries(
-                pinRows
-                  .filter(
-                    (r) =>
-                      typeof r.value.version === "string" && r.value.version,
-                  )
-                  .map((r) => [r.key.slice(4), String(r.value.version)]),
-              );
-              const plan =
-                req.body.action === "install"
-                  ? (
-                      await resolveWorkspaceRelease(
-                        tx,
-                        ctx.workspaceId,
-                        module.id,
-                      )
-                    ).map((p) => p.manifest as unknown as ReleaseManifest)
-                  : [module];
-              if (req.body.action === "uninstall") {
-                const existing = await tx
-                  .selectFrom("suite.module_installations")
-                  .select("module_id")
-                  .where("workspace_id", "=", ctx.workspaceId)
-                  .where("user_id", "=", ctx.actor.id)
-                  .where("device_id", "=", value.deviceId)
-                  .where("state", "=", "installed")
-                  .execute();
-                const dependents = await Promise.all(
-                  existing
-                    .filter((m) => m.module_id !== module.id)
-                    .map((m) =>
-                      workspaceDependencyIds(tx, ctx.workspaceId, m.module_id),
-                    ),
-                );
-                requireCondition(
-                  !dependents.some((ids) => ids.includes(module.id)),
-                  409,
-                  "DEPENDENTS_INSTALLED",
-                  "Uninstall dependent modules first.",
-                );
-              }
-              for (const item of plan) {
-                if (req.body.action === "install") {
-                  const release = await tx
-                    .selectFrom("suite.module_releases")
-                    .select("digest")
-                    .where("module_id", "=", item.id)
-                    .where("version", "=", item.version)
-                    .executeTakeFirst();
-                  requireCondition(
-                    release,
-                    409,
-                    "RELEASE_UNAVAILABLE",
-                    "Publish a signed compatible release before installing this module.",
-                  );
-                }
-                await tx
-                  .insertInto("suite.module_installations")
-                  .values({
-                    workspace_id: ctx.workspaceId,
-                    user_id: ctx.actor.id,
-                    device_id: value.deviceId,
-                    module_id: item.id,
-                    version: item.version,
-                    state:
-                      req.body.action === "install" ? "installed" : "removed",
-                    updated_at: new Date(),
-                  })
-                  .onConflict((oc) =>
-                    oc
-                      .columns([
-                        "workspace_id",
-                        "user_id",
-                        "device_id",
-                        "module_id",
-                      ])
-                      .doUpdateSet({
-                        version: item.version,
-                        state:
-                          req.body.action === "install"
-                            ? "installed"
-                            : "removed",
-                        updated_at: new Date(),
-                      }),
-                  )
-                  .execute();
-              }
-              await audit(tx, ctx, `modules.${req.body.action}`, module.id);
-              return { ok: true, plan };
             }
             let key = "";
             if (req.body.action === "organization") {
@@ -831,12 +715,52 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                   .doUpdateSet({ value, version: (old?.version ?? 0) + 1 }),
               )
               .execute();
-            if (req.body.action === "pin")
-              await resolveWorkspaceRelease(
-                tx,
-                ctx.workspaceId,
-                String((value as Record<string, unknown>).moduleId),
+            if (req.body.action === "pin") {
+              const active = await tx
+                .selectFrom("suite.module_activations")
+                .select("module_id")
+                .where("workspace_id", "=", ctx.workspaceId)
+                .where("state", "=", "enabled")
+                .execute();
+              const pinnedModuleId = String(
+                (value as Record<string, unknown>).moduleId,
               );
+              const modules = new Set([
+                pinnedModuleId,
+                ...active.map((m) => m.module_id),
+              ]);
+              for (const moduleId of modules) {
+                const plan = await resolveWorkspaceRelease(
+                  tx,
+                  ctx.workspaceId,
+                  moduleId,
+                );
+                if (
+                  !plan.some((release) => release.module_id === pinnedModuleId)
+                )
+                  continue;
+                for (const release of plan) {
+                  await assertModuleStorage(
+                    tx,
+                    ctx.workspaceId,
+                    hydrateModule(
+                      release.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+                    ),
+                  );
+                  const selected = await workspaceModule(
+                    tx,
+                    ctx.workspaceId,
+                    release.module_id,
+                  );
+                  requireCondition(
+                    selected.version === release.version,
+                    409,
+                    "DEPENDENCY_POLICY_CONFLICT",
+                    `${moduleId} requires ${release.module_id}@${release.version}, but the workspace selects ${selected.version}. Choose compatible version pins.`,
+                  );
+                }
+              }
+            }
             await audit(tx, ctx, `platform.${req.body.action}`, key);
             return { ok: true };
           },

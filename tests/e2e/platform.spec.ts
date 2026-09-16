@@ -129,7 +129,7 @@ test("local profiles persist encrypted records across lock and unlock", async ({
     page.getByRole("cell", { name: "Private contact", exact: true }),
   ).toBeVisible();
 });
-test("signed installation repairs and uninstalls without deleting business records", async ({
+test("signed installation repairs assigned modules and removes dependents before dependencies", async ({
   page,
 }) => {
   await workspace(page);
@@ -137,7 +137,6 @@ test("signed installation repairs and uninstalls without deleting business recor
   const card = page
     .getByRole("heading", { name: "Contacts", level: 3, exact: true })
     .locator("..");
-  await card.getByRole("button", { name: "Install", exact: true }).click();
   await expect(
     card.getByText("Installed 1.1.0", { exact: true }),
   ).toBeVisible();

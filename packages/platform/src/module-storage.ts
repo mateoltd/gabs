@@ -1,12 +1,32 @@
+import {
+  hydrateModuleArtifacts,
+  persistModuleArtifacts,
+  retainedArtifactKeys,
+  type StoredModuleState,
+} from "./module-artifacts";
 import type { Platform, Scope } from "./index";
-import type { SignedArtifact } from "@suite/module-sdk/platform";
+import type {
+  InstallationSelection,
+  SignedArtifact,
+} from "@suite/module-sdk/platform";
 import type {
   ModuleCall,
   ResourcePage,
   ResourceRecord,
 } from "@suite/module-sdk";
 import { flushJournal, type JournalEntry } from "@suite/module-sdk/sync";
+export interface InstallationAttempt {
+  action: "install" | "uninstall";
+  requestId: string;
+  deviceId: string;
+  releases: InstallationSelection[];
+  startedAt: number;
+  phase: "downloading" | "confirming";
+  error?: string;
+}
 export interface ModuleStorage {
+  lifecycle?: Record<string, InstallationAttempt>;
+  lifecycleErrors?: Record<string, string>;
   journal: JournalEntry[];
   pages: Record<string, ResourcePage>;
   installed: Record<
@@ -33,8 +53,16 @@ const empty = (): ModuleStorage => ({
   installed: {},
   drafts: {},
 });
+const lockKey = (scope: Scope) =>
+  `suite-modules:${scope.userId}:${scope.workspaceId}`;
+async function readUnlocked(platform: Platform, scope: Scope) {
+  const stored = await platform.load<StoredModuleState>(scope, "module-state");
+  return stored ? hydrateModuleArtifacts(platform, scope, stored) : empty();
+}
 export async function readModuleStorage(platform: Platform, scope: Scope) {
-  return (await platform.load<ModuleStorage>(scope, "module-state")) ?? empty();
+  return navigator.locks.request(lockKey(scope), () =>
+    readUnlocked(platform, scope),
+  );
 }
 export async function changeModuleStorage(
   platform: Platform,
@@ -42,15 +70,25 @@ export async function changeModuleStorage(
   fn: (state: ModuleStorage) => void | Promise<void>,
 ) {
   const change = async () => {
-    const state = await readModuleStorage(platform, scope);
+    const previous = await platform.load<StoredModuleState>(
+      scope,
+      "module-state",
+    );
+    // Collect bytes abandoned by a crash or a previous update. Readers share this lock.
+    await platform.pruneModuleArtifacts(
+      scope,
+      previous ? retainedArtifactKeys(previous) : [],
+    );
+    const state = previous
+      ? await hydrateModuleArtifacts(platform, scope, previous)
+      : empty();
     await fn(state);
-    await platform.save(scope, "module-state", state);
+    const stored = await persistModuleArtifacts(platform, scope, state);
+    // This single durable write commits the release set and journal together, after all bytes exist.
+    await platform.save(scope, "module-state", stored);
     return state;
   };
-  return navigator.locks.request(
-    `suite-modules:${scope.userId}:${scope.workspaceId}`,
-    change,
-  );
+  return navigator.locks.request(lockKey(scope), change);
 }
 export async function enqueue(
   platform: Platform,

@@ -4,11 +4,12 @@ let db: DatabaseSync | undefined, key: Buffer | undefined;
 process.parentPort.on("message", (event) => {
   const message = event.data as {
     id: number;
-    action: "open" | "read" | "write" | "purge";
+    action: "open" | "read" | "write" | "purge" | "prune-artifacts";
     path?: string;
     secret?: string;
     key?: string;
     value?: unknown;
+    keep?: string[];
   };
   try {
     if (message.action === "open") {
@@ -54,6 +55,21 @@ process.parentPort.on("message", (event) => {
           ]).toString("utf8"),
         );
       }
+    } else if (message.action === "prune-artifacts") {
+      const retained = new Set(message.keep);
+      const rows = db
+        .prepare("SELECT key FROM cache WHERE substr(key,1,?)=?")
+        .all(message.key.length, message.key) as { key: string }[];
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const remove = db.prepare("DELETE FROM cache WHERE key=?");
+        for (const row of rows) if (!retained.has(row.key)) remove.run(row.key);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      value = true;
     } else {
       db.prepare("DELETE FROM cache WHERE key LIKE ? ESCAPE '\\'").run(
         message.key.replace(/[\\%_]/g, "\\$&") + "/%",

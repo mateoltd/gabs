@@ -2,17 +2,16 @@ import { storageContract } from "@suite/module-sdk";
 import type { ReleaseManifest } from "@suite/module-sdk/registry";
 import { Table } from "@suite/ui-web";
 import { PERMISSIONS } from "@suite/contracts";
-import { deviceId, installModule } from "./module-installation";
+import {
+  deviceId,
+  installModule,
+  uninstallModule,
+} from "./module-installation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleDefinition } from "@suite/module-catalog";
-import {
-  canonical,
-  resolveReleases,
-  compareVersions,
-} from "@suite/module-sdk/registry";
-import type { SignedArtifact } from "@suite/module-sdk/platform";
+import { compareVersions } from "@suite/module-sdk/registry";
 import {
   effectivePermissions,
   validateOrganization,
@@ -21,10 +20,7 @@ import {
   type Rank,
 } from "@suite/module-sdk/governance";
 import { type FeatureProps } from "@suite/platform";
-import {
-  changeModuleStorage,
-  readModuleStorage,
-} from "@suite/platform/module-storage";
+import { readModuleStorage } from "@suite/platform/module-storage";
 import {
   Button,
   Checkbox,
@@ -73,11 +69,22 @@ export function ModuleLifecycle(
   const state = usePlatformState(props),
     qc = useQueryClient();
   const [error, setError] = useState<unknown>(),
+    [errorModule, setErrorModule] = useState(""),
     [busy, setBusy] = useState(""),
     [selected, setSelected] = useState(""),
     [config, setConfig] = useState<Record<string, unknown>>({}),
     [pin, setPin] = useState(""),
     [migrationVersion, setMigrationVersion] = useState("");
+  const local = useQuery({
+    queryKey: [
+      props.scope.userId,
+      props.scope.workspaceId,
+      "lifecycle-storage",
+    ],
+    queryFn: () => readModuleStorage(props.platform, props.scope),
+    networkMode: "always",
+    refetchInterval: 2000,
+  });
   const admin = props.bootstrap.permissions.includes("modules.manage");
   const command = async (
     action: string,
@@ -93,18 +100,20 @@ export function ModuleLifecycle(
   const act = async (id: string, fn: () => Promise<unknown>) => {
     setBusy(id);
     setError(undefined);
+    setErrorModule(id);
     try {
       await fn();
-      await qc.invalidateQueries({
-        queryKey: [props.scope.userId, props.scope.workspaceId],
-      });
     } catch (e) {
       setError(e);
     } finally {
+      await qc.invalidateQueries({
+        queryKey: [props.scope.userId, props.scope.workspaceId],
+      });
       setBusy("");
     }
   };
-  const install = (id: string) => installModule(props, state.data!, id, true);
+  const install = (id: string, repair: boolean) =>
+    installModule(props, state.data!, id, repair);
   if (state.isPending) return <Loading />;
   const selectedModule = state.data?.modules.find((m) => m.id === selected);
   const migrationReleases = (state.data?.releases ?? [])
@@ -148,7 +157,13 @@ export function ModuleLifecycle(
           </Field>
         )}
       </div>
-      <ErrorMessage error={error ?? state.error} />
+      <ErrorMessage
+        error={
+          state.data?.modules.some((m) => m.id === errorModule)
+            ? state.error
+            : (error ?? state.error)
+        }
+      />
       <div className="module-grid">
         {state.data?.modules.map((module) => {
           const installation = state.data.installations.find(
@@ -157,6 +172,8 @@ export function ModuleLifecycle(
               i.device_id === deviceId() &&
               i.state === "installed",
           );
+          const attempt = local.data?.lifecycle?.[module.id];
+          const lifecycleError = local.data?.lifecycleErrors?.[module.id];
           const entitlement = props.bootstrap.modules.find(
             (m) => m.moduleId === module.id,
           );
@@ -179,7 +196,10 @@ export function ModuleLifecycle(
                 <span>Version {module.version}</span>
                 <Badge>
                   {installation
-                    ? `Installed ${installation.version}`
+                    ? local.data?.installed[module.id]?.version ===
+                      installation.version
+                      ? `Installed ${installation.version}`
+                      : "Device setup incomplete"
                     : "Not installed on this device"}
                 </Badge>
               </div>
@@ -188,39 +208,68 @@ export function ModuleLifecycle(
                   ? "Signed release available"
                   : "A signed release has not been published"}
               </p>
+              {attempt && (
+                <p role="status">
+                  {attempt.action === "uninstall"
+                    ? "Removal awaiting confirmation"
+                    : attempt.phase === "confirming"
+                      ? "Installation awaiting confirmation"
+                      : "Installation pending"}
+                  . Verified downloads and pending work are preserved.
+                </p>
+              )}
+              {selected !== module.id && (
+                <ErrorMessage
+                  error={
+                    errorModule === module.id && error
+                      ? error
+                      : lifecycleError
+                        ? new Error(lifecycleError)
+                        : undefined
+                  }
+                />
+              )}
               <div className="module-toolbar">
                 <Button
                   disabled={
                     !!busy ||
+                    !props.online ||
+                    attempt?.action === "uninstall" ||
                     !published ||
                     !entitlement?.assigned ||
                     !entitlement.entitled ||
                     entitlement.state !== "enabled"
                   }
-                  onClick={() => void act(module.id, () => install(module.id))}
+                  onClick={() =>
+                    void act(module.id, () =>
+                      install(module.id, !!installation && !attempt),
+                    )
+                  }
                 >
-                  {installation ? "Verify and repair" : "Install"}
+                  {attempt?.action === "install"
+                    ? "Resume installation"
+                    : installation
+                      ? "Verify and repair"
+                      : "Install"}
                 </Button>
-                {installation && (
+                {(installation || attempt?.action === "uninstall") && (
                   <Button
-                    disabled={!!busy}
+                    disabled={!!busy || !props.online}
                     onClick={() =>
-                      void act(module.id, async () => {
-                        await command("uninstall", {
-                          moduleId: module.id,
-                          deviceId: deviceId(),
-                        });
-                        await changeModuleStorage(
-                          props.platform,
-                          props.scope,
-                          (s) => {
-                            delete s.installed[module.id];
-                          },
-                        );
-                      })
+                      void act(module.id, () =>
+                        uninstallModule(
+                          props,
+                          module.id,
+                          attempt?.action === "uninstall"
+                            ? attempt.requestId
+                            : undefined,
+                        ),
+                      )
                     }
                   >
-                    Uninstall
+                    {attempt?.action === "uninstall"
+                      ? "Resume removal"
+                      : "Uninstall"}
                   </Button>
                 )}
                 {admin && (
@@ -279,7 +328,9 @@ export function ModuleLifecycle(
               value={config}
               onChange={setConfig}
             />
-            <ErrorMessage error={error} />
+            <ErrorMessage
+              error={errorModule === selected ? error : undefined}
+            />
             <Button
               disabled={!!busy}
               onClick={() =>

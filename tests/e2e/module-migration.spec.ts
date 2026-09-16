@@ -201,6 +201,28 @@ test("administrator upgrades stored module records through the real migration co
       path: "docs/verification/module-migrations/narrow.png",
     });
     await page.setViewportSize({ width: 1280, height: 720 });
+    await dialog
+      .getByLabel("Pinned version (empty follows current release)", {
+        exact: true,
+      })
+      .fill("1.0.0");
+    await dialog
+      .getByRole("button", { name: "Save update policy", exact: true })
+      .click();
+    await expect(dialog.getByRole("alert")).toContainText(
+      "cannot use stored schema 2",
+    );
+    expect(
+      (
+        await admin.query(
+          "select count(*) from suite.platform_settings where workspace_id=$1 and key=$2",
+          [workspace, `pin:${id}`],
+        )
+      ).rows[0].count,
+    ).toBe("0");
+    await page.screenshot({
+      path: "docs/verification/module-migrations/incompatible-pin.png",
+    });
     await page.keyboard.press("Escape");
     await page
       .getByRole("navigation", { name: "Main navigation" })

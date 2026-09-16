@@ -26,7 +26,10 @@ type Result<K extends OperationId> = K extends "moduleMembers"
           : K extends "moduleArtifact"
             ? SignedArtifact
             : K extends "platformCommand"
-              ? { ok: boolean }
+              ? {
+                  ok: boolean;
+                  installation?: import("@suite/module-sdk/platform").InstallationReceipt;
+                }
               : K extends "moduleRequest" | "moduleOperation"
                 ? unknown
                 : K extends keyof operations

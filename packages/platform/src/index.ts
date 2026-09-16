@@ -11,7 +11,16 @@ export interface Scope {
   workspaceId: string;
 }
 export type CacheKey =
-  "snapshot" | "drafts" | "pending" | "module-state" | "relay-inbox";
+  | "snapshot"
+  | "drafts"
+  | "pending"
+  | "module-state"
+  | "relay-inbox"
+  | ModuleArtifactKey;
+export type ModuleArtifactKey = `module-artifact/${string}/${number}`;
+export const isModuleArtifactKey = (key: unknown): key is ModuleArtifactKey =>
+  typeof key === "string" &&
+  /^module-artifact\/[a-f0-9]{64}\/(0|[1-9][0-9]{0,3})$/.test(key);
 export interface Snapshot {
   bootstrap: Bootstrap;
   products: Product[];
@@ -43,6 +52,7 @@ export interface Platform {
   kind: "web" | "desktop";
   load<T>(scope: Scope, key: CacheKey): Promise<T | undefined>;
   save<T>(scope: Scope, key: CacheKey, value: T): Promise<void>;
+  pruneModuleArtifacts(scope: Scope, keep: ModuleArtifactKey[]): Promise<void>;
   purgeWorkspace(scope: Scope): Promise<void>;
   purgeUser(userId: string): Promise<void>;
   identity(): Promise<RememberedIdentity | undefined>;
@@ -82,6 +92,7 @@ export interface DesktopBridge {
   logout(): Promise<void>;
   cacheRead(scope: Scope, key: CacheKey): Promise<unknown>;
   cacheWrite(scope: Scope, key: CacheKey, value: unknown): Promise<void>;
+  cachePruneArtifacts(scope: Scope, keep: ModuleArtifactKey[]): Promise<void>;
   cachePurge(scope: { userId: string; workspaceId?: string }): Promise<void>;
   identity(): Promise<RememberedIdentity | undefined>;
   rememberIdentity(value: RememberedIdentity | undefined): Promise<void>;

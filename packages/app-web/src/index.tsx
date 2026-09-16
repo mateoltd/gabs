@@ -1,4 +1,9 @@
-import { installModule, deviceId, verifyArtifact } from "./module-installation";
+import {
+  installModule,
+  uninstallModule,
+  deviceId,
+  verifyArtifact,
+} from "./module-installation";
 import {
   changeModuleStorage,
   readModuleStorage,
@@ -579,7 +584,40 @@ function Workspace({
     let active = true;
     const current = features,
       state = catalog.data;
+    const reportLifecycleError = async (id: string, error: unknown) => {
+      if (!active) return;
+      if (
+        error instanceof ApiError &&
+        (error.status === 401 || error.code === "MEMBERSHIP_REVOKED")
+      ) {
+        current.onError(error);
+        return;
+      }
+      try {
+        await changeModuleStorage(current.platform, current.scope, (s) => {
+          (s.lifecycleErrors ??= {})[id] =
+            error instanceof Error
+              ? error.message
+              : "This module change could not finish.";
+        });
+      } catch {
+        if (active) current.onError(error);
+      }
+    };
     void (async () => {
+      let changed = false;
+      const pending = await readModuleStorage(current.platform, current.scope);
+      for (const [id, attempt] of Object.entries(pending.lifecycle ?? {})) {
+        if (!active) break;
+        if (attempt.action === "uninstall") {
+          try {
+            await uninstallModule(current, id, attempt.requestId);
+            changed = true;
+          } catch (error) {
+            await reportLifecycleError(id, error);
+          }
+        }
+      }
       for (const activation of current.bootstrap.modules) {
         if (!active) break;
         if (
@@ -595,9 +633,14 @@ function Workspace({
         const device = state.installations.find(
           (i) => i.module_id === definition.id && i.device_id === deviceId(),
         );
-        if (device?.state === "removed") continue;
+        if (
+          device?.state === "removed" ||
+          pending.lifecycle?.[definition.id]?.action === "uninstall"
+        )
+          continue;
         const stored = await readModuleStorage(current.platform, current.scope);
         if (
+          !stored.lifecycle?.[definition.id] &&
           stored.installed[definition.id]?.version === definition.version &&
           device?.state === "installed"
         )
@@ -610,6 +653,7 @@ function Workspace({
             false,
             () => active,
           );
+          changed = true;
           if (active)
             await qc.invalidateQueries({
               queryKey: [
@@ -620,9 +664,18 @@ function Workspace({
               ],
             });
         } catch (error) {
-          if (active) current.onError(error);
+          await reportLifecycleError(definition.id, error);
         }
       }
+      if (active && changed)
+        await Promise.all([
+          qc.invalidateQueries({
+            queryKey: [scope.userId, scope.workspaceId, "platform"],
+          }),
+          qc.invalidateQueries({
+            queryKey: [scope.userId, scope.workspaceId, "lifecycle-storage"],
+          }),
+        ]);
     })().catch((error) => {
       if (active) current.onError(error);
     });

@@ -72,6 +72,11 @@ export interface Database {
     version: number;
   };
   "suite.module_installations": Tenant & {
+    receipt_id: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
     user_id: string;
     device_id: string;
     module_id: string;
