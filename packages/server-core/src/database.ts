@@ -322,6 +322,10 @@ export function connectDatabase(
   databasePools.set(db, pool);
   return db;
 }
+const readOnlyTransactions = new WeakSet<Tx>();
+/** Only immutable database snapshots can reuse release selection within a request. */
+export const isReadOnlyTransaction = (tx: Tx) => readOnlyTransactions.has(tx);
+
 export async function inWorkspace<T>(
   db: DB,
   workspaceId: string,
@@ -339,6 +343,7 @@ export async function inWorkspace<T>(
           ? db.transaction().setIsolationLevel("repeatable read")
           : db.transaction();
       return await transaction.execute(async (tx) => {
+        if (options.readOnly) readOnlyTransactions.add(tx);
         await sql`select set_config('app.workspace_id',${workspaceId},true)`.execute(
           tx,
         );

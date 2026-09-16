@@ -1,0 +1,86 @@
+[
+  {
+    "sql": "select \"m\".\"module_id\", \"m\".\"state\", \"e\".\"active\", \"a\".\"membership_id\" from \"suite\".\"module_activations\" as \"m\" inner join \"suite\".\"entitlements\" as \"e\" on \"m\".\"workspace_id\" = \"e\".\"workspace_id\" and \"m\".\"module_id\" = \"e\".\"module_id\" left join \"suite\".\"module_assignments\" as \"a\" on \"a\".\"workspace_id\" = \"m\".\"workspace_id\" and \"a\".\"module_id\" = \"m\".\"module_id\" and \"a\".\"membership_id\" = $1 where \"m\".\"workspace_id\" = $2 and \"m\".\"module_id\" in ($3, $4)",
+    "count": 100,
+    "totalMs": 435.0377860000099,
+    "maxMs": 9.419208000001163
+  },
+  {
+    "sql": "select \"u\".\"active\", \"m\".\"id\", \"w\".\"kind\", \"p\".\"value\" as \"policy\", (select coalesce(json_agg(agg), '[]') from (select \"r\".\"id\", \"r\".\"name\", \"r\".\"permissions\", \"a\".\"membership_id\" from \"suite\".\"roles\" as \"r\" left join \"suite\".\"role_assignments\" as \"a\" on \"a\".\"role_id\" = \"r\".\"id\" and \"a\".\"workspace_id\" = \"r\".\"workspace_id\" and \"a\".\"membership_id\" = \"m\".\"id\" where \"r\".\"workspace_id\" = $1) as agg) as \"roles\" from \"suite\".\"users\" as \"u\" left join \"suite\".\"memberships\" as \"m\" on \"m\".\"user_id\" = \"u\".\"id\" and \"m\".\"workspace_id\" = $2 and \"m\".\"active\" = $3 left join \"suite\".\"workspaces\" as \"w\" on \"w\".\"id\" = \"m\".\"workspace_id\" left join \"suite\".\"platform_settings\" as \"p\" on \"p\".\"workspace_id\" = \"m\".\"workspace_id\" and \"p\".\"key\" = $4 where \"u\".\"id\" = $5",
+    "count": 100,
+    "totalMs": 375.1792900000073,
+    "maxMs": 8.766583000000537
+  },
+  {
+    "sql": "\n    with recursive required_modules(module_id) as (\n      select $1::text\n      union\n      select dependency.module_id\n      from required_modules required\n      join suite.module_releases release on release.module_id = required.module_id\n      cross join lateral jsonb_object_keys(release.manifest->'dependencies') dependency(module_id)\n    )\n    select release.module_id, release.version, release.manifest\n    from suite.module_releases release\n    join required_modules required on required.module_id = release.module_id\n  ",
+    "count": 50,
+    "totalMs": 186.53204499999447,
+    "maxMs": 8.996250000000146
+  },
+  {
+    "sql": "select \"module_id\", \"version\", jsonb_build_object(\n        'module_id', module_id, 'version', version, 'manifest', manifest,\n        'artifact', artifact, 'digest', digest, 'signature', signature, 'key_id', key_id\n      )::text as \"content\" from \"suite\".\"module_releases\" where ((\"module_id\" = $1 and \"version\" = $2) or (\"module_id\" = $3 and \"version\" = $4))",
+    "count": 50,
+    "totalMs": 146.96212500000365,
+    "maxMs": 6.370875000000524
+  },
+  {
+    "sql": "select id, data, version from suite.module_records where workspace_id = $1::uuid and module_id = $2 and resource = $3 and archived = false order by id asc limit $4",
+    "count": 50,
+    "totalMs": 141.4114609999997,
+    "maxMs": 5.267416999999114
+  },
+  {
+    "sql": "select \"s\".\"backend_kind\", s.server_package::text as \"server_package\", \"s\".\"state\", \"s\".\"staged_at\", \"p\".\"status\" from \"suite\".\"module_submissions\" as \"s\" inner join \"suite\".\"module_publishers\" as \"p\" on \"p\".\"id\" = \"s\".\"publisher_id\" where \"s\".\"module_id\" = $1 and \"s\".\"version\" = $2",
+    "count": 50,
+    "totalMs": 137.97912200000428,
+    "maxMs": 5.297083000001294
+  },
+  {
+    "sql": "select \"config\" from \"suite\".\"module_activations\" where \"workspace_id\" = $1 and \"module_id\" = $2",
+    "count": 50,
+    "totalMs": 135.97258500000316,
+    "maxMs": 5.35466599999927
+  },
+  {
+    "sql": "select * from \"suite\".\"platform_settings\" where \"workspace_id\" = $1 and \"key\" like $2",
+    "count": 50,
+    "totalMs": 128.41054000000258,
+    "maxMs": 6.977916999998342
+  },
+  {
+    "sql": "select \"module_id\", \"schema_version\" from \"suite\".\"module_storage\" where \"workspace_id\" = $1",
+    "count": 50,
+    "totalMs": 123.19303799999943,
+    "maxMs": 4.966707999999926
+  },
+  {
+    "sql": "select set_config('app.workspace_id',$1,true)",
+    "count": 50,
+    "totalMs": 119.83241799999269,
+    "maxMs": 5.271499999998923
+  },
+  {
+    "sql": "start transaction isolation level repeatable read read only",
+    "count": 50,
+    "totalMs": 119.28233600000385,
+    "maxMs": 5.643583000000945
+  },
+  {
+    "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+    "count": 50,
+    "totalMs": 118.89407999998912,
+    "maxMs": 4.793165999999474
+  },
+  {
+    "sql": "commit",
+    "count": 50,
+    "totalMs": 112.7977520000004,
+    "maxMs": 4.89154199999939
+  },
+  {
+    "sql": "select \"u\".\"id\", \"u\".\"name\", \"u\".\"email\", \"u\".\"email_verified\", \"u\".\"active\", \"s\".\"csrf_token\", \"s\".\"mfa\" from \"suite\".\"sessions\" as \"s\" inner join \"suite\".\"users\" as \"u\" on \"s\".\"user_id\" = \"u\".\"id\" where \"s\".\"token_hash\" = $1 and \"s\".\"expires_at\" > $2",
+    "count": 50,
+    "totalMs": 105.2438379999985,
+    "maxMs": 4.676792000000205
+  }
+]

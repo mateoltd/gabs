@@ -10,15 +10,34 @@ import {
   satisfies,
   type ReleaseManifest,
 } from "@suite/module-sdk/registry";
-import { verifyPackage } from "../../module-sdk/node/signing";
-import type { Tx } from "./database";
+import {
+  verifyPackage,
+  type SignedPackage,
+} from "../../module-sdk/node/signing";
+import { freezeContent, VerifiedContent } from "./verified-content";
+import { isReadOnlyTransaction, type Tx } from "./database";
 import { found, AppError } from "./errors";
+const verifiedPackages = new VerifiedContent((json, key) =>
+  verifyPackage(JSON.parse(json) as SignedPackage, key),
+);
+const contracts = new WeakMap<SignedPackage, ModuleDefinition>();
+function releaseContract(pkg: SignedPackage) {
+  let contract = contracts.get(pkg);
+  if (!contract) {
+    contract = freezeContent(
+      hydrateModule(pkg.artifact as unknown as ModuleDefinition),
+    );
+    contracts.set(pkg, contract);
+  }
+  return contract;
+}
 export const registryPublicKey = async () =>
   process.env.MODULE_SIGNING_PUBLIC_KEY ??
   (await readFile(
     `${process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys"}/public.pem`,
     "utf8",
   ));
+const snapshotPlans = new WeakMap<Tx, Map<string, Promise<SignedPackage[]>>>();
 export async function resolveWorkspaceRelease(
   tx: Tx,
   workspaceId: string,
@@ -26,6 +45,51 @@ export async function resolveWorkspaceRelease(
   allowUnpublishedBuiltin = false,
   targetVersion?: string,
   pinOverrides: Record<string, string> = {},
+) {
+  // Commands can observe or make changes in this transaction. Only a read-only
+  // repeatable-read request has an immutable selection; never share across requests.
+  if (!isReadOnlyTransaction(tx))
+    return selectWorkspaceRelease(
+      tx,
+      workspaceId,
+      id,
+      allowUnpublishedBuiltin,
+      targetVersion,
+      pinOverrides,
+    );
+  let plans = snapshotPlans.get(tx);
+  if (!plans) {
+    plans = new Map();
+    snapshotPlans.set(tx, plans);
+  }
+  const key = JSON.stringify([
+    workspaceId.toLowerCase(),
+    id,
+    allowUnpublishedBuiltin,
+    targetVersion,
+    Object.entries(pinOverrides).sort(([a], [b]) => a.localeCompare(b)),
+  ]);
+  let plan = plans.get(key);
+  if (!plan) {
+    plan = selectWorkspaceRelease(
+      tx,
+      workspaceId,
+      id,
+      allowUnpublishedBuiltin,
+      targetVersion,
+      pinOverrides,
+    );
+    plans.set(key, plan);
+  }
+  return [...(await plan)];
+}
+async function selectWorkspaceRelease(
+  tx: Tx,
+  workspaceId: string,
+  id: string,
+  allowUnpublishedBuiltin: boolean,
+  targetVersion: string | undefined,
+  pinOverrides: Record<string, string>,
 ) {
   const storage = await moduleStorageVersions(tx, workspaceId);
   // Resolve against every candidate in the dependency closure, without transferring
@@ -83,7 +147,14 @@ export async function resolveWorkspaceRelease(
   // transferred and parsed on a business request's authorization path.
   const packages = await tx
     .selectFrom("suite.module_releases")
-    .selectAll()
+    .select([
+      "module_id",
+      "version",
+      sql<string>`jsonb_build_object(
+        'module_id', module_id, 'version', version, 'manifest', manifest,
+        'artifact', artifact, 'digest', digest, 'signature', signature, 'key_id', key_id
+      )::text`.as("content"),
+    ])
     .where((eb) =>
       eb.or(
         plan.map((item) =>
@@ -97,12 +168,12 @@ export async function resolveWorkspaceRelease(
     .execute();
   const publicKey = await registryPublicKey();
   return plan.map((item) =>
-    verifyPackage(
+    verifiedPackages.get(
       found(
         packages.find(
           (r) => r.module_id === item.id && r.version === item.version,
         ),
-      ),
+      ).content,
       publicKey,
     ),
   );
@@ -121,10 +192,7 @@ export async function workspaceModule(
     version,
   );
   if (!plan.length) return found(moduleDefinition(id));
-  return hydrateModule(
-    found(plan.find((p) => p.module_id === id))
-      .artifact as unknown as ModuleDefinition,
-  );
+  return releaseContract(found(plan.find((p) => p.module_id === id)));
 }
 
 export async function workspaceDependencies(
@@ -133,10 +201,7 @@ export async function workspaceDependencies(
   id: string,
 ) {
   const plan = await resolveWorkspaceRelease(tx, workspaceId, id, true);
-  if (plan.length)
-    return plan.map((release) =>
-      hydrateModule(release.artifact as unknown as ModuleDefinition),
-    );
+  if (plan.length) return plan.map(releaseContract);
   // An unpublished development consumer may call a published/pinned provider.
   // Resolve that provider's workspace contract, never the host's older builtin.
   const selected = new Map<string, ModuleDefinition>();

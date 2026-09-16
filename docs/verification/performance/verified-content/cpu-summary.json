@@ -1,0 +1,85 @@
+{
+  "note": "Local instrumented read phase; sampled self time, not request latency or a cross-machine speedup comparison.",
+  "frames": [
+    {
+      "frame": "post node:inspector",
+      "selfMs": 75.1
+    },
+    {
+      "frame": "parseRow pg/lib/result.js",
+      "selfMs": 21.9
+    },
+    {
+      "frame": "canonical module-sdk/src/registry.ts",
+      "selfMs": 20.2
+    },
+    {
+      "frame": "(anonymous) module-sdk/src/governance.ts",
+      "selfMs": 12.9
+    },
+    {
+      "frame": "Visit value/check/check.mjs",
+      "selfMs": 12.1
+    },
+    {
+      "frame": "(anonymous) module-sdk/src/registry.ts",
+      "selfMs": 10.9
+    },
+    {
+      "frame": "(idle) ",
+      "selfMs": 6.4
+    },
+    {
+      "frame": "FromObject value/check/check.mjs",
+      "selfMs": 5.8
+    },
+    {
+      "frame": "(garbage collector) ",
+      "selfMs": 5
+    },
+    {
+      "frame": "writev ",
+      "selfMs": 4.5
+    },
+    {
+      "frame": "(program) ",
+      "selfMs": 4.2
+    },
+    {
+      "frame": "toString node:buffer",
+      "selfMs": 2.3
+    },
+    {
+      "frame": "(anonymous) ",
+      "selfMs": 2.3
+    },
+    {
+      "frame": "runMicrotasks ",
+      "selfMs": 2.3
+    },
+    {
+      "frame": "solve module-sdk/src/registry.ts",
+      "selfMs": 2.3
+    },
+    {
+      "frame": "update ",
+      "selfMs": 2.1
+    },
+    {
+      "frame": "visitNode dist/operation-node/operation-node-visitor.js",
+      "selfMs": 1.9
+    },
+    {
+      "frame": "FromString value/check/check.mjs",
+      "selfMs": 1.8
+    },
+    {
+      "frame": "utf8Slice ",
+      "selfMs": 1.6
+    },
+    {
+      "frame": "SemVer semver/classes/semver.js",
+      "selfMs": 1.6
+    }
+  ]
+}

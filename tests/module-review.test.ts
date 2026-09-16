@@ -19,6 +19,7 @@ import {
   publishRelease,
 } from "../tooling/registry-review";
 import { createApp } from "../apps/api/src/app";
+import { workspaceModule } from "../packages/server-core/src/module-releases";
 import {
   connectDatabase,
   identify,
@@ -203,6 +204,44 @@ describe("Reviewed independent server releases", () => {
         ).rows[0];
       const before = await counts();
       expect(before.records).toBe("1");
+      // Warm package caches never confer current authority. Each changed gate
+      // must still reject a new command, without any partially committed effects.
+      await publisher.query(
+        "update suite.entitlements set active=false where workspace_id=$1 and module_id=$2",
+        [workspace, id],
+      );
+      expect((await invoke(randomUUID())).json().code).toBe(
+        "MODULE_UNAVAILABLE",
+      );
+      await publisher.query(
+        "update suite.entitlements set active=true where workspace_id=$1 and module_id=$2",
+        [workspace, id],
+      );
+      await publisher.query(
+        "update suite.module_publishers set status='suspended' where id='suite'",
+      );
+      try {
+        expect((await invoke(randomUUID())).json().code).toBe(
+          "BACKEND_UNAVAILABLE",
+        );
+      } finally {
+        await publisher.query(
+          "update suite.module_publishers set status='official' where id='suite'",
+        );
+      }
+      await publisher.query(
+        "update suite.module_releases set artifact=jsonb_set(artifact,'{name}','\"Tampered cached release\"') where module_id=$1 and version=$2",
+        [id, module.version],
+      );
+      try {
+        expect((await invoke(randomUUID())).statusCode).toBe(500);
+      } finally {
+        await publisher.query(
+          "update suite.module_releases set artifact=$3 where module_id=$1 and version=$2",
+          [id, module.version, client.artifact],
+        );
+      }
+      expect(await counts()).toEqual(before);
       const rejected = await invoke(randomUUID(), true);
       expect(rejected.json().code).toBe("MODULE_BUSINESS_ERROR");
       expect(await counts()).toEqual(before);
@@ -276,6 +315,40 @@ describe("Reviewed independent server releases", () => {
           )
         ).rows[0].data.name,
       ).toBe("Independent server");
+
+      const pin = (version: string) =>
+        publisher.query(
+          "update suite.platform_settings set value=$3 where workspace_id=$1 and key=$2",
+          [workspace, `pin:${id}`, { version }],
+        );
+      await inWorkspace(
+        db,
+        workspace,
+        async (tx) => {
+          expect((await workspaceModule(tx, workspace, id)).version).toBe(
+            "1.0.0",
+          );
+          await pin("1.0.3");
+          // This request retains its coherent read-only database snapshot.
+          expect((await workspaceModule(tx, workspace, id)).version).toBe(
+            "1.0.0",
+          );
+          expect(
+            (await workspaceModule(tx, workspace, id, "1.0.3")).version,
+          ).toBe("1.0.3");
+        },
+        { readOnly: true },
+      );
+      await inWorkspace(db, workspace, async (tx) => {
+        expect((await workspaceModule(tx, workspace, id)).version).toBe(
+          "1.0.3",
+        );
+        await pin("1.0.0");
+        // Read-committed commands must observe updated pins in the same transaction.
+        expect((await workspaceModule(tx, workspace, id)).version).toBe(
+          "1.0.0",
+        );
+      });
 
       // A reviewed but broken executable must not expose its client release.
       const brokenModule = { ...module, version: "1.0.2" };
