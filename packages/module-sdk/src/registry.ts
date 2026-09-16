@@ -37,6 +37,17 @@ export function resolveReleases(
   backend: string,
   pins: Record<string, string> = {},
 ) {
+  return resolveReleaseSet([id], releases, host, backend, pins);
+}
+/** Resolve all installed roots together; preferences can move, explicit pins cannot. */
+export function resolveReleaseSet(
+  ids: readonly string[],
+  releases: readonly ReleaseManifest[],
+  host: string,
+  backend: string,
+  pins: Record<string, string> = {},
+  preferred: Record<string, string> = {},
+) {
   type Request = { id: string; range: string; path: string[] };
   function solve(
     pending: Request[],
@@ -60,7 +71,12 @@ export function resolveReleases(
           satisfies(host, r.host) &&
           satisfies(backend, r.backend),
       )
-      .sort((a, b) => compare(b.version, a.version));
+      .sort(
+        (a, b) =>
+          Number(b.version === preferred[b.id]) -
+            Number(a.version === preferred[a.id]) ||
+          compare(b.version, a.version),
+      );
     for (const candidate of candidates) {
       const next = new Map(selected).set(candidate.id, candidate);
       const result = solve(
@@ -79,10 +95,13 @@ export function resolveReleases(
   }
   // An explicit root pin opts into that exact prerelease. Dependency ranges still
   // enforce their own prerelease policy; ordinary discovery selects stable releases.
-  const selected = solve([{ id, range: pins[id] ?? "*", path: [] }], new Map());
+  const selected = solve(
+    [...new Set(ids)].map((id) => ({ id, range: pins[id] ?? "*", path: [] })),
+    new Map(),
+  );
   if (!selected)
     throw Error(
-      `No compatible official release set for ${id}. Check version pins, dependencies, and cycles.`,
+      `No compatible official release set for ${ids.join(", ")}. Check version pins, dependencies, and cycles.`,
     );
   const result: ReleaseManifest[] = [];
   const added = new Set<string>();
@@ -93,7 +112,7 @@ export function resolveReleases(
     added.add(name);
     result.push(m);
   };
-  emit(id);
+  for (const id of ids) emit(id);
   return result;
 }
 export function canonical(value: unknown): string {

@@ -5,10 +5,13 @@ import {
   localStorageContract,
   type ModuleDefinition,
 } from "@suite/module-sdk";
+import { verifyArtifact } from "@suite/module-sdk/verification";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import {
   availableLocalModules,
+  planLocalInstallation,
   type LocalSession,
+  type LocalRelease,
 } from "@suite/platform/local-profiles";
 import {
   Button,
@@ -41,12 +44,25 @@ export function LocalModules({
       module: ModuleDefinition;
       pkg: SignedArtifact;
       publicKey: string;
+      related?: {
+        module: ModuleDefinition;
+        pkg: SignedArtifact;
+        publicKey: string;
+        configuration: Record<string, unknown>;
+      }[];
     }>(),
     [configuration, setConfiguration] = useState<Record<string, unknown>>({}),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(),
     [notice, setNotice] = useState("");
   const controller = useRef<AbortController>(undefined);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (selected)
+      form.current
+        ?.closest<HTMLElement>('[role="dialog"]')
+        ?.scrollTo({ top: 0 });
+  }, [selected?.pkg.digest]);
   useEffect(() => () => controller.current?.abort(), []);
   const retained = Object.entries(session.data.modules ?? {}).filter(
     ([, installation]) => !installation.active,
@@ -61,6 +77,41 @@ export function LocalModules({
       Object.values(m.resources).some((r) => r.standalone) ||
       Object.values(m.operations).some((op) => op.policy === "local"),
   );
+  const selectRetained = (module: ModuleDefinition, release: LocalRelease) => {
+    const retained = Object.values(session.data.modules ?? {}).flatMap(
+      (installation) => Object.values(installation.releases),
+    );
+    const plan = planLocalInstallation(
+      session.data,
+      module,
+      retained.map((r) =>
+        hydrateModule(r.package.artifact as unknown as ModuleDefinition),
+      ),
+    );
+    const related = plan
+      .filter((m) => m.id !== module.id)
+      .map((m) => {
+        const saved = retained.find(
+          (r) =>
+            r.package.module_id === m.id && r.package.version === m.version,
+        );
+        if (!saved)
+          throw Error(`Restore ${m.name} from the registry before continuing.`);
+        return {
+          module: m,
+          pkg: saved.package,
+          publicKey: saved.publicKey,
+          configuration: saved.configuration as Record<string, unknown>,
+        };
+      });
+    setSelected({
+      module,
+      pkg: release.package,
+      publicKey: release.publicKey,
+      related,
+    });
+    setConfiguration(release.configuration as Record<string, unknown>);
+  };
   const action = async (fn: (signal: AbortSignal) => Promise<void>) => {
     const current = new AbortController();
     controller.current = current;
@@ -97,14 +148,25 @@ export function LocalModules({
           {notice && <p role="status">{notice}</p>}
           {selected ? (
             <form
+              ref={form}
               className="form-stack"
               onSubmit={(event) => {
                 event.preventDefault();
                 void action(async (signal) => {
-                  await session.install(
-                    selected.pkg,
-                    selected.publicKey,
-                    configuration,
+                  await session.installSet(
+                    selected.module.id,
+                    [
+                      {
+                        package: selected.pkg,
+                        publicKey: selected.publicKey,
+                        configuration,
+                      },
+                      ...(selected.related ?? []).map((item) => ({
+                        package: item.pkg,
+                        publicKey: item.publicKey,
+                        configuration: item.configuration,
+                      })),
+                    ],
                     { signal },
                   );
                   setNotice(
@@ -132,6 +194,42 @@ export function LocalModules({
                 value={configuration}
                 onChange={setConfiguration}
               />
+              {!!selected.related?.length && (
+                <>
+                  <p>
+                    These releases are required together. Review each
+                    configuration. All selected modules and their saved data
+                    update together, or your current installation is preserved.
+                  </p>
+                  {selected.related.map((item) => (
+                    <fieldset
+                      key={item.module.id}
+                      className="form-stack"
+                      disabled={busy}
+                    >
+                      <legend>{item.module.name}</legend>
+                      <p>Version {item.module.version}</p>
+                      <SchemaForm
+                        schema={item.module.configuration as FormSchema}
+                        value={item.configuration}
+                        onChange={(value) =>
+                          setSelected(
+                            (current) =>
+                              current && {
+                                ...current,
+                                related: current.related?.map((r) =>
+                                  r.module.id === item.module.id
+                                    ? { ...r, configuration: value }
+                                    : r,
+                                ),
+                              },
+                          )
+                        }
+                      />
+                    </fieldset>
+                  ))}
+                </>
+              )}
               <Button type="submit" variant="primary" disabled={busy}>
                 Save local installation
               </Button>
@@ -170,6 +268,19 @@ export function LocalModules({
                       <li key={id}>
                         <h4>{attempt.title}</h4>
                         <p className="small">Version {attempt.moduleVersion}</p>
+                        {(attempt.modules?.length ?? 0) > 1 && (
+                          <ul>
+                            {attempt
+                              .modules!.filter(
+                                (m) => m.moduleId !== attempt.moduleId,
+                              )
+                              .map((m) => (
+                                <li key={m.moduleId}>
+                                  {m.title} {m.moduleVersion}
+                                </li>
+                              ))}
+                          </ul>
+                        )}
                         <p>
                           {attempt.state === "pending"
                             ? "Awaiting recovery"
@@ -243,17 +354,11 @@ export function LocalModules({
                                 <Button
                                   disabled={busy}
                                   onClick={() => {
-                                    setSelected({
-                                      module,
-                                      pkg: release.package,
-                                      publicKey: release.publicKey,
-                                    });
-                                    setConfiguration(
-                                      release.configuration as Record<
-                                        string,
-                                        unknown
-                                      >,
-                                    );
+                                    try {
+                                      selectRetained(module, release);
+                                    } catch (error) {
+                                      setError(error);
+                                    }
                                   }}
                                 >
                                   Configure locally
@@ -314,17 +419,11 @@ export function LocalModules({
                                 <Button
                                   disabled={busy}
                                   onClick={() => {
-                                    setSelected({
-                                      module,
-                                      pkg: release.package,
-                                      publicKey: release.publicKey,
-                                    });
-                                    setConfiguration(
-                                      release.configuration as Record<
-                                        string,
-                                        unknown
-                                      >,
-                                    );
+                                    try {
+                                      selectRetained(module, release);
+                                    } catch (error) {
+                                      setError(error);
+                                    }
                                   }}
                                 >
                                   Restore locally
@@ -413,31 +512,57 @@ export function LocalModules({
                               throw Error(
                                 "Reconnect to check access before installing.",
                               );
-                            const pkg = await registry.client.request({
-                              operation: "moduleArtifact",
-                              params: {
-                                workspaceId: registry.workspaceId,
-                                moduleId: module.id,
-                              },
-                            });
+                            const plan = planLocalInstallation(
+                              session.data,
+                              module,
+                              available,
+                            );
                             const trust = await registry.client.request({
                               operation: "moduleTrust",
                             });
-                            setSelected({
-                              module: hydrateModule(
+                            const downloaded = [];
+                            for (const candidate of plan) {
+                              const pkg = await registry.client.request({
+                                operation: "moduleArtifact",
+                                params: {
+                                  workspaceId: registry.workspaceId,
+                                  moduleId: candidate.id,
+                                },
+                              });
+                              await verifyArtifact(pkg, trust.publicKey);
+                              const contract = hydrateModule(
                                 pkg.artifact as unknown as ModuleDefinition,
-                              ),
-                              pkg,
-                              publicKey: trust.publicKey,
-                            });
-                            const installed = session.data.modules?.[module.id];
-                            setConfiguration(
-                              (installed?.releases[pkg.version]
-                                ?.configuration ??
-                                installed?.releases[installed.version]
+                              );
+                              if (
+                                contract.id !== candidate.id ||
+                                contract.version !== candidate.version
+                              )
+                                throw Error(
+                                  "The available release changed during download. Browse personal modules again before installing.",
+                                );
+                              const installed =
+                                session.data.modules?.[candidate.id];
+                              downloaded.push({
+                                module: contract,
+                                pkg,
+                                publicKey: trust.publicKey,
+                                configuration: (installed?.releases[pkg.version]
                                   ?.configuration ??
-                                {}) as Record<string, unknown>,
-                            );
+                                  installed?.releases[installed.version]
+                                    ?.configuration ??
+                                  {}) as Record<string, unknown>,
+                              });
+                            }
+                            const root = downloaded.find(
+                              (item) => item.module.id === module.id,
+                            )!;
+                            setSelected({
+                              ...root,
+                              related: downloaded.filter(
+                                (item) => item.module.id !== module.id,
+                              ),
+                            });
+                            setConfiguration(root.configuration);
                           })
                         }
                       >

@@ -10,6 +10,8 @@ export async function publishLocalPackage(
     migrationOnly?: boolean;
     migrationDelayMs?: number;
     migrationError?: boolean;
+    dependencies?: Record<string, string>;
+    dependencyPackages?: SignedArtifact[];
     name?: string;
     id?: string;
     version?: string;
@@ -42,13 +44,26 @@ export async function publishLocalPackage(
     await writeFile(
       resolve(directory, "module.ts"),
       `import {defineModule,resource,field,operation,Type} from '@suite/module-sdk';
-export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "Local package notes")},version:'${version}',description:'Independent local handler acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.items.read','${id}.items.write','${id}.capture'],configuration:Type.Object({prefix:Type.Optional(Type.String())},{additionalProperties:false}),${options.localStorage ? "localStorage:" + JSON.stringify(options.localStorage) + "," : ""}resources:{items:resource({${field}:field.text({maxLength:${options.maxLength ?? 500}})},{title:'Notes',standalone:true,policy:'local'})},operations:${operations}});`,
+export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "Local package notes")},version:'${version}',description:'Independent local handler acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:${JSON.stringify(options.dependencies ?? {})},permissions:['${id}.items.read','${id}.items.write','${id}.capture'],configuration:Type.Object({prefix:Type.Optional(Type.String())},{additionalProperties:false}),${options.localStorage ? "localStorage:" + JSON.stringify(options.localStorage) + "," : ""}resources:{items:resource({${field}:field.text({maxLength:${options.maxLength ?? 500}})},{title:'Notes',standalone:true,policy:'local'})},operations:${operations}});`,
     );
     await writeFile(
       resolve(directory, "module-local.ts"),
       `import {defineLocalModule} from '@suite/module-sdk/local';import module from './module';export default defineLocalModule(module)(${handlers}${migrations});`,
     );
-    execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });
+    const dependencyArgs: string[] = [];
+    for (const pkg of options.dependencyPackages ?? []) {
+      const path = resolve(directory, "dependencies", pkg.module_id);
+      await mkdir(path, { recursive: true });
+      const { local: _local, client: _client, ...contract } = pkg.artifact;
+      await writeFile(
+        resolve(path, "module.ts"),
+        `export default ${JSON.stringify(contract)};`,
+      );
+      dependencyArgs.push("--dependency", path);
+    }
+    execFileSync("pnpm", ["module", "build", directory, ...dependencyArgs], {
+      stdio: "pipe",
+    });
     const path = `.local/modules/${id}-${version}.json`;
     const submission = execFileSync("pnpm", ["module", "submit", path], {
       encoding: "utf8",

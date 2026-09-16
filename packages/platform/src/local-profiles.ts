@@ -1,6 +1,6 @@
 import { verifyArtifact } from "@suite/module-sdk/verification";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
-import { canonical, resolveReleases } from "@suite/module-sdk/registry";
+import { canonical, resolveReleaseSet } from "@suite/module-sdk/registry";
 import {
   hydrateModule,
   assertSchema,
@@ -61,10 +61,12 @@ export type LocalInstallationAttempt = {
   moduleVersion: string;
   title: string;
   createdAt: number;
+  modules?: { moduleId: string; moduleVersion: string; title: string }[];
 } & (
   | { state: "accepted" }
   | {
       release: LocalRelease;
+      related?: LocalRelease[];
       state: "pending" | "interrupted" | "failed";
       error?: string;
     }
@@ -120,6 +122,11 @@ export interface LocalSession {
     pkg: SignedArtifact,
     publicKey: string,
     configuration?: unknown,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<void>;
+  installSet(
+    rootModuleId: string,
+    releases: readonly LocalRelease[],
     options?: { signal?: AbortSignal; timeoutMs?: number },
   ): Promise<void>;
   retryInstallation(
@@ -229,68 +236,108 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     if (unlocked) data = next;
     unlockedOrThrow();
   }
-  async function installRelease(
-    pkg: SignedArtifact,
-    publicKey: string,
-    configuration: unknown,
+  async function installReleaseSet(
+    rootModuleId: string,
+    releases: readonly LocalRelease[],
     options: { signal?: AbortSignal; timeoutMs?: number },
   ) {
-    await verifyArtifact(pkg, publicKey);
-    const module = hydrateModule(moduleContract(pkg.artifact));
-    if (
-      !Object.values(module.resources).some((r) => r.standalone) &&
-      !Object.values(module.operations).some((op) => op.policy === "local")
-    )
-      throw Error("This module does not support standalone profiles.");
-    assertSchema(module.configuration, configuration);
-    const prior = data.modules?.[module.id];
-    if (
-      Object.values(data.attempts ?? {}).some(
-        (a) =>
-          a.moduleId === module.id &&
-          a.state !== "accepted" &&
-          (a.moduleVersion !== module.version ||
-            canonical(a.configuration) !== canonical(configuration)),
+    if (!releases.length || releases.length > 100)
+      throw Error("Choose between one and 100 local module releases.");
+    const selected = new Map<
+      string,
+      { module: ModuleDefinition; release: LocalRelease }
+    >();
+    for (const release of releases) {
+      await verifyArtifact(release.package, release.publicKey);
+      const module = hydrateModule(moduleContract(release.package.artifact));
+      if (selected.has(module.id))
+        throw Error(
+          "A local installation set cannot contain duplicate modules.",
+        );
+      if (
+        !Object.values(module.resources).some((r) => r.standalone) &&
+        !Object.values(module.operations).some((op) => op.policy === "local")
       )
-    )
+        throw Error(`${module.name} does not support standalone profiles.`);
+      assertSchema(module.configuration, release.configuration);
+      if (
+        Object.values(data.attempts ?? {}).some(
+          (a) =>
+            a.moduleId === module.id &&
+            a.state !== "accepted" &&
+            (a.moduleVersion !== module.version ||
+              canonical(a.configuration) !== canonical(release.configuration)),
+        )
+      )
+        throw Error(
+          "Resolve or dismiss pending local requests before changing this module's release or configuration. Their input is preserved.",
+        );
+      const same = data.modules?.[module.id]?.releases[module.version];
+      if (same && same.package.digest !== release.package.digest)
+        throw Error(
+          "Installed release bytes are immutable. Use a new version for executable changes.",
+        );
+      selected.set(module.id, { module, release });
+    }
+    const root = selected.get(rootModuleId);
+    if (!root)
       throw Error(
-        "Resolve or dismiss pending local requests before changing this module's release or configuration. Their input is preserved.",
-      );
-    const same = prior?.releases[module.version];
-    if (same && same.package.digest !== pkg.digest)
-      throw Error(
-        "Installed release bytes are immutable. Use a new version for executable changes.",
+        "The installation set must include its requested root module.",
       );
     const available = new Map(
       availableLocalModules(data).map((m) => [m.id, m]),
     );
-    available.set(module.id, module);
-    // Check the complete active set: replacing a provider must preserve its consumers.
+    for (const { module } of selected.values())
+      available.set(module.id, module);
     const pins = Object.fromEntries(
       [...available.values()].map((m) => [m.id, m.version]),
     );
-    for (const item of available.values())
-      resolveReleases(item.id, [...available.values()], "1.0.0", "1.0.0", pins);
-    const release = { package: pkg, publicKey, configuration };
-    const unfinished = Object.entries(data.installationAttempts ?? {}).find(
-      ([, attempt]) =>
-        attempt.moduleId === module.id && attempt.state !== "accepted",
+    const ordered = resolveReleaseSet(
+      [...available.keys()],
+      [...available.values()],
+      "1.0.0",
+      "1.0.0",
+      pins,
+    ).filter((m) => selected.has(m.id));
+    const normalized = [...releases].sort((a, b) =>
+      a.package.module_id.localeCompare(b.package.module_id),
     );
+    const overlaps = Object.entries(data.installationAttempts ?? {}).filter(
+      ([, attempt]) =>
+        attempt.state !== "accepted" &&
+        (attempt.modules ?? [attempt]).some((m) => selected.has(m.moduleId)),
+    );
+    const unfinished = overlaps[0];
     if (
-      unfinished &&
-      unfinished[1].state !== "accepted" &&
-      canonical(unfinished[1].release) !== canonical(release)
+      overlaps.length > 1 ||
+      (unfinished &&
+        unfinished[1].state !== "accepted" &&
+        (unfinished[1].moduleId !== rootModuleId ||
+          canonical(
+            [unfinished[1].release, ...(unfinished[1].related ?? [])].sort(
+              (a, b) => a.package.module_id.localeCompare(b.package.module_id),
+            ),
+          ) !== canonical(normalized)))
     )
       throw Error(
-        "Resume or discard the unfinished installation before selecting another release or configuration. Your installed module and records are preserved.",
+        "Resume or discard the unfinished installation before selecting another release or configuration. Your installed modules and records are preserved.",
       );
     const attemptId = unfinished?.[0] ?? crypto.randomUUID();
-    const attempt: LocalInstallationAttempt = {
-      moduleId: module.id,
-      moduleVersion: module.version,
-      title: module.name,
-      release,
+    const metadata = {
+      moduleId: rootModuleId,
+      moduleVersion: root.module.version,
+      title: root.module.name,
+      modules: ordered.map((m) => ({
+        moduleId: m.id,
+        moduleVersion: m.version,
+        title: selected.get(m.id)!.module.name,
+      })),
       createdAt: unfinished?.[1].createdAt ?? Date.now(),
+    };
+    const attempt: LocalInstallationAttempt = {
+      ...metadata,
+      release: root.release,
+      related: normalized.filter((r) => r.package.module_id !== rootModuleId),
       state: "pending",
     };
     await commit(
@@ -304,72 +351,71 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       options.signal,
     );
     try {
-      const previousModule = prior
-        ? moduleContract(prior.releases[prior.version].package.artifact)
-        : bundledModuleDefinitions.find((m) => m.id === module.id);
-      const prefix = module.id + "/";
-      const records = Object.fromEntries(
-        Object.entries(data.records)
-          .filter(([key]) => key.startsWith(prefix))
-          .map(([key, rows]) => [key.slice(prefix.length), rows]),
-      );
-      const fromVersion =
-        prior?.schemaVersion ??
-        (previousModule
-          ? localStorageContract(previousModule).version
-          : Object.values(records).some((rows) => rows.length)
-            ? 1
-            : localStorageContract(module).version);
-      const migrated = await worker.run(
-        module,
-        {
-          profileId: vault.id,
-          call: {
-            moduleId: module.id,
-            moduleVersion: module.version,
-            action: "list",
-            input: {},
-          },
-          configuration,
-          snapshot: { records, receipts: data.receipts?.[module.id] ?? {} },
-        },
-        {
-          ...options,
-          artifact: { package: pkg, publicKey },
-          migrateFrom: fromVersion,
-        },
-      );
-      const retained = Object.fromEntries(
-        Object.entries(data.records).filter(([key]) => !key.startsWith(prefix)),
-      );
-      let migratedFrom = fromVersion;
-      const history = (migrated.migrations ?? []).map((name) => {
-        const to = localStorageContract(module).migrations[name].to;
-        const entry = {
-          name,
-          release: module.version,
-          from: migratedFrom,
-          to,
-          appliedAt: Date.now(),
-        };
-        migratedFrom = to;
-        return entry;
-      });
-      await commit(
-        {
-          ...data,
-          installationAttempts: {
-            ...data.installationAttempts,
-            [attemptId]: {
+      let next: LocalData = {
+        ...data,
+        records: { ...data.records },
+        modules: { ...data.modules },
+      };
+      for (const choice of ordered) {
+        const { module, release } = selected.get(choice.id)!;
+        const { package: pkg, publicKey, configuration } = release;
+        const prior = data.modules?.[module.id];
+        const previousModule = prior
+          ? moduleContract(prior.releases[prior.version].package.artifact)
+          : bundledModuleDefinitions.find((m) => m.id === module.id);
+        const prefix = module.id + "/";
+        const records = Object.fromEntries(
+          Object.entries(data.records)
+            .filter(([key]) => key.startsWith(prefix))
+            .map(([key, rows]) => [key.slice(prefix.length), rows]),
+        );
+        const fromVersion =
+          prior?.schemaVersion ??
+          (previousModule
+            ? localStorageContract(previousModule).version
+            : Object.values(records).some((rows) => rows.length)
+              ? 1
+              : localStorageContract(module).version);
+        const migrated = await worker.run(
+          module,
+          {
+            profileId: vault.id,
+            call: {
               moduleId: module.id,
               moduleVersion: module.version,
-              title: module.name,
-              createdAt: attempt.createdAt,
-              state: "accepted",
+              action: "list",
+              input: {},
             },
+            configuration,
+            snapshot: { records, receipts: data.receipts?.[module.id] ?? {} },
           },
+          {
+            ...options,
+            artifact: { package: pkg, publicKey },
+            migrateFrom: fromVersion,
+          },
+        );
+        let migratedFrom = fromVersion;
+        const history = (migrated.migrations ?? []).map((name) => {
+          const to = localStorageContract(module).migrations[name].to;
+          const entry = {
+            name,
+            release: module.version,
+            from: migratedFrom,
+            to,
+            appliedAt: Date.now(),
+          };
+          migratedFrom = to;
+          return entry;
+        });
+        next = {
+          ...next,
           records: {
-            ...retained,
+            ...Object.fromEntries(
+              Object.entries(next.records).filter(
+                ([key]) => !key.startsWith(prefix),
+              ),
+            ),
             ...Object.fromEntries(
               Object.entries(migrated.snapshot.records).map(([key, rows]) => [
                 prefix + key,
@@ -378,17 +424,23 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             ),
           },
           modules: {
-            ...data.modules,
+            ...next.modules,
             [module.id]: {
               schemaVersion: migrated.schemaVersion,
               migrations: [...(prior?.migrations ?? []), ...history],
               active: true,
               version: module.version,
-              releases: {
-                ...prior?.releases,
-                [module.version]: { package: pkg, publicKey, configuration },
-              },
+              releases: { ...prior?.releases, [module.version]: release },
             },
+          },
+        };
+      }
+      await commit(
+        {
+          ...next,
+          installationAttempts: {
+            ...data.installationAttempts,
+            [attemptId]: { ...metadata, state: "accepted" },
           },
         },
         options.signal,
@@ -438,12 +490,14 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       });
       const execution = { ...options };
       return enqueue(() =>
-        installRelease(
-          release.package,
-          release.publicKey,
-          release.configuration,
-          execution,
-        ),
+        installReleaseSet(release.package.module_id, [release], execution),
+      );
+    },
+    installSet(rootModuleId, releases, options = {}) {
+      const candidates = structuredClone(releases);
+      const execution = { ...options };
+      return enqueue(() =>
+        installReleaseSet(rootModuleId, candidates, execution),
       );
     },
     retryInstallation(attemptId, options = {}) {
@@ -454,11 +508,9 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           throw Error("This installation request is no longer available.");
         // The acceptance marker commits with the release and data. Never replay an old install.
         if (attempt.state === "accepted") return;
-        const release = attempt.release;
-        await installRelease(
-          release.package,
-          release.publicKey,
-          release.configuration,
+        await installReleaseSet(
+          attempt.moduleId,
+          [attempt.release, ...(attempt.related ?? [])],
           execution,
         );
       });
@@ -475,7 +527,10 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         if (
           Object.values(data.installationAttempts ?? {}).some(
             (attempt) =>
-              attempt.moduleId === moduleId && attempt.state !== "accepted",
+              attempt.state !== "accepted" &&
+              (attempt.modules ?? [attempt]).some(
+                (m) => m.moduleId === moduleId,
+              ),
           )
         )
           throw Error(
@@ -803,4 +858,31 @@ export function availableLocalModules(data: LocalData): ModuleDefinition[] {
   for (const module of installedLocalModules(data))
     available.set(module.id, module);
   return [...available.values()];
+}
+
+/** Plan against every active consumer, preferring its existing release unless dependencies require a change. */
+export function planLocalInstallation(
+  data: LocalData,
+  root: ModuleDefinition,
+  registry: readonly ModuleDefinition[],
+) {
+  const installed = availableLocalModules(data);
+  const candidates = new Map(installed.map((m) => [m.id + "@" + m.version, m]));
+  for (const module of [...registry, root])
+    candidates.set(module.id + "@" + module.version, module);
+  const selected = resolveReleaseSet(
+    [...new Set([root.id, ...installed.map((m) => m.id)])],
+    [...candidates.values()],
+    "1.0.0",
+    "1.0.0",
+    { [root.id]: root.version },
+    Object.fromEntries(installed.map((m) => [m.id, m.version])),
+  );
+  return selected
+    .filter(
+      (m) =>
+        m.id === root.id ||
+        !installed.some((old) => old.id === m.id && old.version === m.version),
+    )
+    .map((m) => candidates.get(m.id + "@" + m.version)!);
 }

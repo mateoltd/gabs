@@ -11,12 +11,29 @@ const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("minimized Electron executes a signed local package in its packaged worker and recovers after restart", async () => {
   test.setTimeout(60000);
-  const published = await publishLocalPackage();
+  const dependency = await publishLocalPackage({ name: "Native foundation" });
+  const published = await publishLocalPackage({
+    dependencies: { [dependency.pkg.module_id]: "^1" },
+    dependencyPackages: [dependency.pkg],
+  });
+  const upgradedDependency = await publishLocalPackage({
+    id: dependency.pkg.module_id,
+    name: "Native foundation",
+    version: "2.0.0",
+    field: "body",
+    localStorage: {
+      version: 2,
+      compatible: { minimum: 2, maximum: 2 },
+      migrations: { rename: { from: 1, to: 2 } },
+    },
+  });
   const upgraded = await publishLocalPackage({
     id: published.pkg.module_id,
     version: "2.0.0",
     field: "body",
     migrationDelayMs: 3000,
+    dependencies: { [dependency.pkg.module_id]: "^2" },
+    dependencyPackages: [upgradedDependency.pkg],
     localStorage: {
       version: 2,
       compatible: { minimum: 2, maximum: 2 },
@@ -105,11 +122,11 @@ test("minimized Electron executes a signed local package in its packaged worker 
           recovery.getByText("Awaiting recovery", { exact: true }),
         ).toBeVisible();
         await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
-        await mkdir("docs/verification/local-install-recovery", {
+        await mkdir("docs/verification/local-dependencies", {
           recursive: true,
         });
         await page.screenshot({
-          path: "docs/verification/local-install-recovery/desktop-pending.png",
+          path: "docs/verification/local-dependencies/desktop-pending.png",
         });
         await recovery
           .getByRole("button", { name: "Resume installation", exact: true })
@@ -138,11 +155,18 @@ test("minimized Electron executes a signed local package in its packaged worker 
           page.getByRole("columnheader", { name: "Body", exact: true }),
         ).toBeVisible();
         await page.screenshot({
-          path: "docs/verification/local-install-recovery/desktop-recovered.png",
+          path: "docs/verification/local-dependencies/desktop-recovered.png",
         });
       }
       const result = await page.evaluate(
-        async ({ javascript, published, upgraded, saved }) => {
+        async ({
+          javascript,
+          published,
+          upgraded,
+          dependency,
+          upgradedDependency,
+          saved,
+        }) => {
           const url = URL.createObjectURL(
             new Blob([javascript], { type: "text/javascript" }),
           );
@@ -155,7 +179,15 @@ test("minimized Electron executes a signed local package in its packaged worker 
           const session = saved
             ? await sdk.unlockLocalProfile(saved.profileId, password)
             : await sdk.createLocalProfile("Native signed notes", password);
-          if (!saved) await session.install(published.pkg, published.publicKey);
+          if (!saved)
+            await session.installSet(
+              published.pkg.module_id,
+              [published, dependency].map((r) => ({
+                package: r.pkg,
+                publicKey: r.publicKey,
+                configuration: {},
+              })),
+            );
           const module = sdk.hydrateModule(
             published.pkg
               .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
@@ -175,7 +207,14 @@ test("minimized Electron executes a signed local package in its packaged worker 
             )) as string;
           if (!saved) {
             void session
-              .install(upgraded.pkg, upgraded.publicKey)
+              .installSet(
+                upgraded.pkg.module_id,
+                [upgraded, upgradedDependency].map((r) => ({
+                  package: r.pkg,
+                  publicKey: r.publicKey,
+                  configuration: {},
+                })),
+              )
               .catch(() => {});
             while (
               !Object.values(session.data.installationAttempts ?? {}).some(
@@ -192,6 +231,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
           const attempt = session.data.installationAttempts![installationId];
           const rows = session.data.records[module.id + "/items"];
           const stored = session.data.modules![module.id];
+          const related = session.data.modules![dependency.pkg.module_id];
           const profileId = session.id;
           if (saved) session.lock();
           return {
@@ -200,11 +240,19 @@ test("minimized Electron executes a signed local package in its packaged worker 
             rowId,
             rows,
             stored,
+            related,
             installationId,
             state: attempt.state,
           };
         },
-        { javascript, published, upgraded, saved },
+        {
+          javascript,
+          published,
+          upgraded,
+          dependency,
+          upgradedDependency,
+          saved,
+        },
       );
       expect((await workerStarted).url()).toBe(`suite://app/assets/${worker}`);
       expect(result.rows).toHaveLength(1);
@@ -220,6 +268,11 @@ test("minimized Electron executes a signed local package in its packaged worker 
       });
       expect(result.stored.migrations).toHaveLength(saved ? 1 : 0);
       expect(result.state).toBe(saved ? "accepted" : "pending");
+      expect(result.related).toMatchObject({
+        version: saved ? "2.0.0" : "1.0.0",
+        schemaVersion: saved ? 2 : 1,
+      });
+      expect(result.related.migrations).toHaveLength(saved ? 1 : 0);
       expect(
         await app.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows().every(

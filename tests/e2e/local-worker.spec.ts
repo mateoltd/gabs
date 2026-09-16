@@ -472,3 +472,223 @@ test("signed local migrations commit atomically and retain compatible rollback, 
     release: "2.1.0",
   });
 });
+
+test("local dependency sets migrate atomically, preserve consumers and resume the entire selection offline", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  const provider = await publishLocalPackage({ name: "Local provider" });
+  const consumer = await publishLocalPackage({
+    name: "Local consumer",
+    dependencies: { [provider.pkg.module_id]: "^1" },
+    dependencyPackages: [provider.pkg],
+  });
+  const schema = {
+    version: 2,
+    compatible: { minimum: 2, maximum: 2 },
+    migrations: { rename: { from: 1, to: 2 } },
+  };
+  const nextProvider = await publishLocalPackage({
+    id: provider.pkg.module_id,
+    name: "Local provider",
+    version: "2.0.0",
+    field: "body",
+    localStorage: schema,
+  });
+  const failedConsumer = await publishLocalPackage({
+    id: consumer.pkg.module_id,
+    name: "Local consumer",
+    version: "2.0.0",
+    field: "body",
+    localStorage: schema,
+    migrationError: true,
+    dependencies: { [provider.pkg.module_id]: "^2" },
+    dependencyPackages: [nextProvider.pkg],
+  });
+  const nextConsumer = await publishLocalPackage({
+    id: consumer.pkg.module_id,
+    name: "Local consumer",
+    version: "2.1.0",
+    field: "body",
+    localStorage: schema,
+    migrationDelayMs: 1200,
+    dependencies: { [provider.pkg.module_id]: "^2" },
+    dependencyPackages: [nextProvider.pkg],
+  });
+  await fixture(page);
+  await page.goto("/");
+  await page.context().setOffline(true);
+  const result = await page.evaluate(
+    async ({
+      provider,
+      consumer,
+      nextProvider,
+      failedConsumer,
+      nextConsumer,
+    }) => {
+      const path = "/local-profile-proof.mjs";
+      type SDK = typeof import("../../packages/platform/src/local-profiles") &
+        typeof import("@suite/module-sdk");
+      const sdk = (await import(path)) as SDK;
+      const password = "correct horse battery staple";
+      let session = await sdk.createLocalProfile(
+        "Dependency recovery",
+        password,
+      );
+      const id = session.id;
+      const release = (published: typeof provider, prefix = "") => ({
+        package: published.pkg,
+        publicKey: published.publicKey,
+        configuration: { prefix },
+      });
+      const beforeData = () =>
+        JSON.stringify({
+          records: session.data.records,
+          modules: session.data.modules,
+          receipts: session.data.receipts,
+        });
+      await session.installSet(consumer.pkg.module_id, [
+        release(consumer),
+        release(provider),
+      ]);
+      for (const published of [provider, consumer]) {
+        const module = sdk.hydrateModule(
+          published.pkg
+            .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+        );
+        await sdk
+          .createModuleClient(module, (call) => session.execute(module, call))
+          .call("capture", { text: module.id });
+      }
+      const before = beforeData();
+      let incompatible = "",
+        failed = "",
+        overlap = "";
+      try {
+        await session.install(nextProvider.pkg, nextProvider.publicKey);
+      } catch (error) {
+        incompatible = (error as Error).message;
+      }
+      const corrupt = structuredClone(nextProvider);
+      corrupt.pkg.artifact.description = "Tampered dependency";
+      let signature = "";
+      try {
+        await session.installSet(consumer.pkg.module_id, [
+          release(nextConsumer),
+          release(corrupt),
+        ]);
+      } catch (error) {
+        signature = (error as Error).message;
+      }
+      const preflightPreserved = beforeData() === before;
+      try {
+        await session.installSet(consumer.pkg.module_id, [
+          release(failedConsumer),
+          release(nextProvider),
+        ]);
+      } catch (error) {
+        failed = (error as Error).message;
+      }
+      const failedPreserved = beforeData() === before;
+      const failedId = Object.entries(session.data.installationAttempts!).find(
+        ([, a]) => a.state === "failed",
+      )![0];
+      try {
+        await session.uninstall(provider.pkg.module_id);
+      } catch (error) {
+        overlap = (error as Error).message;
+      }
+      await session.dismissInstallation(failedId);
+      const controller = new AbortController();
+      const pending = session.installSet(
+        consumer.pkg.module_id,
+        [
+          release(nextConsumer, "Consumer: "),
+          release(nextProvider, "Provider: "),
+        ],
+        { signal: controller.signal },
+      );
+      while (
+        !Object.values(session.data.installationAttempts ?? {}).some(
+          (a) => a.state === "pending",
+        )
+      )
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      controller.abort();
+      try {
+        await pending;
+      } catch {}
+      const interruptedPreserved = beforeData() === before;
+      const attemptId = Object.entries(session.data.installationAttempts!).find(
+        ([, a]) => a.state === "interrupted",
+      )![0];
+      session.lock();
+      session = await sdk.unlockLocalProfile(id, password);
+      const saved = session.data.installationAttempts![attemptId];
+      const savedCount =
+        saved.state === "accepted" ? 0 : 1 + (saved.related?.length ?? 0);
+      await session.retryInstallation(attemptId);
+      const recovered = session.data;
+      await session.retryInstallation(attemptId);
+      const replayPreserved =
+        beforeData() ===
+        JSON.stringify({
+          records: recovered.records,
+          modules: recovered.modules,
+          receipts: recovered.receipts,
+        });
+      const active = [provider, consumer].map(
+        (p) => session.data.modules![p.pkg.module_id],
+      );
+      const rows = [provider, consumer].map(
+        (p) => session.data.records[p.pkg.module_id + "/items"],
+      );
+      session.lock();
+      return {
+        incompatible,
+        signature,
+        failed,
+        overlap,
+        preflightPreserved,
+        failedPreserved,
+        interruptedPreserved,
+        savedCount,
+        replayPreserved,
+        active,
+        rows,
+      };
+    },
+    { provider, consumer, nextProvider, failedConsumer, nextConsumer },
+  );
+  expect(result.incompatible).toContain("compatible official release set");
+  expect(result.signature).toContain("checksum");
+  expect(result.failed).toContain("Migration fixture failure");
+  expect(result.overlap).toContain("Resume or discard");
+  expect(
+    result.preflightPreserved &&
+      result.failedPreserved &&
+      result.interruptedPreserved &&
+      result.replayPreserved,
+  ).toBe(true);
+  expect(result.savedCount).toBe(2);
+  expect(
+    result.active.map((m) => [
+      m.version,
+      m.schemaVersion,
+      m.migrations?.length,
+    ]),
+  ).toEqual([
+    ["2.0.0", 2, 1],
+    ["2.1.0", 2, 1],
+  ]);
+  expect(result.rows.map((rows) => rows.map((r) => r.data))).toEqual([
+    [{ body: provider.pkg.module_id }],
+    [{ body: consumer.pkg.module_id }],
+  ]);
+  expect(result.active[0].releases["2.0.0"].configuration).toEqual({
+    prefix: "Provider: ",
+  });
+  expect(result.active[1].releases["2.1.0"].configuration).toEqual({
+    prefix: "Consumer: ",
+  });
+});
