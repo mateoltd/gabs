@@ -1,5 +1,8 @@
 import {
   referenceQueryField,
+  referenceValues,
+  referenceTargetKey,
+  type ReferenceTarget,
   pageReferenceOptions,
   resourceReferenceOptions,
   ReferenceOptionSchema,
@@ -309,6 +312,104 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       );
     return definition.policy;
   }
+  function referenceOptionsFor(
+    module: ModuleDefinition,
+    target: ReferenceTarget,
+  ) {
+    if (target.kind === "member") {
+      if (options.personal)
+        throw rejected(
+          400,
+          "MEMBERSHIP_UNAVAILABLE",
+          "Standalone profiles have no corporate membership directory.",
+        );
+      return members
+        .filter(
+          (member) => member.active !== false && member.userActive !== false,
+        )
+        .map((member) => ({ value: member.id, label: member.name }));
+    }
+    const provider = modules.get(target.moduleId)?.module;
+    if (!provider)
+      throw rejected(
+        404,
+        "NOT_FOUND",
+        "Load the referenced provider's fixtures.",
+      );
+    if (target.moduleId !== module.id) {
+      if (options.personal)
+        throw rejected(
+          403,
+          "LOCAL_SCOPE_DENIED",
+          "Cross-module local reference lookup requires a granted host capability.",
+        );
+      if (!Object.hasOwn(module.dependencies, target.moduleId))
+        throw rejected(
+          400,
+          "UNDECLARED_DEPENDENCY",
+          "Declare the referenced provider dependency.",
+        );
+      if (!satisfies(provider.version, module.dependencies[target.moduleId]))
+        throw rejected(
+          409,
+          "RELEASE_INCOMPATIBLE",
+          "The referenced provider version is incompatible.",
+        );
+      if (
+        !readGrants.some(
+          (grant) =>
+            grant.consumerId === module.id &&
+            grant.providerId === target.moduleId,
+        )
+      )
+        throw rejected(
+          403,
+          "GRANT_REQUIRED",
+          "Supply an explicit module read grant.",
+        );
+    }
+    policy(modules.get(target.moduleId)!, {
+      moduleId: target.moduleId,
+      moduleVersion: provider.version,
+      resource: target.resource,
+      action: "list",
+      input: {},
+    });
+    return resourceReferenceOptions(
+      data[target.moduleId].records[target.resource],
+    );
+  }
+  function validateResourceReferences(
+    module: ModuleDefinition,
+    schema: import("./index").TSchema,
+    value: unknown,
+  ) {
+    const targets = new Map<string, Set<string>>();
+    for (const reference of referenceValues(schema, value)) {
+      const key = referenceTargetKey(reference.target);
+      let ids = targets.get(key);
+      if (!ids) {
+        ids = new Set(
+          referenceOptionsFor(module, reference.target).map((row) =>
+            row.value.toLowerCase(),
+          ),
+        );
+        targets.set(key, ids);
+      }
+      if (!ids.has(reference.value.toLowerCase()))
+        throw reference.target.kind === "member"
+          ? rejected(
+              400,
+              "INVALID_MEMBER",
+              "Choose an active member of this workspace.",
+            )
+          : rejected(
+              404,
+              "NOT_FOUND",
+              "A referenced record was not found in this workspace.",
+            );
+    }
+  }
   const execute = async (
     scope: SimulationModule,
     call: ModuleCall,
@@ -542,75 +643,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         call.input,
       );
       const query = call.input as ReferenceQuery;
-      if (target.kind === "member") {
-        if (options.personal)
-          throw rejected(
-            400,
-            "MEMBERSHIP_UNAVAILABLE",
-            "Standalone profiles have no corporate membership directory.",
-          );
-        return pageReferenceOptions(
-          members
-            .filter(
-              (member) =>
-                member.active !== false && member.userActive !== false,
-            )
-            .map((member) => ({ value: member.id, label: member.name })),
-          query,
-        );
-      }
-      const provider = modules.get(target.moduleId)?.module;
-      if (!provider)
-        throw rejected(
-          404,
-          "NOT_FOUND",
-          "Load the referenced provider's fixtures.",
-        );
-      if (target.moduleId !== module.id) {
-        if (options.personal)
-          throw rejected(
-            403,
-            "LOCAL_SCOPE_DENIED",
-            "Cross-module local reference lookup requires a granted host capability.",
-          );
-        if (!Object.hasOwn(module.dependencies, target.moduleId))
-          throw rejected(
-            400,
-            "UNDECLARED_DEPENDENCY",
-            "Declare the referenced provider dependency.",
-          );
-        if (!satisfies(provider.version, module.dependencies[target.moduleId]))
-          throw rejected(
-            409,
-            "RELEASE_INCOMPATIBLE",
-            "The referenced provider version is incompatible.",
-          );
-        if (
-          !readGrants.some(
-            (grant) =>
-              grant.consumerId === module.id &&
-              grant.providerId === target.moduleId,
-          )
-        )
-          throw rejected(
-            403,
-            "GRANT_REQUIRED",
-            "Supply an explicit module read grant.",
-          );
-      }
-      policy(modules.get(target.moduleId)!, {
-        moduleId: target.moduleId,
-        moduleVersion: provider.version,
-        resource: target.resource,
-        action: "list",
-        input: {},
-      });
-      return pageReferenceOptions(
-        resourceReferenceOptions(
-          data[target.moduleId].records[target.resource],
-        ),
-        query,
-      );
+      return pageReferenceOptions(referenceOptionsFor(module, target), query);
     }
     const resource = module.resources[call.resource!],
       rows = data[module.id].records[call.resource!];
@@ -628,7 +661,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     }
     if (call.action === "create") {
       if (old) throw rejected(409, "RECORD_EXISTS", "Record already exists.");
-      assertSchema(resource.schema, input.data);
+      validateResourceReferences(module, resource.schema, input.data);
       const record = {
         id: input.id ?? crypto.randomUUID(),
         data: structuredClone(input.data) as JsonRecord,
@@ -658,7 +691,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       );
     if (call.action === "archive") old.archived = true;
     else {
-      assertSchema(resource.schema, input.data);
+      validateResourceReferences(module, resource.schema, input.data);
       old.data = structuredClone(input.data) as JsonRecord;
     }
     old.version++;

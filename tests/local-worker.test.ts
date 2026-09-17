@@ -258,3 +258,56 @@ it("looks up standalone references in the actual worker without creating a recei
     runner.close();
   }
 });
+
+it("rejects invalid links inside the worker without committing records or consuming a retry key", async () => {
+  const runner = host();
+  try {
+    const first = await runner.run(
+      module,
+      request(command("append", { text: "Target" })),
+    );
+    const target = first.snapshot.records.notes[0];
+    const before = structuredClone(first.snapshot);
+    const create = (linked: string): ModuleCall => ({
+      moduleId: module.id,
+      moduleVersion: module.version,
+      resource: "notes",
+      action: "create",
+      input: { data: { text: "Linked note", linked } },
+      key: "reference-retry",
+    });
+    await expect(
+      runner.run(module, request(create(crypto.randomUUID()), before)),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(before).toEqual(first.snapshot);
+    const valid = await runner.run(module, request(create(target.id), before));
+    expect(valid.snapshot.records.notes).toHaveLength(2);
+    expect(valid.snapshot.receipts["reference-retry"]).toBeDefined();
+    const archived = await runner.run(
+      module,
+      request(
+        {
+          moduleId: module.id,
+          moduleVersion: module.version,
+          resource: "notes",
+          action: "archive",
+          input: { id: target.id, baseVersion: target.version },
+          key: "archive-target",
+        },
+        valid.snapshot,
+      ),
+    );
+    await expect(
+      runner.run(
+        module,
+        request(
+          { ...create(target.id), key: "after-archive" },
+          archived.snapshot,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(archived.snapshot.records.notes).toHaveLength(2);
+  } finally {
+    runner.close();
+  }
+});

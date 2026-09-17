@@ -1,5 +1,8 @@
 import {
   referenceQueryField,
+  referenceValues,
+  referenceTargetKey,
+  type ReferenceTarget,
   pageReferenceOptions,
   resourceReferenceOptions,
   type ReferenceQuery,
@@ -20,6 +23,7 @@ import {
   type ResourceRecord,
   type ResourcePage,
   type Static,
+  type TSchema,
 } from "./index";
 import type { Configuration, OperationError } from "./context";
 import { canonical } from "./registry";
@@ -310,6 +314,49 @@ export async function executeLocalCall(
   let closed = false,
     failure: unknown;
   const pending = new Set<Promise<unknown>>();
+  const referenceRecords = (target: ReferenceTarget): ResourceRecord[] => {
+    if (target.kind === "member")
+      fail(
+        "MEMBERSHIP_UNAVAILABLE",
+        "Standalone profiles have no corporate membership directory.",
+      );
+    if (target.moduleId !== module.id)
+      fail(
+        "LOCAL_SCOPE_DENIED",
+        "Cross-module local reference lookup requires a granted host capability.",
+      );
+    const resource =
+      Object.hasOwn(module.resources, target.resource) &&
+      module.resources[target.resource];
+    if (!resource || !resource.standalone)
+      fail(
+        "LOCAL_ONLY",
+        "The referenced resource is not available in this standalone module.",
+      );
+    return Object.hasOwn(snapshot.records, target.resource)
+      ? snapshot.records[target.resource]
+      : [];
+  };
+  const validateResourceReferences = (schema: TSchema, value: unknown) => {
+    const targets = new Map<string, Set<string>>();
+    for (const reference of referenceValues(schema, value)) {
+      const key = referenceTargetKey(reference.target);
+      let ids = targets.get(key);
+      if (!ids) {
+        ids = new Set(
+          referenceRecords(reference.target)
+            .filter((row) => !row.archived)
+            .map((row) => row.id.toLowerCase()),
+        );
+        targets.set(key, ids);
+      }
+      if (!ids.has(reference.value.toLowerCase()))
+        fail(
+          "NOT_FOUND",
+          "A referenced record was not found in this local profile.",
+        );
+    }
+  };
   const resource: ModuleTransport = (command) => {
     const task = Promise.resolve().then(() => {
       if (closed)
@@ -330,30 +377,8 @@ export async function executeLocalCall(
           definition.schema,
           command.input,
         );
-        if (target.kind === "member")
-          fail(
-            "MEMBERSHIP_UNAVAILABLE",
-            "Standalone profiles have no corporate membership directory.",
-          );
-        if (target.moduleId !== module.id)
-          fail(
-            "LOCAL_SCOPE_DENIED",
-            "Cross-module local reference lookup requires a granted host capability.",
-          );
-        const resource =
-          Object.hasOwn(module.resources, target.resource) &&
-          module.resources[target.resource];
-        if (!resource || !resource.standalone)
-          fail(
-            "LOCAL_ONLY",
-            "The referenced resource is not available in this standalone module.",
-          );
         return pageReferenceOptions(
-          resourceReferenceOptions(
-            Object.hasOwn(snapshot.records, target.resource)
-              ? snapshot.records[target.resource]
-              : [],
-          ),
+          resourceReferenceOptions(referenceRecords(target)),
           command.input as ReferenceQuery,
         );
       }
@@ -387,7 +412,7 @@ export async function executeLocalCall(
           );
       }
       if (command.action !== "archive")
-        assertSchema(definition.schema, input.data);
+        validateResourceReferences(definition.schema, input.data);
       if (command.action === "create") {
         const created: ResourceRecord = {
           id: crypto.randomUUID(),

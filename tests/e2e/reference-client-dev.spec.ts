@@ -100,6 +100,18 @@ test("development reference pickers require explicit provider grants and honor p
     await expect(picker.getByRole("alert")).toContainText(
       "explicit module read grant",
     );
+    const retainedRecords = await page.locator("#records").textContent();
+    await view
+      .getByRole("button", { name: "Save linked note", exact: true })
+      .click();
+    await expect(view.locator(".error-message")).toContainText(
+      "explicit module read grant",
+    );
+    await expect(page.locator("#records")).toHaveText(retainedRecords!);
+    await mkdir("docs/verification/reference-integrity", { recursive: true });
+    await page.screenshot({
+      path: "docs/verification/reference-integrity/development-rejection.png",
+    });
     await mkdir("docs/verification/reference-client", { recursive: true });
     await page.screenshot({
       path: "docs/verification/reference-client/development-denial.png",

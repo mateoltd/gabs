@@ -79,6 +79,14 @@ Generated standalone forms use the local worker client. Lookup reads active targ
 
 The development simulator implements the same paging, selected-item resolution and label rules. Member fixtures must be supplied explicitly. Cross-module lookup requires a loaded compatible dependency, a `readGrants` fixture and current target read permission. The development workspace exposes these grants alongside service grants in **Module grants and provider permissions**. See [reference fixtures](module-scenarios.md#reference-fixtures). Corporate simulation rejects offline lookup rather than placing it in the journal.
 
+### Write integrity
+
+Standalone resource creates and updates validate every present annotated link against active same-module targets in the current local transaction. Nested arrays, maps and matching union branches use the same schema traversal as corporate writes. A target created earlier in an operation is available to later writes. A failed reference check rejects the operation even if its handler catches the error; no partial records or new receipt are committed.
+
+The simulator performs equivalent checks using its current fixtures, permissions, member state and explicit read grants. Offline capture remains provisional: validation happens when the simulated server accepts the queued request, and one rejected reference does not prevent unrelated entries from synchronizing.
+
+Ordinary edits revalidate all present links, including unchanged ones. If a target has since been archived, remove or replace its link before saving. Archiving a target does not delete historical records that reference it. An exact retry of an already accepted request returns its saved receipt; it does not create a second write or revalidate historical success. Migration reconciliation is a separate contract.
+
 ## Current limits
 
 - Generated object and homogeneous-array editors use recursive pickers. Tuple and record-map fields retain the structured JSON editor; their references are validated server-side, but per-item picker UI remains open.
@@ -87,5 +95,5 @@ The development simulator implements the same paging, selected-item resolution a
 - Pagination is not a snapshot. Archiving or revocation after lookup can cause a subsequent write to be rejected.
 - Corporate independent views currently require an online lookup; the generated host's leased label cache is not automatically supplied to arbitrary custom views.
 - Cross-module local lookup and custom standalone view mounting remain open. Same-module standalone generated pickers are covered.
-- Simulator and standalone resource writes currently validate schemas without the corporate reference-authority checks. Successful lookup does not prove that those writes enforce reference integrity; that semantic parity remains open.
+- Standalone migration reference reconciliation remains open; ordinary resource-write validation does not silently impose new semantics on historical migrations. In-memory simulation does not establish real corporate authorization, SQL isolation or concurrency.
 - Broader SDK composition, accessibility acceptance and platform parity remain open.

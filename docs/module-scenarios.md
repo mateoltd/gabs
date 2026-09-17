@@ -108,7 +108,7 @@ export default defineSimulationModule(module, {
 
 The consumer must declare the provider dependency, and the provider must be loaded at a compatible version. `simulation.setReadGrants(...)`, `setMembers(...)` and `setModulePermissions(...)` exercise revocation. Member IDs must be unique; inactive members/accounts and archived resource records are omitted. No corporate member is fabricated from the simulator actor. Source and target read permissions are required on every lookup.
 
-The development workspace exposes read grants under **Module grants and provider permissions**. Reload restores file-based fixtures. Offline corporate queries fail without journaling; `personal: true` permits same-module standalone targets and rejects corporate membership or cross-module targets. These lookup rules do not add corporate reference validation to simulated resource writes.
+The development workspace exposes read grants under **Module grants and provider permissions**. Reload restores file-based fixtures. Offline corporate queries fail without journaling; `personal: true` permits same-module standalone targets and rejects corporate membership or cross-module targets. Creates and updates validate present links against these same permissions, grants and active targets. Missing or archived targets reject the whole transaction. Offline captures remain provisional until synchronization validates them. Seed fixtures may deliberately contain historical or invalid links for recovery scenarios; loading fixtures does not act as an accepted business write.
 
 ## Verification boundary
 
