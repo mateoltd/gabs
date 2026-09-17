@@ -407,3 +407,5 @@ Implementation checkpoint `655489ccb6ad94dfcdeb22bf767684934f26ce06` / [CI 35184
 ## SDK-04 signed host UI compatibility, 17 September 2026
 
 [Host UI compatibility acceptance](host-ui/README.md) records signed requirement derivation, registry/installer/renderer checks, older-host initialization guards and rejected-update recovery. Verification passed 225 unit/PostgreSQL tests across 47 files, strict checks/four builds, five headless browser journeys, an expanded compatibility recovery rerun and one hidden/unfocused Electron journey. Three captures were inspected; historical screenshots and shared development data were preserved. Temporary-database functional acceptance does not close the shared-registry loading/performance gap. SDK-04, OPS-07, remote capacity dependencies, full parity and final UI approval remain open.
+
+Implementation checkpoint `3f4507f511cc658ff0f74b57a08b43ed67958035` / [CI 35186225632](https://github.com/mateoltd/gabs/actions/runs/35186225632) started no jobs. All four jobs ended with zero steps; the verified annotation states that the Actions budget prevents further use. This is a remote-capacity failure, not fresh execution evidence.
