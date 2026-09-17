@@ -459,3 +459,9 @@ Source checkpoint `7418548903a540345958152f7f48948bb3e652dc` / [CI 35210471760](
 Local acceptance passed 257 unit/PostgreSQL tests, 5 focused CLI/distribution tests, six architecture fixtures, seven independent checker probes, all four builds and a frozen-lockfile install. The broad browser run passed 99/111 before 12 stale worker-route fixtures were corrected; those 12 passed in the focused repair run. A separate intermittent closed-Select accessibility failure was corrected and the affected accessibility/focus/UI set passed 36/36 across three repeats. The selected native run passed 10/13 before three migrated fixture expectations were corrected; the repair run passed 4/4. All native runs were minimized and unfocused.
 
 Architecture captures were reviewed separately and historical screenshots restored. This verifies the migration and preserved local-services behavior. It does not claim full product parity, remote CI, signed release acceptance or final UI approval.
+
+## Local device grant authority, 17 September 2026
+
+[Local device grants](local-device-grants/README.md) add encrypted profile decisions bound to exact releases and aliases, with fresh lock/revocation checks before effects. Local acceptance passed 36 final local/host unit tests, two headless browser journeys plus the expanded grant proof rerun, and all four builds with strict environment/boundary checks. The new browser proof verifies offline persistence, signature-bound installation, revoke/regrant, cross-window invalidation, update/rollback, uninstall/reinstall and retained records.
+
+SDK-05 remains active: consent UI, worker message brokering, desktop effect integration and corporate offline capability leases remain required. This milestone grants no new production-facing device effects.

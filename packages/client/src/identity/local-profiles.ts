@@ -26,6 +26,12 @@ import {
   serviceContext,
 } from "./local-access";
 import { availableLocalModules } from "./local-modules";
+import type { HostCapabilityCall } from "@suite/module-sdk/host-capabilities";
+import {
+  createLocalCapabilityAuthority,
+  type LocalCapabilityGrant,
+  type LocalCapabilityGuard,
+} from "./local-capabilities";
 import {
   assertVaultRevision,
   commitVault,
@@ -38,6 +44,11 @@ export interface LocalProfileRuntime {
   workerFactory: LocalWorkerFactory;
 }
 export { localReferenceAccess, localServiceAccess } from "./local-access";
+export { localCapabilityAccess } from "./local-capabilities";
+export type {
+  LocalCapabilityGrant,
+  LocalCapabilityGuard,
+} from "./local-capabilities";
 export { listLocalProfiles, removeLocalProfile } from "./local-vault";
 export interface LocalRelease {
   package: SignedArtifact;
@@ -102,6 +113,7 @@ export interface LocalLifecycleEvent {
   modules: { moduleId: string; moduleVersion: string; title: string }[];
 }
 export interface LocalData {
+  capabilityGrants?: LocalCapabilityGrant[];
   referenceGrants?: LocalReferenceGrant[];
   serviceGrants?: (LocalServiceGrant & { grantedAt: number })[];
   lifecycle?: LocalLifecycleEvent[];
@@ -130,6 +142,12 @@ export interface LocalSession {
   id: string;
   name: string;
   readonly data: LocalData;
+  setCapabilityAccess(
+    moduleId: string,
+    capability: string,
+    allowed: boolean,
+  ): Promise<void>;
+  prepareCapability(call: HostCapabilityCall): Promise<LocalCapabilityGuard>;
   setServiceAccess(
     consumerId: string,
     service: string,
@@ -404,6 +422,15 @@ function session(
     try {
       let next: LocalData = {
         ...data,
+        // New release bytes require new consent. Removing old grants also prevents rollback revival.
+        capabilityGrants: data.capabilityGrants?.filter((grant) => {
+          const replacement = selected.get(grant.moduleId);
+          return (
+            !replacement ||
+            (replacement.module.version === grant.moduleVersion &&
+              replacement.release.package.digest === grant.releaseDigest)
+          );
+        }),
         records: { ...data.records },
         modules: { ...data.modules },
         referenceGrants: [
@@ -579,6 +606,18 @@ function session(
     }
   }
   const current: LocalSession = {
+    ...createLocalCapabilityAuthority({
+      catalog: runtime.catalog,
+      profileId: vault.id,
+      data: () => data,
+      revision: () => revision,
+      settled: async () => {
+        await tail;
+      },
+      assertCurrent: assertCurrentProfile,
+      enqueue,
+      save: (grants) => commit({ ...data, capabilityGrants: grants }),
+    }),
     setServiceAccess(consumerId, service, allowed) {
       return enqueue(async () => {
         if (
@@ -906,6 +945,9 @@ function session(
             },
           ],
           modules: { ...data.modules, [moduleId]: { ...prior, active: false } },
+          capabilityGrants: data.capabilityGrants?.filter(
+            (grant) => grant.moduleId !== moduleId,
+          ),
           serviceGrants: data.serviceGrants?.filter(
             (grant) =>
               grant.consumerId !== moduleId && grant.providerId !== moduleId,

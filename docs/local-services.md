@@ -2,7 +2,7 @@
 
 Use the same public `serviceReference(provider, operation)` declaration as corporate modules, with a compatible module dependency. A provider operation must declare both `policy: "local"` and `public: true`; its permission must belong to the provider's declared permissions. The consuming alias copies the typed input, output and error contract into its signed release.
 
-Within `defineLocalModule`, `ctx.service(alias, input)` infers the provider's input and output. `ctx.serviceAttempt(alias, input)` returns the provider's declared business error as a discriminated result. Undeclared aliases, wrong input/output types and corporate operations fail compilation. See the [compiled authoring example](../tests/fixtures/local-services.ts) and [independently published fixture](../tests/local-service-fixture.ts).
+Within `defineLocalModule`, `ctx.service(alias, input)` infers the provider's input and output. `ctx.serviceAttempt(alias, input)` returns the provider's declared business error as a discriminated result. Undeclared aliases, wrong input/output types and corporate operations fail compilation. See the [compiled authoring example](../tests/fixtures/local-services.ts) and [independently published fixture](../tests/support/local-service-fixture.ts).
 
 A service gets its own installed configuration and standalone resources, plus the same `profileId` and root `requestId`. `ctx.caller` identifies the immediate consuming module and operation. Resource methods remain scoped to the executing module; a service declaration does not permit direct access to another module's tables, corporate services, credentials or native APIs.
 
