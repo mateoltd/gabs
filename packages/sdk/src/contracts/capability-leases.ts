@@ -49,6 +49,29 @@ const hex = (value: ArrayBuffer) =>
   Array.from(new Uint8Array(value), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
+/** Checks key metadata, not provenance. Only the host's authenticated API transport establishes trust. */
+export async function verifyCapabilityLeaseAuthority(
+  value: unknown,
+): Promise<CapabilityLeaseAuthority> {
+  assertSchema(CapabilityLeaseAuthoritySchema, value);
+  const authority = structuredClone(value);
+  const origin = new URL(authority.issuer);
+  if (
+    origin.origin !== authority.issuer ||
+    !["http:", "https:"].includes(origin.protocol)
+  )
+    throw Error("Invalid capability authority origin.");
+  const der = Uint8Array.from(
+    atob(authority.publicKey.replace(/-----[^-]+-----|\s/g, "")),
+    (c) => c.charCodeAt(0),
+  );
+  if (hex(await crypto.subtle.digest("SHA-256", der)) !== authority.keyId)
+    throw Error("The capability authority key fingerprint does not match.");
+  await crypto.subtle.importKey("spki", der, { name: "Ed25519" }, false, [
+    "verify",
+  ]);
+  return authority;
+}
 export async function capabilityContractDigest(module: ModuleDefinition) {
   return hex(
     await crypto.subtle.digest(

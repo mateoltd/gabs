@@ -1,5 +1,8 @@
 import { createModuleHost } from "@suite/module-sdk/host-capabilities";
 import { executeWebHostCapability } from "./host-capabilities";
+import { deviceLeaseAccess, useBrowserDeviceLeases } from "./device-leases";
+import { browserCapabilityLeases } from "@suite/client/browser";
+import { ApiError } from "@suite/client/api";
 import { viewHost } from "./view-host";
 import { assertViewHost } from "@suite/module-sdk/host-ui";
 import * as React from "react";
@@ -440,6 +443,12 @@ function CustomModuleView(
       mounted.current = false;
     };
   }, []);
+  const deviceLeases = useBrowserDeviceLeases(
+    props,
+    module,
+    view.permission,
+    allowed && !!loaded && !error,
+  );
   React.useEffect(() => {
     let active = true;
     if (!allowed) return;
@@ -571,6 +580,11 @@ function CustomModuleView(
     <ViewBoundary
       onError={(error) => props.renderFailed?.(props.pkg.digest, error)}
     >
+      {deviceLeases.message && (
+        <p role="status" className="muted">
+          {deviceLeases.message}
+        </p>
+      )}
       <ui.HostCustomSandbox
         label={view.title}
         css={`
@@ -589,8 +603,6 @@ function CustomModuleView(
                 throw Error(
                   "This module view is no longer active. Reopen it before using a host action.",
                 );
-              if (!current.online || !navigator.onLine)
-                throw Error("Reconnect before using this host action.");
               if (
                 !permission ||
                 !canUse(
@@ -613,6 +625,8 @@ function CustomModuleView(
             };
             const current = check();
             if (window.suiteDesktop) {
+              if (!current.online || !navigator.onLine)
+                throw Error("Reconnect before using this host action.");
               nativeHost.current ??= window.suiteDesktop.openModuleHost(
                 current.scope,
                 module.id,
@@ -626,16 +640,63 @@ function CustomModuleView(
                 call.input,
               );
             }
-            const authorization = await current.client.request({
-              operation: "moduleCapabilityAuthorize",
-              params: {
-                workspaceId: current.scope.workspaceId,
-                moduleId: module.id,
-              },
-              moduleVersion: module.version,
-              body: { capability: call.capability },
-            });
-            check();
+            if (!current.online || !navigator.onLine) {
+              if (module.capabilities?.[call.capability]?.offline !== "lease")
+                throw Error("Reconnect before using this host action.");
+              const live = () => {
+                const active = check();
+                if (active.online && navigator.onLine)
+                  throw Error(
+                    "Connection restored. Retry this action with current server authorization.",
+                  );
+                return deviceLeaseAccess(active);
+              };
+              try {
+                const lease = await browserCapabilityLeases.prepare(
+                  current.scope,
+                  module,
+                  call,
+                  live,
+                );
+                await lease.recheck();
+                live();
+                return executeWebHostCapability(
+                  lease.authorization,
+                  call,
+                  current.scope,
+                );
+              } catch (error) {
+                deviceLeases.unavailable();
+                throw error;
+              }
+            }
+            let authorization;
+            try {
+              authorization = await current.client.request({
+                operation: "moduleCapabilityAuthorize",
+                params: {
+                  workspaceId: current.scope.workspaceId,
+                  moduleId: module.id,
+                },
+                moduleVersion: module.version,
+                body: { capability: call.capability },
+              });
+            } catch (error) {
+              if (
+                error instanceof ApiError &&
+                error.status >= 400 &&
+                error.status < 500
+              ) {
+                deviceLeases.unavailable();
+                await browserCapabilityLeases
+                  .invalidate(current.scope)
+                  .catch(() => {});
+              }
+              throw error;
+            }
+            const final = check();
+            if (!final.online || !navigator.onLine)
+              throw Error("Reconnect before using this host action.");
             return executeWebHostCapability(authorization, call, current.scope);
           })}
           client={client}

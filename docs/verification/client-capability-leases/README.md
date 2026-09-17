@@ -1,6 +1,6 @@
 # Corporate device lease client store
 
-18 September 2026. SDK-05 remains active. This verifies the reusable client guard and browser persistence adapter. Product views still require online device authorization; Electron offline authority and full offline journeys remain unfinished.
+18 September 2026. SDK-05 remains active. This verifies the reusable client guard and browser persistence adapter. At this milestone product views still required online device authorization. Subsequent [browser integration](../browser-capability-leases/README.md) now verifies cached-view exports; Electron offline authority remains unfinished.
 
 ## Implemented boundary
 
@@ -28,3 +28,5 @@ Each completed isolated runner removed its own database. No Electron process or 
 Wire actual online key acquisition/renewal and connected policy delivery into the browser host. Do not fall back to cached grants after known server denials. Observing a rotated trusted key must invalidate earlier authority even if subsequent issuance fails. Check current profile/view state after acquisition and asynchronous writes. Prefetch opted-in capabilities from installed signed contracts without needing synthetic operation input.
 
 Then implement main-process-owned encrypted authority storage and independently verified native offline effects. Verify expiry/revocation after file dialogs, profile restart/lock, current accepted release, disabled offline access and cached custom views in real browser and hidden Electron journeys. Do not trust renderer-provided roles, keys, leases or offline flags at the privileged native boundary. Keep LAN/business commitments outside these leases. Full SDK-05, full parity and final UI refinement remain open.
+
+The later [browser integration milestone](../browser-capability-leases/README.md) completes the browser acquisition/policy/effect work above and adds immediate key-rotation invalidation plus durable-write denial races. Its scoped acceptance supersedes this record for current browser behavior. Issuer-wide trust propagation across cached workspaces/accounts, followed by native offline authority, remains required.

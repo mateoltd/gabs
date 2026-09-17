@@ -9,6 +9,7 @@ import {
   CapabilityLeaseSchema,
   verifyCapabilityLease,
   verifyCapabilityLeaseGrant,
+  verifyCapabilityLeaseAuthority,
   type CapabilityLease,
   type CapabilityLeaseAuthority,
 } from "@suite/module-sdk/capability-leases";
@@ -62,6 +63,7 @@ const sameGrant = (
 export class CorporateCapabilityLeases {
   private epochs = new Map<string, number>();
   private blockedClocks = new Set<string>();
+  private denied = new Set<string>();
   private clocks = new Map<string, { effective: number; monotonic: number }>();
   constructor(
     private readonly storage: CapabilityLeaseStorage,
@@ -194,10 +196,47 @@ export class CorporateCapabilityLeases {
   invalidate(scope: Scope): Promise<void> {
     scope = { ...scope };
     this.invalidateLive(scope);
+    this.denied.add(scopeKey(scope));
     return this.change(scope, async (state) => {
       state.leases = [];
       state.generation = crypto.randomUUID();
     });
+  }
+
+  /** Observe a key directly from the trusted API, even if subsequent lease issuance fails. */
+  async observeAuthority(
+    scope: Scope,
+    fetchAuthority: () => Promise<unknown>,
+    live: () => void,
+  ): Promise<CapabilityLeaseAuthority> {
+    scope = { ...scope };
+    this.invalidateLive(scope);
+    const epoch = this.epoch(scope);
+    const generation = await this.change(scope, async (state) => {
+      live();
+      return state.generation;
+    });
+    const authority = await verifyCapabilityLeaseAuthority(
+      await fetchAuthority(),
+    );
+    await this.change(scope, async (state) => {
+      live();
+      if (epoch !== this.epoch(scope) || generation !== state.generation)
+        throw Error(
+          "Offline device authority changed while loading its key. Retry with current permissions.",
+        );
+      if (
+        state.authority?.keyId !== authority.keyId ||
+        state.authority?.issuer !== authority.issuer
+      ) {
+        this.denied.add(scopeKey(scope));
+        state.leases = [];
+        state.generation = crypto.randomUUID();
+      }
+      state.authority = authority;
+    });
+    live();
+    return authority;
   }
 
   /** Only the trusted authenticated transport may supply fetchGrant. Never feed it renderer/module tokens. */
@@ -258,6 +297,7 @@ export class CorporateCapabilityLeases {
       // Only a newly verified server response can recover a clock fault. Never recover from stored tokens.
       if (
         rotated ||
+        this.denied.has(scopeKey(scope)) ||
         state.clockBlocked ||
         state.highWater > this.clock().wall + 1000
       )
@@ -276,7 +316,13 @@ export class CorporateCapabilityLeases {
       state.leases.push(result.lease);
       state.generation = crypto.randomUUID();
     });
+    if (epoch !== this.epoch(scope))
+      throw Error(
+        "Offline device authority changed during renewal. Retry with current permissions.",
+      );
+    live();
     this.blockedClocks.delete(scopeKey(scope));
+    this.denied.delete(scopeKey(scope));
   }
 
   /** Prepare and recheck again immediately before the effect, especially after a file dialog. */
@@ -286,6 +332,26 @@ export class CorporateCapabilityLeases {
     call: HostCapabilityCall,
     live: LiveAccess,
   ) {
+    return this.grant(scope, module, call.capability, live, call);
+  }
+
+  /** Readiness for a declared grant without inventing input for a future device action. */
+  async inspect(
+    scope: Scope,
+    module: ModuleDefinition,
+    capability: string,
+    live: LiveAccess,
+  ) {
+    return (await this.grant(scope, module, capability, live)).expiresAt;
+  }
+
+  private async grant(
+    scope: Scope,
+    module: ModuleDefinition,
+    capability: string,
+    live: LiveAccess,
+    call?: HostCapabilityCall,
+  ) {
     scope = { ...scope };
     module = structuredClone(module);
     call = structuredClone(call);
@@ -293,10 +359,19 @@ export class CorporateCapabilityLeases {
     let leaseId: string | undefined;
     const recheck = () =>
       this.change(scope, async (state) => {
+        if (this.denied.has(scopeKey(scope))) {
+          if (state.leases.length) {
+            state.leases = [];
+            state.generation = crypto.randomUUID();
+          }
+          throw Error(
+            "Offline device authority was revoked. Reconnect to renew it.",
+          );
+        }
         const now = this.time(scope, state);
         const access = this.access(live, state, now);
         const lease = state.leases.find((lease) =>
-          sameGrant(lease, module, call.capability),
+          sameGrant(lease, module, capability),
         );
         if (!state.authority || !lease)
           throw Error(
@@ -306,18 +381,22 @@ export class CorporateCapabilityLeases {
           throw Error(
             "The offline device lease changed. Start the action again.",
           );
-        const payload = await verifyCapabilityLease(
-          lease,
-          state.authority.publicKey,
-          {
-            ...scope,
-            issuer: state.authority.issuer,
-            module,
-            call,
-            minimumPolicyRevision: access.policyRevision,
-            now,
-          },
-        );
+        const expected = {
+          ...scope,
+          issuer: state.authority.issuer,
+          module,
+          minimumPolicyRevision: access.policyRevision,
+          now,
+        };
+        const payload = await (call
+          ? verifyCapabilityLease(lease, state.authority.publicKey, {
+              ...expected,
+              call,
+            })
+          : verifyCapabilityLeaseGrant(lease, state.authority.publicKey, {
+              ...expected,
+              capability,
+            }));
         const finalNow = this.time(scope, state);
         this.access(live, state, finalNow);
         if (epoch !== this.epoch(scope))
@@ -353,6 +432,7 @@ export class CorporateCapabilityLeases {
       });
     const payload = await recheck();
     return {
+      expiresAt: Math.min(payload.expiresAt, live().expiresAt),
       authorization: {
         userId: payload.userId,
         workspaceId: payload.workspaceId,

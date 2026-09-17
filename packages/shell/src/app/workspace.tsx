@@ -5,6 +5,7 @@ import {
   type Snapshot,
 } from "@suite/client";
 import { ApiError } from "@suite/client/api";
+import { browserCapabilityLeases } from "@suite/client/browser";
 import {
   changeModuleStorage,
   readModuleStorage,
@@ -234,10 +235,27 @@ export function Workspace({
     undefined,
   );
   const cachePolicyEpoch = useRef(0);
-  const acceptPolicy = (candidate: import("@suite/contracts").Bootstrap) => {
+  const devicePolicy = useRef<string | undefined>(undefined);
+  const acceptPolicy = async (
+    candidate: import("@suite/contracts").Bootstrap,
+  ) => {
     const next = newerPolicy(latestPolicy.current, candidate);
     if (next !== latestPolicy.current) cachePolicyEpoch.current++;
     latestPolicy.current = next;
+    const revision = next.policyRevision ?? "0";
+    if (!window.suiteDesktop && devicePolicy.current !== revision) {
+      devicePolicy.current = revision;
+      try {
+        await browserCapabilityLeases.observePolicy(
+          scope,
+          revision,
+          next.offlineHours > 0,
+        );
+      } catch (error) {
+        if (devicePolicy.current === revision) devicePolicy.current = undefined;
+        setError(error);
+      }
+    }
     return latestPolicy.current;
   };
   const boot = useQuery({
@@ -247,6 +265,7 @@ export function Workspace({
         { operation: "bootstrap", params: { workspaceId } },
         { signal },
       );
+      signal.throwIfAborted();
       if (!signal.aborted) {
         setValidatedOnline(true);
         setPolicyDenied(false);
@@ -350,6 +369,9 @@ export function Workspace({
         setCached(undefined);
         setOfflineEnabled(false);
         void Promise.all([
+          window.suiteDesktop
+            ? Promise.resolve()
+            : browserCapabilityLeases.invalidate(scope),
           saveSnapshot(null),
           changeModuleStorage(platform, scope, (s) => {
             s.pages = {};
@@ -371,7 +393,7 @@ export function Workspace({
     online,
     async (policy, changed) => {
       await qc.cancelQueries({ queryKey: [user.id, workspaceId, "bootstrap"] });
-      policy = acceptPolicy(policy);
+      policy = await acceptPolicy(policy);
       setPolicyDenied(false);
       setValidatedOnline(true);
       qc.setQueryData([user.id, workspaceId, "bootstrap"], policy);

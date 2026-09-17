@@ -352,3 +352,92 @@ it("keeps a clock fault detected during the final durable write blocked until co
   await f.refresh();
   await expect(f.prepare()).resolves.toBeDefined();
 });
+
+it("discards old leases as soon as a rotated API key is observed, even without successful issuance", async () => {
+  const f = await fixture();
+  const handle = await f.prepare();
+  f.rotate();
+  const next = await f.issue();
+  await f.manager.observeAuthority(f.scope, async () => next.authority, f.live);
+  await expect(handle.recheck()).rejects.toThrow(/revoked/);
+  const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+  await expect(
+    restarted.prepare(f.scope, module, call, f.live),
+  ).rejects.toThrow(/No offline/);
+  await f.refresh();
+  await expect(f.prepare()).resolves.toBeDefined();
+});
+
+it("cannot restore an old key from a delayed response after another host observes rotation", async () => {
+  const f = await fixture();
+  const old = await f.issue();
+  let release!: () => void;
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pending = f.manager.observeAuthority(
+    f.scope,
+    async () => {
+      started();
+      await held;
+      return old.authority;
+    },
+    f.live,
+  );
+  await ready;
+  f.rotate();
+  const next = await f.issue();
+  const other = new CorporateCapabilityLeases(f.storage, f.clock);
+  await other.observeAuthority(f.scope, async () => next.authority, f.live);
+  release();
+  await expect(pending).rejects.toThrow(/changed while loading/);
+  await expect(f.prepare()).rejects.toThrow(/No offline/);
+});
+
+it("keeps known server denial effective if its durable invalidation write fails", async () => {
+  const f = await fixture();
+  f.storage.beforeSave = async () => {
+    throw Error("Disk full");
+  };
+  await expect(f.manager.invalidate(f.scope)).rejects.toThrow(/Disk full/);
+  f.storage.beforeSave = undefined;
+  await expect(f.prepare()).rejects.toThrow(/revoked/);
+  const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+  await expect(
+    restarted.prepare(f.scope, module, call, f.live),
+  ).rejects.toThrow(/No offline/);
+  await f.refresh();
+  f.setAccess({ expiresAt: 130000 });
+  expect(await f.manager.inspect(f.scope, module, "export", f.live)).toBe(
+    130000,
+  );
+});
+
+it("does not clear a newer denial when an earlier renewal finishes writing", async () => {
+  const f = await fixture();
+  const response = await f.issue();
+  let denial: Promise<void> | undefined;
+  const renewal = f.manager.refresh(
+    f.scope,
+    module,
+    "export",
+    f.live,
+    async () => {
+      f.storage.beforeSave = async () => {
+        f.storage.beforeSave = async () => {
+          throw Error("Disk full");
+        };
+        denial = f.manager.invalidate(f.scope).catch(() => {});
+      };
+      return response;
+    },
+  );
+  await expect(renewal).rejects.toThrow(/changed during renewal/);
+  await denial;
+  f.storage.beforeSave = undefined;
+  await expect(f.prepare()).rejects.toThrow(/revoked/);
+});
