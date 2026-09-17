@@ -173,6 +173,9 @@ test("hidden native module exports recheck revocation and close stale view sessi
       path: "docs/verification/host-capabilities/revoked-native.png",
     });
     await exportPermission(pool, workspace, id, true);
+    // Direct database fixture changes do not refresh the renderer's policy snapshot.
+    await page.reload();
+    await expect(area).toBeVisible();
     await app.evaluate((_, path) => {
       (
         globalThis as unknown as { hostExport: { path: string } }

@@ -43,8 +43,16 @@ A repeated process call for a completed request returns the historical saved res
 
 Updates and uninstall revoke the original capability grant, so retained pending payloads cannot execute through a different release. Recovery preserves them for review; it does not silently retarget their input to new module code.
 
+## Owner controls and device adapters
+
+The local workspace's **Device requests** dialog shows committed requests separately from business records. Owners run pending work, cancel ongoing requests, review uncertain outcomes before retrying, and clear inactive entries. A retry creates a linked request without repeating the original business operation. If a concurrent vault change prevents saving the outcome, lock/unlock recovers it for review.
+
+Browser execution offers actual downloads and permission-checked notifications. Electron owns the native file chooser and write, using a single-use session and fresh challenge callbacks to the trusted profile host, including after the chooser returns. Cancellation and stale consent invalidate later writes. The descriptor alone is not authority; current vault/release/consent validation remains in the trusted profile host. Native main does not independently decrypt that vault.
+
+Local profiles cannot borrow corporate LAN authority. Native local network status reports disabled, and relay requires an authorized corporate workspace. Notification support depends on the browser/OS; a request is not proof of presentation. See [actual effect acceptance and limits](verification/local-device-effects/README.md).
+
 ## Compatibility and remaining integration
 
 New local builds use signed `suite-local-v2` bundles. The host still accepts retained `suite-local-v1` bundles. Older hosts reject v2 at their local artifact check. Registry migration `028_local_device_runtime.sql` permits both formats while preserving the existing submission, server-staging and executable-size checks.
 
-The durable broker is implemented. Standalone browser/native effect adapters, owner-facing request status/recovery controls, native context validation and real device-effect acceptance remain required. Corporate offline capability leases and positive native LAN acceptance are separate open work. No module operation should present a queued device request as a completed effect.
+The durable broker, browser/native effect adapters and owner recovery controls have scoped local acceptance. Corporate offline capability leases, standalone development simulation, actual OS notification presentation and positive corporate native LAN acceptance remain open. No module operation should present a queued device request as a completed effect.

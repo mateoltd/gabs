@@ -60,7 +60,9 @@ export const browserPlatform: Platform = {
       new Blob([content], {
         type: filename.endsWith(".json")
           ? "application/json;charset=utf-8"
-          : "text/csv;charset=utf-8",
+          : filename.endsWith(".csv")
+            ? "text/csv;charset=utf-8"
+            : "text/plain;charset=utf-8",
       }),
     );
     const a = document.createElement("a");

@@ -1,3 +1,4 @@
+import { createLocalDeviceHost } from "./local-devices";
 import { ModuleHostSessions } from "./module-capabilities";
 import { LanTransport, type RelayEnvelope } from "./lan";
 import {
@@ -72,6 +73,7 @@ const oidcConfigured =
 let win: BrowserWindow | undefined;
 let userId: string | undefined;
 const moduleHosts = new ModuleHostSessions(() => userId);
+const localDeviceHosts = createLocalDeviceHost(() => win, minimizedTest);
 let accessToken: string | undefined,
   refreshToken: string | undefined,
   expiresAt = 0,
@@ -404,6 +406,7 @@ async function login(options: LoginOptions) {
   });
 }
 function handlers() {
+  localDeviceHosts.register(sender);
   ipcMain.handle(
     "suite:module-host-open",
     (event, scope: Scope, moduleId: string, version: string) => {
@@ -633,6 +636,7 @@ function handlers() {
   ipcMain.handle("suite:login", async (event, value) => {
     sender(event);
     moduleHosts.clear();
+    localDeviceHosts.clear();
     const options = validateLogin(value);
     loginPromise ??= login(options);
     try {
@@ -644,6 +648,7 @@ function handlers() {
   ipcMain.handle("suite:logout", async (event) => {
     sender(event);
     moduleHosts.clear();
+    localDeviceHosts.clear();
     const token = refreshToken;
     if (lan) await lan.stop();
     lan = undefined;
@@ -868,9 +873,14 @@ async function start() {
     win.webContents.on(
       "did-start-navigation",
       (_event, _url, isInPlace, isMainFrame) => {
-        if (isMainFrame && !isInPlace) moduleHosts.clear();
+        if (isMainFrame && !isInPlace) {
+          moduleHosts.clear();
+          localDeviceHosts.clear();
+        }
       },
     );
+    win.webContents.on("render-process-gone", () => localDeviceHosts.clear());
+    win.webContents.on("destroyed", () => localDeviceHosts.clear());
     win.webContents.on("will-navigate", (event) => event.preventDefault());
     win.webContents.session.setPermissionRequestHandler(
       (_wc, _permission, callback) => callback(false),

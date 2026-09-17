@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopBridge } from "@suite/client";
+import { localDeviceBridge } from "./local-devices";
 window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.os = process.platform;
 });
 const bridge: DesktopBridge = {
+  ...localDeviceBridge,
   openModuleHost: (scope, moduleId, version) =>
     ipcRenderer.invoke("suite:module-host-open", scope, moduleId, version),
   closeModuleHost: (handle) =>

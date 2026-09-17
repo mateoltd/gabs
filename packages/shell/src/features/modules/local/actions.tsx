@@ -51,8 +51,18 @@ export function LocalActions({
     setError(undefined);
     setResult("");
     try {
+      const previousRequests = new Set(
+        Object.keys(session.data.deviceRequests ?? {}),
+      );
       await action(current.signal);
-      setResult("Completed and saved locally.");
+      const deviceRequests = Object.keys(
+        session.data.deviceRequests ?? {},
+      ).filter((id) => !previousRequests.has(id)).length;
+      setResult(
+        deviceRequests
+          ? `Saved locally. ${deviceRequests} device ${deviceRequests === 1 ? "request is" : "requests are"} ready in Device requests.`
+          : "Completed and saved locally.",
+      );
       setInput({});
     } catch (error) {
       setError(error);

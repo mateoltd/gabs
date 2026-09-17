@@ -72,6 +72,12 @@ export interface LanStatus {
   port?: number;
 }
 export interface DesktopBridge {
+  openLocalDevice(
+    request: LocalDesktopDeviceRequest,
+    recheck: () => Promise<void>,
+  ): Promise<string>;
+  executeLocalDevice(handle: string): Promise<unknown>;
+  closeLocalDevice(handle: string): Promise<void>;
   openModuleHost(
     scope: Scope,
     moduleId: string,
@@ -117,6 +123,14 @@ export interface DesktopBridge {
     persistentStorage: boolean;
     updateRequired: boolean;
   }>;
+}
+/** Local host consent context only; never a corporate or IPC bearer authorization. */
+export interface LocalDesktopDeviceRequest {
+  profileId: string;
+  grantId: string;
+  releaseDigest: string;
+  kind: import("@suite/module-sdk/host-capabilities").HostCapabilityKind;
+  call: import("@suite/module-sdk/host-capabilities").HostCapabilityCall;
 }
 declare global {
   interface Window {

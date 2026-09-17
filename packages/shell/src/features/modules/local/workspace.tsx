@@ -1,5 +1,6 @@
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { LocalActions } from "./actions";
+import { LocalDeviceRequests } from "./devices/requests";
 import { LocalModules, type LocalRegistry } from "./modules";
 import {
   TypedResourceTable,
@@ -326,6 +327,11 @@ export function LocalWorkspace({
             />
             <LocalActions
               key={session.id}
+              session={session}
+              changed={() => setRevision((r) => r + 1)}
+            />
+            <LocalDeviceRequests
+              key={`devices-${session.id}`}
               session={session}
               changed={() => setRevision((r) => r + 1)}
             />
