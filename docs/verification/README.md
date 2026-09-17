@@ -435,3 +435,5 @@ Source checkpoint `637f0ee06b82786176c4d045ddbb6600a7f9d26a` / [CI 35193234094](
 ## SDK-05 host capability simulation, 17 September 2026
 
 [Host simulator acceptance](host-simulator/README.md) adds inferred result fixtures, authored CLI scenarios and live preview permission/offline controls without invoking device effects. Strict checks/four builds, 240 unit/PostgreSQL tests, two module-owned CLI scenarios, five headless regressions and both affected preview journeys after visual corrections passed. Scoped Axe and final wide/narrow captures were inspected; historical evidence and shared services/data were preserved. The simulator does not grant real device authority or close the standalone/offline, native LAN, profile or release gates. SDK-05 and the parity goal remain active.
+
+Source checkpoint `e2379a1c6e7f665a463c4c9077dcd2b4e1fde22a` / [CI 35194471793](https://github.com/mateoltd/gabs/actions/runs/35194471793) started no jobs. All four ended with zero steps; the verified annotation states that the Actions budget prevents further use. The local results above remain valid, while remote acceptance requires restored account capacity.

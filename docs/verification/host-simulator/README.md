@@ -22,3 +22,5 @@
 The five hidden/unfocused native journeys in the preceding [corporate capability milestone](../host-capabilities/README.md) verify real native adapters. This simulator milestone changes no native adapter, and its simulated results do not substitute for native/OS acceptance. Browser runs remained headless; temporary databases/development directories were removed, historical captures restored and existing preview/data preserved.
 
 Remaining standalone grants, real LAN receipt/discovery, actual OS notification presentation, corporate offline/profile recovery and full parity retain their original gates. No production deployment, provider action or external message was performed.
+
+Source checkpoint `e2379a1c6e7f665a463c4c9077dcd2b4e1fde22a` / [CI 35194471793](https://github.com/mateoltd/gabs/actions/runs/35194471793) started no jobs. All four ended with zero steps; the verified annotation states that the Actions budget prevents further use. The local results above remain valid, while remote acceptance requires restored account capacity.
