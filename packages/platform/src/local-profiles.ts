@@ -23,6 +23,8 @@ import {
   LocalExecutionError,
   type LocalReceipt,
   type LocalReferenceProvider,
+  type LocalServiceParticipant,
+  type LocalServiceGrant,
 } from "@suite/module-sdk/local";
 import { LocalWorkerHost } from "./local-worker";
 interface Vault {
@@ -98,6 +100,7 @@ export interface LocalLifecycleEvent {
 }
 export interface LocalData {
   referenceGrants?: LocalReferenceGrant[];
+  serviceGrants?: (LocalServiceGrant & { grantedAt: number })[];
   lifecycle?: LocalLifecycleEvent[];
   downloads?: Record<string, LocalDownload>;
   installationAttempts?: Record<string, LocalInstallationAttempt>;
@@ -171,6 +174,101 @@ export function localReferenceAccess(
       ),
     }));
   });
+}
+/** A grant authorizes one declared alias, with both exact releases and a matching public local contract. */
+export function localServiceAccess(data: LocalData) {
+  const modules = availableLocalModules(data);
+  return modules.flatMap((consumer) =>
+    Object.entries(consumer.services ?? {}).flatMap(([service, reference]) => {
+      const provider = modules.find((m) => m.id === reference.moduleId);
+      const contract = provider?.operations[reference.operation];
+      if (
+        !provider ||
+        !contract ||
+        contract.policy !== "local" ||
+        !contract.public ||
+        !provider.permissions.includes(contract.permission) ||
+        !consumer.dependencies[provider.id] ||
+        !satisfies(provider.version, consumer.dependencies[provider.id]) ||
+        canonical(contract) !== canonical(reference.contract)
+      )
+        return [];
+      return [
+        {
+          consumer,
+          provider,
+          service,
+          operation: reference.operation,
+          granted: !!data.serviceGrants?.some(
+            (grant) =>
+              grant.consumerId === consumer.id &&
+              grant.consumerVersion === consumer.version &&
+              grant.providerId === provider.id &&
+              grant.providerVersion === provider.version &&
+              grant.service === service,
+          ),
+        },
+      ];
+    }),
+  );
+}
+function serviceContext(
+  data: LocalData,
+  module: ModuleDefinition,
+  profileId: string,
+) {
+  const choices = localServiceAccess(data).filter((choice) => choice.granted);
+  const participants: LocalServiceParticipant[] = [];
+  const artifacts: Record<
+    string,
+    { package: SignedArtifact; publicKey: string }
+  > = {};
+  const referenceArtifacts: Record<
+    string,
+    { package: SignedArtifact; publicKey: string }
+  > = {};
+  const grants: LocalServiceGrant[] = [];
+  const visited = new Set([module.id]);
+  const visit = (consumerId: string) => {
+    for (const choice of choices.filter((c) => c.consumer.id === consumerId)) {
+      grants.push({
+        consumerId,
+        consumerVersion: choice.consumer.version,
+        providerId: choice.provider.id,
+        providerVersion: choice.provider.version,
+        service: choice.service,
+      });
+      if (visited.has(choice.provider.id)) continue;
+      visited.add(choice.provider.id);
+      const installation = data.modules?.[choice.provider.id];
+      const release = installation?.releases[installation.version];
+      if (release)
+        artifacts[choice.provider.id] = {
+          package: release.package,
+          publicKey: release.publicKey,
+        };
+      const references = referenceContext(data, choice.provider, profileId);
+      Object.assign(referenceArtifacts, references.referenceArtifacts);
+      const prefix = choice.provider.id + "/";
+      participants.push({
+        profileId,
+        module: choice.provider,
+        configuration: release?.configuration ?? {},
+        snapshot: {
+          records: Object.fromEntries(
+            Object.entries(data.records)
+              .filter(([key]) => key.startsWith(prefix))
+              .map(([key, rows]) => [key.slice(prefix.length), rows]),
+          ),
+          receipts: data.receipts?.[choice.provider.id] ?? {},
+        },
+        referenceProviders: references.referenceProviders,
+      });
+      visit(choice.provider.id);
+    }
+  };
+  visit(module.id);
+  return { participants, artifacts, referenceArtifacts, grants };
 }
 function referenceContext(
   data: LocalData,
@@ -252,6 +350,11 @@ export interface LocalSession {
   id: string;
   name: string;
   readonly data: LocalData;
+  setServiceAccess(
+    consumerId: string,
+    service: string,
+    allowed: boolean,
+  ): Promise<void>;
   setReferenceAccess(
     consumerId: string,
     providerId: string,
@@ -742,6 +845,41 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     }
   }
   const current: LocalSession = {
+    setServiceAccess(consumerId, service, allowed) {
+      return enqueue(async () => {
+        if (
+          typeof allowed !== "boolean" ||
+          [consumerId, service].some(
+            (value) =>
+              typeof value !== "string" ||
+              !/^[a-z][a-z0-9-]{0,63}$/.test(value),
+          )
+        )
+          throw Error(
+            "Choose a declared local service and an explicit access decision.",
+          );
+        const choice = localServiceAccess(data).find(
+          (c) => c.consumer.id === consumerId && c.service === service,
+        );
+        if (allowed && !choice)
+          throw Error(
+            "Choose a compatible public standalone service between installed modules.",
+          );
+        const grants = (data.serviceGrants ?? []).filter(
+          (g) => g.consumerId !== consumerId || g.service !== service,
+        );
+        if (allowed && choice)
+          grants.push({
+            consumerId,
+            consumerVersion: choice.consumer.version,
+            providerId: choice.provider.id,
+            providerVersion: choice.provider.version,
+            service,
+            grantedAt: Date.now(),
+          });
+        await commit({ ...data, serviceGrants: grants });
+      });
+    },
     setReferenceAccess(consumerId, providerId, resource, allowed) {
       return enqueue(async () => {
         if (
@@ -1034,6 +1172,10 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             },
           ],
           modules: { ...data.modules, [moduleId]: { ...prior, active: false } },
+          serviceGrants: data.serviceGrants?.filter(
+            (grant) =>
+              grant.consumerId !== moduleId && grant.providerId !== moduleId,
+          ),
           referenceGrants: data.referenceGrants?.filter(
             (grant) =>
               grant.consumerId !== moduleId && grant.providerId !== moduleId,
@@ -1135,6 +1277,16 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           module,
           vault.id,
         );
+        const services =
+          call.action === "operation"
+            ? serviceContext(data, module, vault.id)
+            : {
+                participants: [],
+                artifacts: {},
+                referenceArtifacts: {},
+                grants: [],
+              };
+        Object.assign(referenceArtifacts, services.referenceArtifacts);
         const snapshot = {
           records: Object.fromEntries(
             Object.entries(data.records)
@@ -1152,10 +1304,13 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
               configuration,
               snapshot,
               referenceProviders,
+              serviceParticipants: services.participants,
+              serviceGrants: services.grants,
             },
             {
               ...options,
               referenceArtifacts,
+              serviceArtifacts: services.artifacts,
               artifact: release
                 ? { package: release.package, publicKey: release.publicKey }
                 : undefined,
@@ -1173,6 +1328,25 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
               "The local operation was cancelled.",
             );
           if (!["get", "list", "references"].includes(call.action)) {
+            const serviceRecords: Record<string, ResourceRecord[]> = {};
+            for (const [id, snapshot] of Object.entries(
+              result.participants ?? {},
+            )) {
+              const participant = services.participants.find(
+                (p) => p.module.id === id,
+              );
+              if (!participant)
+                throw Error(
+                  "The worker returned records for an ungranted service module.",
+                );
+              for (const [name, rows] of Object.entries(snapshot.records)) {
+                if (!participant.module.resources[name]?.standalone)
+                  throw Error(
+                    "The service returned a non-standalone resource.",
+                  );
+                serviceRecords[id + "/" + name] = rows;
+              }
+            }
             const next: LocalData = {
               ...data,
               ...(attemptId && data.attempts?.[attemptId]
@@ -1189,6 +1363,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
                 : {}),
               records: {
                 ...data.records,
+                ...serviceRecords,
                 ...Object.fromEntries(
                   Object.entries(result.snapshot.records).map(
                     ([name, rows]) => [prefix + name, rows],

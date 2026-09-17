@@ -12,6 +12,7 @@ export async function publishLocalPackage(
     migrationError?: boolean;
     dependencies?: Record<string, string>;
     dependencyPackages?: SignedArtifact[];
+    dependencySources?: Record<string, string>;
     name?: string;
     id?: string;
     version?: string;
@@ -66,7 +67,8 @@ export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "L
       const { local: _local, client: _client, ...contract } = pkg.artifact;
       await writeFile(
         resolve(path, "module.ts"),
-        `export default ${JSON.stringify(contract)};`,
+        options.dependencySources?.[pkg.module_id] ??
+          `export default ${JSON.stringify(contract)};`,
       );
       dependencyArgs.push("--dependency", path);
     }
@@ -97,6 +99,7 @@ export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "L
       pkg: JSON.parse(await readFile(path, "utf8")) as SignedArtifact,
       submission,
       path,
+      moduleSource: await readFile(resolve(directory, "module.ts"), "utf8"),
       publicKey: await readFile(
         `${process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys"}/public.pem`,
         "utf8",

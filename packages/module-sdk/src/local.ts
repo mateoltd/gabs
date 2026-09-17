@@ -25,7 +25,12 @@ import {
   type ResourcePage,
   type Static,
 } from "./index";
-import type { Configuration, OperationError } from "./context";
+import type {
+  Configuration,
+  OperationError,
+  ModuleServices,
+  ServiceResult,
+} from "./context";
 import { canonical, satisfies } from "./registry";
 
 export type LocalOperation<M extends ModuleDefinition> = {
@@ -33,6 +38,15 @@ export type LocalOperation<M extends ModuleDefinition> = {
     ? K
     : never;
 }[keyof M["operations"]] &
+  string;
+export type LocalService<M extends ModuleDefinition> = {
+  [K in keyof ModuleServices<M>]: ModuleServices<M>[K]["contract"] extends {
+    policy: "local";
+    public: true;
+  }
+    ? K
+    : never;
+}[keyof ModuleServices<M>] &
   string;
 export type LocalResource<M extends ModuleDefinition> = {
   [K in keyof M["resources"]]: M["resources"][K] extends { standalone: true }
@@ -91,6 +105,15 @@ export interface LocalContext<
   readonly profileId: string;
   readonly requestId: string;
   readonly configuration: Readonly<Configuration<M>>;
+  readonly caller?: Readonly<{ moduleId: string; operation: string }>;
+  service<S extends LocalService<M>>(
+    name: S,
+    input: Static<ModuleServices<M>[S]["contract"]["input"]>,
+  ): Promise<Static<ModuleServices<M>[S]["contract"]["output"]>>;
+  serviceAttempt<S extends LocalService<M>>(
+    name: S,
+    input: Static<ModuleServices<M>[S]["contract"]["input"]>,
+  ): Promise<ServiceResult<M, S>>;
   resource<R extends LocalResource<M>>(
     name: R,
   ): LocalResourceClient<Static<M["resources"][R]["schema"]>>;
@@ -107,6 +130,8 @@ export interface LocalModule {
       requestId: string;
       configuration: unknown;
       resource: ModuleTransport;
+      caller?: { moduleId: string; operation: string };
+      service?: (name: string, input: unknown) => Promise<unknown>;
     },
   ): Promise<unknown>;
 }
@@ -122,7 +147,7 @@ export class LocalExecutionError extends Error {
 function fail(code: string, message: string): never {
   throw new LocalExecutionError(code, message);
 }
-/** Local handlers have no corporate service, credential, SQL or desktop capabilities. */
+/** Local handlers receive scoped standalone services, without corporate authority or device credentials. */
 export function defineLocalModule<const M extends ModuleDefinition>(module: M) {
   return (
     handlers: {
@@ -185,9 +210,48 @@ export function defineLocalModule<const M extends ModuleDefinition>(module: M) {
           );
         assertSchema(op.input, input);
         assertSchema(module.configuration, capabilities.configuration);
+        const service = (name: string, input: unknown) => {
+          if (!capabilities.service)
+            fail(
+              "LOCAL_SCOPE_DENIED",
+              "Local service access requires an explicit profile grant.",
+            );
+          return capabilities.service(name, input);
+        };
         const context = {
           profileId: capabilities.profileId,
           requestId: capabilities.requestId,
+          ...(capabilities.caller
+            ? { caller: Object.freeze({ ...capabilities.caller }) }
+            : {}),
+          service,
+          async serviceAttempt(name: string, input: unknown) {
+            try {
+              return { ok: true as const, value: await service(name, input) };
+            } catch (error) {
+              const reference = module.services?.[name];
+              const detail =
+                error instanceof LocalExecutionError
+                  ? (error.detail as
+                      | {
+                          moduleId?: string;
+                          operation?: string;
+                          error?: unknown;
+                        }
+                      | undefined)
+                  : undefined;
+              if (
+                !reference?.contract.errors ||
+                !(error instanceof LocalExecutionError) ||
+                error.code !== "MODULE_BUSINESS_ERROR" ||
+                detail?.moduleId !== reference.moduleId ||
+                detail.operation !== reference.operation
+              )
+                throw error;
+              assertSchema(reference.contract.errors, detail.error);
+              return { ok: false as const, error: detail.error };
+            }
+          },
           configuration: structuredClone(
             capabilities.configuration,
           ) as Configuration<M>,
@@ -204,7 +268,7 @@ export function defineLocalModule<const M extends ModuleDefinition>(module: M) {
           },
         };
         const result = await handlers[name as LocalOperation<M>](
-          Object.freeze(context),
+          Object.freeze(context) as LocalContext<M, LocalOperation<M>>,
           input,
         );
         assertSchema(op.output, result);
@@ -228,6 +292,22 @@ export interface LocalRequest {
   snapshot: LocalSnapshot;
   /** Read-only resources selected by the unlocked profile host's explicit grants. */
   referenceProviders?: LocalReferenceProvider[];
+  serviceParticipants?: LocalServiceParticipant[];
+  serviceGrants?: LocalServiceGrant[];
+}
+export interface LocalServiceGrant {
+  consumerId: string;
+  consumerVersion: string;
+  providerId: string;
+  providerVersion: string;
+  service: string;
+}
+export interface LocalServiceParticipant {
+  profileId: string;
+  module: ModuleDefinition;
+  configuration: unknown;
+  snapshot: LocalSnapshot;
+  referenceProviders?: LocalReferenceProvider[];
 }
 export interface LocalReferenceProvider {
   profileId: string;
@@ -236,6 +316,7 @@ export interface LocalReferenceProvider {
   records: Record<string, ResourceRecord[]>;
 }
 export interface LocalResult {
+  participants?: Record<string, LocalSnapshot>;
   schemaVersion?: number;
   migrations?: string[];
   result: unknown;
@@ -327,6 +408,11 @@ export async function executeLocalCall(
   module: ModuleDefinition,
   request: LocalRequest,
   implementation?: LocalModule,
+  execution: {
+    nested?: boolean;
+    caller?: { moduleId: string; operation: string };
+    service?: (name: string, input: unknown) => Promise<unknown>;
+  } = {},
 ): Promise<LocalResult> {
   const { call } = request;
   if (
@@ -392,7 +478,7 @@ export async function executeLocalCall(
   const previous = Object.hasOwn(snapshot.receipts, receiptKey)
     ? snapshot.receipts[receiptKey]
     : undefined;
-  if (mutation && previous) {
+  if (mutation && previous && !execution.nested) {
     if (previous.request !== signature)
       fail(
         "IDEMPOTENCY_CONFLICT",
@@ -498,6 +584,39 @@ export async function executeLocalCall(
     );
     return task;
   };
+  const service = (name: string, input: unknown) => {
+    const task = Promise.resolve().then(async () => {
+      if (closed)
+        fail(
+          "LOCAL_TRANSACTION_CLOSED",
+          "This local transaction has finished.",
+        );
+      const reference = module.services?.[name];
+      if (
+        !reference ||
+        reference.contract.policy !== "local" ||
+        !reference.contract.public ||
+        !execution.service
+      )
+        fail(
+          "LOCAL_SCOPE_DENIED",
+          "Choose a declared, granted standalone service.",
+        );
+      assertSchema(reference.contract.input, input);
+      const value = await execution.service(name, structuredClone(input));
+      assertSchema(reference.contract.output, value);
+      return structuredClone(value);
+    });
+    pending.add(task);
+    void task.then(
+      () => pending.delete(task),
+      (error) => {
+        failure ??= error;
+        pending.delete(task);
+      },
+    );
+    return task;
+  };
   let result: unknown;
   try {
     if (call.action === "operation") {
@@ -513,6 +632,8 @@ export async function executeLocalCall(
         profileId: request.profileId,
         requestId: call.key!,
         configuration: request.configuration,
+        caller: execution.caller,
+        service,
         resource,
       });
     } else result = await resource(call);
@@ -521,7 +642,7 @@ export async function executeLocalCall(
     closed = true;
   }
   if (failure) throw failure;
-  if (mutation)
+  if (mutation && !execution.nested)
     Object.defineProperty(snapshot.receipts, receiptKey, {
       value: { request: signature, result: structuredClone(result) },
       enumerable: true,
@@ -529,6 +650,178 @@ export async function executeLocalCall(
       configurable: true,
     });
   return { result, snapshot };
+}
+
+/** One worker transaction; only the root receipt is durable, with every participating module's records. */
+export async function executeLocalTransaction(
+  module: ModuleDefinition,
+  request: LocalRequest,
+  implementations: readonly LocalModule[],
+): Promise<LocalResult> {
+  const entries = new Map<string, LocalServiceParticipant>([
+    [
+      module.id,
+      {
+        profileId: request.profileId,
+        module,
+        configuration: request.configuration,
+        snapshot: request.snapshot,
+        referenceProviders: request.referenceProviders,
+      },
+    ],
+  ]);
+  for (const participant of request.serviceParticipants ?? []) {
+    if (
+      participant.profileId !== request.profileId ||
+      entries.has(participant.module.id)
+    )
+      fail(
+        "LOCAL_SCOPE_DENIED",
+        "Service participants must be unique modules in the same profile.",
+      );
+    entries.set(participant.module.id, participant);
+  }
+  const states = new Map(
+    [...entries].map(([id, entry]) => [id, structuredClone(entry.snapshot)]),
+  );
+  const touched = new Set<string>();
+  const activeRequests = new Set<LocalRequest>();
+  let failure: unknown,
+    calls = 0;
+  const refresh = () => {
+    for (const active of activeRequests)
+      for (const provider of active.referenceProviders ?? []) {
+        const current = states.get(provider.module.id);
+        if (
+          current &&
+          canonical(entries.get(provider.module.id)!.module) !==
+            canonical(provider.module)
+        )
+          fail(
+            "LOCAL_CONTRACT_MISMATCH",
+            "Service and reference providers must use the same installed release.",
+          );
+        if (current)
+          provider.records = Object.fromEntries(
+            provider.resources.map((name) => [
+              name,
+              current.records[name] ?? [],
+            ]),
+          );
+      }
+  };
+  const run = async (
+    id: string,
+    call: ModuleCall,
+    stack: string[],
+    caller?: { moduleId: string; operation: string },
+  ): Promise<LocalResult> => {
+    if (stack.includes(id) || stack.length >= 16)
+      fail(
+        "LOCAL_SCOPE_DENIED",
+        "Local service calls cannot be recursive or deeper than 16 modules.",
+      );
+    const entry = entries.get(id)!;
+    const current: LocalRequest = {
+      profileId: request.profileId,
+      configuration: entry.configuration,
+      call,
+      snapshot: states.get(id)!,
+      referenceProviders: structuredClone(entry.referenceProviders),
+    };
+    activeRequests.add(current);
+    refresh();
+    let queue = Promise.resolve();
+    try {
+      return await executeLocalCall(
+        entry.module,
+        current,
+        implementations.find((m) => m.module.id === id),
+        {
+          nested: !!caller,
+          caller,
+          service(name, input) {
+            const task = queue.then(async () => {
+              if (failure) throw failure;
+              if (++calls > 1000)
+                fail(
+                  "LOCAL_SCOPE_DENIED",
+                  "A local transaction may make at most 1000 service calls.",
+                );
+              const reference = entry.module.services?.[name];
+              const provider = reference && entries.get(reference.moduleId);
+              const contract =
+                reference && provider?.module.operations[reference.operation];
+              const dependency =
+                reference && entry.module.dependencies[reference.moduleId];
+              if (
+                !reference ||
+                !provider ||
+                !contract ||
+                contract.policy !== "local" ||
+                !contract.public ||
+                !dependency ||
+                !satisfies(provider.module.version, dependency) ||
+                canonical(contract) !== canonical(reference.contract) ||
+                !provider.module.permissions.includes(contract.permission) ||
+                !(request.serviceGrants ?? []).some(
+                  (grant) =>
+                    grant.consumerId === id &&
+                    grant.consumerVersion === entry.module.version &&
+                    grant.providerId === provider.module.id &&
+                    grant.providerVersion === provider.module.version &&
+                    grant.service === name,
+                )
+              )
+                fail(
+                  "LOCAL_SCOPE_DENIED",
+                  "Allow this service in Local modules before calling another module.",
+                );
+              const result = await run(
+                provider.module.id,
+                {
+                  moduleId: provider.module.id,
+                  moduleVersion: provider.module.version,
+                  action: "operation",
+                  operation: reference.operation,
+                  input,
+                  key: request.call.key,
+                },
+                [...stack, id],
+                { moduleId: id, operation: call.operation! },
+              );
+              states.set(provider.module.id, result.snapshot);
+              touched.add(provider.module.id);
+              refresh();
+              return result.result;
+            });
+            queue = task.then(
+              () => undefined,
+              (error) => {
+                failure ??= error;
+              },
+            );
+            return task;
+          },
+        },
+      );
+    } finally {
+      await queue;
+      activeRequests.delete(current);
+    }
+  };
+  const result = await run(module.id, request.call, []);
+  if (failure) throw failure;
+  return {
+    ...result,
+    ...(touched.size
+      ? {
+          participants: Object.fromEntries(
+            [...touched].map((id) => [id, states.get(id)!]),
+          ),
+        }
+      : {}),
+  };
 }
 
 /** Historical fields remain unknown until the migration validates its source data. */

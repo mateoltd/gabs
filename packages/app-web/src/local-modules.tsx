@@ -2,6 +2,7 @@ import {
   LocalModuleHistory,
   LocalModuleVersions,
 } from "./local-module-history";
+import { LocalServiceAccess } from "./local-service-access";
 import { LocalReferenceAccess } from "./local-reference-access";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -49,6 +50,7 @@ export function LocalModules({
     [versions, setVersions] = useState<string>(),
     [history, setHistory] = useState(false),
     [references, setReferences] = useState(false),
+    [services, setServices] = useState(false),
     [available, setAvailable] = useState<ModuleDefinition[]>(),
     [selected, setSelected] = useState<{
       downloadId?: string;
@@ -80,7 +82,7 @@ export function LocalModules({
     panel.current
       ?.closest<HTMLElement>('[role="dialog"]')
       ?.scrollTo({ top: 0 });
-  }, [selected?.pkg.digest, versions, history, references]);
+  }, [selected?.pkg.digest, versions, history, references, services]);
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => setInstallGrants([]), [selected?.pkg.digest]);
   const selectedModules = selected
@@ -183,6 +185,7 @@ export function LocalModules({
             setVersions(undefined);
             setHistory(false);
             setReferences(false);
+            setServices(false);
             setError(undefined);
           }
         }}
@@ -380,6 +383,12 @@ export function LocalModules({
               }}
               back={() => setVersions(undefined)}
             />
+          ) : services ? (
+            <LocalServiceAccess
+              session={session}
+              changed={changed}
+              back={() => setServices(false)}
+            />
           ) : references ? (
             <LocalReferenceAccess
               session={session}
@@ -394,6 +403,9 @@ export function LocalModules({
           ) : (
             <>
               <div className="module-toolbar">
+                <Button disabled={busy} onClick={() => setServices(true)}>
+                  Service access
+                </Button>
                 <Button disabled={busy} onClick={() => setReferences(true)}>
                   Reference access
                 </Button>

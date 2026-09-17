@@ -1,7 +1,7 @@
 import { bundledModuleDefinitions } from "@suite/module-catalog";
 import { localModules } from "@suite/module-catalog/local";
 import {
-  executeLocalCall,
+  executeLocalTransaction,
   migrateLocalSnapshot,
   type LocalRequest,
   type LocalModule,
@@ -12,6 +12,55 @@ import { verifyArtifact } from "@suite/module-sdk/verification";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
 import { validateLocalArtifact } from "@suite/module-sdk/local-artifact";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
+type Artifact = { package: SignedArtifact; publicKey: string };
+async function verifyDefinition(
+  expected: ModuleDefinition,
+  artifact?: Artifact,
+) {
+  let module: ModuleDefinition | undefined;
+  if (artifact) {
+    await verifyArtifact(artifact.package, artifact.publicKey);
+    module = hydrateModule(moduleContract(artifact.package.artifact));
+  } else module = bundledModuleDefinitions.find((m) => m.id === expected.id);
+  if (!module || canonical(module) !== canonical(expected))
+    throw Error(
+      "The installed local module contract does not match its verified release.",
+    );
+  if (!satisfies("1.0.0", module.host) || !satisfies("1.0.0", module.backend))
+    throw Error("This local release requires a different host version.");
+  return module;
+}
+async function loadImplementation(
+  module: ModuleDefinition,
+  artifact?: Artifact,
+) {
+  let implementation: LocalModule | undefined;
+  if (artifact) {
+    const bundle = validateLocalArtifact(artifact.package.artifact);
+    if (bundle) {
+      const url = URL.createObjectURL(
+        new Blob([bundle.javascript], { type: "text/javascript" }),
+      );
+      try {
+        implementation = (await import(/* @vite-ignore */ url))
+          .default as LocalModule;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+      if (!implementation)
+        throw Error(
+          "The local executable does not implement its signed contract.",
+        );
+    }
+  } else implementation = localModules.find((m) => m.module.id === module.id);
+  if (
+    implementation &&
+    (typeof implementation.execute !== "function" ||
+      canonical(implementation.module) !== canonical(module))
+  )
+    throw Error("The local executable does not implement its signed contract.");
+  return implementation;
+}
 // Reviewed application code runs in a dedicated worker, not a hostile-code sandbox.
 self.addEventListener(
   "message",
@@ -19,110 +68,71 @@ self.addEventListener(
     event: MessageEvent<{
       module: ModuleDefinition;
       request: LocalRequest;
-      artifact?: { package: SignedArtifact; publicKey: string };
+      artifact?: Artifact;
       inspect?: boolean;
       migrateFrom?: number;
-      migrationSource?: {
-        module: ModuleDefinition;
-        artifact?: { package: SignedArtifact; publicKey: string };
-      };
-      referenceArtifacts?: Record<
-        string,
-        { package: SignedArtifact; publicKey: string }
-      >;
+      migrationSource?: { module: ModuleDefinition; artifact?: Artifact };
+      referenceArtifacts?: Record<string, Artifact>;
+      serviceArtifacts?: Record<string, Artifact>;
     }>,
   ) => {
     try {
-      let module: ModuleDefinition | undefined,
-        implementation: LocalModule | undefined;
-      if (event.data.artifact) {
-        const { package: pkg, publicKey } = event.data.artifact;
-        await verifyArtifact(pkg, publicKey);
-        module = hydrateModule(moduleContract(pkg.artifact));
-        if (canonical(module) !== canonical(event.data.module))
-          throw Error(
-            "The signed local module contract does not match this request.",
-          );
+      const module = await verifyDefinition(
+        event.data.module,
+        event.data.artifact,
+      );
+      const participants = event.data.request.serviceParticipants ?? [];
+      const seen = new Set([module.id]);
+      for (const participant of participants) {
         if (
-          !satisfies("1.0.0", module.host) ||
-          !satisfies("1.0.0", module.backend)
+          participant.profileId !== event.data.request.profileId ||
+          seen.has(participant.module.id)
         )
-          throw Error("This local release requires a different host version.");
-        const bundle = validateLocalArtifact(pkg.artifact);
-        if (bundle) {
-          const url = URL.createObjectURL(
-            new Blob([bundle.javascript], { type: "text/javascript" }),
+          throw Error(
+            "Service participants must be unique modules in the same profile.",
           );
-          try {
-            implementation = (await import(/* @vite-ignore */ url))
-              .default as LocalModule;
-          } finally {
-            URL.revokeObjectURL(url);
-          }
-          if (
-            !implementation ||
-            typeof implementation.execute !== "function" ||
-            canonical(implementation.module) !== canonical(module)
-          )
-            throw Error(
-              "The local executable does not implement its signed contract.",
-            );
-        }
-      } else {
-        module = bundledModuleDefinitions.find(
-          (m) => m.id === event.data.module.id,
+        seen.add(participant.module.id);
+        await verifyDefinition(
+          participant.module,
+          event.data.serviceArtifacts?.[participant.module.id],
         );
-        implementation = localModules.find((m) => m.module.id === module?.id);
       }
-      if (!module || canonical(module) !== canonical(event.data.module))
-        throw Error(
-          "The installed local module contract does not match this request.",
-        );
-      for (const provider of event.data.request.referenceProviders ?? []) {
-        const artifact = event.data.referenceArtifacts?.[provider.module.id];
-        let verified: ModuleDefinition | undefined;
-        if (artifact) {
-          await verifyArtifact(artifact.package, artifact.publicKey);
-          verified = hydrateModule(moduleContract(artifact.package.artifact));
-        } else
-          verified = bundledModuleDefinitions.find(
-            (candidate) => candidate.id === provider.module.id,
-          );
-        if (
-          !verified ||
-          canonical(verified) !== canonical(provider.module) ||
-          provider.profileId !== event.data.request.profileId ||
-          !satisfies("1.0.0", verified.host) ||
-          !satisfies("1.0.0", verified.backend)
-        )
+      for (const provider of [event.data.request, ...participants].flatMap(
+        (r) => r.referenceProviders ?? [],
+      )) {
+        if (provider.profileId !== event.data.request.profileId)
           throw Error(
-            "The reference provider does not match its verified local release.",
+            "The reference provider does not belong to this profile.",
           );
+        await verifyDefinition(
+          provider.module,
+          event.data.referenceArtifacts?.[provider.module.id],
+        );
       }
       let source: ModuleDefinition | undefined;
       if (event.data.migrateFrom !== undefined && event.data.migrationSource) {
-        const historical = event.data.migrationSource;
-        if (historical.artifact) {
-          await verifyArtifact(
-            historical.artifact.package,
-            historical.artifact.publicKey,
-          );
-          source = hydrateModule(
-            moduleContract(historical.artifact.package.artifact),
-          );
-        } else
-          source = bundledModuleDefinitions.find(
-            (m) => m.id === historical.module.id,
-          );
-        if (
-          !source ||
-          canonical(source) !== canonical(historical.module) ||
-          source.id !== module.id
-        )
+        source = await verifyDefinition(
+          event.data.migrationSource.module,
+          event.data.migrationSource.artifact,
+        );
+        if (source.id !== module.id)
           throw Error(
-            "The historical local contract does not match its verified release.",
+            "The historical local contract does not match this module.",
           );
       }
+      const implementation = await loadImplementation(
+        module,
+        event.data.artifact,
+      );
+      const implementations = implementation ? [implementation] : [];
+      if (!event.data.inspect && event.data.migrateFrom === undefined)
+        for (const participant of participants) {
+          const local = await loadImplementation(
+            participant.module,
+            event.data.serviceArtifacts?.[participant.module.id],
+          );
+          if (local) implementations.push(local);
+        }
       const value =
         event.data.migrateFrom !== undefined
           ? await migrateLocalSnapshot(
@@ -134,10 +144,10 @@ self.addEventListener(
             )
           : event.data.inspect
             ? { result: null, snapshot: event.data.request.snapshot }
-            : await executeLocalCall(
+            : await executeLocalTransaction(
                 module,
                 event.data.request,
-                implementation,
+                implementations,
               );
       self.postMessage({ ok: true, value });
     } catch (error) {

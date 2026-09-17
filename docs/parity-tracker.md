@@ -15,6 +15,8 @@ Statuses: **ready** = executable next work; **open** = unfinished; **active** = 
 
 ## Current handoff
 
+**Latest steering: architecture reconciliation takes priority before further feature expansion.** The user rejected the flat package/file organization and redundant directory names. [The architecture review](architecture-reconciliation.md) records verified coupling, a proposed responsibility-based layout, dependency rules and ARCH-01 through ARCH-06 migration acceptance. No structural source migration has started. Preserve the uncommitted local-services work: 250 unit/PostgreSQL tests passed; its broader browser run ended at 15 passes and one closing-popup accessibility failure, with native acceptance still pending. Full parity and the later UI-refinement goal remain unchanged.
+
 **User direction: resume feature parity after creating and pushing the repository checkpoint. UI refinement is authorized as a second goal after parity is verified; see [its queued brief](ui-refinement-goal.md).** The current interface remains an engineering baseline, not an accepted visual standard.
 
 - **Completed:** SDK-01. [Scoped default releases](verification/business-defaults/README.md) now initialize new personal/company workspaces directly on Orders/Inventory 2.0, with reviewed service grants and role permissions. Development seed and load fixtures use the public SDK. Historical contracts remain archived for schema-1 workspaces, reviewed atomic cutover and exact receipt recovery. Scoped data, worker exports, web/native commands, offline drafts, conflicts and logical restore have local acceptance.

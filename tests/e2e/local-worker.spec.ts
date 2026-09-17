@@ -1440,3 +1440,248 @@ test("migration consent survives interruption, uses staged provider records and 
       .some((row) => row.id === fixturePackages.targetId),
   ).toBe(false);
 });
+
+test("signed standalone service transactions survive interruption and reject stale grants, releases and provider bytes", async ({
+  page,
+}) => {
+  test.setTimeout(150000);
+  const { localServiceFixture } = await import("../local-service-fixture");
+  const fixturePackages = await localServiceFixture();
+  const providerNext = await fixturePackages.publishProvider("1.1.0");
+  const consumerNext = await fixturePackages.publishConsumer("1.1.0");
+  await fixture(page);
+  await page.goto("/");
+  await page.context().setOffline(true);
+  const result = await page.evaluate(
+    async ({ provider, consumer, providerNext, consumerNext }) => {
+      const path = "/local-profile-proof.mjs";
+      const sdk = (await import(
+        path
+      )) as typeof import("../../packages/platform/src/local-profiles") &
+        typeof import("../../packages/platform/src/local-worker") & {
+          createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+          hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
+        };
+      const pass = "correct horse battery staple";
+      let session = await sdk.createLocalProfile("Service worker proof", pass);
+      const profile = session.id;
+      const moduleOf = (entry: typeof provider) =>
+        sdk.hydrateModule(
+          entry.pkg
+            .artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+        );
+      const code = async (action: () => Promise<unknown>) => {
+        try {
+          await action();
+          return "unexpected success";
+        } catch (error) {
+          return (error as { code?: string }).code ?? "rejected";
+        }
+      };
+      const client = (entry: typeof provider) =>
+        sdk.createModuleClient(moduleOf(entry), (call) =>
+          session.execute(moduleOf(entry), call),
+        );
+      const release = (entry: typeof provider) => ({
+        package: entry.pkg,
+        publicKey: entry.publicKey,
+        configuration: {},
+      });
+      await session.installSet(consumer.pkg.module_id, [
+        release(provider),
+        release(consumer),
+      ]);
+      await session.setServiceAccess(consumer.pkg.module_id, "append", true);
+      const key = crypto.randomUUID();
+      const call = {
+        moduleId: consumer.pkg.module_id,
+        moduleVersion: consumer.pkg.version,
+        action: "operation" as const,
+        operation: "capture",
+        input: { text: "Recovered service", delayMs: 1000 },
+        key,
+      };
+      const interrupted = await code(() =>
+        session.execute(moduleOf(consumer), call, { timeoutMs: 100 }),
+      );
+      const beforeRecovery = Object.values(session.data.records).flat().length;
+      session.lock();
+      session = await sdk.unlockLocalProfile(profile, pass);
+      const attemptId = Object.entries(session.data.attempts ?? {}).find(
+        ([, attempt]) => attempt.call.key === key,
+      )![0];
+      const receipt = await session.retry(attemptId);
+      const accepted = structuredClone(session.data);
+      const replay = await session.execute(moduleOf(consumer), call);
+      const afterReplay =
+        JSON.stringify(session.data.records) ===
+        JSON.stringify(accepted.records);
+      const rejected = await code(() =>
+        client(consumer).call("capture", {
+          text: "Rejected transaction",
+          reject: true,
+        }),
+      );
+      const afterRejected =
+        JSON.stringify(session.data.records) ===
+        JSON.stringify(accepted.records);
+
+      // A second window revokes while the first worker is still computing.
+      let started!: () => void;
+      const dispatched = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const Base = Worker;
+      window.Worker = class extends Base {
+        constructor(url: URL | string, options?: WorkerOptions) {
+          super(url, options);
+          started();
+        }
+      };
+      const running = code(() =>
+        client(consumer).call("capture", {
+          text: "Must roll back",
+          delayMs: 1000,
+        }),
+      );
+      await dispatched;
+      window.Worker = Base;
+      const competitor = await sdk.unlockLocalProfile(profile, pass);
+      await competitor.setServiceAccess(
+        consumer.pkg.module_id,
+        "append",
+        false,
+      );
+      const stale = await running;
+      session.lock();
+      session = competitor;
+      const afterStale =
+        JSON.stringify(session.data.records) ===
+        JSON.stringify(accepted.records);
+      for (const [id, attempt] of Object.entries(session.data.attempts ?? {}))
+        if (attempt.state !== "accepted") await session.dismiss(id);
+      const revoked = await code(() =>
+        client(consumer).call("capture", { text: "Denied" }),
+      );
+      for (const [id, attempt] of Object.entries(session.data.attempts ?? {}))
+        if (attempt.state !== "accepted") await session.dismiss(id);
+      await session.setServiceAccess(consumer.pkg.module_id, "append", true);
+      await session.install(providerNext.pkg, providerNext.publicKey);
+      const providerUpdate = sdk
+        .localServiceAccess(session.data)
+        .find((c) => c.consumer.id === consumer.pkg.module_id)?.granted;
+      await session.setServiceAccess(consumer.pkg.module_id, "append", true);
+      await session.install(consumerNext.pkg, consumerNext.publicKey);
+      const consumerUpdate = sdk
+        .localServiceAccess(session.data)
+        .find((c) => c.consumer.id === consumer.pkg.module_id)?.granted;
+      await session.setServiceAccess(consumer.pkg.module_id, "append", true);
+      const worker = new sdk.LocalWorkerHost();
+      const invalid = await code(() =>
+        worker.run(
+          moduleOf(consumerNext),
+          {
+            profileId: profile,
+            call: { ...call, moduleVersion: "1.1.0" },
+            configuration: {},
+            snapshot: { records: {}, receipts: {} },
+            serviceParticipants: [
+              {
+                profileId: profile,
+                module: moduleOf(providerNext),
+                configuration: {},
+                snapshot: { records: {}, receipts: {} },
+              },
+            ],
+            serviceGrants: [
+              {
+                consumerId: consumer.pkg.module_id,
+                consumerVersion: "1.1.0",
+                providerId: provider.pkg.module_id,
+                providerVersion: "1.1.0",
+                service: "append",
+              },
+            ],
+          },
+          {
+            artifact: {
+              package: consumerNext.pkg,
+              publicKey: consumerNext.publicKey,
+            },
+            serviceArtifacts: {
+              [provider.pkg.module_id]: {
+                package: { ...providerNext.pkg, signature: "invalid" },
+                publicKey: providerNext.publicKey,
+              },
+            },
+          },
+        ),
+      );
+      worker.close();
+      await session.uninstall(consumer.pkg.module_id);
+      await session.install(consumerNext.pkg, consumerNext.publicKey);
+      const reinstalled = sdk
+        .localServiceAccess(session.data)
+        .find((c) => c.consumer.id === consumer.pkg.module_id)?.granted;
+      const retained =
+        JSON.stringify(session.data.records) ===
+        JSON.stringify(accepted.records);
+      session.lock();
+      await sdk.removeLocalProfile(profile);
+      return {
+        interrupted,
+        beforeRecovery,
+        receipt,
+        replay,
+        accepted,
+        afterReplay,
+        rejected,
+        afterRejected,
+        stale,
+        afterStale,
+        revoked,
+        providerUpdate,
+        consumerUpdate,
+        invalid,
+        reinstalled,
+        retained,
+      };
+    },
+    {
+      provider: fixturePackages.provider,
+      consumer: fixturePackages.consumer,
+      providerNext,
+      consumerNext,
+    },
+  );
+  expect(result.interrupted).toBe("LOCAL_TIMEOUT");
+  expect(result.beforeRecovery).toBe(0);
+  expect(result.replay).toBe(result.receipt);
+  expect(result.afterReplay).toBe(true);
+  expect(result.rejected).toBe("MODULE_BUSINESS_ERROR");
+  expect(result.afterRejected).toBe(true);
+  expect(
+    result.accepted.records[fixturePackages.provider.pkg.module_id + "/items"],
+  ).toHaveLength(1);
+  expect(
+    result.accepted.records[fixturePackages.consumer.pkg.module_id + "/items"],
+  ).toHaveLength(1);
+  expect(
+    Object.keys(
+      result.accepted.receipts?.[fixturePackages.consumer.pkg.module_id] ?? {},
+    ),
+  ).toHaveLength(1);
+  expect(
+    Object.keys(
+      result.accepted.receipts?.[fixturePackages.provider.pkg.module_id] ?? {},
+    ),
+  ).toHaveLength(0);
+  expect(result.stale).toBe("PROFILE_CHANGED");
+  expect(result.afterStale).toBe(true);
+  expect(result.revoked).toBe("LOCAL_SCOPE_DENIED");
+  expect(result.providerUpdate).toBe(false);
+  expect(result.consumerUpdate).toBe(false);
+  expect(result.invalid).toBe("LOCAL_OPERATION_FAILED");
+  expect(result.reinstalled).toBe(false);
+  expect(result.retained).toBe(true);
+});

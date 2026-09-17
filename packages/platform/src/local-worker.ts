@@ -33,6 +33,10 @@ export class LocalWorkerHost {
         module: ModuleDefinition;
         artifact?: { package: SignedArtifact; publicKey: string };
       };
+      serviceArtifacts?: Record<
+        string,
+        { package: SignedArtifact; publicKey: string }
+      >;
       referenceArtifacts?: Record<
         string,
         { package: SignedArtifact; publicKey: string }
@@ -138,6 +142,7 @@ export class LocalWorkerHost {
           migrateFrom: options.migrateFrom,
           migrationSource: options.migrationSource,
           referenceArtifacts: options.referenceArtifacts,
+          serviceArtifacts: options.serviceArtifacts,
         });
       } catch (error) {
         finish(error);
