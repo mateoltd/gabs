@@ -460,6 +460,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             rows={page.items}
             label={`${definition.title} records`}
             references={refs}
+            loadReferences={loadReferences}
             renderActions={(row) =>
               write &&
               !archived &&

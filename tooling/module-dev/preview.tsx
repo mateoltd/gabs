@@ -110,6 +110,17 @@ function Surface({
       active = false;
     };
   }, [data.revision, viewId]);
+  const authorization = JSON.stringify([
+    data.online,
+    data.permissions,
+    data.grants,
+    data.readGrants,
+    data.members,
+    Object.entries(data.providers).map(([id, provider]) => [
+      id,
+      provider.permissions,
+    ]),
+  ]);
   const client = React.useMemo(
     () =>
       createModuleClient(module, (call, options) => {
@@ -122,7 +133,7 @@ function Surface({
           );
         return latest.current.send(call, options);
       }),
-    [module, view.permission],
+    [module, view.permission, authorization],
   );
   if (error)
     return (

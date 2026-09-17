@@ -520,7 +520,7 @@ function CustomModuleView(
           if (mutation) current.executing?.(-1);
         }
       }),
-    [module],
+    [module, props.bootstrap, props.online],
   );
   if (!allowed)
     return (

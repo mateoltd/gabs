@@ -39,6 +39,7 @@ export function useModuleReferences(
   const key = `${legacyCacheKey}/references-v1`;
   const [references, setReferences] = useState<Options>({});
   const [error, setError] = useState<unknown>();
+  const [denied, setDenied] = useState<Record<string, true>>({});
   const load = useCallback<ReferenceLoader>(
     async (target, query, signal) => {
       signal.throwIfAborted();
@@ -124,6 +125,10 @@ export function useModuleReferences(
           .references({ ...query, field: declaration.schemaPath }, { signal });
       } catch (error) {
         if (error instanceof ApiError && [403, 404].includes(error.status)) {
+          if (!signal.aborted)
+            setDenied((current) =>
+              current[targetKey] ? current : { ...current, [targetKey]: true },
+            );
           setReferences((current) => {
             const next = { ...current };
             delete next[targetKey];
@@ -151,6 +156,12 @@ export function useModuleReferences(
         throw error;
       }
       signal.throwIfAborted();
+      setDenied((current) => {
+        if (!current[targetKey]) return current;
+        const next = { ...current };
+        delete next[targetKey];
+        return next;
+      });
       const incoming = [
         ...page.items,
         ...(page.selected ? [page.selected] : []),
@@ -232,5 +243,11 @@ export function useModuleReferences(
       ),
     [declarations, references],
   );
-  return { references: labels, loadReferences: load, error };
+  // Invalidate mounted consumers when any lookup learns of a denial. Preloading
+  // keeps the underlying stable callback so a persistent denial cannot retry-loop.
+  const scopedLoad = useCallback<ReferenceLoader>(
+    (...args) => load(...args),
+    [load, denied],
+  );
+  return { references: labels, loadReferences: scopedLoad, error };
 }

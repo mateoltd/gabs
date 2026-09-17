@@ -1,4 +1,14 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import {
+  objectPropertySchema,
+  parseSchemaInput,
+} from "@suite/module-sdk/forms";
+import {
+  referencePointer,
+  type ReferenceLoader,
+} from "@suite/module-sdk/references";
+import { tableReferencePlan, useTableReferences } from "./resource-references";
+import { Button } from "./index";
 import type {
   ResourceRecord,
   Static,
@@ -8,13 +18,29 @@ import type {
 import { fieldLabel } from "./schema-form";
 import { Table } from "./work-list";
 
+const emptyCells = {};
+
 export function ResourceValue({
   value,
   schema,
+  path = "",
+  renderReference,
 }: {
   value: unknown;
   schema?: TSchema;
+  path?: string;
+  renderReference?: (value: string, path: string) => ReactNode;
 }) {
+  if (typeof value === "string" && renderReference) {
+    const rendered = renderReference(value, path);
+    if (rendered !== undefined) return rendered;
+  }
+  if (schema?.anyOf) {
+    const match = schema.anyOf.find(
+      (candidate: TSchema) => parseSchemaInput(candidate, value).ok,
+    );
+    if (match) schema = match;
+  }
   if (value === undefined) return <span>Not set</span>;
   if (value === null) return <span>No value</span>;
   if (typeof value === "boolean") return <span>{value ? "Yes" : "No"}</span>;
@@ -34,21 +60,30 @@ export function ResourceValue({
               : "fields"}
         </summary>
         <dl>
-          {entries.map(([key, item]) => (
-            <div key={key}>
-              <dt>
-                {array
-                  ? Number(key) + 1
-                  : (schema?.properties?.[key]?.title ?? fieldLabel(key))}
-              </dt>
-              <dd>
-                <ResourceValue
-                  value={item}
-                  schema={array ? schema?.items : schema?.properties?.[key]}
-                />
-              </dd>
-            </div>
-          ))}
+          {entries.map(([key, item]) => {
+            const child = array
+              ? Array.isArray(schema?.items)
+                ? schema.items[Number(key)]
+                : schema?.items
+              : schema
+                ? objectPropertySchema(schema, key)
+                : undefined;
+            return (
+              <div key={key}>
+                <dt>
+                  {child?.title ?? (array ? Number(key) + 1 : fieldLabel(key))}
+                </dt>
+                <dd>
+                  <ResourceValue
+                    value={item}
+                    schema={child}
+                    path={referencePointer(path, key)}
+                    renderReference={renderReference}
+                  />
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       </details>
     );
@@ -71,14 +106,16 @@ export function TypedResourceTable<S extends TObject>({
   rows,
   label,
   references = {},
+  loadReferences,
   renderActions,
-  cells = {},
+  cells = emptyCells,
 }: {
   schema: S;
   columns?: readonly (keyof Static<NoInfer<S>> & string)[];
   rows: readonly ResourceRecord<Static<NoInfer<S>>>[];
   label: string;
   references?: Record<string, readonly { value: string; label: string }[]>;
+  loadReferences?: ReferenceLoader;
   renderActions?: (row: ResourceRecord<Static<NoInfer<S>>>) => ReactNode;
   cells?: {
     [K in keyof Static<NoInfer<S>>]?: (
@@ -88,9 +125,19 @@ export function TypedResourceTable<S extends TObject>({
   };
 }) {
   const keys = columns ?? Object.keys(schema.properties);
+  const plan = useMemo(
+    () =>
+      tableReferencePlan(
+        schema,
+        rows,
+        keys.filter((key) => !Object.hasOwn(cells, key)),
+      ),
+    [schema, rows, columns, cells],
+  );
+  const resolved = useTableReferences(plan, loadReferences);
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label={label}>
-      <Table className="module-table">
+      <Table className="module-table resource-table">
         <caption className="sr-only">{label}</caption>
         <thead>
           <tr>
@@ -116,20 +163,49 @@ export function TypedResourceTable<S extends TObject>({
                 const render = Object.hasOwn(cells, key)
                   ? cells[key]
                   : undefined;
-                const options = Object.hasOwn(references, key)
-                  ? references[key]
-                  : undefined;
                 return (
                   <td key={key}>
-                    {render
-                      ? render(value, row)
-                      : (options?.find((option) => option.value === value)
-                          ?.label ?? (
-                          <ResourceValue
-                            value={value}
-                            schema={schema.properties[key]}
-                          />
-                        ))}
+                    {render ? (
+                      render(value, row)
+                    ) : (
+                      <ResourceValue
+                        value={value}
+                        schema={schema.properties[key]}
+                        path={referencePointer("", key)}
+                        renderReference={(id, path) => {
+                          const target = plan.rows.get(row.id)?.get(path);
+                          if (loadReferences && target) {
+                            const result = resolved.labels[target];
+                            return (
+                              <span
+                                title={id}
+                                aria-busy={!result && target !== "ambiguous"}
+                              >
+                                {result?.label ??
+                                  (target === "ambiguous"
+                                    ? "Ambiguous reference"
+                                    : !result
+                                      ? "Loading reference…"
+                                      : result.offline
+                                        ? "Label not downloaded"
+                                        : "Reference unavailable")}
+                              </span>
+                            );
+                          }
+                          if (loadReferences) return undefined;
+                          const options = Object.hasOwn(references, path)
+                            ? references[path]
+                            : path === referencePointer("", key) &&
+                                Object.hasOwn(references, key)
+                              ? references[key]
+                              : undefined;
+                          return options?.find(
+                            (option) =>
+                              option.value.toLowerCase() === id.toLowerCase(),
+                          )?.label;
+                        }}
+                      />
+                    )}
                   </td>
                 );
               })}
@@ -138,6 +214,19 @@ export function TypedResourceTable<S extends TObject>({
           ))}
         </tbody>
       </Table>
+      {resolved.failed && (
+        <div className="actions">
+          <p role="status">Some reference labels could not be loaded.</p>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={resolved.loading}
+            onClick={resolved.refresh}
+          >
+            Retry reference labels
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

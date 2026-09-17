@@ -98,7 +98,7 @@ Compatible reinstallations and executable rollbacks also validate final referenc
 ## Current limits
 
 - Generated object, homogeneous-array, fixed-tuple and record-map editors use recursive pickers. Typed additional properties use the same lookup. Map renames preserve reference values and update escaped data paths. Complex intersections retain validated JSON editing; specialized controls for every schema construct remain open. See [tuple and map acceptance](verification/map-tuple/README.md).
-- Tables use known top-level labels; resolving every nested or off-page table label remains open.
+- Public, generated corporate and same-module standalone tables now resolve nested/off-page labels through the authorized loader, with deduplication, cancellation, denial invalidation and explicit missing-cache states. See [table acceptance](verification/table-labels/README.md). Ambiguous multi-target intersections require a custom cell; broad composition and performance acceptance remain open.
 - Resource CRUD and [recursive migration reconciliation](module-storage-migrations.md) are covered. Migrations compare final records with their original signed contract and validate new links before committing. Operation inputs/private stores do not acquire reference semantics solely from these annotations.
 - Pagination is not a snapshot. Archiving or revocation after lookup can cause a subsequent write to be rejected.
 - Corporate independent views currently require an online lookup; the generated host's leased label cache is not automatically supplied to arbitrary custom views.

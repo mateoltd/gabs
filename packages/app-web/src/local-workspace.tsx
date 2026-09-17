@@ -1,9 +1,14 @@
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { LocalActions } from "./local-actions";
 import { LocalModules, type LocalRegistry } from "./local-modules";
-import { Table } from "@suite/ui-web";
+import { TypedResourceTable } from "@suite/ui-web";
+import { listResourceRecords } from "../../module-sdk/src/resource-query";
 import { useEffect, useState, useMemo } from "react";
-import { createModuleClient, type ResourceRecord } from "@suite/module-sdk";
+import {
+  createModuleClient,
+  type ResourceRecord,
+  type TObject,
+} from "@suite/module-sdk";
 import {
   availableLocalModules,
   listLocalProfiles,
@@ -42,21 +47,40 @@ export function LocalWorkspace({
     [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false),
     [removing, setRemoving] = useState(false);
-  const resources = availableLocalModules(
-    session?.data ?? { records: {} },
-  ).flatMap((m) =>
-    Object.entries(m.resources)
-      .sort(([a], [b]) =>
-        a === m.id ? -1 : b === m.id ? 1 : a.localeCompare(b),
-      )
-      .filter(([, r]) => r.standalone)
-      .map(([id, r]) => ({ key: `${m.id}/${id}`, module: m, resource: r })),
+  const [revision, setRevision] = useState(0);
+  const resources = useMemo(
+    () =>
+      availableLocalModules(session?.data ?? { records: {} }).flatMap((m) =>
+        Object.entries(m.resources)
+          .sort(([a], [b]) =>
+            a === m.id ? -1 : b === m.id ? 1 : a.localeCompare(b),
+          )
+          .filter(([, r]) => r.standalone)
+          .map(([id, r]) => ({ key: `${m.id}/${id}`, module: m, resource: r })),
+      ),
+    [session, revision],
   );
   const [key, setKey] = useState(resources[0]?.key ?? ""),
     [form, setForm] = useState<Record<string, unknown>>({}),
-    [editing, setEditing] = useState<ResourceRecord | null | undefined>(),
-    [revision, setRevision] = useState(0);
+    [editing, setEditing] = useState<ResourceRecord | null | undefined>();
   const selected = resources.find((r) => r.key === key) ?? resources[0];
+  const [cursor, setCursor] = useState<string>();
+  const [previous, setPrevious] = useState<(string | undefined)[]>([]);
+  useEffect(() => {
+    setCursor(undefined);
+    setPrevious([]);
+  }, [selected?.key, session?.id]);
+  const page = useMemo(
+    () =>
+      selected && session
+        ? listResourceRecords(
+            selected.resource.schema,
+            session.data.records[selected.key] ?? [],
+            { limit: 50, cursor },
+          )
+        : { items: [], nextCursor: null, total: 0 },
+    [selected, session, revision, cursor],
+  );
   const referenceLoader = useMemo(() => {
     if (!selected || !session) return undefined;
     return createModuleClient(selected.module, (call, options) =>
@@ -266,44 +290,56 @@ export function LocalWorkspace({
               }
             />
           )}
-          <div className="table-scroll">
-            <Table className="module-table">
-              <thead>
-                <tr>
-                  {selected?.resource.columns.map((c) => (
-                    <th key={c}>
-                      {selected.resource.schema.properties[c]?.title ??
-                        fieldLabel(c)}
-                    </th>
-                  ))}
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(selected ? (session.data.records[selected.key] ?? []) : [])
-                  .filter((r) => !r.archived)
-                  .map((r) => (
-                    <tr key={r.id}>
-                      {selected?.resource.columns.map((c) => (
-                        <td key={c}>{String(r.data[c] ?? "")}</td>
-                      ))}
-                      <td>
-                        {!selected.resource.appendOnly && (
-                          <Button
-                            onClick={() => {
-                              setEditing(r);
-                              setForm(r.data);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </Table>
-          </div>
+          {selected && (
+            <>
+              <TypedResourceTable
+                schema={selected.resource.schema as TObject}
+                columns={selected.resource.columns}
+                rows={page.items}
+                label={`${selected.resource.title} records`}
+                loadReferences={referenceLoader}
+                renderActions={
+                  selected.resource.appendOnly
+                    ? undefined
+                    : (row) => (
+                        <Button
+                          onClick={() => {
+                            setEditing(row);
+                            setForm(row.data);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      )
+                }
+              />
+              {(previous.length > 0 || page.nextCursor) && (
+                <div className="actions">
+                  <Button
+                    variant="ghost"
+                    disabled={!previous.length}
+                    onClick={() => {
+                      setCursor(previous.at(-1));
+                      setPrevious(previous.slice(0, -1));
+                    }}
+                  >
+                    Previous records
+                  </Button>
+                  <span>Page {previous.length + 1}</span>
+                  <Button
+                    variant="ghost"
+                    disabled={!page.nextCursor}
+                    onClick={() => {
+                      setPrevious([...previous, cursor]);
+                      setCursor(page.nextCursor ?? undefined);
+                    }}
+                  >
+                    Next records
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
       <Modal

@@ -94,6 +94,13 @@ test("nested reference choices search beyond the first page and preserve selecti
         exact: true,
       }),
     });
+    await expect(recordRow).toContainText("Target 105");
+    for (const details of await recordRow.locator("details").all())
+      await details.locator(":scope > summary").click();
+    await mkdir("docs/verification/table-labels", { recursive: true });
+    await page.screenshot({
+      path: "docs/verification/table-labels/generated.png",
+    });
     await page.getByRole("button", { name: /^Filters/ }).click();
     await selectValue(page, "Filter by", "links");
     const filter = page.getByRole("form", { name: "Filter records" });
@@ -184,6 +191,11 @@ test("nested reference choices search beyond the first page and preserve selecti
     await expect(picker.getByRole("combobox")).toContainText(
       referenceTargets[104].id,
     );
+    await dialog
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await expect(recordRow).toContainText("Label not downloaded");
+    await expect(recordRow).not.toContainText("Target 105");
   } finally {
     await pool.end();
   }

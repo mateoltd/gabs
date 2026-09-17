@@ -54,8 +54,32 @@ export function Contacts({
 }
 ```
 
-`renderActions` receives the typed record, including its version. `references` can supply labels by field key. A custom cell renderer owns its output, including an intentional `null`. Default cells distinguish unset/null/empty values, show boolean labels, and use keyboard-operable expandable content for arrays and objects. They do not render JSON as HTML.
+`renderActions` receives the typed record, including its version. `references` can supply labels by field key or escaped data JSON Pointer (for example `/links/0/contactId`). A custom cell renderer owns its output, including an intentional `null`. Default cells distinguish unset/null/empty values, show boolean labels, and use keyboard-operable expandable content for arrays and objects. They do not render JSON as HTML.
+
+### Authorized reference labels
+
+Pass the resource client's stable `.loadReferences` callback to `TypedResourceTable` to resolve annotated links, including tuple slots, map entries, matching union branches and nested objects/arrays. Memoize the resource client from the supplied view client when using it across renders:
+
+```tsx
+const records = useMemo(() => client.resource("records"), [client]);
+<TypedResourceTable
+  schema={module.resources.records.schema}
+  rows={page.items}
+  label="Records"
+  loadReferences={records.loadReferences}
+/>;
+```
+
+Displayed columns determine lookup scope; custom-rendered columns are excluded. A page deduplicates case-insensitive identifiers by target namespace and runs at most four lookups concurrently. Each lookup asks for the saved identifier explicitly, so labels are not limited to the first choice page. Changing the loader, displayed identifiers or retry attempt cancels the old work and immediately stops rendering its labels. A learned 403/404 or explicit permission/grant denial invalidates every label for that target in the active batch, including later responses already in flight. Other targets continue independently.
+
+The table distinguishes loading, unavailable references and labels missing from the offline cache. Failed requests expose **Retry reference labels**. It never substitutes an older manually supplied label after an authoritative loader has rejected access. The saved identifier remains in the record and in the reference's title; display labels do not authorize a write.
+
+Generated corporate tables use the host's account/workspace cache and existing offline lease. Direct custom-view clients remain online-only. Standalone tables resolve active same-module references through their local worker and page through 50 retained records at a time. Their previous/next navigation follows the same ascending UUID order as resource lists. These reads do not turn local records into company commitments.
+
+`ResourceValue` renders tuples using their positional schemas and typed maps using their property schemas. Its optional `path` and `renderReference(value, path)` allow custom composition; returning `undefined` retains default rendering. An intersection that assigns multiple target namespaces to the same data path displays **Ambiguous reference** rather than choosing an arbitrary label; use a custom cell for such a contract. Invalid retained drafts remain visible but do not generate inferred target requests. Rich intersection presentation remains open.
+
+Reference lookups are per distinct target/identifier, not a new batch server protocol. Very large nested working sets still require performance acceptance. Independent views must retain their current host client/loader; they must not cache labels across authorization contexts. [Table reference acceptance](verification/table-labels/README.md) records the tested scope.
 
 The generated corporate host view uses these components with first/previous/next navigation, a page number, page-size selection and removable equality filters. Search, filters, resource changes and page-size changes reset navigation. Downloaded pages are keyed by account/workspace storage scope and the complete list request. Offline browsing only displays matching downloaded pages, with a distinct message for an uncached query. Previously downloaded pages remain readable for the original default-size unfiltered requests. Filtered queries and other page sizes cannot reuse those pages. Drafts and pending operations are unchanged.
 
-[Resource reference fields](module-references.md) now provide recursive CRUD validation and bounded searching in generated forms. Richer sort/range controls, reference composition beyond generated corporate forms and the complete SDK-04 composition acceptance remain tracked work. These list improvements do not complete the platform or its UI refinement goal.
+[Resource reference fields](module-references.md) now provide recursive CRUD validation and bounded searching in generated forms. Richer sort/range controls, complete SDK-04 composition and resource-client ergonomics remain tracked work. These list improvements do not complete the platform or its UI refinement goal.

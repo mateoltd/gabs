@@ -856,6 +856,10 @@ strong {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.resource-table th:first-child,
+.resource-table td:first-child {
+  min-width: 180px;
+}
 .resource-value {
   min-width: 120px;
   max-width: 360px;

@@ -200,7 +200,21 @@ test("installed SDK tuple and map forms save validated records and remain usable
         )
       ).rows[0].count,
     ).toBe("1");
-    await page.screenshot({ path: "docs/verification/map-tuple/local.png" });
+    const localRow = page.getByRole("row").filter({
+      has: page.getByRole("cell", {
+        name: "Local structured record",
+        exact: true,
+      }),
+    });
+    for (const details of await localRow.locator("details").all())
+      await details.locator(":scope > summary").click();
+    await expect(localRow.getByText("Target 105", { exact: true })).toHaveCount(
+      2,
+    );
+    await expect(localRow).not.toContainText("[object Object]");
+    await expect(localRow.getByText("kept", { exact: true })).toBeVisible();
+    await mkdir("docs/verification/table-labels", { recursive: true });
+    await page.screenshot({ path: "docs/verification/table-labels/local.png" });
   } finally {
     await pool.end();
   }
