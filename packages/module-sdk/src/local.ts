@@ -1,3 +1,7 @@
+import {
+  listResourceRecords,
+  type ResourceListOptions,
+} from "./resource-query";
 import { localStorageContract } from "./storage";
 import {
   assertSchema,
@@ -52,12 +56,7 @@ export function createLocalModuleClient<M extends ModuleDefinition>(
 }
 export interface LocalResourceClient<D> {
   get(id: string): Promise<ResourceRecord<D>>;
-  list(input?: {
-    search?: string;
-    cursor?: string;
-    limit?: number;
-    archived?: boolean;
-  }): Promise<ResourcePage<D>>;
+  list(input?: ResourceListOptions<D>): Promise<ResourcePage<D>>;
   create(data: D, key?: string): Promise<ResourceRecord<D>>;
   update(
     id: string,
@@ -317,33 +316,11 @@ export async function executeLocalCall(
         id?: string;
         data?: Record<string, unknown>;
         baseVersion?: number;
-        search?: string;
-        cursor?: string;
-        limit?: number;
-        archived?: boolean;
-      };
+      } & ResourceListOptions;
       if (!input || typeof input !== "object")
         fail("INVALID_INPUT", "Expected a resource request.");
-      if (command.action === "list") {
-        const limit = input.limit ?? 50;
-        if (!Number.isInteger(limit) || limit < 1 || limit > 200)
-          fail("INVALID_INPUT", "Page size must be between 1 and 200.");
-        const matches = rows
-          .filter(
-            (r) =>
-              r.archived === Boolean(input.archived) &&
-              (!input.cursor || r.id > input.cursor) &&
-              (!input.search ||
-                JSON.stringify(r.data)
-                  .toLowerCase()
-                  .includes(input.search.toLowerCase())),
-          )
-          .sort((a, b) => a.id.localeCompare(b.id));
-        return structuredClone({
-          items: matches.slice(0, limit),
-          nextCursor: matches.length > limit ? matches[limit - 1].id : null,
-        });
-      }
+      if (command.action === "list")
+        return listResourceRecords(definition.schema, rows, input);
       const row = rows.find((r) => r.id === input.id);
       if (command.action === "get") {
         if (!row) fail("NOT_FOUND", "Local record not found.");

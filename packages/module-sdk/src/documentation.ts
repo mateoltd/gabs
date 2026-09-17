@@ -234,7 +234,7 @@ export function renderModuleDocumentation(module: ModuleDefinition): string {
     "## Configuration",
     schemaReference("Configuration schema", module.configuration),
     "## Resources",
-    "Resource clients infer data from the schema. Reads return records with id, data, version, archived and updatedAt. Lists return items and nextCursor; the current list options are search, cursor, limit and archived. Writes use an idempotency key; retain the same key for retries. Updates carry the base record and version. Append-only resources reject update and archive.",
+    "Resource clients infer data from the schema. Reads return records with id, data, version, archived and updatedAt. Lists return items and nextCursor; list options are where, search, cursor, limit and archived. The schema-typed where object matches up to 16 complete field values using exact equality and AND. Missing fields differ from explicit null. Pages use stable ascending record IDs, default to 50 records and allow 1–100. Reset the cursor when changing filters. Writes use an idempotency key; retain the same key for retries. Updates carry the base record and version. Append-only resources reject update and archive.",
   ];
   if (!entries(module.resources).length)
     sections.push("No public resources declared.");

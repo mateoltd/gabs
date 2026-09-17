@@ -337,3 +337,7 @@ Prior `a7a346c` / [CI 35154833179](https://github.com/mateoltd/gabs/actions/runs
 ## Schema-derived module references, 17 September 2026
 
 [SDK-04 documentation evidence](module-documentation/README.md) covers complete contract references, CLI/build output parity, drift detection and metadata escaping. 20 focused tests, strict checks and four builds passed; final documentation checks passed after section-navigation and escaping review. Generated examples for all four applications and an independent service consumer compile against their real definitions. No application UI changed. SDK-04 remains active for generated tables/filtering/pagination, references and wider composability.
+
+## Typed resource lists, 17 September 2026
+
+[SDK-04 resource-list evidence](resource-lists/README.md) covers inferred filters, reusable table/filter components, bounded paging, structured values and normalized durable query caches. Strict checks/four builds, 50 focused tests, 18 distinct headless journeys across correction runs and a final minimized native journey passed. Real offline checks caught and corrected stale cached-page state. Scoped Axe and 390-pixel overflow checks passed; wide/narrow/native artifacts were inspected. Activation/fleet test corrections passed locally after inspecting the two failed remote runs; fresh full remote/load/restore acceptance remains pending. SDK-04, wider parity and final UI approval remain open.

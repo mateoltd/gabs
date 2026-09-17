@@ -176,6 +176,13 @@ test("administration sees a partial device installation failure and its real rec
     const projects = second.locator(".module-install-card").filter({
       has: second.getByRole("heading", { name: "Projects", exact: true }),
     });
+    // Projects also consumed the deliberately interrupted Contacts download.
+    // Explicit recovery bypasses that failed attempt's background retry delay.
+    const resumeProjects = projects.getByRole("button", {
+      name: "Resume installation",
+      exact: true,
+    });
+    if (await resumeProjects.isVisible()) await resumeProjects.click();
     // Dependency removal can only fail once that dependent is actually installed.
     await expect(projects.getByText(/^Installed /)).toBeVisible({
       timeout: 30000,

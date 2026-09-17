@@ -1,4 +1,10 @@
-import { Table } from "@suite/ui-web";
+import { canonical } from "@suite/module-sdk/registry";
+import {
+  TypedResourceTable,
+  TypedResourceFilters,
+  Select,
+  SelectOption,
+} from "@suite/ui-web";
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +15,7 @@ import {
   type ModuleCall,
   type ModuleDefinition,
   type TSchema,
+  type TObject,
 } from "@suite/module-sdk";
 import { canUse, type FeatureProps } from "@suite/platform";
 import { ModuleInputRecoverySchema } from "@suite/module-sdk/platform";
@@ -53,6 +60,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const [search, setSearch] = useState(""),
     [cursor, setCursor] = useState<string>(),
     [archived, setArchived] = useState(false);
+  const [previous, setPrevious] = useState<(string | undefined)[]>([]);
+  const [limit, setLimit] = useState(50);
+  const [where, setWhere] = useState<Record<string, unknown>>({});
+  const resetPage = () => {
+    setCursor(undefined);
+    setPrevious([]);
+  };
   const [editing, setEditing] = useState<ResourceRecord | null | undefined>(),
     [form, setForm] = useState<Record<string, unknown>>({}),
     [error, setError] = useState<unknown>(),
@@ -121,7 +135,16 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setError(error);
     }
   };
-  const pageKey = `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`;
+  const pageKey = canonical([
+    moduleId,
+    module.version,
+    resource,
+    search,
+    cursor ?? null,
+    archived,
+    limit,
+    where,
+  ]);
   const draftKey = `${moduleId}/${resource}`;
   const allowed = canUse(bootstrap, moduleId, `${moduleId}.${resource}.read`);
   const write = canUse(bootstrap, moduleId, `${moduleId}.${resource}.write`);
@@ -153,6 +176,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       search,
       cursor,
       archived,
+      limit,
+      where,
     ],
     enabled: online && allowed && resourceAvailable,
     queryFn: async () => {
@@ -161,7 +186,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         moduleVersion: module.version,
         resource,
         action: "list",
-        input: { search, cursor, archived },
+        input: { search, cursor, archived, limit, where },
       })) as ResourcePage;
       if (props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (s) => {
@@ -180,7 +205,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     return () => {
       active = false;
     };
-  }, [scope.userId, scope.workspaceId, pageKey]);
+  }, [scope.userId, scope.workspaceId, pageKey, online, query.dataUpdatedAt]);
   useEffect(() => {
     if (!online || !allowed || !resourceAvailable) return;
     let active = true;
@@ -299,7 +324,14 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         description="Ask your administrator for access to this module."
       />
     );
-  const page = online ? query.data : storage?.pages[pageKey];
+  const page = online
+    ? query.data
+    : (storage?.pages[pageKey] ??
+      (limit === 50 && Object.keys(where).length === 0
+        ? storage?.pages[
+            `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`
+          ]
+        : undefined));
   const pending =
     storage?.journal.filter(
       (e) =>
@@ -426,8 +458,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         }))}
         onChange={(name) => {
           setResource(name);
-          setCursor(undefined);
+          resetPage();
           setSearch("");
+          setWhere({});
+          setArchived(false);
         }}
       />
       <section
@@ -442,10 +476,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             <span className="sr-only">Search</span>
             <Input
               placeholder={`Search ${definition.title.toLowerCase()}`}
+              maxLength={100}
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
-                setCursor(undefined);
+                resetPage();
               }}
             />
           </label>
@@ -453,7 +488,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             aria-pressed={archived}
             onClick={() => {
               setArchived(!archived);
-              setCursor(undefined);
+              resetPage();
             }}
           >
             {archived ? "Show active" : "Show archived"}
@@ -471,6 +506,16 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </Button>
           )}
         </div>
+        <TypedResourceFilters
+          key={`${resource}@${module.version}`}
+          schema={definition.schema as TObject}
+          value={where}
+          onChange={(next) => {
+            setWhere(next);
+            resetPage();
+          }}
+          references={refs}
+        />
         {!online && (
           <p role="status">
             Offline copy. Changes remain pending until the server accepts them.
@@ -484,100 +529,109 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             title="No records"
             description={
               online
-                ? "Create a record to get started."
+                ? search || Object.keys(where).length || archived || cursor
+                  ? "No records match this page. Adjust the filters or return to the first page."
+                  : "Create a record to get started."
                 : "No matching records have been downloaded on this device."
             }
           />
         ) : (
-          <div
-            className="table-scroll"
-            tabIndex={0}
-            role="region"
-            aria-label={`${definition.title} records`}
-          >
-            <Table className="module-table">
-              <thead>
-                <tr>
-                  {definition.columns.map((c) => (
-                    <th key={c}>
-                      {definition.schema.properties[c]?.title ?? fieldLabel(c)}
-                    </th>
-                  ))}
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((row) => (
-                  <tr key={row.id}>
-                    {definition.columns.map((c) => (
-                      <td key={c}>
-                        {refs[c]?.find((r) => r.value === row.data[c])?.label ??
-                          (definition.schema.properties[c]?.anyOf ||
-                          definition.schema.properties[c]?.enum
-                            ? fieldLabel(String(row.data[c] ?? ""))
-                            : String(row.data[c] ?? ""))}
-                      </td>
-                    ))}
-                    <td>
-                      {write && !archived && !definition.appendOnly && (
-                        <div className="actions">
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              setEditing(row);
-                              setForm(row.data);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            disabled={!online || busy}
-                            onClick={async () => {
-                              setBusy(true);
-                              try {
-                                await send({
-                                  moduleId,
-                                  moduleVersion: module.version,
-                                  resource,
-                                  action: "archive",
-                                  input: {
-                                    id: row.id,
-                                    baseVersion: row.version,
-                                  },
-                                  key: crypto.randomUUID(),
-                                });
-                                await query.refetch();
-                              } catch (e) {
-                                setError(e);
-                              } finally {
-                                setBusy(false);
-                              }
-                            }}
-                          >
-                            Archive
-                          </Button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
+          <TypedResourceTable
+            schema={definition.schema as TObject}
+            columns={definition.columns}
+            rows={page.items}
+            label={`${definition.title} records`}
+            references={refs}
+            renderActions={(row) =>
+              write &&
+              !archived &&
+              !definition.appendOnly && (
+                <div className="actions">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setEditing(row);
+                      setForm(row.data);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!online || busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await send({
+                          moduleId,
+                          moduleVersion: module.version,
+                          resource,
+                          action: "archive",
+                          input: {
+                            id: row.id,
+                            baseVersion: row.version,
+                          },
+                          key: crypto.randomUUID(),
+                        });
+                        await query.refetch();
+                      } catch (e) {
+                        setError(e);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Archive
+                  </Button>
+                </div>
+              )
+            }
+          />
         )}
-        <div className="module-toolbar resource-pagination">
-          <Button disabled={!cursor} onClick={() => setCursor(undefined)}>
+        <div
+          className="module-toolbar resource-pagination"
+          aria-label="Record pages"
+        >
+          <Button disabled={!cursor || query.isFetching} onClick={resetPage}>
             First page
           </Button>
           <Button
-            disabled={!page?.nextCursor}
-            onClick={() => setCursor(page?.nextCursor ?? undefined)}
+            disabled={!previous.length || query.isFetching}
+            onClick={() => {
+              setCursor(previous.at(-1));
+              setPrevious(previous.slice(0, -1));
+            }}
+          >
+            Previous page
+          </Button>
+          <span role="status">
+            Page {previous.length + 1}. {page?.items.length ?? 0}{" "}
+            {page?.items.length === 1 ? "record" : "records"}.
+          </span>
+          <Button
+            disabled={!page?.nextCursor || query.isFetching}
+            onClick={() => {
+              setPrevious([...previous, cursor]);
+              setCursor(page?.nextCursor ?? undefined);
+            }}
           >
             Next page
           </Button>
+          <Field label="Records per page">
+            <Select
+              value={String(limit)}
+              onValueChange={(value) => {
+                setLimit(Number(value));
+                resetPage();
+              }}
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <SelectOption key={size} value={String(size)}>
+                  {size}
+                </SelectOption>
+              ))}
+            </Select>
+          </Field>
         </div>
         {!!pending.length && (
           <section className="panel">

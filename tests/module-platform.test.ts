@@ -77,6 +77,63 @@ afterAll(async () => {
   await db.destroy();
 });
 describe("Public module runtime", () => {
+  it("filters schema fields before stable paging and rejects malicious list envelopes", async () => {
+    const prefix = randomUUID();
+    const ids: string[] = [];
+    for (const kind of ["person", "organization", "person", "person"]) {
+      const result = await call("contacts", "contacts", "create", {
+        data: { name: `${prefix} 50%_match`, kind, relationship: "customer" },
+      });
+      expect(result.status).toBe(200);
+      if (kind === "person") ids.push(result.body.id);
+    }
+    ids.sort();
+    const input = {
+      search: prefix,
+      where: { kind: "person", relationship: "customer" },
+      limit: 2,
+    };
+    const first = await call("contacts", "contacts", "list", input);
+    expect(first.status).toBe(200);
+    expect(first.body.items.map((row: { id: string }) => row.id)).toEqual(
+      ids.slice(0, 2),
+    );
+    const next = await call("contacts", "contacts", "list", {
+      ...input,
+      cursor: first.body.nextCursor,
+    });
+    expect(next.body.items.map((row: { id: string }) => row.id)).toEqual(
+      ids.slice(2),
+    );
+    expect(next.body.nextCursor).toBeNull();
+    expect(
+      (
+        await call("contacts", "contacts", "list", {
+          search: `${prefix} 50%_`,
+          where: { kind: "organization" },
+        })
+      ).body.items,
+    ).toHaveLength(1);
+    for (const invalid of [
+      { where: { kind: "alien" } },
+      { where: { name: false } },
+      { where: { "name') OR true --": "x" } },
+      { limit: 101 },
+      { limit: 0 },
+    ]) {
+      expect((await call("contacts", "contacts", "list", invalid)).status).toBe(
+        400,
+      );
+    }
+    const other = await server.app.inject({
+      method: "POST",
+      url: `/api/v1/module/contacts/workspaces/${foreign}/records`,
+      headers,
+      payload: { action: "list", resource: "contacts", input },
+    });
+    expect(other.statusCode).toBe(200);
+    expect(other.json().items).toEqual([]);
+  });
   it("rejects stale new writes and attempts to relabel an idempotent request", async () => {
     const id = randomUUID(),
       key = randomUUID();

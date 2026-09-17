@@ -12253,6 +12253,11 @@
                         "type": "object",
                         "additionalProperties": {}
                       },
+                      "where": {
+                        "maxProperties": 16,
+                        "type": "object",
+                        "additionalProperties": {}
+                      },
                       "search": {
                         "maxLength": 100,
                         "type": "string"

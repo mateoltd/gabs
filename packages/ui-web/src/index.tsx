@@ -651,3 +651,6 @@ export {
   type DataColumn,
   type TreeNode,
 } from "./data-components";
+
+export { TypedResourceTable, ResourceValue } from "./resource-table";
+export { TypedResourceFilters } from "./resource-filters";

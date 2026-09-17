@@ -1,4 +1,8 @@
 import {
+  listResourceRecords,
+  type ResourceListOptions,
+} from "./resource-query";
+import {
   assertSchema,
   createModuleClient,
   type ModuleCall,
@@ -462,29 +466,9 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       id?: string;
       data?: JsonRecord;
       baseVersion?: number;
-      search?: string;
-      limit?: number;
-      cursor?: string;
-      archived?: boolean;
-    };
-    if (call.action === "list") {
-      const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
-      const matches = rows
-        .filter(
-          (r) =>
-            r.archived === (input.archived ?? false) &&
-            (!input.cursor || r.id > input.cursor) &&
-            (!input.search ||
-              JSON.stringify(r.data)
-                .toLowerCase()
-                .includes(input.search.toLowerCase())),
-        )
-        .sort((a, b) => a.id.localeCompare(b.id));
-      return structuredClone({
-        items: matches.slice(0, limit),
-        nextCursor: matches.length > limit ? matches[limit - 1].id : null,
-      });
-    }
+    } & ResourceListOptions;
+    if (call.action === "list")
+      return listResourceRecords(resource.schema, rows, input);
     const old = rows.find((r) => r.id === input.id);
     if (call.action === "get") {
       if (!old) throw rejected(404, "NOT_FOUND", "Record not found.");

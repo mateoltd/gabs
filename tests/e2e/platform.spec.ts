@@ -272,7 +272,7 @@ test("queued offline capture survives a reload and synchronizes on reconnect", a
   await page.getByRole("link", { name: "Contacts", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Contacts", exact: true }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 30000 });
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });

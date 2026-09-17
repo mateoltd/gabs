@@ -5649,6 +5649,9 @@ export interface operations {
                         baseData?: {
                             [key: string]: unknown;
                         };
+                        where?: {
+                            [key: string]: unknown;
+                        };
                         search?: string;
                         /** Format: uuid */
                         cursor?: string;

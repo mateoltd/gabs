@@ -7,7 +7,7 @@ pnpm module dev ./path/to/module --dependency ./path/to/provider
 
 The command prints a loopback URL, normally `http://127.0.0.1:4321`. Set `MODULE_DEV_PORT` to select a different port. An independent directory needs no catalog, navigation or host edits.
 
-Use [typed schema forms](module-forms.md) in custom views and [generated module references](module-documentation.md) to review schemas, permissions, services and compatibility. `pnpm module docs <module-id-or-directory>` prints the complete reference without requiring a signed build.
+Use [typed resource lists](module-resource-lists.md), [typed schema forms](module-forms.md) in custom views and [generated module references](module-documentation.md) to review schemas, permissions, services and compatibility. `pnpm module docs <module-id-or-directory>` prints the complete reference without requiring a signed build.
 
 ## Authoring loop
 

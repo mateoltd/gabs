@@ -75,6 +75,7 @@ const input = T.Object(
     data: T.Optional(T.Record(T.String(), T.Unknown())),
     baseVersion: T.Optional(T.Integer({ minimum: 1 })),
     baseData: T.Optional(T.Record(T.String(), T.Unknown())),
+    where: T.Optional(T.Record(T.String(), T.Unknown(), { maxProperties: 16 })),
     search: T.Optional(T.String({ maxLength: 100 })),
     cursor: T.Optional(id),
     limit: T.Optional(T.Integer({ minimum: 1, maximum: 100 })),

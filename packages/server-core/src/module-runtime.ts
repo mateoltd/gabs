@@ -1,3 +1,4 @@
+import { validateResourceList } from "@suite/module-sdk/server";
 import { assertModuleStorage } from "./module-storage";
 import { workspaceModule } from "./module-releases";
 import { randomUUID } from "node:crypto";
@@ -7,6 +8,7 @@ import {
   mergeFields,
   type ModuleDefinition,
   type JsonRecord,
+  type ResourceListOptions,
 } from "@suite/module-sdk";
 import { moduleDefinition } from "@suite/module-catalog";
 import { type Tx } from "./database";
@@ -16,14 +18,10 @@ import { audit, publish, iso } from "./transactions";
 export interface ResourceCommand {
   action: "list" | "get" | "create" | "update" | "archive";
   resource: string;
-  input: {
+  input: ResourceListOptions & {
     id?: string;
     data?: JsonRecord;
     baseVersion?: number;
-    search?: string;
-    cursor?: string;
-    limit?: number;
-    archived?: boolean;
   };
 }
 export async function validateReferences(
@@ -180,11 +178,16 @@ export async function executeResource(
     );
   }
   if (command.action === "list") {
-    const limit = Math.max(1, Math.min(command.input.limit ?? 50, 100));
+    validateResourceList(resource.schema, command.input);
+    const limit = command.input.limit ?? 50;
     let q = select()
       .where("archived", "=", command.input.archived ?? false)
       .orderBy("id");
     if (command.input.cursor) q = q.where("id", ">", command.input.cursor);
+    for (const [key, value] of Object.entries(command.input.where ?? {}))
+      q = q.where(
+        sql<boolean>`data -> ${key} = ${JSON.stringify(value)}::jsonb`,
+      );
     if (command.input.search)
       q = q.where(
         sql<boolean>`data::text ilike ${"%" + command.input.search.replace(/[\\%_]/g, "\\$&") + "%"}`,

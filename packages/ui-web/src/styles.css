@@ -841,3 +841,40 @@ strong {
     border-color: ButtonText;
   }
 }
+
+.resource-filters {
+  display: grid;
+  gap: var(--space-3, 12px);
+  margin-bottom: var(--space-4, 16px);
+}
+.resource-filter-editor {
+  max-width: 480px;
+}
+.resource-filter-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-value {
+  min-width: 120px;
+  max-width: 360px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.resource-value summary {
+  outline-offset: -2px;
+  cursor: pointer;
+}
+.resource-value dl {
+  margin: 8px 0;
+}
+.resource-value dt {
+  font-weight: 600;
+}
+.resource-value dd {
+  margin: 0 0 8px;
+}
+.resource-pagination {
+  flex-wrap: wrap;
+}

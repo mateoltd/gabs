@@ -120,12 +120,22 @@ test("an existing company configures, publishes and assigns a newly reviewed mod
       name: `Configure ${name}`,
       exact: true,
     });
-    await dialog
-      .getByRole("button", { name: "Validate and publish", exact: true })
-      .click();
-    await expect(dialog.getByRole("alert")).toContainText(
-      "Check the supplied values",
+    await expect(
+      dialog.getByRole("button", { name: "Validate and publish", exact: true }),
+    ).toBeDisabled();
+    // UI validation cannot substitute for rejecting an invalid direct request.
+    const invalidConfig = await page.request.patch(
+      `/api/v1/workspaces/${workspace}/modules/${moduleId}`,
+      {
+        headers: {
+          origin: "http://localhost:4300",
+          "x-csrf-token": me.csrfToken,
+        },
+        data: { state: "enabled", accessPolicy: "admin", config: {} },
+      },
     );
+    expect(invalidConfig.status()).toBe(400);
+    expect((await invalidConfig.json()).code).toBe("INVALID_INPUT");
     await dialog.getByLabel("Prefix", { exact: true }).fill("Office: ");
     await dialog
       .getByRole("button", { name: "Validate and publish", exact: true })

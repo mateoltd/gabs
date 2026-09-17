@@ -138,3 +138,5 @@ export function defineTrustedModuleServer<const M extends ModuleDefinition>(
     },
   });
 }
+
+export { validateResourceList, resourceListSchema } from "./resource-query";

@@ -1,3 +1,5 @@
+import type { ResourceListOptions } from "./resource-query";
+export type { ResourceListOptions } from "./resource-query";
 export type { StoreQuery, StoreFilter, StoreAggregate } from "./store-query";
 import { validateStorageContract, type StorageContract } from "./storage";
 export {
@@ -404,14 +406,7 @@ export function createModuleClient<M extends ModuleDefinition>(
             action: "get",
             input: { id },
           }) as Promise<ResourceRecord<Data>>,
-        list: (
-          input: {
-            search?: string;
-            cursor?: string;
-            limit?: number;
-            archived?: boolean;
-          } = {},
-        ) =>
+        list: (input: ResourceListOptions<Data> = {}) =>
           transport({
             moduleId: module.id,
             resource: name,
