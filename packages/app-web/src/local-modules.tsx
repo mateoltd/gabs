@@ -12,6 +12,8 @@ import {
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import {
   availableLocalModules,
+  localReferenceAccess,
+  type LocalReferenceSelection,
   planLocalInstallation,
   planRetainedLocalInstallation,
   type LocalSession,
@@ -19,6 +21,7 @@ import {
 } from "@suite/platform/local-profiles";
 import {
   Button,
+  Checkbox,
   Empty,
   ErrorMessage,
   Modal,
@@ -59,6 +62,7 @@ export function LocalModules({
         configuration: Record<string, unknown>;
       }[];
     }>(),
+    [installGrants, setInstallGrants] = useState<LocalReferenceSelection[]>([]),
     [configuration, setConfiguration] = useState<Record<string, unknown>>({}),
     [busy, setBusy] = useState(false),
     [downloading, setDownloading] = useState(false),
@@ -78,6 +82,18 @@ export function LocalModules({
       ?.scrollTo({ top: 0 });
   }, [selected?.pkg.digest, versions, history, references]);
   useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => setInstallGrants([]), [selected?.pkg.digest]);
+  const selectedModules = selected
+    ? [selected.module, ...(selected.related ?? []).map((r) => r.module)]
+    : [];
+  const referenceChoices = localReferenceAccess(
+    session.data,
+    selectedModules,
+  ).filter(
+    ({ consumer, provider, granted }) =>
+      !granted &&
+      selectedModules.some((m) => m.id === consumer.id || m.id === provider.id),
+  );
   const retained = Object.entries(session.data.modules ?? {}).filter(
     ([, installation]) => !installation.active,
   );
@@ -204,7 +220,7 @@ export function LocalModules({
                             r.configuration,
                           ]),
                         ),
-                        { signal },
+                        { signal, referenceGrants: installGrants },
                       );
                     } finally {
                       if (!session.data.downloads?.[selected.downloadId])
@@ -216,6 +232,7 @@ export function LocalModules({
                   } else {
                     await session.installSet(selected.module.id, releases, {
                       signal,
+                      referenceGrants: installGrants,
                     });
                   }
                   setNotice(
@@ -278,6 +295,54 @@ export function LocalModules({
                     </fieldset>
                   ))}
                 </>
+              )}
+              {referenceChoices.length > 0 && (
+                <fieldset className="form-stack" disabled={busy}>
+                  <legend>Reference access for these releases</legend>
+                  <p>
+                    Choose which records these modules may read during
+                    installation and afterward. Access takes effect only if the
+                    whole installation succeeds. Migrations that need a new
+                    reference will fail without access; your current records
+                    remain available.
+                  </p>
+                  {referenceChoices.map(({ consumer, provider, resource }) => {
+                    const decision = {
+                      consumerId: consumer.id,
+                      consumerVersion: consumer.version,
+                      providerId: provider.id,
+                      providerVersion: provider.version,
+                      resource,
+                    };
+                    const matches = (item: LocalReferenceSelection) =>
+                      item.consumerId === consumer.id &&
+                      item.providerId === provider.id &&
+                      item.resource === resource;
+                    return (
+                      <div key={`${consumer.id}/${provider.id}/${resource}`}>
+                        <label className="local-reference-choice">
+                          <Checkbox
+                            checked={installGrants.some(matches)}
+                            onCheckedChange={(allowed) =>
+                              setInstallGrants((current) => [
+                                ...current.filter((item) => !matches(item)),
+                                ...(allowed ? [decision] : []),
+                              ])
+                            }
+                          />
+                          <span>
+                            Allow {consumer.name} to read {provider.name}:{" "}
+                            {provider.resources[resource].title}
+                          </span>
+                        </label>
+                        <p className="small muted">
+                          {consumer.name} {consumer.version} reads{" "}
+                          {provider.name} {provider.version}.
+                        </p>
+                      </div>
+                    );
+                  })}
+                </fieldset>
               )}
               <Button type="submit" variant="primary" disabled={busy}>
                 Save local installation
@@ -433,6 +498,69 @@ export function LocalModules({
                               ? "Interrupted"
                               : "Failed"}
                         </p>
+                        {!!attempt.referenceGrants?.length && (
+                          <div>
+                            <p>
+                              Reference access approved for this installation:
+                            </p>
+                            <ul>
+                              {attempt.referenceGrants.map((grant) => {
+                                const releases = [
+                                  attempt.release,
+                                  ...(attempt.related ?? []),
+                                ];
+                                const definition = (
+                                  id: string,
+                                  version: string,
+                                ) => {
+                                  const release =
+                                    releases.find(
+                                      (r) =>
+                                        r.package.module_id === id &&
+                                        r.package.version === version,
+                                    ) ??
+                                    session.data.modules?.[id]?.releases[
+                                      version
+                                    ];
+                                  return release
+                                    ? hydrateModule(
+                                        release.package
+                                          .artifact as unknown as ModuleDefinition,
+                                      )
+                                    : modules.find(
+                                        (m) =>
+                                          m.id === id && m.version === version,
+                                      );
+                                };
+                                const consumer = definition(
+                                  grant.consumerId,
+                                  grant.consumerVersion,
+                                );
+                                const provider = definition(
+                                  grant.providerId,
+                                  grant.providerVersion,
+                                );
+                                return (
+                                  <li
+                                    key={`${grant.consumerId}/${grant.providerId}/${grant.resource}`}
+                                  >
+                                    {consumer?.name ?? grant.consumerId}{" "}
+                                    {grant.consumerVersion} may read{" "}
+                                    {provider?.name ?? grant.providerId}{" "}
+                                    {grant.providerVersion}:{" "}
+                                    {provider?.resources[grant.resource]
+                                      ?.title ?? grant.resource}
+                                    .
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            <p>
+                              Discard this installation to cancel its pending
+                              access approvals.
+                            </p>
+                          </div>
+                        )}
                         {attempt.error && (
                           <p className="small">{attempt.error}</p>
                         )}

@@ -84,6 +84,7 @@ export type LocalInstallationAttempt = {
   | {
       release: LocalRelease;
       related?: LocalRelease[];
+      referenceGrants?: LocalReferenceSelection[];
       state: "pending" | "interrupted" | "failed";
       error?: string;
     }
@@ -113,9 +114,20 @@ export interface LocalReferenceGrant {
   resource: string;
   grantedAt: number;
 }
+export type LocalReferenceSelection = Omit<LocalReferenceGrant, "grantedAt">;
+export interface LocalInstallOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  referenceGrants?: readonly LocalReferenceSelection[];
+}
 /** Only declared standalone reference targets are eligible for profile-owner consent. */
-export function localReferenceAccess(data: LocalData) {
-  const modules = availableLocalModules(data);
+export function localReferenceAccess(
+  data: LocalData,
+  replacements: readonly ModuleDefinition[] = [],
+) {
+  const available = new Map(availableLocalModules(data).map((m) => [m.id, m]));
+  for (const module of replacements) available.set(module.id, module);
+  const modules = [...available.values()];
   return modules.flatMap((consumer) => {
     const targets = new Map<
       string,
@@ -159,6 +171,47 @@ export function localReferenceAccess(data: LocalData) {
       ),
     }));
   });
+}
+function referenceContext(
+  data: LocalData,
+  module: ModuleDefinition,
+  profileId: string,
+) {
+  const referenceProviders: LocalReferenceProvider[] = [];
+  const referenceArtifacts: Record<
+    string,
+    { package: SignedArtifact; publicKey: string }
+  > = {};
+  for (const access of localReferenceAccess(data).filter(
+    (access) =>
+      access.granted &&
+      access.consumer.id === module.id &&
+      access.consumer.version === module.version,
+  )) {
+    let provider = referenceProviders.find(
+      (entry) => entry.module.id === access.provider.id,
+    );
+    if (!provider) {
+      provider = {
+        profileId,
+        module: access.provider,
+        resources: [],
+        records: {},
+      };
+      referenceProviders.push(provider);
+      const installed = data.modules?.[access.provider.id];
+      const providerRelease = installed?.releases[installed.version];
+      if (providerRelease)
+        referenceArtifacts[access.provider.id] = {
+          package: providerRelease.package,
+          publicKey: providerRelease.publicKey,
+        };
+    }
+    provider.resources.push(access.resource);
+    provider.records[access.resource] =
+      data.records[`${access.provider.id}/${access.resource}`] ?? [];
+  }
+  return { referenceProviders, referenceArtifacts };
 }
 const db = () =>
   openDB("suite-local-profiles", 1, {
@@ -220,19 +273,19 @@ export interface LocalSession {
   installDownload(
     id: string,
     configuration: Record<string, unknown>,
-    options?: { signal?: AbortSignal; timeoutMs?: number },
+    options?: LocalInstallOptions,
   ): Promise<void>;
   /** The host supplies the official registry trust key, never a key from the package. */
   install(
     pkg: SignedArtifact,
     publicKey: string,
     configuration?: unknown,
-    options?: { signal?: AbortSignal; timeoutMs?: number },
+    options?: LocalInstallOptions,
   ): Promise<void>;
   installSet(
     rootModuleId: string,
     releases: readonly LocalRelease[],
-    options?: { signal?: AbortSignal; timeoutMs?: number },
+    options?: LocalInstallOptions,
   ): Promise<void>;
   retryInstallation(
     attemptId: string,
@@ -355,7 +408,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
   async function installReleaseSet(
     rootModuleId: string,
     releases: readonly LocalRelease[],
-    options: { signal?: AbortSignal; timeoutMs?: number },
+    options: LocalInstallOptions,
     downloadId?: string,
   ) {
     if (!releases.length || releases.length > 100)
@@ -416,6 +469,45 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       "1.0.0",
       pins,
     ).filter((m) => selected.has(m.id));
+    const choices = localReferenceAccess(
+      data,
+      [...selected.values()].map(({ module }) => module),
+    );
+    const decisions = options.referenceGrants ?? [];
+    if (!Array.isArray(decisions) || decisions.length > 1000)
+      throw Error("Choose at most 1000 declared reference grants.");
+    const referenceGrants: LocalReferenceSelection[] = [];
+    for (const decision of decisions) {
+      const choice = choices.find(
+        ({ consumer, provider, resource }) =>
+          decision &&
+          consumer.id === decision.consumerId &&
+          consumer.version === decision.consumerVersion &&
+          provider.id === decision.providerId &&
+          provider.version === decision.providerVersion &&
+          resource === decision.resource &&
+          (selected.has(consumer.id) || selected.has(provider.id)),
+      );
+      if (!choice)
+        throw Error(
+          "Reference consent must match the reviewed module releases and a declared standalone resource.",
+        );
+      const normalized = {
+        consumerId: choice.consumer.id,
+        consumerVersion: choice.consumer.version,
+        providerId: choice.provider.id,
+        providerVersion: choice.provider.version,
+        resource: choice.resource,
+      };
+      if (
+        referenceGrants.some(
+          (item) => canonical(item) === canonical(normalized),
+        )
+      )
+        throw Error("Reference consent cannot contain duplicate resources.");
+      referenceGrants.push(normalized);
+    }
+    referenceGrants.sort((a, b) => canonical(a).localeCompare(canonical(b)));
     const normalized = [...releases].sort((a, b) =>
       a.package.module_id.localeCompare(b.package.module_id),
     );
@@ -434,7 +526,9 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             [unfinished[1].release, ...(unfinished[1].related ?? [])].sort(
               (a, b) => a.package.module_id.localeCompare(b.package.module_id),
             ),
-          ) !== canonical(normalized)))
+          ) !== canonical(normalized) ||
+          canonical(unfinished[1].referenceGrants ?? []) !==
+            canonical(referenceGrants)))
     )
       throw Error(
         "Resume or discard the unfinished installation before selecting another release or configuration. Your installed modules and records are preserved.",
@@ -455,6 +549,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       ...metadata,
       release: root.release,
       related: normalized.filter((r) => r.package.module_id !== rootModuleId),
+      referenceGrants,
       state: "pending",
     };
     const downloads = { ...data.downloads };
@@ -475,7 +570,32 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         ...data,
         records: { ...data.records },
         modules: { ...data.modules },
+        referenceGrants: [
+          ...(data.referenceGrants ?? []).filter(
+            (prior) =>
+              !referenceGrants.some(
+                (grant) =>
+                  grant.consumerId === prior.consumerId &&
+                  grant.providerId === prior.providerId &&
+                  grant.resource === prior.resource,
+              ),
+          ),
+          ...referenceGrants.map((grant) => ({
+            ...grant,
+            grantedAt: Date.now(),
+          })),
+        ],
       };
+      // Stage verified definitions for eligibility; dependency order supplies migrated provider records.
+      for (const { module, release } of selected.values()) {
+        const prior = data.modules?.[module.id];
+        next.modules![module.id] = {
+          ...prior,
+          active: true,
+          version: module.version,
+          releases: { ...prior?.releases, [module.version]: release },
+        };
+      }
       for (const choice of ordered) {
         const { module, release } = selected.get(choice.id)!;
         const { package: pkg, publicKey, configuration } = release;
@@ -491,6 +611,11 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         const source = previous
           ? hydrateModule(moduleContract(previous.package.artifact))
           : bundledModuleDefinitions.find((m) => m.id === module.id);
+        const { referenceProviders, referenceArtifacts } = referenceContext(
+          next,
+          module,
+          vault.id,
+        );
         const migrated = await worker.run(
           module,
           {
@@ -503,11 +628,13 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             },
             configuration,
             snapshot: { records, receipts: data.receipts?.[module.id] ?? {} },
+            referenceProviders,
           },
           {
             ...options,
             artifact: { package: pkg, publicKey },
             migrateFrom: fromVersion,
+            referenceArtifacts,
             migrationSource: source
               ? {
                   module: source,
@@ -655,7 +782,31 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             resource,
             grantedAt: Date.now(),
           });
-        await commit({ ...data, referenceGrants: grants });
+        const installationAttempts = Object.fromEntries(
+          Object.entries(data.installationAttempts ?? {}).map(
+            ([id, attempt]) => [
+              id,
+              !allowed && attempt.state !== "accepted"
+                ? {
+                    ...attempt,
+                    referenceGrants: attempt.referenceGrants?.filter(
+                      (grant) =>
+                        !(
+                          grant.consumerId === consumerId &&
+                          grant.providerId === providerId &&
+                          grant.resource === resource
+                        ),
+                    ),
+                  }
+                : attempt,
+            ],
+          ),
+        );
+        await commit({
+          ...data,
+          referenceGrants: grants,
+          installationAttempts,
+        });
       });
     },
     id: vault.id,
@@ -776,7 +927,10 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     },
     installDownload(id, configuration, options = {}) {
       const configurations = structuredClone(configuration),
-        execution = { ...options };
+        execution = {
+          ...options,
+          referenceGrants: structuredClone(options.referenceGrants),
+        };
       return enqueue(async () => {
         const download = data.downloads?.[id];
         if (!download || download.modules.some((m) => !m.release))
@@ -797,14 +951,20 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         publicKey,
         configuration,
       });
-      const execution = { ...options };
+      const execution = {
+        ...options,
+        referenceGrants: structuredClone(options.referenceGrants),
+      };
       return enqueue(() =>
         installReleaseSet(release.package.module_id, [release], execution),
       );
     },
     installSet(rootModuleId, releases, options = {}) {
       const candidates = structuredClone(releases);
-      const execution = { ...options };
+      const execution = {
+        ...options,
+        referenceGrants: structuredClone(options.referenceGrants),
+      };
       return enqueue(() =>
         installReleaseSet(rootModuleId, candidates, execution),
       );
@@ -820,7 +980,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
         await installReleaseSet(
           attempt.moduleId,
           [attempt.release, ...(attempt.related ?? [])],
-          execution,
+          { ...execution, referenceGrants: attempt.referenceGrants },
         );
       });
     },
@@ -970,40 +1130,11 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           );
         }
         const prefix = module.id + "/";
-        const referenceProviders: LocalReferenceProvider[] = [];
-        const referenceArtifacts: Record<
-          string,
-          { package: SignedArtifact; publicKey: string }
-        > = {};
-        for (const access of localReferenceAccess(data).filter(
-          (access) =>
-            access.granted &&
-            access.consumer.id === module.id &&
-            access.consumer.version === module.version,
-        )) {
-          let provider = referenceProviders.find(
-            (entry) => entry.module.id === access.provider.id,
-          );
-          if (!provider) {
-            provider = {
-              profileId: vault.id,
-              module: access.provider,
-              resources: [],
-              records: {},
-            };
-            referenceProviders.push(provider);
-            const installed = data.modules?.[access.provider.id];
-            const providerRelease = installed?.releases[installed.version];
-            if (providerRelease)
-              referenceArtifacts[access.provider.id] = {
-                package: providerRelease.package,
-                publicKey: providerRelease.publicKey,
-              };
-          }
-          provider.resources.push(access.resource);
-          provider.records[access.resource] =
-            data.records[`${access.provider.id}/${access.resource}`] ?? [];
-        }
+        const { referenceProviders, referenceArtifacts } = referenceContext(
+          data,
+          module,
+          vault.id,
+        );
         const snapshot = {
           records: Object.fromEntries(
             Object.entries(data.records)

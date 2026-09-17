@@ -134,3 +134,33 @@ it("defaults declared local reference access to denied and binds consent to both
   data.referenceGrants[0].resource = "notes";
   expect(choice().granted).toBe(false);
 });
+
+it("previews reference choices against the complete proposed installation without granting or changing current access", () => {
+  const data: LocalData = { records: {} };
+  const provider = { ...contacts, version: "1.2.0" };
+  const consumer = {
+    ...projects,
+    version: "1.2.0",
+    dependencies: { ...projects.dependencies, contacts: "^1.2" },
+  };
+  const before = structuredClone(data);
+  expect(
+    localReferenceAccess(data, [consumer]).find(
+      (a) => a.consumer.id === projects.id,
+    ),
+  ).toBeUndefined();
+  expect(
+    localReferenceAccess(data, [consumer, provider]).find(
+      (a) => a.consumer.id === projects.id,
+    ),
+  ).toMatchObject({
+    consumer: { version: "1.2.0" },
+    provider: { version: "1.2.0" },
+    resource: "contacts",
+    granted: false,
+  });
+  expect(data).toEqual(before);
+  expect(
+    localReferenceAccess(data).find((a) => a.consumer.id === projects.id),
+  ).toMatchObject({ consumer: { version: projects.version }, granted: false });
+});

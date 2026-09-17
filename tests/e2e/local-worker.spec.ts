@@ -1225,3 +1225,218 @@ test("signed local reference providers require renewed consent after updates and
     retained: true,
   });
 });
+
+test("migration consent survives interruption, uses staged provider records and cannot be revived after revocation", async ({
+  page,
+}) => {
+  test.setTimeout(150000);
+  const { migrationGrantFixture } =
+    await import("../local-migration-grant-fixture");
+  const fixturePackages = await migrationGrantFixture();
+  const upgrades = await fixturePackages.upgrade();
+  await fixture(page);
+  await page.goto("/");
+  await page.context().setOffline(true);
+  const result = await page.evaluate(
+    async ({ old, next }) => {
+      const path = "/local-profile-proof.mjs";
+      const sdk = (await import(
+        path
+      )) as typeof import("../../packages/platform/src/local-profiles") & {
+        createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+        hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
+      };
+      const pass = "correct horse battery staple";
+      let session = await sdk.createLocalProfile(
+        "Recover migration grants",
+        pass,
+      );
+      const profileId = session.id;
+      const moduleOf = (pkg: typeof old.provider.pkg) =>
+        sdk.hydrateModule(
+          pkg.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+        );
+      const release = (entry: typeof old.provider, slow = false) => ({
+        package: entry.pkg,
+        publicKey: entry.publicKey,
+        configuration: slow ? { prefix: "slow" } : {},
+      });
+      const client = (entry: typeof old.provider) =>
+        sdk.createModuleClient(moduleOf(entry.pkg), (call) =>
+          session.execute(moduleOf(entry.pkg), call),
+        );
+      const code = async (fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+          return "unexpected success";
+        } catch (e) {
+          return (e as { code?: string }).code ?? "rejected";
+        }
+      };
+      const seed = async () => {
+        await session.installSet(old.consumer.pkg.module_id, [
+          release(old.provider),
+          release(old.consumer),
+        ]);
+        await client(old.provider)
+          .resource("items")
+          .create({ text: "Original provider" });
+        await client(old.consumer)
+          .resource("items")
+          .create({ text: "Original consumer" });
+      };
+      const decision = {
+        consumerId: next.consumer.pkg.module_id,
+        consumerVersion: next.consumer.pkg.version,
+        providerId: next.provider.pkg.module_id,
+        providerVersion: next.provider.pkg.version,
+        resource: "items",
+      };
+      const releases = [release(next.provider), release(next.consumer, true)];
+      await seed();
+      const before = JSON.stringify(session.data);
+      const forged = await code(() =>
+        session.installSet(decision.consumerId, releases, {
+          referenceGrants: [{ ...decision, providerVersion: "9.0.0" }],
+        }),
+      );
+      const unchanged = before === JSON.stringify(session.data);
+      const duplicate = await code(() =>
+        session.installSet(decision.consumerId, releases, {
+          referenceGrants: [decision, decision],
+        }),
+      );
+      const interrupted = await code(() =>
+        session.installSet(decision.consumerId, releases, {
+          referenceGrants: [decision],
+          timeoutMs: 100,
+        }),
+      );
+      const attempt = Object.entries(session.data.installationAttempts!).find(
+        ([, a]) => a.state !== "accepted",
+      )!;
+      const pending =
+        attempt[1].state !== "accepted" ? attempt[1].referenceGrants : [];
+      const preserved = {
+        records: session.data.records,
+        grants: session.data.referenceGrants ?? [],
+        version: session.data.modules![decision.providerId].version,
+      };
+      session.lock();
+      session = await sdk.unlockLocalProfile(profileId, pass);
+      await session.retryInstallation(attempt[0]);
+      const accepted = {
+        records: session.data.records,
+        granted: sdk
+          .localReferenceAccess(session.data)
+          .find((a) => a.consumer.id === decision.consumerId)?.granted,
+        provider: session.data.modules![decision.providerId].version,
+        consumer: session.data.modules![decision.consumerId].version,
+      };
+      const receiptCount = Object.values(session.data.receipts ?? {}).reduce(
+        (count, receipts) => count + Object.keys(receipts).length,
+        0,
+      );
+      const acceptedData = JSON.stringify(session.data);
+      await session.retryInstallation(attempt[0]);
+      const exactRetry = acceptedData === JSON.stringify(session.data);
+      session.lock();
+      await sdk.removeLocalProfile(profileId);
+      session = await sdk.createLocalProfile(
+        "Revoke pending migration consent",
+        pass,
+      );
+      const revokedId = session.id;
+      await seed();
+      await code(() =>
+        session.installSet(decision.consumerId, releases, {
+          referenceGrants: [decision],
+          timeoutMs: 100,
+        }),
+      );
+      const revokedAttempt = Object.entries(
+        session.data.installationAttempts!,
+      ).find(([, a]) => a.state !== "accepted")!;
+      await session.setReferenceAccess(
+        decision.consumerId,
+        decision.providerId,
+        "items",
+        false,
+      );
+      session.lock();
+      session = await sdk.unlockLocalProfile(revokedId, pass);
+      const revoked = await code(() =>
+        session.retryInstallation(revokedAttempt[0]),
+      );
+      const afterRevocation = {
+        version: session.data.modules![decision.consumerId].version,
+        grants: session.data.referenceGrants ?? [],
+        records: session.data.records,
+      };
+      session.lock();
+      await sdk.removeLocalProfile(revokedId);
+      return {
+        forged,
+        duplicate,
+        unchanged,
+        interrupted,
+        pending,
+        preserved,
+        accepted,
+        receiptCount,
+        exactRetry,
+        revoked,
+        afterRevocation,
+      };
+    },
+    {
+      old: {
+        provider: fixturePackages.provider,
+        consumer: fixturePackages.consumer,
+      },
+      next: upgrades,
+    },
+  );
+  expect(result.forged).toBe("rejected");
+  expect(result.duplicate).toBe("rejected");
+  expect(result.unchanged).toBe(true);
+  expect(result.interrupted).toBe("LOCAL_TIMEOUT");
+  expect(result.pending).toHaveLength(1);
+  expect(result.preserved.grants).toEqual([]);
+  expect(result.preserved.version).toBe("1.0.0");
+  expect(
+    Object.values(result.preserved.records)
+      .flat()
+      .some((row) => row.id === fixturePackages.targetId),
+  ).toBe(false);
+  expect(result.accepted).toMatchObject({
+    granted: true,
+    provider: "1.1.0",
+    consumer: "1.1.0",
+  });
+  expect(
+    result.accepted.records[
+      fixturePackages.consumer.pkg.module_id + "/items"
+    ][0].data,
+  ).toMatchObject({
+    text: "Original consumer",
+    target: fixturePackages.targetId,
+  });
+  expect(
+    result.accepted.records[
+      fixturePackages.provider.pkg.module_id + "/items"
+    ].some((row) => row.id === fixturePackages.targetId),
+  ).toBe(true);
+  expect(result.receiptCount).toBe(2);
+  expect(result.exactRetry).toBe(true);
+  expect(result.revoked).toBe("LOCAL_SCOPE_DENIED");
+  expect(result.afterRevocation).toMatchObject({
+    version: "1.0.0",
+    grants: [],
+  });
+  expect(
+    Object.values(result.afterRevocation.records)
+      .flat()
+      .some((row) => row.id === fixturePackages.targetId),
+  ).toBe(false);
+});
