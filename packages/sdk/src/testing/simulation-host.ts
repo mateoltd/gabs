@@ -82,7 +82,7 @@ export function createHostSimulator<M extends ModuleDefinition>(
         throw simulationError(
           403,
           "LOCAL_HOST_UNAVAILABLE",
-          "Standalone host grants are not available in this simulator yet.",
+          "Standalone handlers queue ctx.device.request calls. Process them through the simulator's device request controls.",
         );
       if (!current.permissions.includes(declaration.permission))
         throw simulationError(

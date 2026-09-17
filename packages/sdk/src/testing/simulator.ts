@@ -13,6 +13,15 @@ import {
   type SimulatedHostAction,
 } from "./simulation-host";
 import {
+  createLocalSimulator,
+  type LocalSimulationSnapshot,
+} from "./simulation-local";
+import { createLocalModuleClient } from "../runtime/local";
+import type {
+  HostCapabilityName,
+  HostCapabilityResult,
+} from "../contracts/host-capabilities";
+import {
   listResourceRecords,
   type ResourceListOptions,
 } from "../client/resource-query";
@@ -89,6 +98,7 @@ interface NamespaceData {
   stores: Record<string, SimulationStoreRecord[]>;
 }
 export interface SimulatorSnapshot extends NamespaceData {
+  local?: LocalSimulationSnapshot;
   hostResults: Record<string, unknown>;
   hostActions: SimulatedHostAction[];
   scope: { userId: string; workspaceId: string };
@@ -725,6 +735,16 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     return structuredClone(old);
   };
   // All namespaces and effects share one serialized development transaction.
+  const localSimulator = createLocalSimulator(module, modules, {
+    enabled: options.personal ?? false,
+    records: (id) => data[id].records,
+    commit: (id, records) => {
+      data[id].records = records;
+    },
+    permissions: (id) => permissions.get(id) ?? [],
+    grants: () => grants,
+    readGrants: () => readGrants,
+  });
   let tail: Promise<unknown> = Promise.resolve();
   const send = (
     call: ModuleCall,
@@ -733,6 +753,8 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     const run = async () => {
       requestOptions.signal?.throwIfAborted();
       policy(root, call);
+      if (options.personal)
+        return localSimulator.send(call, requestOptions.signal);
       if (!online && !options.personal)
         throw rejected(503, "OFFLINE", "The simulated server is offline.");
       const readOnly =
@@ -801,14 +823,35 @@ export function createModuleSimulator<M extends ModuleDefinition>(
   };
   return {
     client: createModuleClient(module, send),
+    localClient: createLocalModuleClient(module, send),
     host: hostSimulator.host,
     sendHost: hostSimulator.send,
-    setHostResult: hostSimulator.setResult,
+    setHostResult<N extends HostCapabilityName<M>>(
+      name: N,
+      result: HostCapabilityResult<M, N> | undefined,
+    ) {
+      hostSimulator.setResult(name, result);
+      localSimulator.setResult(module.id, name, result);
+    },
+    setDeviceAccess<N extends HostCapabilityName<M>>(
+      name: N,
+      allowed: boolean,
+    ) {
+      localSimulator.setAccess(module.id, name, allowed);
+    },
+    setModuleDeviceAccess: localSimulator.setAccess,
+    setModuleHostResult: localSimulator.setResult,
+    processDeviceRequest: localSimulator.process,
+    retryDeviceRequest: localSimulator.retry,
+    dismissDeviceRequest: localSimulator.dismiss,
+    lockProfile: localSimulator.lock,
+    unlockProfile: localSimulator.unlock,
     send,
     snapshot: (): SimulatorSnapshot =>
       structuredClone({
         ...data[module.id],
         ...hostSimulator.snapshot(),
+        ...(options.personal ? { local: localSimulator.snapshot() } : {}),
         scope: {
           userId: simulationIdentity.userId,
           workspaceId: simulationIdentity.workspaceId,

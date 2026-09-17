@@ -46,6 +46,9 @@ export async function loadSimulationWorkspace(
   const server = (await optionalImport(
     resolve(directory, "module-server.ts"),
   )) as ScopedModuleServer | undefined;
+  const local = (await optionalImport(
+    resolve(directory, "module-local.ts"),
+  )) as import("@suite/module-sdk/local").LocalModule | undefined;
   const simulation = (await optionalImport(
     resolve(directory, "module.simulation.ts"),
   )) as SimulationModule | undefined;
@@ -60,6 +63,7 @@ export async function loadSimulationWorkspace(
       ? {}
       : { configuration: configuration as Record<string, unknown> }),
     server,
+    local,
     ...simulation,
   };
 }

@@ -46,7 +46,7 @@
         </section>
         <section id="host-controls" hidden>
           <h2>Host capability simulator</h2>
-          <p>
+          <p id="host-description">
             Host results are simulated. This preview does not download files,
             show system notifications or contact LAN peers. Current simulated
             permissions and server availability still apply.
@@ -80,6 +80,30 @@
             <button type="submit">Submit</button>
           </form>
           <p id="feedback" role="status"></p>
+        </section>
+        <section id="local-controls" hidden>
+          <h2>Standalone device simulation</h2>
+          <p>
+            Handlers run locally in memory. Consent and device outcomes are
+            simulated; no file, notification or network action occurs.
+          </p>
+          <div id="local-access"></div>
+          <button id="local-lock">Lock simulated profile</button>
+          <p id="local-profile" role="status"></p>
+          <label for="local-request">Device request</label>
+          <select id="local-request"></select>
+          <div>
+            <button id="local-run">Simulate device result</button>
+            <button id="local-interrupt">Simulate interrupted result</button>
+            <button id="local-clear">Clear simulated request</button>
+          </div>
+          <label
+            ><input type="checkbox" id="local-review" /> I reviewed the
+            uncertain simulated outcome before retrying.</label
+          >
+          <button id="local-retry">Create simulated retry</button>
+          <p id="local-feedback" role="status"></p>
+          <div id="local-requests"></div>
         </section>
         <section>
           <h2>Accepted records</h2>

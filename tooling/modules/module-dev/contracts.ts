@@ -9,7 +9,25 @@ import type {
 
 export type DevAction =
   | { action: "host"; call: HostCapabilityCall }
-  | { action: "hostResult"; capability: string; result: unknown }
+  | {
+      action: "hostResult";
+      moduleId?: string;
+      capability: string;
+      result: unknown;
+    }
+  | {
+      action: "localAccess";
+      moduleId: string;
+      capability: string;
+      allowed: boolean;
+    }
+  | { action: "localProfile"; locked: boolean }
+  | {
+      action: "localDevice";
+      id: string;
+      task: "process" | "interrupt" | "retry" | "clear";
+      confirmUncertain?: boolean;
+    }
   | { action: "network"; online: boolean }
   | { action: "permissions"; moduleId?: string; permissions: string[] }
   | { action: "grants"; grants: SimulationGrant[] }

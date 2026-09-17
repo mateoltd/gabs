@@ -47,6 +47,32 @@ try {
   const input = Type.Union([
     Type.Object(
       {
+        action: Type.Literal("localAccess"),
+        moduleId: Type.String(),
+        capability: Type.String(),
+        allowed: Type.Boolean(),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      { action: Type.Literal("localProfile"), locked: Type.Boolean() },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        action: Type.Literal("localDevice"),
+        id: Type.String(),
+        task: Type.Union(
+          ["process", "interrupt", "retry", "clear"].map((value) =>
+            Type.Literal(value),
+          ),
+        ),
+        confirmUncertain: Type.Optional(Type.Boolean()),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
         action: Type.Literal("host"),
         call: Type.Object(
           {
@@ -63,6 +89,7 @@ try {
     Type.Object(
       {
         action: Type.Literal("hostResult"),
+        moduleId: Type.Optional(Type.String()),
         capability: Type.String(),
         result: Type.Unknown(),
       },
@@ -124,10 +151,38 @@ try {
       if (action.action === "host")
         result = await simulator.sendHost(action.call);
       if (action.action === "hostResult")
-        simulator.setHostResult(
+        if (action.moduleId && action.moduleId !== module.id)
+          simulator.setModuleHostResult(
+            action.moduleId,
+            action.capability,
+            action.result === null ? undefined : action.result,
+          );
+        else
+          simulator.setHostResult(
+            action.capability,
+            (action.result === null ? undefined : action.result) as never,
+          );
+      if (action.action === "localAccess")
+        simulator.setModuleDeviceAccess(
+          action.moduleId,
           action.capability,
-          (action.result === null ? undefined : action.result) as never,
+          action.allowed,
         );
+      if (action.action === "localProfile") {
+        if (action.locked) simulator.lockProfile();
+        else simulator.unlockProfile();
+      }
+      if (action.action === "localDevice") {
+        if (action.task === "process" || action.task === "interrupt")
+          result = await simulator.processDeviceRequest(action.id, {
+            interrupt: action.task === "interrupt",
+          });
+        if (action.task === "retry")
+          result = simulator.retryDeviceRequest(action.id, {
+            confirmUncertain: action.confirmUncertain,
+          });
+        if (action.task === "clear") simulator.dismissDeviceRequest(action.id);
+      }
       if (action.action === "network") simulator.setOnline(action.online);
       if (action.action === "permissions")
         simulator.setModulePermissions(

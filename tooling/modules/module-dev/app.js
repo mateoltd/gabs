@@ -67,6 +67,7 @@ function table(rows, label) {
 }
 function renderState() {
   $("online").checked = state.online;
+  renderLocal();
   $("records").replaceChildren(
     ...Object.entries(state.records).flatMap(([name, rows]) => [
       text("h3", name),
@@ -137,19 +138,27 @@ function renderState() {
   );
 }
 function hostResult() {
+  const [moduleId, capability] = hostSelection();
   $("host-result").value = JSON.stringify(
-    state.hostResults[$("host-capability").value] ?? null,
+    (state.local?.hostResults[moduleId] ?? state.hostResults)[capability] ??
+      null,
     null,
     2,
   );
+}
+function hostSelection() {
+  const value = $("host-capability").value;
+  return value.includes("/") ? value.split("/") : [state.module.id, value];
 }
 $("host-capability").onchange = hostResult;
 $("host-form").onsubmit = async (event) => {
   event.preventDefault();
   try {
+    const [moduleId, capability] = hostSelection();
     await request({
       action: "hostResult",
-      capability: $("host-capability").value,
+      moduleId,
+      capability,
       result: JSON.parse($("host-result").value),
     });
     hostResult();
@@ -159,6 +168,149 @@ $("host-form").onsubmit = async (event) => {
     $("host-feedback").textContent = error.message;
   }
 };
+function renderLocal() {
+  $("local-controls").hidden = !state.local;
+  if (!state.local) return;
+  const local = state.local;
+  $("local-profile").textContent = local.locked
+    ? "Simulated profile locked."
+    : "Simulated profile unlocked.";
+  $("local-lock").textContent = local.locked
+    ? "Unlock and recover simulated profile"
+    : "Lock simulated profile";
+  for (const input of $("local-access").querySelectorAll("input")) {
+    input.checked = local.deviceGrants.some(
+      (g) =>
+        g.moduleId === input.dataset.module &&
+        g.capability === input.dataset.capability,
+    );
+    input.disabled = local.locked;
+  }
+  const selection = $("local-request").value;
+  $("local-request").replaceChildren(
+    ...local.deviceRequests.map((r) => {
+      const option = text(
+        "option",
+        `${r.call.moduleId}: ${r.call.capability} (${r.state})`,
+      );
+      option.value = r.id;
+      return option;
+    }),
+  );
+  if (local.deviceRequests.some((r) => r.id === selection))
+    $("local-request").value = selection;
+  else $("local-review").checked = false;
+  if (!local.deviceRequests.length)
+    $("local-request").append(text("option", "No simulated requests"));
+  $("local-request").disabled = !local.deviceRequests.length || local.locked;
+  localButtons();
+  $("local-requests").replaceChildren(
+    table(
+      local.deviceRequests.map((r) => ({
+        capability: `${r.call.moduleId}.${r.call.capability}`,
+        state: r.state,
+        result: r.result ?? "",
+        error: r.error ?? "",
+        retryOf: r.retryOf ?? "",
+      })),
+      "Simulated device requests",
+    ),
+  );
+}
+function localButtons() {
+  const local = state.local;
+  if (!local) return;
+  const current = local.deviceRequests.find(
+    (r) => r.id === $("local-request").value,
+  );
+  for (const id of ["local-run", "local-interrupt"])
+    $(id).disabled = local.locked || current?.state !== "pending";
+  $("local-clear").disabled =
+    local.locked || !current || current.state === "running";
+  $("local-review").disabled = local.locked || current?.state !== "uncertain";
+  $("local-retry").disabled =
+    local.locked ||
+    !current ||
+    !["rejected", "uncertain"].includes(current.state) ||
+    (current.state === "uncertain" && !$("local-review").checked);
+}
+$("local-request").onchange = () => {
+  $("local-review").checked = false;
+  localButtons();
+};
+$("local-review").onchange = localButtons;
+$("local-lock").onclick = () =>
+  request({ action: "localProfile", locked: !state.local.locked }).catch(
+    (e) => {
+      $("local-feedback").textContent = e.message;
+    },
+  );
+for (const [id, task] of [
+  ["local-run", "process"],
+  ["local-interrupt", "interrupt"],
+  ["local-clear", "clear"],
+  ["local-retry", "retry"],
+])
+  $(id).onclick = async () => {
+    try {
+      const data = await request({
+        action: "localDevice",
+        id: $("local-request").value,
+        task,
+        confirmUncertain: $("local-review").checked,
+      });
+      if (task === "retry") {
+        $("local-request").value = data.result;
+        $("local-review").checked = false;
+        localButtons();
+      }
+      $("local-feedback").textContent =
+        task === "interrupt"
+          ? "Interrupted before saving the outcome. Lock and unlock to recover it for review."
+          : "Simulation updated. No device action was performed.";
+    } catch (error) {
+      $("local-feedback").textContent = error.message;
+    }
+  };
+function localControls() {
+  $("local-access").replaceChildren();
+  if (!state.local) return;
+  for (const module of [
+    state.module,
+    ...Object.values(state.providers).map((p) => p.module),
+  ]) {
+    for (const [name, declaration] of Object.entries(
+      module.capabilities ?? {},
+    )) {
+      const label = text(
+          "label",
+          `Allow ${module.name}: ${name} (${declaration.kind})`,
+        ),
+        input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.module = module.id;
+      input.dataset.capability = name;
+      input.onchange = async () => {
+        const allowed = input.checked;
+        input.disabled = true;
+        try {
+          await request({
+            action: "localAccess",
+            moduleId: module.id,
+            capability: name,
+            allowed,
+          });
+        } catch (error) {
+          $("local-feedback").textContent = error.message;
+        } finally {
+          renderLocal();
+        }
+      };
+      label.prepend(input);
+      $("local-access").append(label);
+    }
+  }
+}
 function serviceControls() {
   $("service-controls").hidden =
     !Object.keys(state.providers).length &&
@@ -376,7 +528,9 @@ $("form").onsubmit = async (event) => {
     feedback(
       data.result.state === "pending"
         ? "Pending server acceptance. Reconnect and synchronize to validate."
-        : "Accepted by the simulated server.",
+        : state.local
+          ? "Saved in the standalone simulation. Device requests are simulated separately."
+          : "Accepted by the simulated server.",
     );
   } catch (error) {
     feedback(error.message);
@@ -402,17 +556,30 @@ async function load() {
     return;
   }
   $("title").textContent = `${state.module.name} ${state.module.version}`;
-  $("host-controls").hidden = !Object.keys(state.module.capabilities ?? {})
-    .length;
-  for (const [name, declaration] of Object.entries(
-    state.module.capabilities ?? {},
-  )) {
-    const option = text("option", `${name} (${declaration.kind})`);
-    option.value = name;
-    $("host-capability").append(option);
-  }
+  if (state.local)
+    $("host-description").textContent =
+      "Host results are simulated. This preview does not download files, show system notifications or contact LAN peers. Standalone requests use explicit simulated consent and work without a server.";
+  const hostModules = [
+    state.module,
+    ...(state.local ? Object.values(state.providers).map((p) => p.module) : []),
+  ];
+  $("host-controls").hidden = !hostModules.some(
+    (module) => Object.keys(module.capabilities ?? {}).length,
+  );
+  for (const module of hostModules)
+    for (const [name, declaration] of Object.entries(
+      module.capabilities ?? {},
+    )) {
+      const option = text("option", `${name} (${declaration.kind})`);
+      option.value =
+        module.id === state.module.id ? name : `${module.id}/${name}`;
+      if (module.id !== state.module.id)
+        option.textContent = `${module.name}: ${option.textContent}`;
+      $("host-capability").append(option);
+    }
   if (!$("host-controls").hidden) hostResult();
   serviceControls();
+  localControls();
   for (const [kind, definitions] of [
     ["resource", state.module.resources],
     ["operation", state.module.operations],

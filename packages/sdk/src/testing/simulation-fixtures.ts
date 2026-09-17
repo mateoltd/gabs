@@ -11,6 +11,7 @@ import type { ScopedModuleServer } from "../contracts/server";
 import { canonical } from "../contracts/registry";
 import {
   hostCapabilitySchemas,
+  type HostCapabilityName,
   type HostCapabilityResults,
 } from "../contracts/host-capabilities";
 
@@ -45,6 +46,11 @@ export interface SimulationModule<
   stores?: StoreFixtures<M>;
   configuration?: Static<M["configuration"]>;
   server?: ScopedModuleServer;
+  /** Execute standalone handlers through the actual local transaction runtime. */
+  personal?: boolean;
+  local?: import("../runtime/local").LocalModule;
+  /** Explicit development consent. Omitted capabilities are denied. */
+  deviceAccess?: readonly HostCapabilityName<M>[];
   grants?: readonly SimulationGrant[];
   readGrants?: readonly import("./simulator").SimulationReadGrant[];
   members?: readonly import("./simulator").SimulationMember[];
@@ -127,6 +133,13 @@ export function defineSimulationModule<const M extends ModuleDefinition>(
 ): SimulationModule<M> {
   assertSchema(module.configuration, options.configuration ?? {});
   validateFixtures(module, options.fixtures ?? {});
+  if (options.local && canonical(options.local.module) !== canonical(module))
+    throw Error(
+      `The local simulation implementation must match ${module.id}@${module.version} exactly.`,
+    );
+  for (const name of options.deviceAccess ?? [])
+    if (!Object.hasOwn(module.capabilities ?? {}, name))
+      throw Error(`Undeclared local device fixture: ${module.id}.${name}`);
   for (const [name, result] of Object.entries(options.hostResults ?? {})) {
     if (!module.capabilities || !Object.hasOwn(module.capabilities, name))
       throw Error(`Undeclared host capability fixture: ${name}`);
