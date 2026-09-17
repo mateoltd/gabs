@@ -1,3 +1,4 @@
+import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { LocalActions } from "./local-actions";
 import { LocalModules, type LocalRegistry } from "./local-modules";
 import { Table } from "@suite/ui-web";
@@ -194,8 +195,19 @@ export function LocalWorkspace({
               variant="primary"
               disabled={!selected}
               onClick={() => {
-                setEditing(null);
-                setForm({});
+                if (!selected) return;
+                try {
+                  setForm(
+                    createSchemaDraft(selected.resource.schema) as Record<
+                      string,
+                      unknown
+                    >,
+                  );
+                  setError(undefined);
+                  setEditing(null);
+                } catch (error) {
+                  setError(error);
+                }
               }}
             >
               New record

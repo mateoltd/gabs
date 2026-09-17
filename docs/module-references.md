@@ -97,7 +97,7 @@ Compatible reinstallations and executable rollbacks also validate final referenc
 
 ## Current limits
 
-- Generated object and homogeneous-array editors use recursive pickers. Tuple and record-map fields retain the structured JSON editor; their references are validated server-side, but per-item picker UI remains open.
+- Generated object, homogeneous-array, fixed-tuple and record-map editors use recursive pickers. Typed additional properties use the same lookup. Map renames preserve reference values and update escaped data paths. Complex intersections retain validated JSON editing; specialized controls for every schema construct remain open. See [tuple and map acceptance](verification/map-tuple/README.md).
 - Tables use known top-level labels; resolving every nested or off-page table label remains open.
 - Resource CRUD and [recursive migration reconciliation](module-storage-migrations.md) are covered. Migrations compare final records with their original signed contract and validate new links before committing. Operation inputs/private stores do not acquire reference semantics solely from these annotations.
 - Pagination is not a snapshot. Archiving or revocation after lookup can cause a subsequent write to be rejected.

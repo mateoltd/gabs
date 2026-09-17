@@ -109,6 +109,9 @@ test("native structured SDK form saves authoritative nested data without focusin
       .click();
     await region.getByLabel("Label", { exact: true }).fill("Paper");
     await region.getByLabel("Quantity", { exact: true }).fill("3");
+    await region
+      .getByRole("button", { name: "Edit metrics as JSON", exact: true })
+      .click();
     await region.getByLabel("Metrics", { exact: true }).fill('{"boxes":2}');
     await region
       .getByRole("button", { name: "Save intake", exact: true })

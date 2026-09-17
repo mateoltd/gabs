@@ -2,6 +2,7 @@ import { ownSchemaValue } from "./schema-value";
 import { Value } from "@sinclair/typebox/value";
 import {
   assertSchema,
+  Type,
   hydrateSchema,
   type Static,
   type TSchema,
@@ -46,10 +47,10 @@ export function createSchemaDraft<S extends TSchema>(
       return structuredClone(current.default);
     }
     if (Object.hasOwn(current, "const")) return structuredClone(current.const);
-    if (current.type === "object" && current.properties) {
+    if (current.type === "object") {
       const result: Record<string, unknown> = {};
       for (const [name, field] of Object.entries(
-        current.properties as Record<string, TSchema>,
+        (current.properties ?? {}) as Record<string, TSchema>,
       )) {
         if (
           !(current.required ?? []).includes(name) &&
@@ -67,10 +68,33 @@ export function createSchemaDraft<S extends TSchema>(
       }
       return result;
     }
-    if (current.type === "array") return [];
+    if (current.type === "array")
+      return Array.isArray(current.items) ? current.items.map(create) : [];
     if (current.type === "boolean") return false;
     if (current.type === "null") return null;
     return undefined;
   };
   return create(schema) as SchemaDraft<Static<S>>;
+}
+
+/** Resolve an object's declared value contract for a key, including overlapping patterns. */
+export function objectPropertySchema(
+  schema: TSchema,
+  key: string,
+): TSchema | undefined {
+  const fields: TSchema[] = [];
+  if (Object.hasOwn(schema.properties ?? {}, key))
+    fields.push(schema.properties[key]);
+  for (const [pattern, value] of Object.entries(
+    schema.patternProperties ?? {},
+  )) {
+    if (new RegExp(pattern).test(key)) fields.push(value as TSchema);
+  }
+  if (!fields.length) {
+    if (schema.additionalProperties === false) return undefined;
+    return typeof schema.additionalProperties === "object"
+      ? schema.additionalProperties
+      : Type.Unknown();
+  }
+  return fields.length === 1 ? fields[0] : Type.Intersect(fields);
 }

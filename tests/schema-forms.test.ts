@@ -120,3 +120,48 @@ it("infers nested form drafts and rejects duplicate or invalid application-facin
     void text;
   }
 });
+
+it("creates tuple and map drafts and resolves object entry contracts without inherited properties", async () => {
+  const { objectPropertySchema } = await import("@suite/module-sdk/forms");
+  const tuple = Type.Tuple([
+    Type.String(),
+    Type.Boolean(),
+    Type.Literal("fixed"),
+    Type.Integer({ default: 4 }),
+  ]);
+  expect(createSchemaDraft(tuple)).toEqual([undefined, false, "fixed", 4]);
+  expect(createSchemaDraft(Type.Tuple([]))).toEqual([]);
+  expect(createSchemaDraft(Type.Record(Type.String(), Type.Number()))).toEqual(
+    {},
+  );
+  const schema = Type.Object(
+    { fixed: Type.String() },
+    {
+      patternProperties: {
+        "^a": Type.Number(),
+        ".z$": Type.Integer({ minimum: 1 }),
+      },
+      additionalProperties: false,
+    },
+  );
+  expect(objectPropertySchema(schema, "constructor")).toBeUndefined();
+  expect(parseSchemaInput(objectPropertySchema(schema, "az")!, 2).ok).toBe(
+    true,
+  );
+  expect(
+    parseSchemaInput(
+      objectPropertySchema(JSON.parse(JSON.stringify(schema)), "az")!,
+      2.5,
+    ).ok,
+  ).toBe(false);
+  expect(
+    parseSchemaInput(objectPropertySchema(schema, "fixed")!, "kept").ok,
+  ).toBe(true);
+  const extended = Type.Object(
+    { fixed: Type.String() },
+    { additionalProperties: Type.Integer() },
+  );
+  expect(
+    parseSchemaInput(objectPropertySchema(extended, "__proto__")!, 7).ok,
+  ).toBe(true);
+});

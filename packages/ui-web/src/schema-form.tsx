@@ -22,6 +22,7 @@ import {
 import { Button, Field } from "./index";
 import {
   createSchemaDraft,
+  objectPropertySchema,
   parseSchemaInput,
   type SchemaDraft,
   type SchemaIssue,
@@ -42,6 +43,9 @@ export interface FormSchema {
   allOf?: readonly FormSchema[];
   items?: FormSchema | readonly FormSchema[];
   additionalProperties?: boolean | FormSchema;
+  patternProperties?: Record<string, FormSchema>;
+  minProperties?: number;
+  maxProperties?: number;
   default?: unknown;
   maxLength?: number;
   minLength?: number;
@@ -92,7 +96,8 @@ function JsonField({
   path,
   required,
   issues,
-}: FieldProps) {
+  onInvalidChange,
+}: FieldProps & { onInvalidChange?: (invalid: boolean) => void }) {
   const issue = issues.find(
     (issue) => issue.path === path || issue.path.startsWith(`${path}/`),
   );
@@ -101,15 +106,21 @@ function JsonField({
     [error, setError] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
   const report = useContext(InvalidFields);
+  const invalid =
+    !!error || (!!required && value === undefined && !text.trim());
   useEffect(() => {
     setText(serialized);
     setError("");
   }, [serialized]);
   useEffect(() => {
     ref.current?.setCustomValidity(error);
-    report(path, !!error);
-    return () => report(path, false);
-  }, [error, path, report]);
+    report(path, invalid);
+    onInvalidChange?.(invalid);
+    return () => {
+      report(path, false);
+      onInvalidChange?.(false);
+    };
+  }, [error, invalid, path, report, onInvalidChange]);
   return (
     <Field
       label={label}
@@ -191,7 +202,11 @@ function ObjectFields({
   references,
   issues,
   fieldOrder = [],
-}: Omit<FieldProps, "label"> & { fieldOrder?: readonly string[] }) {
+  label: groupLabel,
+}: Omit<FieldProps, "label"> & {
+  fieldOrder?: readonly string[];
+  label?: string;
+}) {
   const values = object(value);
   return (
     <>
@@ -227,12 +242,294 @@ function ObjectFields({
             }}
           />
         ))}
+      {(schema.patternProperties ||
+        typeof schema.additionalProperties === "object" ||
+        schema.additionalProperties === true) && (
+        <MapFields
+          schema={schema}
+          value={value}
+          onChange={onChange}
+          path={path}
+          label={groupLabel ?? schema.title ?? "Additional fields"}
+          references={references}
+          issues={issues}
+        />
+      )}
     </>
+  );
+}
+function MapFields(props: FieldProps) {
+  const { schema, value, onChange, path, label } = props;
+  const values = object(value);
+  const keys = Object.keys(values).filter(
+    (key) => !Object.hasOwn(schema.properties ?? {}, key),
+  );
+  const identities = useRef(new Map<string, string>());
+  const [newKey, setNewKey] = useState(""),
+    [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const report = useContext(InvalidFields),
+    id = useId();
+  useEffect(() => {
+    inputRef.current?.setCustomValidity(
+      error || (newKey ? "Add the entry, or press Escape to cancel." : ""),
+    );
+    report(`${path}:new:${id}`, !!newKey || !!error);
+    return () => report(`${path}:new:${id}`, false);
+  }, [newKey, error, report, path, id]);
+  const keyIssue = (key: string, prior?: string) => {
+    if (key === "__proto__")
+      return "This key is reserved. Choose another name.";
+    if (key !== prior && Object.hasOwn(values, key))
+      return "This key already exists.";
+    if (Object.hasOwn(schema.properties ?? {}, key))
+      return "This key is a declared field. Edit it in its own control.";
+    if (!objectPropertySchema(schema as TSchema, key))
+      return "This key does not match a declared field pattern.";
+    return "";
+  };
+  const add = () => {
+    const issue = keyIssue(newKey);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    if (
+      schema.maxProperties !== undefined &&
+      Object.keys(values).length >= schema.maxProperties
+    ) {
+      setError("Remove an entry before adding another.");
+      return;
+    }
+    const entry = objectPropertySchema(schema as TSchema, newKey)!;
+    const next = { ...values };
+    Object.defineProperty(next, newKey, {
+      value: draft(entry),
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    onChange(next);
+    setNewKey("");
+    setError("");
+  };
+  return (
+    <>
+      {keys.map((key, index) => {
+        if (!identities.current.has(key))
+          identities.current.set(key, crypto.randomUUID());
+        return (
+          <MapEntry
+            key={identities.current.get(key)}
+            {...props}
+            entryKey={key}
+            index={index}
+            keyIssue={keyIssue}
+            rename={(nextKey) => {
+              const next = Object.fromEntries(
+                Object.entries(values).map(([name, value]) => [
+                  name === key ? nextKey : name,
+                  value,
+                ]),
+              );
+              identities.current.set(nextKey, identities.current.get(key)!);
+              identities.current.delete(key);
+              onChange(next);
+            }}
+            remove={() => {
+              const next = { ...values };
+              delete next[key];
+              identities.current.delete(key);
+              onChange(next);
+            }}
+          />
+        );
+      })}
+      <Field
+        label={`New key for ${label.toLowerCase()}`}
+        hint={
+          error ||
+          (newKey ? "Add the entry, or press Escape to cancel." : undefined)
+        }
+      >
+        <Input
+          ref={inputRef}
+          data-escape-cancel={newKey || error ? "true" : undefined}
+          value={newKey}
+          aria-invalid={!!error}
+          onChange={(event) => {
+            setNewKey(event.target.value);
+            setError("");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            } else if (event.key === "Escape" && (newKey || error)) {
+              event.preventDefault();
+              event.stopPropagation();
+              setNewKey("");
+              setError("");
+            }
+          }}
+        />
+      </Field>
+      <Button
+        type="button"
+        disabled={
+          schema.maxProperties !== undefined &&
+          Object.keys(values).length >= schema.maxProperties
+        }
+        onClick={add}
+      >
+        Add {label.toLowerCase()} entry
+      </Button>
+    </>
+  );
+}
+function MapEntry(
+  props: FieldProps & {
+    entryKey: string;
+    index: number;
+    keyIssue: (key: string, prior?: string) => string;
+    rename: (key: string) => void;
+    remove: () => void;
+  },
+) {
+  const {
+    entryKey,
+    index,
+    keyIssue,
+    rename,
+    remove,
+    schema,
+    value,
+    onChange,
+    path,
+    label,
+    references,
+    issues,
+  } = props;
+  const [key, setKey] = useState(entryKey),
+    [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const report = useContext(InvalidFields),
+    id = useId();
+  useEffect(() => {
+    setKey(entryKey);
+    setError("");
+  }, [entryKey]);
+  useEffect(() => {
+    inputRef.current?.setCustomValidity(
+      error ||
+        (key !== entryKey
+          ? "Apply the new key, or press Escape to cancel."
+          : ""),
+    );
+    report(`${path}:rename:${id}`, key !== entryKey || !!error);
+    return () => report(`${path}:rename:${id}`, false);
+  }, [key, entryKey, error, report, path, id]);
+  const apply = () => {
+    if (key === entryKey) {
+      setError("");
+      return;
+    }
+    const issue = keyIssue(key, entryKey);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    rename(key);
+    setError("");
+  };
+  const values = object(value),
+    entry = objectPropertySchema(schema as TSchema, entryKey) ?? {};
+  return (
+    <div className="schema-array-item form-stack">
+      <Field
+        label={`${label} key ${index + 1}`}
+        hint={
+          error ||
+          (key !== entryKey
+            ? "Apply the new key, or press Escape to cancel."
+            : undefined)
+        }
+      >
+        <Input
+          ref={inputRef}
+          data-escape-cancel={key !== entryKey || error ? "true" : undefined}
+          value={key}
+          aria-invalid={!!error}
+          onChange={(event) => {
+            setKey(event.target.value);
+            setError("");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              apply();
+            } else if (event.key === "Escape" && (key !== entryKey || error)) {
+              event.preventDefault();
+              event.stopPropagation();
+              setKey(entryKey);
+              setError("");
+            }
+          }}
+        />
+      </Field>
+      <SchemaField
+        schema={entry}
+        label={`${label}: ${entryKey || "Empty key"}`}
+        value={values[entryKey]}
+        path={pointer(path, entryKey)}
+        required
+        references={references}
+        issues={issues}
+        onChange={(next) => onChange({ ...values, [entryKey]: next })}
+      />
+      <div className="actions">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={key === entryKey}
+          onClick={apply}
+        >
+          Rename {label.toLowerCase()} entry {index + 1}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={Object.keys(values).length <= (schema.minProperties ?? 0)}
+          onClick={remove}
+        >
+          Remove {label.toLowerCase()} entry {index + 1}
+        </Button>
+      </div>
+    </div>
   );
 }
 function SchemaField(props: FieldProps): ReactNode {
   const loadReference = useContext(ReferenceLoading);
   const [chosen, setChosen] = useState(-1);
+  const [jsonMode, setJsonMode] = useState(false),
+    [invalidJson, setInvalidJson] = useState(false);
+  const report = useContext(InvalidFields);
+  const [invalidChildren, setInvalidChildren] = useState<
+    Record<string, boolean>
+  >({});
+  const trackInvalid = useCallback(
+    (key: string, invalid: boolean) => {
+      report(key, invalid);
+      setInvalidChildren((current) => {
+        if (!!current[key] === invalid) return current;
+        const next = { ...current };
+        if (invalid) next[key] = true;
+        else delete next[key];
+        return next;
+      });
+    },
+    [report],
+  );
   const rowKeys = useRef<string[]>([]);
   const { schema, value, onChange, label, path, required, references, issues } =
     props;
@@ -253,27 +550,100 @@ function SchemaField(props: FieldProps): ReactNode {
         {value !== null && <SchemaField {...props} schema={nonNull[0]} />}
       </Group>
     );
-  if (schema.type === "object" && schema.properties) {
+  const map =
+    schema.type === "object" &&
+    (schema.patternProperties ||
+      typeof schema.additionalProperties === "object" ||
+      schema.additionalProperties === true);
+  const tuple =
+    schema.type === "array" &&
+    (Array.isArray(schema.items) || schema.maxItems === 0);
+  if ((schema.type === "object" && (schema.properties || map)) || tuple) {
+    const entries = Array.isArray(schema.items) ? schema.items : [];
+    const rows = Array.isArray(value)
+      ? value
+      : ((draft(schema) as unknown[]) ?? []);
     return (
       <Group label={label} hint={schema.description} error={error}>
-        {!required && value === undefined ? (
-          <Button type="button" onClick={() => onChange(draft(schema))}>
-            Add {label.toLowerCase()}
-          </Button>
-        ) : (
-          <>
-            <ObjectFields {...props} />
-            {!required && (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => onChange(undefined)}
-              >
-                Remove {label.toLowerCase()}
-              </Button>
-            )}
-          </>
-        )}
+        <InvalidFields.Provider value={trackInvalid}>
+          {!required && value === undefined ? (
+            <Button type="button" onClick={() => onChange(draft(schema))}>
+              Add {label.toLowerCase()}
+            </Button>
+          ) : (
+            <>
+              {jsonMode ? (
+                <JsonField {...props} onInvalidChange={setInvalidJson} />
+              ) : tuple ? (
+                <>
+                  {entries.map((entry, index) => (
+                    <SchemaField
+                      key={index}
+                      schema={entry}
+                      label={entry.title ?? `${label} ${index + 1}`}
+                      path={pointer(path, index)}
+                      value={rows[index]}
+                      required
+                      references={references}
+                      issues={issues}
+                      onChange={(next) => {
+                        const values = Array.from(
+                          { length: Math.max(rows.length, entries.length) },
+                          (_, i) => rows[i],
+                        );
+                        values[index] = next;
+                        onChange(values);
+                      }}
+                    />
+                  ))}
+                  {rows.length > entries.length && (
+                    <>
+                      <p className="schema-error">
+                        This tuple has extra values. Use the JSON editor to
+                        review them.
+                      </p>
+                    </>
+                  )}
+                </>
+              ) : (
+                <ObjectFields {...props} />
+              )}
+              {(map || tuple) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={Object.keys(invalidChildren).length > 0}
+                  onClick={() => setJsonMode(!jsonMode)}
+                >
+                  {jsonMode
+                    ? `Use structured ${label.toLowerCase()} editor`
+                    : `Edit ${label.toLowerCase()} as JSON`}
+                </Button>
+              )}
+              {jsonMode && invalidJson && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setJsonMode(false);
+                    setInvalidJson(false);
+                  }}
+                >
+                  Discard JSON edits
+                </Button>
+              )}
+              {!required && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => onChange(undefined)}
+                >
+                  Remove {label.toLowerCase()}
+                </Button>
+              )}
+            </>
+          )}
+        </InvalidFields.Provider>
       </Group>
     );
   }

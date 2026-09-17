@@ -66,6 +66,9 @@ test("typed generated editors preserve nested values, primitive choices and inva
     await expect(
       view.getByRole("button", { name: "Save intake" }),
     ).toBeEnabled();
+    await view
+      .getByRole("button", { name: "Edit metrics as JSON", exact: true })
+      .click();
     const metrics = view.getByLabel("Metrics", { exact: true });
     await metrics.fill('{"boxes":');
     await expect(metrics).toHaveAttribute("aria-invalid", "true");

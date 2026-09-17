@@ -158,11 +158,18 @@ export function Modal({
             ref={setContent}
             inert={!open}
             onEscapeKeyDown={(event) => {
-              // Radix handles Escape in capture; let an open Base UI popup close first.
+              // Radix handles Escape in capture; child popups and unfinished edits cancel first.
               if (
                 content.current?.querySelector(
                   "[aria-haspopup][data-popup-open]",
-                )
+                ) ||
+                event
+                  .composedPath()
+                  .some(
+                    (node) =>
+                      node instanceof HTMLElement &&
+                      node.dataset.escapeCancel === "true",
+                  )
               )
                 event.preventDefault();
             }}
