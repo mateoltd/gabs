@@ -12,6 +12,7 @@
     "./module-storage": "./src/modules/storage.ts",
     "./local-profiles": "./src/identity/local-profiles.ts",
     "./local-devices": "./src/adapters/local-devices.ts",
+    "./capability-leases": "./src/identity/capability-leases.ts",
     "./module-response": "./src/modules/response.ts"
   },
   "dependencies": {

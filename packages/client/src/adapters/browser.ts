@@ -1,5 +1,6 @@
 import { openDB } from "idb";
 import type { Platform, Scope, CacheKey, RememberedIdentity } from "../index";
+import { CorporateCapabilityLeases } from "../identity/capability-leases";
 const db = () =>
   openDB("suite-offline-v1", 1, {
     upgrade(db) {
@@ -8,6 +9,18 @@ const db = () =>
   });
 const key = (scope: Scope, kind: CacheKey) =>
   `${scope.userId}/${scope.workspaceId}/${kind}`;
+// The same account/workspace prefix makes existing logout and workspace purges remove grants too.
+const leaseKey = (scope: Scope) =>
+  `${scope.userId}/${scope.workspaceId}/capability-leases`;
+const withLeaseAccount = async <T>(userId: string, task: () => Promise<T>) =>
+  navigator.locks.request(`suite-capability-leases:${userId}`, task);
+export const browserCapabilityLeases = new CorporateCapabilityLeases({
+  load: async (scope) => (await db()).get("records", leaseKey(scope)),
+  save: async (scope, value) => {
+    await (await db()).put("records", value, leaseKey(scope));
+  },
+  exclusive: (scope, task) => withLeaseAccount(scope.userId, task),
+});
 export const browserPlatform: Platform = {
   kind: "web",
   async load<T>(scope: Scope, kind: CacheKey) {
@@ -30,20 +43,24 @@ export const browserPlatform: Platform = {
     await tx.done;
   },
   async purgeWorkspace(scope) {
-    const store = await db();
-    const tx = store.transaction("records", "readwrite");
-    for (const k of await tx.store.getAllKeys())
-      if (String(k).startsWith(`${scope.userId}/${scope.workspaceId}/`))
-        await tx.store.delete(k);
-    await tx.done;
+    await withLeaseAccount(scope.userId, async () => {
+      const store = await db();
+      const tx = store.transaction("records", "readwrite");
+      for (const k of await tx.store.getAllKeys())
+        if (String(k).startsWith(`${scope.userId}/${scope.workspaceId}/`))
+          await tx.store.delete(k);
+      await tx.done;
+    });
   },
   async purgeUser(userId) {
-    const store = await db();
-    const tx = store.transaction("records", "readwrite");
-    for (const k of await tx.store.getAllKeys())
-      if (String(k).startsWith(userId + "/")) await tx.store.delete(k);
-    await tx.done;
-    await store.delete("records", "identity");
+    await withLeaseAccount(userId, async () => {
+      const store = await db();
+      const tx = store.transaction("records", "readwrite");
+      for (const k of await tx.store.getAllKeys())
+        if (String(k).startsWith(userId + "/")) await tx.store.delete(k);
+      await tx.store.delete("identity");
+      await tx.done;
+    });
   },
   async identity() {
     return (await db()).get("records", "identity") as Promise<

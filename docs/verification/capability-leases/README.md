@@ -23,6 +23,6 @@ Final combined acceptance after the asynchronous-expiry guard passed **17 tests 
 
 ## Remaining implementation
 
-Connect trusted API keys and exact-release leases to account/workspace-scoped client storage, online acquisition/renewal, cached custom views, browser effects and native main-process verification. Invalidate on connected policy updates, release/profile changes and expiry. Verify delayed-dialog expiry/revocation, clock handling, profile restart, workspace isolation and read-only offline effects in real web and hidden native journeys. Existing corporate custom-view host actions remain online-only until this integration passes.
+The subsequent [client guard and browser persistence milestone](../client-capability-leases/README.md) verifies account/workspace-scoped storage, grant validation, policy races and clock handling. Connect it to real online acquisition/renewal, cached custom views, policy delivery, browser effects and native main-process verification. Invalidate on connected policy updates, release/profile changes and expiry. Verify delayed-dialog expiry/revocation, clock handling, profile restart, workspace isolation and read-only offline effects in real web and hidden native journeys. Existing corporate custom-view host actions remain online-only until this integration passes.
 
 The [design contract](../../corporate-capability-leases.md), [SDK-05 map](../../sdk-05-acceptance.md) and parity tracker retain the full scope. Simulation and cryptographic unit tests do not substitute for client/device acceptance.

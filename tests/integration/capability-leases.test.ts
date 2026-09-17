@@ -142,6 +142,10 @@ it("issues audited exact-release leases and rechecks revoked authority before id
       response = await acquire(key);
     expect(response.statusCode, response.body).toBe(200);
     const lease = response.json();
+    expect(keyResponse.json()).toMatchObject({
+      issuer: lease.payload.issuer,
+      keyId: lease.keyId,
+    });
     const repeat = await acquire(key);
     expect(repeat.statusCode).toBe(200);
     expect(repeat.json()).toEqual(lease);

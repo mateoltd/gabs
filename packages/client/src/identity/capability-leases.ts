@@ -1,0 +1,369 @@
+import {
+  assertSchema,
+  Type,
+  type ModuleDefinition,
+  type Static,
+} from "@suite/module-sdk";
+import {
+  CapabilityLeaseAuthoritySchema,
+  CapabilityLeaseSchema,
+  verifyCapabilityLease,
+  verifyCapabilityLeaseGrant,
+  type CapabilityLease,
+  type CapabilityLeaseAuthority,
+} from "@suite/module-sdk/capability-leases";
+import type { HostCapabilityCall } from "@suite/module-sdk/host-capabilities";
+import type { Scope } from "../index";
+
+const revision = Type.String({ pattern: "^(0|[1-9][0-9]{0,18})$" });
+const StoredSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    userId: Type.String(),
+    workspaceId: Type.String(),
+    generation: Type.String(),
+    revision,
+    enabled: Type.Boolean(),
+    highWater: Type.Integer({ minimum: 0 }),
+    clockBlocked: Type.Boolean(),
+    authority: Type.Optional(CapabilityLeaseAuthoritySchema),
+    leases: Type.Array(CapabilityLeaseSchema, { maxItems: 256 }),
+  },
+  { additionalProperties: false },
+);
+type Stored = Static<typeof StoredSchema>;
+
+/** The host owns this storage and serializes all readers/writers across its processes or tabs. */
+export interface CapabilityLeaseStorage {
+  load(scope: Scope): Promise<unknown>;
+  save(scope: Scope, value: unknown): Promise<void>;
+  exclusive<T>(scope: Scope, task: () => Promise<T>): Promise<T>;
+}
+/** Read live host state on every call. Throw when the profile/view is locked, stale or unauthorized. */
+export interface CapabilityLeaseAccess {
+  policyRevision: string;
+  offlineEnabled: boolean;
+  expiresAt: number;
+}
+type LiveAccess = () => CapabilityLeaseAccess;
+type Clock = () => { wall: number; monotonic: number };
+const scopeKey = (scope: Scope) =>
+  JSON.stringify([scope.userId, scope.workspaceId]);
+const sameGrant = (
+  lease: CapabilityLease,
+  module: ModuleDefinition,
+  capability: string,
+) =>
+  lease.payload.moduleId === module.id &&
+  lease.payload.moduleVersion === module.version &&
+  lease.payload.capability === capability;
+
+/** Corporate device leases only. This class cannot authorize business operations or LAN transport. */
+export class CorporateCapabilityLeases {
+  private epochs = new Map<string, number>();
+  private blockedClocks = new Set<string>();
+  private clocks = new Map<string, { effective: number; monotonic: number }>();
+  constructor(
+    private readonly storage: CapabilityLeaseStorage,
+    private readonly clock: Clock = () => ({
+      wall: Date.now(),
+      monotonic: performance.now(),
+    }),
+  ) {}
+
+  private epoch(scope: Scope) {
+    return this.epochs.get(scopeKey(scope)) ?? 0;
+  }
+  private invalidateLive(scope: Scope) {
+    this.epochs.set(scopeKey(scope), this.epoch(scope) + 1);
+  }
+  private async change<T>(
+    scope: Scope,
+    task: (state: Stored) => Promise<T>,
+  ): Promise<T> {
+    return this.storage.exclusive(scope, async () => {
+      const value = await this.storage.load(scope);
+      if (value !== undefined) assertSchema(StoredSchema, value);
+      const state: Stored =
+        value === undefined
+          ? {
+              version: 1,
+              ...scope,
+              generation: crypto.randomUUID(),
+              revision: "0",
+              enabled: true,
+              highWater: 0,
+              clockBlocked: false,
+              leases: [],
+            }
+          : structuredClone(value as Stored);
+      if (
+        state.userId !== scope.userId ||
+        state.workspaceId !== scope.workspaceId
+      )
+        throw Error(
+          "The offline capability store belongs to another workspace or profile.",
+        );
+      // Persist clock failures as well as successful reads. A failed write must never grant an effect.
+      try {
+        return await task(state);
+      } finally {
+        await this.storage.save(scope, state);
+      }
+    });
+  }
+
+  private time(scope: Scope, state: Stored, recover = false) {
+    const reading = this.clock();
+    if (
+      !Number.isSafeInteger(reading.wall) ||
+      reading.wall < 0 ||
+      !Number.isFinite(reading.monotonic) ||
+      reading.monotonic < 0
+    )
+      throw Error(
+        "Invalid host clock. Reconnect before using offline device actions.",
+      );
+    const anchor = recover ? undefined : this.clocks.get(scopeKey(scope));
+    if (
+      !recover &&
+      (reading.wall + 1000 < state.highWater ||
+        (anchor && reading.monotonic < anchor.monotonic))
+    )
+      this.blockedClocks.add(scopeKey(scope));
+    if (!recover && this.blockedClocks.has(scopeKey(scope)))
+      state.clockBlocked = true;
+    const now = Math.max(
+      reading.wall,
+      recover ? 0 : state.highWater,
+      anchor
+        ? anchor.effective + Math.floor(reading.monotonic - anchor.monotonic)
+        : 0,
+    );
+    state.highWater = now;
+    this.clocks.set(scopeKey(scope), {
+      effective: now,
+      monotonic: reading.monotonic,
+    });
+    if (!recover && state.clockBlocked)
+      throw Error(
+        "The device clock moved backwards. Reconnect to renew offline device access.",
+      );
+    return now;
+  }
+
+  private access(live: LiveAccess, state: Stored, now: number) {
+    const access = live();
+    assertSchema(revision, access.policyRevision);
+    if (!access.offlineEnabled || !state.enabled)
+      throw Error("Offline device access is disabled for this workspace.");
+    if (!Number.isSafeInteger(access.expiresAt) || access.expiresAt <= now)
+      throw Error("Workspace offline access expired. Reconnect to continue.");
+    if (BigInt(access.policyRevision) < BigInt(state.revision))
+      throw Error(
+        "Workspace policy changed. Refresh this view before using a device action.",
+      );
+    return access;
+  }
+
+  /** Call with trusted connected policy, including updates received while another view is open. */
+  observePolicy(
+    scope: Scope,
+    policyRevision: string,
+    enabled: boolean,
+  ): Promise<void> {
+    scope = { ...scope };
+    assertSchema(revision, policyRevision);
+    // Invalidate pending checks synchronously, before waiting on durable storage.
+    this.invalidateLive(scope);
+    return this.change(scope, async (state) => {
+      if (BigInt(policyRevision) < BigInt(state.revision)) return;
+      if (
+        policyRevision === state.revision &&
+        (!state.enabled || state.enabled === enabled)
+      )
+        return;
+      state.revision = policyRevision;
+      state.enabled = enabled;
+      state.leases = [];
+      state.generation = crypto.randomUUID();
+    });
+  }
+
+  /** Server denial, logout or explicit recovery invalidates pending acquisitions and retained grants. */
+  invalidate(scope: Scope): Promise<void> {
+    scope = { ...scope };
+    this.invalidateLive(scope);
+    return this.change(scope, async (state) => {
+      state.leases = [];
+      state.generation = crypto.randomUUID();
+    });
+  }
+
+  /** Only the trusted authenticated transport may supply fetchGrant. Never feed it renderer/module tokens. */
+  async refresh(
+    scope: Scope,
+    module: ModuleDefinition,
+    capability: string,
+    live: LiveAccess,
+    fetchGrant: () => Promise<{
+      authority: CapabilityLeaseAuthority;
+      lease: CapabilityLease;
+    }>,
+  ): Promise<void> {
+    scope = { ...scope };
+    module = structuredClone(module);
+    const epoch = this.epoch(scope);
+    const generation = await this.change(scope, async (state) => {
+      this.access(live, state, this.clock().wall);
+      return state.generation;
+    });
+    const result = structuredClone(await fetchGrant());
+    assertSchema(CapabilityLeaseAuthoritySchema, result.authority);
+    const origin = new URL(result.authority.issuer);
+    if (
+      origin.origin !== result.authority.issuer ||
+      !["http:", "https:"].includes(origin.protocol)
+    )
+      throw Error("Invalid capability authority origin.");
+    await this.change(scope, async (state) => {
+      const current = () => {
+        if (epoch !== this.epoch(scope) || generation !== state.generation)
+          throw Error(
+            "Offline device authority changed during renewal. Retry with current permissions.",
+          );
+        return this.access(live, state, this.clock().wall);
+      };
+      const access = current();
+      await verifyCapabilityLeaseGrant(
+        result.lease,
+        result.authority.publicKey,
+        {
+          ...scope,
+          issuer: result.authority.issuer,
+          module,
+          capability,
+          minimumPolicyRevision: access.policyRevision,
+          now: this.clock().wall,
+        },
+      );
+      if (result.lease.keyId !== result.authority.keyId)
+        throw Error("The authority key fingerprint does not match this lease.");
+      current();
+      if (result.lease.payload.expiresAt <= this.clock().wall)
+        throw Error("The offline device lease expired during renewal.");
+      const rotated =
+        state.authority?.keyId !== result.authority.keyId ||
+        state.authority?.issuer !== result.authority.issuer;
+      // Only a newly verified server response can recover a clock fault. Never recover from stored tokens.
+      if (
+        rotated ||
+        state.clockBlocked ||
+        state.highWater > this.clock().wall + 1000
+      )
+        state.leases = [];
+      const now = this.time(scope, state, true);
+      state.clockBlocked = false;
+      state.authority = result.authority;
+      state.revision = result.lease.payload.policyRevision;
+      state.leases = state.leases.filter(
+        (lease) =>
+          lease.payload.expiresAt > now &&
+          lease.payload.policyRevision === state.revision &&
+          !sameGrant(lease, module, capability),
+      );
+      if (state.leases.length >= 256) state.leases.shift();
+      state.leases.push(result.lease);
+      state.generation = crypto.randomUUID();
+    });
+    this.blockedClocks.delete(scopeKey(scope));
+  }
+
+  /** Prepare and recheck again immediately before the effect, especially after a file dialog. */
+  async prepare(
+    scope: Scope,
+    module: ModuleDefinition,
+    call: HostCapabilityCall,
+    live: LiveAccess,
+  ) {
+    scope = { ...scope };
+    module = structuredClone(module);
+    call = structuredClone(call);
+    const epoch = this.epoch(scope);
+    let leaseId: string | undefined;
+    const recheck = () =>
+      this.change(scope, async (state) => {
+        const now = this.time(scope, state);
+        const access = this.access(live, state, now);
+        const lease = state.leases.find((lease) =>
+          sameGrant(lease, module, call.capability),
+        );
+        if (!state.authority || !lease)
+          throw Error(
+            "No offline device lease is available. Reconnect to prepare this action.",
+          );
+        if (leaseId && lease.payload.id !== leaseId)
+          throw Error(
+            "The offline device lease changed. Start the action again.",
+          );
+        const payload = await verifyCapabilityLease(
+          lease,
+          state.authority.publicKey,
+          {
+            ...scope,
+            issuer: state.authority.issuer,
+            module,
+            call,
+            minimumPolicyRevision: access.policyRevision,
+            now,
+          },
+        );
+        const finalNow = this.time(scope, state);
+        this.access(live, state, finalNow);
+        if (epoch !== this.epoch(scope))
+          throw Error("Device authority changed while checking this action.");
+        if (payload.expiresAt <= finalNow)
+          throw Error(
+            "The offline device lease expired while checking this action.",
+          );
+        leaseId = payload.id;
+        return { payload, state };
+      }).then(async ({ payload, state }) => {
+        // Storage itself may be slow. Check again after its durable write, before returning authority.
+        try {
+          const now = this.time(scope, state);
+          const access = this.access(live, state, now);
+          if (
+            epoch !== this.epoch(scope) ||
+            payload.expiresAt <= now ||
+            BigInt(access.policyRevision) > BigInt(payload.policyRevision)
+          )
+            throw Error(
+              "Offline device access changed before the action could run.",
+            );
+        } catch (error) {
+          // Preserve a clock fault/expiry learned after the write without restoring an older policy.
+          await this.change(scope, async (current) => {
+            current.highWater = Math.max(current.highWater, state.highWater);
+            current.clockBlocked ||= state.clockBlocked;
+          });
+          throw error;
+        }
+        return payload;
+      });
+    const payload = await recheck();
+    return {
+      authorization: {
+        userId: payload.userId,
+        workspaceId: payload.workspaceId,
+        moduleId: payload.moduleId,
+        moduleVersion: payload.moduleVersion,
+        capability: payload.capability,
+        kind: payload.kind,
+      },
+      recheck: async () => {
+        await recheck();
+      },
+    };
+  }
+}

@@ -12411,7 +12411,8 @@
                   "type": "object",
                   "required": [
                     "keyId",
-                    "publicKey"
+                    "publicKey",
+                    "issuer"
                   ],
                   "properties": {
                     "keyId": {
@@ -12420,6 +12421,11 @@
                     },
                     "publicKey": {
                       "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "issuer": {
+                      "minLength": 1,
+                      "maxLength": 2048,
                       "type": "string"
                     }
                   }

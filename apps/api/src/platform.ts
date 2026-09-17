@@ -1,7 +1,7 @@
 import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
 import {
   CapabilityLeaseSchema,
-  CapabilityLeaseKeySchema,
+  CapabilityLeaseAuthoritySchema,
 } from "@suite/module-sdk/capability-leases";
 import {
   issueCapabilityLease,
@@ -797,10 +797,10 @@ export async function registerPlatform(
     {
       schema: {
         operationId: "capabilityLeaseKey",
-        response: { 200: CapabilityLeaseKeySchema },
+        response: { 200: CapabilityLeaseAuthoritySchema },
       },
     },
-    async () => capabilityLeaseKey(),
+    async () => ({ ...capabilityLeaseKey(), issuer }),
   );
   app.post<{
     Params: { workspaceId: string; moduleId: string };

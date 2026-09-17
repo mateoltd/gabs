@@ -34,6 +34,13 @@ export const CapabilityLeaseKeySchema = object({
   keyId: digest,
   publicKey: Type.String({ maxLength: 1000 }),
 });
+export const CapabilityLeaseAuthoritySchema = object({
+  ...CapabilityLeaseKeySchema.properties,
+  issuer: Type.String({ minLength: 1, maxLength: 2048 }),
+});
+export type CapabilityLeaseAuthority = Static<
+  typeof CapabilityLeaseAuthoritySchema
+>;
 export type CapabilityLease = Static<typeof CapabilityLeaseSchema>;
 export type CapabilityLeasePayload = Static<
   typeof CapabilityLeasePayloadSchema
@@ -64,6 +71,35 @@ export async function verifyCapabilityLease(
     now?: number;
   },
 ): Promise<Readonly<CapabilityLeasePayload>> {
+  resolveHostCapability(
+    expected.module,
+    expected.call.capability,
+    expected.call.input,
+  );
+  if (
+    expected.call.moduleId !== expected.module.id ||
+    expected.call.moduleVersion !== expected.module.version
+  )
+    throw Error("The offline capability lease does not match this release.");
+  return verifyCapabilityLeaseGrant(value, publicKey, {
+    ...expected,
+    capability: expected.call.capability,
+  });
+}
+/** Verify a grant for prefetching. Device effects must also validate their call input. */
+export async function verifyCapabilityLeaseGrant(
+  value: unknown,
+  publicKey: string,
+  expected: {
+    issuer: string;
+    userId: string;
+    workspaceId: string;
+    module: ModuleDefinition;
+    capability: string;
+    minimumPolicyRevision: string;
+    now?: number;
+  },
+): Promise<Readonly<CapabilityLeasePayload>> {
   assertSchema(CapabilityLeaseSchema, value);
   const lease = structuredClone(value),
     payload = lease.payload;
@@ -74,13 +110,9 @@ export async function verifyCapabilityLease(
     !/^(0|[1-9][0-9]{0,18})$/.test(expected.minimumPolicyRevision)
   )
     throw Error("Invalid offline verification context.");
-  const declaration = resolveHostCapability(
-    expected.module,
-    expected.call.capability,
-    expected.call.input,
-  );
+  const declaration = expected.module.capabilities?.[expected.capability];
   if (
-    declaration.offline !== "lease" ||
+    declaration?.offline !== "lease" ||
     !["files.export", "notifications.show"].includes(declaration.kind)
   )
     throw Error("This device capability requires online authorization.");
@@ -90,9 +122,7 @@ export async function verifyCapabilityLease(
     payload.workspaceId !== expected.workspaceId ||
     payload.moduleId !== expected.module.id ||
     payload.moduleVersion !== expected.module.version ||
-    expected.call.moduleId !== expected.module.id ||
-    expected.call.moduleVersion !== expected.module.version ||
-    payload.capability !== expected.call.capability ||
+    payload.capability !== expected.capability ||
     payload.kind !== declaration.kind ||
     payload.permission !== declaration.permission ||
     payload.contractDigest !== (await capabilityContractDigest(expected.module))

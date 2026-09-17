@@ -5772,6 +5772,7 @@ export interface operations {
                     "application/json": {
                         keyId: string;
                         publicKey: string;
+                        issuer: string;
                     };
                 };
             };

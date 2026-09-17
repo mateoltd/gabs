@@ -485,3 +485,7 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 ## Corporate capability lease authority in progress, 17 September 2026
 
 [Authority milestone](capability-leases/README.md) adds signed exact-context leases, explicit offline declarations, separate online signing keys and audited server issuance. Final combined acceptance passed 17 tests across 7 files after expiry/replay hardening, including server/verifier/host/policy and SDK regressions. Strict checks and all four builds pass, and API schemas were regenerated after PostgreSQL recovered without an assistant-initiated OrbStack restart. Browser/native lease integration and real offline acceptance remain required. No offline client completion is claimed.
+
+## Corporate lease client guard and browser persistence, 18 September 2026
+
+[Client store acceptance](client-capability-leases/README.md) verifies exact signed grants, live profile/policy checks, durable expiry/clock handling and scoped IndexedDB persistence. Twenty-eight focused checks across eight files and two headless browser tests pass, alongside strict checks and four builds. The browser harness covers real storage/restart/cross-tab/purge behavior with test-signed grants; the second journey preserves live corporate export behavior. API schemas include the independently configured lease issuer. Product acquisition, connected invalidation and actual web/native offline effects remain required under SDK-05. No Electron or foreground browser was launched.
