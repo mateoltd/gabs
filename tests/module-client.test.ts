@@ -22,7 +22,14 @@ import {
   type ViewStateMetadata,
 } from "@suite/module-sdk/ui";
 import { defineModule, hydrateModule, Type } from "@suite/module-sdk";
+import { describeViewHost } from "@suite/module-sdk/host-ui";
 import module from "./fixtures/custom-notes/module";
+const host = {
+  react: React,
+  jsx,
+  ui,
+  capabilities: describeViewHost({ react: React, jsx, ui }),
+};
 import editable from "./fixtures/editable-notes/module";
 
 describe("Independent executable client packages", () => {
@@ -75,7 +82,7 @@ describe("Independent executable client packages", () => {
     const entry = await import(
       `data:text/javascript;base64,${Buffer.from(client.home.javascript).toString("base64")}`
     );
-    const View = entry.createView({ react: React, jsx, ui: {} }) as {
+    const View = entry.createView(host) as {
       suiteViewState: ViewStateMetadata;
     };
     expect(View.suiteViewState).toMatchObject({ viewId: "home", version: 1 });
@@ -206,7 +213,7 @@ describe("Independent executable client packages", () => {
       const entry = await import(
         `data:text/javascript;base64,${Buffer.from(bundles.home.javascript).toString("base64")}`
       );
-      const View = entry.createView({ react: React, jsx, ui });
+      const View = entry.createView(host);
       const html = renderToStaticMarkup(React.createElement(View));
       expect(html).toContain("Reference table");
       expect(html).toContain("Find reviewer");
@@ -234,9 +241,7 @@ describe("Independent executable client packages", () => {
     const entry = await import(
       `data:text/javascript;base64,${Buffer.from(client.home.javascript).toString("base64")}`
     );
-    expect(typeof entry.createView({ react: React, jsx, ui: {} })).toBe(
-      "function",
-    );
+    expect(typeof entry.createView(host)).toBe("function");
     for (const key of ["javascript", "css"] as const) {
       const altered = structuredClone(pkg);
       validateClientArtifacts(altered.artifact).home[key] += "\n/* altered */";

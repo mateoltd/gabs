@@ -20,13 +20,15 @@
     "./local": "./src/local.ts",
     "./local-artifact": "./src/local-artifact.ts",
     "./verification": "./src/verification.ts",
-    "./references": "./src/references.ts"
+    "./references": "./src/references.ts",
+    "./host-ui": "./src/host-ui.ts"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",
     "semver": "7.8.5"
   },
   "devDependencies": {
-    "@types/semver": "7.7.1"
+    "@types/semver": "7.7.1",
+    "typescript": "5.9.3"
   }
 }

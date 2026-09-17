@@ -1,5 +1,8 @@
 import { canonical } from "./registry";
-import { validateClientArtifacts } from "./client-artifact";
+import {
+  validateClientArtifacts,
+  verifyClientRequirements,
+} from "./client-artifact";
 import { validateLocalArtifact } from "./local-artifact";
 import type { SignedArtifact } from "./platform";
 export async function verifyArtifact(pkg: SignedArtifact, pem: string) {
@@ -44,5 +47,6 @@ export async function verifyArtifact(pkg: SignedArtifact, pem: string) {
   )
     throw Error("Module identity verification failed.");
   validateClientArtifacts(pkg.artifact);
+  verifyClientRequirements(pkg.artifact, pkg.manifest);
   validateLocalArtifact(pkg.artifact);
 }

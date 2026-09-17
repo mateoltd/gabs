@@ -1,3 +1,4 @@
+import { describeViewHost } from "@suite/module-sdk/host-ui";
 export { referenceFields } from "@suite/module-sdk/references";
 import * as React from "react";
 import * as jsx from "react/jsx-runtime";
@@ -86,7 +87,12 @@ function Surface({
       );
       if (typeof bundle.createView !== "function")
         throw Error("The view must export a supported factory.");
-      const View = bundle.createView({ react: React, jsx, ui }) as View;
+      const View = bundle.createView({
+        react: React,
+        jsx,
+        ui,
+        capabilities: describeViewHost({ react: React, jsx, ui }),
+      }) as View;
       if (
         typeof View !== "function" &&
         !(View && typeof View === "object" && "$$typeof" in View)

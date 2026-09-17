@@ -1,5 +1,6 @@
+import { viewHost } from "./view-host";
+import { assertViewHost } from "@suite/module-sdk/host-ui";
 import * as React from "react";
-import * as jsx from "react/jsx-runtime";
 import * as ui from "@suite/ui-web";
 import {
   createModuleClient,
@@ -43,6 +44,7 @@ type SurfaceState = {
 };
 
 export async function loadClientView(bundle: ClientViewBundle): Promise<View> {
+  if (bundle.requires) assertViewHost(bundle.requires, viewHost.capabilities);
   const url = URL.createObjectURL(
     new Blob([bundle.javascript], { type: "text/javascript" }),
   );
@@ -50,7 +52,7 @@ export async function loadClientView(bundle: ClientViewBundle): Promise<View> {
     const loaded = await import(/* @vite-ignore */ url);
     if (typeof loaded.createView !== "function")
       throw Error("Module view has no supported factory export.");
-    const View = loaded.createView({ react: React, jsx, ui });
+    const View = loaded.createView(viewHost);
     if (
       typeof View !== "function" &&
       !(View && typeof View === "object" && View.$$typeof)

@@ -3,7 +3,11 @@ export { verifyArtifact } from "@suite/module-sdk/verification";
 import { reportInstallation } from "./installation-reporting";
 export { flushInstallationReports } from "./installation-reporting";
 import { supportsStorage } from "@suite/module-sdk";
-import { validateClientArtifacts } from "@suite/module-sdk/client-artifact";
+import {
+  assertClientHost,
+  assertManifestHost,
+} from "@suite/module-sdk/client-artifact";
+import { viewHost } from "./view-host";
 import { ApiError } from "@suite/api-client";
 import type { FeatureProps } from "@suite/platform";
 import {
@@ -37,6 +41,11 @@ export function deviceId() {
 const lifecycleLock = (props: FeatureProps) =>
   `suite-install:${props.scope.userId}:${props.scope.workspaceId}`;
 class InstallationPausedError extends Error {}
+const isHostMismatch = (error: unknown) =>
+  !!error &&
+  typeof error === "object" &&
+  "code" in error &&
+  error.code === "HOST_VIEW_INCOMPATIBLE";
 const sameReleases = (a: InstallationSelection[], b: InstallationSelection[]) =>
   canonical([...a].sort((x, y) => x.moduleId.localeCompare(y.moduleId))) ===
   canonical([...b].sort((x, y) => x.moduleId.localeCompare(y.moduleId)));
@@ -56,10 +65,11 @@ async function recordFailure(
     (s.lifecycleErrors ??= {})[id] = message;
     // A definite rejection cannot later commit. Transport failures retain the exact request.
     if (
-      error instanceof ApiError &&
-      error.status >= 400 &&
-      error.status < 500 &&
-      ![408, 429].includes(error.status)
+      isHostMismatch(error) ||
+      (error instanceof ApiError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        ![408, 429].includes(error.status))
     )
       delete s.lifecycle[id];
     else {
@@ -82,10 +92,11 @@ async function recordFailure(
     id,
     attempt,
     "failed",
-    error instanceof ApiError &&
-      error.status >= 400 &&
-      error.status < 500 &&
-      ![408, 429].includes(error.status)
+    isHostMismatch(error) ||
+      (error instanceof ApiError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        ![408, 429].includes(error.status))
       ? "policy"
       : failureCode,
   );
@@ -237,6 +248,7 @@ export async function installModule(
         pins,
       );
       for (const release of plan) {
+        assertManifestHost(release, viewHost.capabilities);
         const selected = state.modules.find((m) => m.id === release.id);
         if (selected?.version !== release.version)
           throw Error(
@@ -342,6 +354,8 @@ export async function installModule(
             (s.downloads ??= {})[cacheKey] = verified;
           });
         }
+        failureCode = "policy";
+        assertClientHost(pkg.artifact, viewHost.capabilities);
         packages.push(pkg);
       }
       check();
@@ -520,6 +534,7 @@ export async function verifiedInstalledModule(
     )
       return false;
     await verifyArtifact(installed.signed, installed.publicKey);
+    assertClientHost(installed.signed.artifact, viewHost.capabilities);
     const manifest = installed.signed.manifest as unknown as ReleaseManifest;
     for (const [dependency, range] of Object.entries(manifest.dependencies)) {
       const version = storage.installed[dependency]?.version;

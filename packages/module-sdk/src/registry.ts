@@ -1,6 +1,7 @@
 import { supportsStorage } from "./storage";
 import { compare, satisfies } from "semver";
 export interface ReleaseManifest {
+  clientRequirements?: Record<string, import("./host-ui").ViewHostRequirements>;
   storage?: import("./storage").StorageContract;
   localStorage?: import("./storage").StorageContract;
   id: string;

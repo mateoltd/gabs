@@ -1,3 +1,9 @@
+import ts from "typescript";
+import {
+  assertViewHost,
+  viewHostExports,
+  type ViewHostRequirements,
+} from "../src/host-ui";
 import { build } from "esbuild";
 import { readFile, realpath } from "node:fs/promises";
 import { resolve, relative, dirname, isAbsolute } from "node:path";
@@ -82,7 +88,7 @@ export async function buildClientViews(
                 return {
                   errors: [
                     {
-                      text: `Unsupported module import ${args.path}. Use local source, React, @suite/module-sdk/ui, @suite/module-sdk/forms, @suite/module-sdk/references or the public host UI kit.`,
+                      text: `Unsupported module import ${args.path}. Use local source, React, @suite/module-sdk/ui, @suite/module-sdk/forms, @suite/module-sdk/references, @suite/module-sdk/queries or the public host UI kit.`,
                     },
                   ],
                 };
@@ -119,6 +125,7 @@ export async function buildClientViews(
       throw Error(
         `View ${name} must produce only self-contained JavaScript and CSS.`,
       );
+    const requires = await requiredHostContracts(result.metafile.inputs);
     const css = [
       ...result.outputFiles
         .filter((file) => file.path.endsWith(".css"))
@@ -133,10 +140,101 @@ export async function buildClientViews(
       );
     bundles[name] = {
       format: view.state ? "suite-view-v2" : "suite-view-v1",
-      javascript: `export function createView(__suiteHost) {\n${js.text}\nreturn SuiteView.default;\n}\n`,
+      javascript: `export function createView(__suiteHost) {\n(${assertViewHost.toString()})(${JSON.stringify(requires)}, __suiteHost.capabilities);\n${js.text}\nreturn SuiteView.default;\n}\n`,
       css,
+      requires,
     };
   }
   validateClientArtifacts({ ...module, client: bundles });
   return bundles;
+}
+
+/** Analyze emitted value imports, including reexports and namespace/dynamic imports. */
+async function requiredHostContracts(
+  inputs: Record<string, unknown>,
+): Promise<ViewHostRequirements> {
+  const required: Record<string, number> = {
+    "view.context": 1,
+    "client.resources": 2,
+  };
+  const imports = {
+    react: "react",
+    "react/jsx-runtime": "jsx",
+    "@suite/ui-web": "ui",
+  } as const;
+  const used = new Set(Object.keys(inputs));
+  const add = (path: string, names?: string[]) => {
+    const namespace = imports[path as keyof typeof imports];
+    if (!namespace || !used.has(`suite-host:${path}`)) return;
+    const known: readonly string[] = viewHostExports[namespace];
+    if (namespace === "react" && names?.includes("default")) names = undefined;
+    for (const name of names ?? known) {
+      if (!known.includes(name))
+        throw Error(
+          `Unsupported host export ${path}: ${name}. Use the public host UI contract.`,
+        );
+      required[`${namespace}.${name}`] = 1;
+    }
+  };
+  add("react/jsx-runtime");
+  for (const path of used) {
+    if (path.startsWith("suite-host:") || !/\.[cm]?[jt]sx?$/.test(path))
+      continue;
+    const output = ts.transpileModule(await readFile(path, "utf8"), {
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.Preserve,
+      },
+      fileName: path,
+    }).outputText;
+    const source = ts.createSourceFile(
+      path,
+      output,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        const clause = node.importClause;
+        const bindings = clause?.namedBindings;
+        add(
+          node.moduleSpecifier.text,
+          clause?.name || (bindings && ts.isNamespaceImport(bindings))
+            ? undefined
+            : bindings && ts.isNamedImports(bindings)
+              ? bindings.elements.map((e) => (e.propertyName ?? e.name).text)
+              : [],
+        );
+      } else if (
+        ts.isExportDeclaration(node) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        add(
+          node.moduleSpecifier.text,
+          node.exportClause && ts.isNamedExports(node.exportClause)
+            ? node.exportClause.elements.map(
+                (e) => (e.propertyName ?? e.name).text,
+              )
+            : undefined,
+        );
+      } else if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) &&
+            node.expression.text === "require")) &&
+        node.arguments[0] &&
+        ts.isStringLiteral(node.arguments[0])
+      )
+        add(node.arguments[0].text);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return required;
 }

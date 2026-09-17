@@ -8,7 +8,10 @@ import {
   resolveReleases,
   type ReleaseManifest,
 } from "@suite/module-sdk/registry";
-import { moduleContract } from "@suite/module-sdk/client-artifact";
+import {
+  moduleContract,
+  clientRequirements,
+} from "@suite/module-sdk/client-artifact";
 import {
   verifyPackage,
   type SignedPackage,
@@ -63,6 +66,7 @@ function verifySubmission(
     throw Error(
       "The submitted contract is incompatible with this host/backend.",
     );
+  const requirements = clientRequirements(pkg.artifact);
   if (
     canonical(pkg.manifest) !==
     canonical({
@@ -73,6 +77,9 @@ function verifySubmission(
       backend: module.backend,
       dependencies: module.dependencies,
       permissions: module.permissions,
+      ...(Object.keys(requirements).length
+        ? { clientRequirements: requirements }
+        : {}),
       ...(module.storage ? { storage: module.storage } : {}),
       ...(module.localStorage ? { localStorage: module.localStorage } : {}),
     })

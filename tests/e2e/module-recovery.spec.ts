@@ -83,6 +83,11 @@ test("reload resumes an uncertain installation receipt and uninstall preserves r
         exact: true,
       }),
     ).toBeVisible();
+    // Establish this prerequisite explicitly; unrelated background installs may still be running.
+    await page.getByRole("link", { name: "Projects", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "New projects", exact: true }),
+    ).toBeVisible();
     await page.getByRole("link", { name: "Modules", exact: true }).click();
     const card = page.locator(".module-install-card").filter({
       has: page.getByRole("heading", { name: "Contacts", exact: true }),

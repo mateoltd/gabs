@@ -2,6 +2,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { signPackage } from "../packages/module-sdk/node/signing";
+import {
+  moduleContract,
+  validateClientArtifacts,
+} from "@suite/module-sdk/client-artifact";
+import type { ViewHostRequirements } from "@suite/module-sdk/host-ui";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 
 /** Every acceptance publication is immutable, including after fixture source changes. */
@@ -10,6 +16,7 @@ export async function publishExecutableFixture(
     id?: string;
     name?: string;
     requiredPrefix?: boolean;
+    hostRequirements?: ViewHostRequirements;
     sourceDirectory?: string;
     transform?: (filename: string, source: string) => string;
   } = {},
@@ -58,6 +65,27 @@ export async function publishExecutableFixture(
     }
     execFileSync("pnpm", ["module", "build", directory], { stdio: "pipe" });
     const artifactPath = `.local/modules/${id}-${version}.json`;
+    if (options.hostRequirements) {
+      const built = JSON.parse(
+        await readFile(artifactPath, "utf8"),
+      ) as SignedArtifact;
+      const client = validateClientArtifacts(built.artifact);
+      for (const bundle of Object.values(client))
+        bundle.requires = options.hostRequirements;
+      const key = await readFile(
+        resolve(
+          process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys",
+          "private.pem",
+        ),
+        "utf8",
+      );
+      await writeFile(
+        artifactPath,
+        JSON.stringify(
+          signPackage(moduleContract(built.artifact), key, client),
+        ),
+      );
+    }
     const serverPath = artifactPath.replace(".json", ".server.json");
     const submission = execFileSync(
       "pnpm",
