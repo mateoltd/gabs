@@ -12,14 +12,20 @@ const key = (scope: Scope, kind: CacheKey) =>
 // The same account/workspace prefix makes existing logout and workspace purges remove grants too.
 const leaseKey = (scope: Scope) =>
   `${scope.userId}/${scope.workspaceId}/capability-leases`;
-const withLeaseAccount = async <T>(userId: string, task: () => Promise<T>) =>
-  navigator.locks.request(`suite-capability-leases:${userId}`, task);
+// Public issuer trust survives account removal. It contains no user or workspace data.
+const leaseTrustKey = "capability-issuer-trust";
+const withLeaseTrust = async <T>(task: () => Promise<T>) =>
+  navigator.locks.request("suite-capability-leases", task);
 export const browserCapabilityLeases = new CorporateCapabilityLeases({
   load: async (scope) => (await db()).get("records", leaseKey(scope)),
   save: async (scope, value) => {
     await (await db()).put("records", value, leaseKey(scope));
   },
-  exclusive: (scope, task) => withLeaseAccount(scope.userId, task),
+  loadTrust: async () => (await db()).get("records", leaseTrustKey),
+  saveTrust: async (value) => {
+    await (await db()).put("records", value, leaseTrustKey);
+  },
+  exclusive: (_scope, task) => withLeaseTrust(task),
 });
 export const browserPlatform: Platform = {
   kind: "web",
@@ -43,7 +49,7 @@ export const browserPlatform: Platform = {
     await tx.done;
   },
   async purgeWorkspace(scope) {
-    await withLeaseAccount(scope.userId, async () => {
+    await withLeaseTrust(async () => {
       const store = await db();
       const tx = store.transaction("records", "readwrite");
       for (const k of await tx.store.getAllKeys())
@@ -53,7 +59,7 @@ export const browserPlatform: Platform = {
     });
   },
   async purgeUser(userId) {
-    await withLeaseAccount(userId, async () => {
+    await withLeaseTrust(async () => {
       const store = await db();
       const tx = store.transaction("records", "readwrite");
       for (const k of await tx.store.getAllKeys())

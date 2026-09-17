@@ -98,7 +98,7 @@ test("real corporate leases enable cached browser exports and reject revoked, ta
       page.evaluate(
         async ({ userId, workspaceId, tamper }) => {
           return navigator.locks.request(
-            `suite-capability-leases:${userId}`,
+            "suite-capability-leases",
             async () => {
               const db = await new Promise<IDBDatabase>((resolve, reject) => {
                 const request = indexedDB.open("suite-offline-v1");

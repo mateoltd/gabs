@@ -44,6 +44,8 @@ function keys() {
 }
 class MemoryStorage implements CapabilityLeaseStorage {
   values = new Map<string, unknown>();
+  trust: unknown;
+  beforeTrustSave?: () => Promise<void>;
   pending = new Map<string, Promise<unknown>>();
   beforeSave?: () => Promise<void>;
   key(scope: Scope) {
@@ -56,8 +58,15 @@ class MemoryStorage implements CapabilityLeaseStorage {
     await this.beforeSave?.();
     this.values.set(this.key(scope), structuredClone(value));
   }
+  async loadTrust() {
+    return structuredClone(this.trust);
+  }
+  async saveTrust(value: unknown) {
+    await this.beforeTrustSave?.();
+    this.trust = structuredClone(value);
+  }
   exclusive<T>(scope: Scope, task: () => Promise<T>): Promise<T> {
-    const key = this.key(scope);
+    const key = "client";
     const next = (this.pending.get(key) ?? Promise.resolve())
       .catch(() => {})
       .then(task);
@@ -440,4 +449,147 @@ it("does not clear a newer denial when an earlier renewal finishes writing", asy
   await denial;
   f.storage.beforeSave = undefined;
   await expect(f.prepare()).rejects.toThrow(/revoked/);
+});
+
+it("shares issuer rotation across workspaces, accounts and restarted hosts without touching unrelated issuers", async () => {
+  const f = await fixture();
+  const otherScope = { userId: randomUUID(), workspaceId: randomUUID() };
+  const workspace = { ...f.scope, workspaceId: randomUUID() };
+  const independentScope = { userId: randomUUID(), workspaceId: randomUUID() };
+  const independent = await f.issue({
+    ...independentScope,
+    issuer: "https://other.suite.test",
+  });
+  independent.authority = {
+    ...independent.authority,
+    issuer: independent.lease.payload.issuer,
+  };
+  await f.manager.refresh(
+    independentScope,
+    module,
+    "export",
+    f.live,
+    async () => independent,
+  );
+  for (const scope of [otherScope, workspace]) {
+    await f.manager.refresh(scope, module, "export", f.live, () =>
+      f.issue(scope),
+    );
+  }
+  const prepared = await f.prepare();
+  const other = new CorporateCapabilityLeases(f.storage, f.clock);
+  f.rotate();
+  const rotated = await f.issue();
+  await other.observeAuthority(
+    otherScope,
+    async () => rotated.authority,
+    f.live,
+  );
+  await expect(prepared.recheck()).rejects.toThrow(/authority changed/);
+  const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+  await expect(
+    restarted.prepare(independentScope, module, call, f.live),
+  ).resolves.toBeDefined();
+  await expect(
+    restarted.prepare(workspace, module, call, f.live),
+  ).rejects.toThrow(/authority changed/);
+  await f.refresh();
+  await expect(f.prepare()).resolves.toBeDefined();
+});
+
+it.each(["observe", "refresh"] as const)(
+  "rejects delayed old key %s responses from another account",
+  async (operation) => {
+    const f = await fixture();
+    const scope = { userId: randomUUID(), workspaceId: randomUUID() };
+    const old = await f.issue(scope);
+    const other = new CorporateCapabilityLeases(f.storage, f.clock);
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const response = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchOld = async () => {
+      started();
+      await response;
+      return old;
+    };
+    const delayed =
+      operation === "observe"
+        ? other.observeAuthority(
+            scope,
+            async () => (await fetchOld()).authority,
+            f.live,
+          )
+        : other.refresh(scope, module, "export", f.live, fetchOld);
+    const rejected = expect(delayed).rejects.toThrow(/authority changed/);
+    await pending;
+    f.rotate();
+    await f.refresh();
+    release();
+    await rejected;
+    const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+    await expect(
+      restarted.observeAuthority(scope, async () => old.authority, f.live),
+    ).rejects.toThrow(/retired/);
+    await expect(
+      restarted.refresh(scope, module, "export", f.live, async () => old),
+    ).rejects.toThrow(/retired/);
+  },
+);
+
+it("does not let old workspace caches establish shared trust after an upgrade", async () => {
+  const f = await fixture();
+  f.storage.trust = undefined;
+  const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+  await expect(
+    restarted.prepare(f.scope, module, call, f.live),
+  ).rejects.toThrow(/authority changed/);
+  await f.refresh();
+  await expect(f.prepare()).resolves.toBeDefined();
+});
+
+it("retains a learned retirement after a failed trust write and persists it when storage recovers", async () => {
+  const f = await fixture();
+  const foreign = { userId: randomUUID(), workspaceId: randomUUID() };
+  f.rotate();
+  const next = await f.issue();
+  f.storage.beforeTrustSave = async () => {
+    throw Error("disk unavailable");
+  };
+  await expect(
+    f.manager.observeAuthority(foreign, async () => next.authority, f.live),
+  ).rejects.toThrow("disk unavailable");
+  await expect(f.prepare()).rejects.toThrow("disk unavailable");
+  f.storage.beforeTrustSave = undefined;
+  await expect(f.prepare()).rejects.toThrow(/authority changed/);
+  const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+  await expect(
+    restarted.prepare(f.scope, module, call, f.live),
+  ).rejects.toThrow(/No offline/);
+  await f.refresh();
+  await expect(f.prepare()).resolves.toBeDefined();
+});
+
+it("requires connected renewal of legacy grants even after another scope establishes the same issuer key", async () => {
+  const f = await fixture();
+  const state = (await f.storage.load(f.scope)) as {
+    authorityGeneration?: string;
+  };
+  delete state.authorityGeneration;
+  await f.storage.save(f.scope, state);
+  f.storage.trust = undefined;
+  const foreign = { userId: randomUUID(), workspaceId: randomUUID() };
+  const restarted = new CorporateCapabilityLeases(f.storage, f.clock);
+  await restarted.refresh(foreign, module, "export", f.live, () =>
+    f.issue(foreign),
+  );
+  await expect(
+    restarted.prepare(f.scope, module, call, f.live),
+  ).rejects.toThrow(/authority changed/);
+  await f.refresh();
+  await expect(f.prepare()).resolves.toBeDefined();
 });

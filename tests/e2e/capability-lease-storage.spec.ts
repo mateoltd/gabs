@@ -211,8 +211,8 @@ test("browser lease storage survives page restart, shares revocations across tab
     .poll(() =>
       other.evaluate(
         async () =>
-          (await navigator.locks.query()).pending?.some((lock) =>
-            lock.name?.startsWith("suite-capability-leases:"),
+          (await navigator.locks.query()).pending?.some(
+            (lock) => lock.name === "suite-capability-leases",
           ) ?? false,
       ),
     )
@@ -227,6 +227,39 @@ test("browser lease storage survives page restart, shares revocations across tab
     foreign.userId,
   );
   expect(await check(restarted, foreign)).toContain("No offline");
+  // A key learned under another account invalidates retained grants throughout the origin.
+  await grant(restarted, scope, "5");
+  await grant(restarted, foreign);
+  const rotatedSigner = generateKeyPairSync("ed25519");
+  const rotatedAuthority = {
+    issuer: authority.issuer,
+    keyId: createHash("sha256")
+      .update(rotatedSigner.publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+    publicKey: rotatedSigner.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString(),
+  };
+  await other.evaluate(
+    async ({ scope, authority }) => {
+      await window.leaseStoreTest.browserCapabilityLeases.observeAuthority(
+        scope,
+        async () => authority,
+        () => {},
+      );
+    },
+    { scope: foreign, authority: rotatedAuthority },
+  );
+  expect(await check(restarted, scope, "5")).toContain("authority changed");
+  // Removing the account that learned the key must not erase public trust history.
+  await other.evaluate(async (userId) => {
+    await window.leaseStoreTest.browserPlatform.purgeUser(userId);
+  }, foreign.userId);
   await other.close();
   await restarted.close();
+  const afterRotation = await context.newPage();
+  await load(afterRotation);
+  expect(await check(afterRotation, scope, "5")).toContain("No offline");
+  await expect(grant(afterRotation, foreign)).rejects.toThrow(/retired/);
+  await afterRotation.close();
 });
