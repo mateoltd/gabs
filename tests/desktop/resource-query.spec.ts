@@ -18,7 +18,7 @@ const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("hidden desktop composes signed resource query views without taking focus", async () => {
   test.setTimeout(120000);
-  await publishQueryFixture();
+  const pkg = await publishQueryFixture();
   const profile = await mkdtemp(resolve(tmpdir(), "common-schema-review-"));
   const pool = new Pool({
     connectionString: process.env.MIGRATION_DATABASE_URL,
@@ -93,6 +93,18 @@ test("hidden desktop composes signed resource query views without taking focus",
       );
       expect(saved.status, JSON.stringify(saved)).toBe(200);
     }
+    const query = await page.evaluate(
+      ({ workspaceId, moduleId, moduleVersion }) =>
+        window.suiteDesktop!.execute({
+          operation: "moduleQuery",
+          params: { workspaceId, moduleId, operationName: "approved" },
+          moduleVersion,
+          body: { minimum: 2 },
+        }),
+      { workspaceId, moduleId: queryId, moduleVersion: pkg.version },
+    );
+    expect(query.status, JSON.stringify(query)).toBe(200);
+    expect(query.body).toMatchObject({ names: ["Record 07", "Record 05"] });
     await page.reload();
     await page
       .getByRole("button", { name: "Switch workspace", exact: true })

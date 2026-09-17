@@ -131,23 +131,10 @@ export type QueryContext<M extends ModuleDefinition> = Omit<
   store: ModuleReadStores<M>;
   resource<K extends keyof M["resources"] & string>(
     name: K,
-  ): {
-    references: import("./references").ReferenceLookup;
-    loadReferences: import("./references").ReferenceLoader;
-    get(
-      id: string,
-    ): Promise<
-      import("./index").ResourceRecord<Static<M["resources"][K]["schema"]>>
-    >;
-    list(input?: {
-      search?: string;
-      cursor?: string;
-      limit?: number;
-      archived?: boolean;
-    }): Promise<
-      import("./index").ResourcePage<Static<M["resources"][K]["schema"]>>
-    >;
-  };
+  ): Pick<
+    import("./index").ResourceClient<Static<M["resources"][K]["schema"]>>,
+    "references" | "loadReferences" | "get" | "list"
+  >;
   service<K extends ReadServices<M> & string>(
     name: K,
     input: Static<ModuleServices<M>[K]["contract"]["input"]>,

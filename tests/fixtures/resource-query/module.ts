@@ -1,4 +1,10 @@
-import { defineModule, resource, field, Type } from "@suite/module-sdk";
+import {
+  defineModule,
+  resource,
+  field,
+  operation,
+  Type,
+} from "@suite/module-sdk";
 const records = resource(
   { name: field.text(), amount: field.number(), approved: field.boolean() },
   { title: "Records", standalone: true },
@@ -13,7 +19,25 @@ export default defineModule({
   backend: "^1",
   dependencies: {},
   configuration: Type.Object({}),
-  operations: {},
+  operations: {
+    approved: operation({
+      kind: "query",
+      title: "Read approved records",
+      policy: "online",
+      permission: "query-proof.view",
+      input: Type.Object(
+        { minimum: Type.Number(), cursor: Type.Optional(Type.String()) },
+        { additionalProperties: false },
+      ),
+      output: Type.Object(
+        {
+          names: Type.Array(Type.String()),
+          nextCursor: Type.Union([Type.String(), Type.Null()]),
+        },
+        { additionalProperties: false },
+      ),
+    }),
+  },
   permissions: [
     "query-proof.view",
     "query-proof.records.read",

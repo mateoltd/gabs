@@ -137,7 +137,7 @@ test("signed resource query views compose public controls, cancel transport and 
   let release: (() => void) | undefined;
   let cancelled = 0;
   try {
-    await publishQueryFixture();
+    const pkg = await publishQueryFixture();
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
@@ -188,6 +188,37 @@ test("signed resource query views compose public controls, cancel transport and 
         );
         expect(saved.ok(), await saved.text()).toBe(true);
       }
+    const query = (data: { minimum: number; cursor?: string }) =>
+      page.request.post(
+        `/api/v1/module/${queryId}/workspaces/${workspace}/queries/approved`,
+        { headers: { ...headers, "x-module-version": pkg.version }, data },
+      );
+    const firstQuery = await query({ minimum: 2 });
+    expect(firstQuery.ok(), await firstQuery.text()).toBe(true);
+    const firstPage = await firstQuery.json();
+    expect(firstPage.names).toEqual(["Record 07", "Record 05"]);
+    expect(firstPage.nextCursor).toBeTruthy();
+    const nextQuery = await query({ minimum: 2, cursor: firstPage.nextCursor });
+    expect(nextQuery.ok(), await nextQuery.text()).toBe(true);
+    expect(await nextQuery.json()).toEqual({
+      names: ["Record 03"],
+      nextCursor: null,
+    });
+    expect(
+      (await query({ minimum: 3, cursor: firstPage.nextCursor })).status(),
+    ).toBe(400);
+    await pool.query(
+      "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1 and protected",
+      [workspace, `${queryId}.records.read`],
+    );
+    try {
+      expect((await query({ minimum: 2 })).status()).toBe(403);
+    } finally {
+      await pool.query(
+        "update suite.roles set permissions=array_append(permissions,$2) where workspace_id=$1 and protected",
+        [workspace, `${queryId}.records.read`],
+      );
+    }
     await page.reload();
     await selectValue(page, "Workspace", workspace);
     await page.getByRole("link", { name: "Settings", exact: true }).click();
