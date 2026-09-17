@@ -1,7 +1,7 @@
 import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
 import AjvCompiler from "@fastify/ajv-compiler";
 import { resourceListSchema } from "@suite/module-sdk/queries";
-import { listModuleReferences } from "../../../packages/server-core/src/module-references";
+import { listModuleReferences } from "@suite/server-core/runtime/references";
 import {
   ReferenceQuerySchema,
   type ReferenceQuery,
@@ -9,7 +9,7 @@ import {
 import {
   reviewBusinessCutover,
   applyBusinessCutover,
-} from "../../../packages/server-core/src/business-cutover";
+} from "@suite/server-core/governance/business-cutover";
 import {
   BusinessCutoverSelectionSchema,
   BusinessCutoverReviewSchema,
@@ -19,7 +19,7 @@ import {
 import {
   recordInstallationReport,
   moduleFleet,
-} from "../../../packages/server-core/src/installation-reports";
+} from "@suite/server-core/registry/installation-reports";
 import {
   InstallationReportSchema,
   type InstallationReport,
@@ -30,31 +30,32 @@ import {
   receiptContract,
   compatibleClientRelease,
   validateConfiguredRollouts,
-} from "../../../packages/server-core/src/module-rollout";
-import { changeDeviceInstallation } from "../../../packages/server-core/src/module-installations";
-import { migrateModuleStorage } from "../../../packages/server-core/src/module-migrations";
+} from "@suite/server-core/registry/module-rollout";
+import { changeDeviceInstallation } from "@suite/server-core/registry/module-installations";
+import { migrateModuleStorage } from "@suite/server-core/persistence/module-migrations";
 import {
   assertModuleStorage,
   lockModuleStorage,
-} from "../../../packages/server-core/src/module-storage";
-import { executeModuleOperation } from "../../../packages/server-core/src/module-services";
+} from "@suite/server-core/persistence/module-storage";
+import { executeModuleOperation } from "@suite/server-core/runtime/services";
 import { moduleServers } from "@suite/module-catalog/server";
 import {
   resolveWorkspaceRelease,
   workspaceModule,
   workspaceBusinessPermissions,
   registeredModuleIds,
-} from "../../../packages/server-core/src/module-releases";
+} from "@suite/server-core/registry/module-releases";
 import { readFile } from "node:fs/promises";
-import { verifyPackage } from "../../../packages/module-sdk/node/signing";
+import { verifyPackage } from "@suite/module-sdk/node/signing";
 import type { FastifyInstance } from "fastify";
-import { Type as T, refreshModuleCatalog } from "@suite/contracts";
-import { moduleDefinition, registerModule } from "@suite/module-catalog";
+import { Type as T, type Permission, type ModuleId } from "@suite/contracts";
+import { refreshProductPreset } from "@suite/module-catalog/presets";
 import {
   assertSchema,
   ValidationError,
   hydrateModule,
 } from "@suite/module-sdk";
+import type { MutableModuleCatalog } from "@suite/module-sdk/catalog";
 import {
   effectivePermissions,
   validateOrganization,
@@ -62,18 +63,21 @@ import {
 } from "@suite/module-sdk/governance";
 import {
   inWorkspace,
-  authorize,
+  authorize as authorizeWithRuntime,
   idempotent,
   audit,
   found,
   requireCondition,
   lockWorkspace,
   type DB,
+  type Tx,
+  type Actor,
+  type ServerRuntime,
 } from "@suite/server-core";
 import {
   executeResource,
   type ResourceCommand,
-} from "../../../packages/server-core/src/module-runtime";
+} from "@suite/server-core/runtime/resources";
 // Resource envelopes carry typed module values. Never coerce numeric/text unions
 // or silently remove unknown fields before the SDK validates the signed contract.
 const resourceValidator = AjvCompiler()(
@@ -150,7 +154,28 @@ const OrganizationSchema = T.Object(
   },
   { additionalProperties: false },
 );
-export async function registerPlatform(app: FastifyInstance, db: DB) {
+export async function registerPlatform(
+  app: FastifyInstance,
+  db: DB,
+  runtime: ServerRuntime & { catalog: MutableModuleCatalog },
+) {
+  const authorize = (
+    tx: Tx,
+    actor: Actor,
+    workspaceId: string,
+    requestId: string,
+    permission?: Permission,
+    moduleId?: ModuleId,
+  ) =>
+    authorizeWithRuntime(
+      tx,
+      actor,
+      workspaceId,
+      requestId,
+      runtime,
+      permission,
+      moduleId,
+    );
   app.post<{ Params: { workspaceId: string }; Body: BusinessCutoverSelection }>(
     "/api/v1/workspaces/:workspaceId/business-upgrade/review",
     {
@@ -243,15 +268,15 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
     .selectAll()
     .execute();
   for (const release of releasesAtStartup) {
-    if (moduleDefinition(release.module_id)) continue;
+    if (runtime.catalog.definition(release.module_id)) continue;
     verifyPackage(release, await publicKey());
-    registerModule(
+    runtime.catalog.register(
       hydrateModule(
         release.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
       ),
     );
   }
-  refreshModuleCatalog();
+  refreshProductPreset();
   app.post<{
     Params: { workspaceId: string; moduleId: string; operationName: string };
     Body: unknown;
@@ -286,6 +311,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           const definition = await clientModule(
             tx,
             ctx.workspaceId,
+            ctx.runtime.catalog,
             req.params.moduleId,
             req.headers["x-module-version"],
             moduleServers,
@@ -303,6 +329,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
             tx,
             ctx.workspaceId,
             definition.id,
+            runtime.catalog,
           );
           const currentOperation = found(
             current.operations[req.params.operationName],
@@ -369,6 +396,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         const { current, original: definition } = await receiptContract(
           tx,
           ctx.workspaceId,
+          ctx.runtime.catalog,
           req.params.moduleId,
           req.headers["x-module-version"],
         );
@@ -422,6 +450,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
             const executable = await clientModule(
               tx,
               ctx.workspaceId,
+              ctx.runtime.catalog,
               definition.id,
               req.headers["x-module-version"],
               moduleServers,
@@ -464,6 +493,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         const module = await clientModule(
           tx,
           ctx.workspaceId,
+          ctx.runtime.catalog,
           req.params.moduleId,
           req.headers["x-module-version"],
           moduleServers,
@@ -516,6 +546,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         const module = await clientModule(
           tx,
           ctx.workspaceId,
+          ctx.runtime.catalog,
           req.params.moduleId,
           req.headers["x-module-version"],
           moduleServers,
@@ -618,7 +649,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         const admin = ctx.permissions.includes("modules.manage");
         // Include releases published after server startup; executable client-only
         // modules require neither a host rebuild nor a server restart.
-        const candidates = await registeredModuleIds(tx);
+        const candidates = await registeredModuleIds(tx, runtime.catalog);
         const definitions = await Promise.all(
           candidates
             .filter(
@@ -629,11 +660,14 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                   (a) => a.module_id === m && a.state === "enabled",
                 ),
             )
-            .map((m) => workspaceModule(tx, ctx.workspaceId, m)),
+            .map((m) =>
+              workspaceModule(tx, ctx.workspaceId, m, runtime.catalog),
+            ),
         );
         for (const definition of definitions)
-          if (!moduleDefinition(definition.id)) registerModule(definition);
-        refreshModuleCatalog();
+          if (!runtime.catalog.definition(definition.id))
+            runtime.catalog.register(definition);
+        refreshProductPreset();
         const releases = await tx
           .selectFrom("suite.module_releases")
           .select([
@@ -716,6 +750,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
         const module = await clientModule(
           tx,
           ctx.workspaceId,
+          ctx.runtime.catalog,
           req.params.moduleId,
           req.headers["x-module-version"],
           moduleServers,
@@ -787,6 +822,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           const definition = await clientModule(
             tx,
             ctx.workspaceId,
+            ctx.runtime.catalog,
             req.params.moduleId,
             clientVersion,
             moduleServers,
@@ -952,6 +988,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
               const businessPermissions = await workspaceBusinessPermissions(
                 tx,
                 ctx.workspaceId,
+                runtime.catalog,
               );
               requireCondition(
                 requested.every(
@@ -983,6 +1020,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 tx,
                 ctx.workspaceId,
                 value.source,
+                runtime.catalog,
               );
               requireCondition(
                 value.target in source.dependencies,
@@ -994,6 +1032,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 tx,
                 ctx.workspaceId,
                 value.target,
+                runtime.catalog,
               );
               requireCondition(
                 (value.services ?? []).every(
@@ -1043,7 +1082,9 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 value,
               );
               requireCondition(
-                (await registeredModuleIds(tx)).includes(value.moduleId),
+                (await registeredModuleIds(tx, runtime.catalog)).includes(
+                  value.moduleId,
+                ),
                 404,
                 "NOT_FOUND",
                 "This module is not registered.",
@@ -1158,6 +1199,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                     tx,
                     ctx.workspaceId,
                     release.module_id,
+                    runtime.catalog,
                   );
                   requireCondition(
                     selected.version === release.version,
@@ -1175,6 +1217,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 tx,
                 ctx.workspaceId,
                 moduleId,
+                runtime.catalog,
               );
               for (const version of new Set([
                 current.version,
@@ -1183,6 +1226,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
                 await compatibleClientRelease(
                   tx,
                   ctx.workspaceId,
+                  ctx.runtime.catalog,
                   moduleId,
                   version,
                   moduleServers,
@@ -1192,6 +1236,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
               await validateConfiguredRollouts(
                 tx,
                 ctx.workspaceId,
+                ctx.runtime.catalog,
                 moduleServers,
               );
             await audit(tx, ctx, `platform.${req.body.action}`, key);
@@ -1217,6 +1262,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
           tx,
           ctx.workspaceId,
           req.params.moduleId,
+          runtime.catalog,
         );
         const release = found(
           (await resolveWorkspaceRelease(tx, ctx.workspaceId, module.id)).find(

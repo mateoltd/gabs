@@ -15,7 +15,7 @@ import {
   publishHostFixture,
   assignHostFixture,
   exportPermission,
-} from "../host-capability-journey";
+} from "../support/host-capability-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 async function hidden(app: ElectronApplication) {
   expect(

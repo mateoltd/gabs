@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { test, expect, _electron as electron } from "@playwright/test";
-import { publishExecutableFixture } from "../executable-fixture";
+import { publishExecutableFixture } from "../support/executable-fixture";
 import { createRequire } from "node:module";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";

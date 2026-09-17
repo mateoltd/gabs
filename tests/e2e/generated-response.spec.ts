@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { Pool } from "pg";
 import { selectValue } from "./controls.helpers";
-import type { StoredModuleState } from "../../packages/platform/src/module-artifacts";
+import type { StoredModuleState } from "../../packages/client/src/modules/artifacts";
 async function setup(page: Page, offline = true) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 960 });

@@ -6,11 +6,11 @@ This document describes implemented behavior, not a production-release claim. Th
 
 React and TypeScript run in the web client and Electron renderer. Corporate writes execute in the Fastify/PostgreSQL host. The PostgreSQL transaction includes authorization, business changes, history, audit, idempotency results and outbox events. No desktop peer can finalize a corporate write.
 
-- `packages/module-sdk`: authoring, runtime schema validation, inferred clients, typed server handlers, dependency resolution, policy calculation and journal protocol.
-- `packages/module-catalog`: generated discovery of module definitions and reviewed server entry points. Browser imports do not include server code.
+- `packages/sdk`: authoring, runtime schema validation, inferred clients, typed server handlers, dependency resolution, policy calculation and journal protocol.
+- `composition`: generated discovery of module definitions and reviewed server entry points. Browser imports do not include server code.
 - `apps/api/src/platform.ts`: generic resources, typed business operation dispatch, organization policy, installation and artifact delivery.
-- `packages/server-core/src/module-runtime.ts`: workspace-scoped resources, revisions, conflict merging and reference grants.
-- `packages/app-web/src/module-view.tsx`: generated resource screens with forms, search, pagination, archive and provisional changes.
+- `packages/server/src/module-runtime.ts`: workspace-scoped resources, revisions, conflict merging and reference grants.
+- `packages/shell/src/module-view.tsx`: generated resource screens with forms, search, pagination, archive and provisional changes.
 - `modules/contacts`, `modules/projects`: declarative applications with generated screens. Orders and Inventory use scoped SDK handlers with private stores and declared cross-module services, while retaining their richer existing screens.
 
 ### Authoring
@@ -140,6 +140,8 @@ pnpm module console # inspect, approve and publish the submission
 ```
 
 Scaffolding creates the manifest, example fixture, package and module-owned scenarios. `check` validates the module source graph, dependencies, custom client bundles and fixture schemas with resource/index diagnostics. `test` runs the selected module's own typed `module.scenarios.ts`, with fresh simulation state and named failures; missing scenarios fail. Both commands accept an independent module directory and repeated `--dependency <provider-directory>` arguments without catalog changes. See the [scenario authoring guide](module-scenarios.md). `dev` accepts a discovered module or independent directory and starts a loopback-only developer workspace at http://127.0.0.1:4321 (override `MODULE_DEV_PORT`). It renders manifest custom React views through the public host UI kit, generates input forms, previews accepted records, simulates connectivity and permissions, and displays provisional/accepted/rejected journal entries and emitted events. Source, custom view, CSS, configuration and fixture changes restart and reload the isolated simulation; fixtures and simulated changes reset. Build diagnostics remain visible until corrected, and stale requests cannot mutate a replacement simulator. See the [development preview guide](module-development.md). The `@suite/module-sdk/simulator` adapter supports typed fixtures and direct tests. It does not use corporate data. Cross-module provider integration, historical merge behavior and real persistence require the PostgreSQL/browser tests; the simulator is not evidence of server correctness. Newly published releases load without an API restart. Neither a central module union nor a host route edit is needed. Modules with operations or storage migrations require an independently signed, reviewed server package staged through the registry before publication.
+
+`module create` runs discovery first and then asks for `pnpm install`; that install creates the new bare-package link used by composition. When adding or removing a module directory manually, run `pnpm modules:discover` and then `pnpm install` before typechecking or building. On a fresh checkout, the generated catalog and composition manifest are already committed, so one `pnpm install` creates every required link before `pnpm build`. Discovery owns only the module dependencies listed in `composition/package.json` under `suite.generatedModuleDependencies`; it removes stale generated entries while preserving hand-owned composition dependencies.
 
 `pnpm db:seed` creates development-only signing keys and signs the four official definitions. For a separate trusted publisher environment, `pnpm module keygen` creates a new key pair once. Existing private keys are never overwritten. Private keys and built artifacts live under ignored `.local/`. Production requires operator-managed trust keys and signing/release procedures.
 

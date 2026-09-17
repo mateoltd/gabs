@@ -217,15 +217,33 @@ importers:
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
+      '@suite/api':
+        specifier: workspace:*
+        version: link:apps/api
+      '@suite/app-web':
+        specifier: workspace:*
+        version: link:packages/shell
+      '@suite/design-tokens':
+        specifier: workspace:*
+        version: link:packages/ui/tokens
+      '@suite/inventory':
+        specifier: workspace:*
+        version: link:modules/inventory
       '@suite/module-catalog':
         specifier: workspace:*
-        version: link:packages/module-catalog
+        version: link:composition
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:packages/module-sdk
+        version: link:packages/sdk
+      '@suite/orders':
+        specifier: workspace:*
+        version: link:modules/orders
+      '@suite/server-core':
+        specifier: workspace:*
+        version: link:packages/server
       '@suite/ui-web':
         specifier: workspace:*
-        version: link:packages/ui-web
+        version: link:packages/ui/web
       '@types/node':
         specifier: 26.5.1
         version: 26.5.1
@@ -315,16 +333,16 @@ importers:
         version: link:../../modules/inventory
       '@suite/module-catalog':
         specifier: workspace:*
-        version: link:../../packages/module-catalog
+        version: link:../../composition
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
+        version: link:../../packages/sdk
       '@suite/orders':
         specifier: workspace:*
         version: link:../../modules/orders
       '@suite/server-core':
         specifier: workspace:*
-        version: link:../../packages/server-core
+        version: link:../../packages/server
       dotenv:
         specifier: 17.4.2
         version: 17.4.2
@@ -340,27 +358,27 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@suite/api-client':
-        specifier: workspace:*
-        version: link:../../packages/api-client
       '@suite/app-web':
         specifier: workspace:*
-        version: link:../../packages/app-web
+        version: link:../../packages/shell
+      '@suite/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@suite/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@suite/design-tokens':
         specifier: workspace:*
-        version: link:../../packages/design-tokens
+        version: link:../../packages/ui/tokens
+      '@suite/module-catalog':
+        specifier: workspace:*
+        version: link:../../composition
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
-      '@suite/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
+        version: link:../../packages/sdk
       '@suite/ui-web':
         specifier: workspace:*
-        version: link:../../packages/ui-web
+        version: link:../../packages/ui/web
       openid-client:
         specifier: 6.8.8
         version: 6.8.8
@@ -406,13 +424,16 @@ importers:
     dependencies:
       '@suite/app-web':
         specifier: workspace:*
-        version: link:../../packages/app-web
+        version: link:../../packages/shell
       '@suite/design-tokens':
         specifier: workspace:*
-        version: link:../../packages/design-tokens
+        version: link:../../packages/ui/tokens
+      '@suite/module-catalog':
+        specifier: workspace:*
+        version: link:../../composition
       '@suite/ui-web':
         specifier: workspace:*
-        version: link:../../packages/ui-web
+        version: link:../../packages/ui/web
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -430,16 +451,16 @@ importers:
         version: 3.1132.0
       '@suite/module-catalog':
         specifier: workspace:*
-        version: link:../../packages/module-catalog
+        version: link:../../composition
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
+        version: link:../../packages/sdk
       '@suite/orders':
         specifier: workspace:*
         version: link:../../modules/orders
       '@suite/server-core':
         specifier: workspace:*
-        version: link:../../packages/server-core
+        version: link:../../packages/server
       dotenv:
         specifier: 17.4.2
         version: 17.4.2
@@ -447,35 +468,62 @@ importers:
         specifier: 0.29.5
         version: 0.29.5
 
+  composition:
+    dependencies:
+      '@suite/app-web':
+        specifier: workspace:*
+        version: link:../packages/shell
+      '@suite/client':
+        specifier: workspace:*
+        version: link:../packages/client
+      '@suite/contacts':
+        specifier: workspace:*
+        version: link:../modules/contacts
+      '@suite/contracts':
+        specifier: workspace:*
+        version: link:../packages/contracts
+      '@suite/inventory':
+        specifier: workspace:*
+        version: link:../modules/inventory
+      '@suite/module-sdk':
+        specifier: workspace:*
+        version: link:../packages/sdk
+      '@suite/orders':
+        specifier: workspace:*
+        version: link:../modules/orders
+      '@suite/projects':
+        specifier: workspace:*
+        version: link:../modules/projects
+      '@suite/server-core':
+        specifier: workspace:*
+        version: link:../packages/server
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+
   modules/contacts:
     dependencies:
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
+        version: link:../../packages/sdk
 
   modules/inventory:
     dependencies:
-      '@suite/api-client':
+      '@suite/client':
         specifier: workspace:*
-        version: link:../../packages/api-client
+        version: link:../../packages/client
       '@suite/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@suite/module-catalog':
-        specifier: workspace:*
-        version: link:../../packages/module-catalog
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
-      '@suite/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
+        version: link:../../packages/sdk
       '@suite/server-core':
         specifier: workspace:*
-        version: link:../../packages/server-core
+        version: link:../../packages/server
       '@suite/ui-web':
         specifier: workspace:*
-        version: link:../../packages/ui-web
+        version: link:../../packages/ui/web
       '@tanstack/react-query':
         specifier: 5.102.8
         version: 5.102.8(react@19.3.0)
@@ -491,9 +539,9 @@ importers:
 
   modules/orders:
     dependencies:
-      '@suite/api-client':
+      '@suite/client':
         specifier: workspace:*
-        version: link:../../packages/api-client
+        version: link:../../packages/client
       '@suite/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -502,16 +550,13 @@ importers:
         version: link:../inventory
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
-      '@suite/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
+        version: link:../../packages/sdk
       '@suite/server-core':
         specifier: workspace:*
-        version: link:../../packages/server-core
+        version: link:../../packages/server
       '@suite/ui-web':
         specifier: workspace:*
-        version: link:../../packages/ui-web
+        version: link:../../packages/ui/web
       '@tanstack/react-query':
         specifier: 5.102.8
         version: 5.102.8(react@19.3.0)
@@ -529,83 +574,30 @@ importers:
     dependencies:
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../../packages/module-sdk
+        version: link:../../packages/sdk
 
-  packages/api-client:
+  packages/client:
     dependencies:
       '@suite/contracts':
         specifier: workspace:*
         version: link:../contracts
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../module-sdk
+        version: link:../sdk
+      idb:
+        specifier: 8.0.3
+        version: 8.0.3
       openapi-fetch:
         specifier: 0.17.0
         version: 0.17.0
-
-  packages/app-web:
-    dependencies:
-      '@suite/api-client':
-        specifier: workspace:*
-        version: link:../api-client
-      '@suite/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@suite/design-tokens':
-        specifier: workspace:*
-        version: link:../design-tokens
-      '@suite/inventory':
-        specifier: workspace:*
-        version: link:../../modules/inventory
-      '@suite/module-catalog':
-        specifier: workspace:*
-        version: link:../module-catalog
-      '@suite/module-sdk':
-        specifier: workspace:*
-        version: link:../module-sdk
-      '@suite/orders':
-        specifier: workspace:*
-        version: link:../../modules/orders
-      '@suite/platform':
-        specifier: workspace:*
-        version: link:../platform
-      '@suite/ui-web':
-        specifier: workspace:*
-        version: link:../ui-web
-      '@tanstack/react-query':
-        specifier: 5.102.8
-        version: 5.102.8(react@19.3.0)
-      react:
-        specifier: 19.3.0
-        version: 19.3.0
-      react-dom:
-        specifier: 19.3.0
-        version: 19.3.0(react@19.3.0)
-      react-router:
-        specifier: 8.3.1
-        version: 8.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
 
   packages/contracts:
     dependencies:
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52
-      '@suite/module-catalog':
-        specifier: workspace:*
-        version: link:../module-catalog
-      '@suite/module-sdk':
-        specifier: workspace:*
-        version: link:../module-sdk
 
-  packages/design-tokens: {}
-
-  packages/module-catalog:
-    dependencies:
-      '@suite/module-sdk':
-        specifier: workspace:*
-        version: link:../module-sdk
-
-  packages/module-sdk:
+  packages/sdk:
     dependencies:
       '@sinclair/typebox':
         specifier: 0.34.52
@@ -621,35 +613,14 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
-  packages/platform:
-    dependencies:
-      '@suite/api-client':
-        specifier: workspace:*
-        version: link:../api-client
-      '@suite/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@suite/module-catalog':
-        specifier: workspace:*
-        version: link:../module-catalog
-      '@suite/module-sdk':
-        specifier: workspace:*
-        version: link:../module-sdk
-      idb:
-        specifier: 8.0.3
-        version: 8.0.3
-
-  packages/server-core:
+  packages/server:
     dependencies:
       '@suite/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@suite/module-catalog':
-        specifier: workspace:*
-        version: link:../module-catalog
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../module-sdk
+        version: link:../sdk
       jose:
         specifier: 6.2.12
         version: 6.2.12
@@ -663,7 +634,39 @@ importers:
         specifier: 8.23.0
         version: 8.23.0
 
-  packages/ui-web:
+  packages/shell:
+    dependencies:
+      '@suite/client':
+        specifier: workspace:*
+        version: link:../client
+      '@suite/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@suite/design-tokens':
+        specifier: workspace:*
+        version: link:../ui/tokens
+      '@suite/module-sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      '@suite/ui-web':
+        specifier: workspace:*
+        version: link:../ui/web
+      '@tanstack/react-query':
+        specifier: 5.102.8
+        version: 5.102.8(react@19.3.0)
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.0
+        version: 19.3.0(react@19.3.0)
+      react-router:
+        specifier: 8.3.1
+        version: 8.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+
+  packages/ui/tokens: {}
+
+  packages/ui/web:
     dependencies:
       '@base-ui/react':
         specifier: 1.8.0
@@ -688,7 +691,7 @@ importers:
         version: 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@suite/module-sdk':
         specifier: workspace:*
-        version: link:../module-sdk
+        version: link:../../sdk
       react:
         specifier: 19.3.0
         version: 19.3.0

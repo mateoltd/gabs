@@ -11,7 +11,7 @@ import {
   referenceModuleId,
   referenceTargets,
   exerciseReferencePicker,
-} from "../reference-journey";
+} from "../support/reference-journey";
 test("nested reference choices search beyond the first page and preserve selections offline", async ({
   page,
   context,

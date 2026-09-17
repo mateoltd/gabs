@@ -11,18 +11,21 @@ apps/web          Browser entry point and asset-only service worker
 apps/desktop      Electron main, preload and renderer
 apps/api          HTTP composition, authentication, runtime route schemas
 apps/worker       Claimed job execution and notification delivery
+composition       Product catalog, presets and host assembly
 modules/orders    domain, contracts, server, web
 modules/inventory domain, contracts, server, web
-packages/app-web   Shared application shell
+modules/contacts  schema-defined module entry points
+modules/projects  schema-defined module entry points
+packages/sdk      Module authoring, contracts, clients and local runtime
 packages/contracts Platform schemas and operation registry
-packages/api-client Generated OpenAPI types and portable transport
-packages/platform Narrow storage/file/notification interfaces and adapters
-packages/server-core Authorization, transactions, governance, migrations
-packages/ui-web    Accessible React components
-packages/design-tokens Platform-neutral visual tokens
+packages/client   Generated API transport, local profiles and client adapters
+packages/server   Authorization, transactions, governance and migrations
+packages/shell    Shared application shell
+packages/ui/web    Accessible React components
+packages/ui/tokens Platform-neutral visual tokens
 ```
 
-`pnpm lint` rejects server/native imports from browser views, platform dependencies in pure domains, private cross-module imports, and dependency cycles. API composition can read module tables; business writes remain in the owning module's public service. A future mobile client can reuse contracts, client types, domain rules and tokens, with its own UI and platform adapter.
+`pnpm lint` rejects server/native imports from browser views, platform dependencies in pure domains, private or undeclared cross-package imports, illegal module implementation edges, unresolved internal paths and dependency cycles. Separate browser, worker, preload and Node TypeScript configurations verify environment graphs. API composition can read module tables; business writes remain in the owning module's public service. A future mobile client can reuse contracts, client types, domain rules and tokens, with its own UI and platform adapter.
 
 Reviewed server and custom React code are staged in the host build. Declarative module definitions can be signed, published and installed independently through the registry. Activation, entitlement and installation are separate. Error boundaries recover from rendering failures; the module system is not a hostile-code sandbox.
 
@@ -46,7 +49,7 @@ New production workspaces start with inactive entitlements and Draft modules. An
 
 ## API
 
-`/api/v1` uses runtime TypeBox request/response schemas. `pnpm generate:api` emits `docs/openapi.json` and `packages/api-client/src/schema.d.ts`. The portable client supports named operations and response types; runtime validation remains authoritative for input. Lists use opaque UUID cursors, bounded page sizes and optional search. Lists represent the current page, not global totals.
+`/api/v1` uses runtime TypeBox request/response schemas. `pnpm generate:api` emits `docs/openapi.json` and `packages/client/src/api/schema.d.ts`. The portable client supports named operations and response types; runtime validation remains authoritative for input. Lists use opaque UUID cursors, bounded page sizes and optional search. Lists represent the current page, not global totals.
 
 POST commands require an idempotency key. Replaying the same operation and payload returns its stored result after rechecking current authorization. A different payload with that key returns 409. Editable records require an `If-Match` version; stale versions return 412, missing versions 428. Draft uploads also use idempotency keys for PUT retries. Uncertain client commands retain their original key and input.
 

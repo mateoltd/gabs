@@ -1,0 +1,22 @@
+{
+  "name": "@suite/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api/index.ts",
+    "./browser": "./src/adapters/browser.ts",
+    "./local-worker-runtime": "./src/local/runtime.ts",
+    "./local-worker": "./src/local/worker.ts",
+    "./module-storage": "./src/modules/storage.ts",
+    "./local-profiles": "./src/identity/local-profiles.ts",
+    "./module-response": "./src/modules/response.ts"
+  },
+  "dependencies": {
+    "@suite/contracts": "workspace:*",
+    "idb": "8.0.3",
+    "openapi-fetch": "0.17.0",
+    "@suite/module-sdk": "workspace:*"
+  }
+}

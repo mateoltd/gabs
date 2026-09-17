@@ -17,7 +17,7 @@ jobs:
       - run: cp .env.example .env
       - run: pnpm db:up && pnpm db:migrate && pnpm db:seed
       - run: pnpm check && pnpm format:check && pnpm build
-      - run: pnpm generate:api && pnpm generate:tokens && git diff --exit-code docs/openapi.json packages/api-client/src/schema.d.ts packages/design-tokens/src/values.ts
+      - run: pnpm generate:api && pnpm generate:tokens && git diff --exit-code docs/openapi.json packages/client/src/api/schema.d.ts packages/ui/tokens/src/values.ts
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - name: Load acceptance

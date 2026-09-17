@@ -12,13 +12,13 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { defineModule, resource, field, Type } from "@suite/module-sdk";
-import type { ModuleStorage } from "../../packages/platform/src/module-storage";
-import { signPackage } from "../../packages/module-sdk/node/signing";
+import type { ModuleStorage } from "../../packages/client/src/modules/storage";
+import { signPackage } from "../../packages/sdk/node/signing";
 import {
   submitRelease,
   reviewRelease,
   publishRelease,
-} from "../../tooling/registry-review";
+} from "../../tooling/modules/registry-review";
 
 const require = createRequire(resolve("apps/desktop/package.json"));
 

@@ -5,15 +5,15 @@ import { Pool } from "pg";
 import { hydrateModule } from "@suite/module-sdk";
 import inventorySource from "../../modules/inventory/releases/2.0.0/module";
 import ordersSource from "../../modules/orders/releases/2.0.0/module";
-import { serviceContractSource } from "../../packages/module-sdk/node/service-contracts";
-import { buildServerPackage } from "../../packages/module-sdk/node/build-server";
-import { signPackage } from "../../packages/module-sdk/node/signing";
+import { serviceContractSource } from "../../packages/sdk/node/service-contracts";
+import { buildServerPackage } from "../../packages/sdk/node/build-server";
+import { signPackage } from "../../packages/sdk/node/signing";
 import {
   submitRelease,
   reviewRelease,
   stageRelease,
   publishRelease,
-} from "../../tooling/registry-review";
+} from "../../tooling/modules/registry-review";
 
 /** Publish isolated, independently signed candidates without changing default workspace releases. */
 export async function scopedBusinessFixture() {

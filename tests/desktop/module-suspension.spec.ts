@@ -1,6 +1,6 @@
 import { Pool } from "pg";
-import type { Snapshot } from "../../packages/platform/src";
-import type { ModuleStorage } from "../../packages/platform/src/module-storage";
+import type { Snapshot } from "../../packages/client/src";
+import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 import "dotenv/config";
 import {
   test,

@@ -8,10 +8,10 @@ import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ModuleDefinition } from "@suite/module-sdk";
-import { buildRegistryConsole } from "../../tooling/registry-console/build";
-import { startRegistryConsole } from "../../tooling/registry-console/server";
-import { signPackage } from "../../packages/module-sdk/node/signing";
-import { buildServerPackage } from "../../packages/module-sdk/node/build-server";
+import { buildRegistryConsole } from "../../tooling/modules/registry-console/build";
+import { startRegistryConsole } from "../../tooling/modules/registry-console/server";
+import { signPackage } from "../../packages/sdk/node/signing";
+import { buildServerPackage } from "../../packages/sdk/node/build-server";
 
 test("operator inspects signed artifacts, rejects invalid submissions and reviews, stages and publishes through the console", async ({
   page,

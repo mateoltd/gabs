@@ -1,12 +1,14 @@
 import type { Context, Tx } from "@suite/server-core";
 import { requireCondition } from "@suite/server-core";
 import { moduleServers } from "@suite/module-catalog/server";
-import { moduleStorageVersions } from "../../../packages/server-core/src/module-storage";
-import { workspaceModule } from "../../../packages/server-core/src/module-releases";
-import { executeModuleOperation } from "../../../packages/server-core/src/module-services";
-import { assertHostModuleRollout } from "../../../packages/server-core/src/module-rollout";
-import orders from "../../../modules/orders/releases/1.1.0/module";
-import inventory from "../../../modules/inventory/releases/1.2.0/module";
+import { moduleStorageVersions } from "@suite/server-core/persistence/module-storage";
+import { workspaceModule } from "@suite/server-core/registry/module-releases";
+import { executeModuleOperation } from "@suite/server-core/runtime/services";
+import { assertHostModuleRollout } from "@suite/server-core/registry/module-rollout";
+import {
+  legacyInventory as inventory,
+  legacyOrders as orders,
+} from "@suite/module-catalog/business";
 
 /** Transitional host routes use the selected module's public queries after cutover. */
 export async function businessQuery(
@@ -39,12 +41,18 @@ export async function businessQuery(
     await assertHostModuleRollout(
       tx,
       ctx.workspaceId,
+      ctx.runtime.catalog,
       moduleId === "orders" ? orders : inventory,
       moduleServers,
     );
     return legacy();
   }
-  const definition = await workspaceModule(tx, ctx.workspaceId, moduleId);
+  const definition = await workspaceModule(
+    tx,
+    ctx.workspaceId,
+    moduleId,
+    ctx.runtime.catalog,
+  );
   requireCondition(
     definition.operations[operation]?.kind === "query",
     409,

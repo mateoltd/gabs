@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { migrationGrantJourney } from "../local-migration-grant-journey";
+import { migrationGrantJourney } from "../support/local-migration-grant-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("hidden native installation reviews and applies scoped migration reference consent", async () => {
   test.setTimeout(150000);

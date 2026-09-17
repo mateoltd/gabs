@@ -2,7 +2,7 @@ import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import { mkdir } from "node:fs/promises";
-import { publishLocalPackage } from "../local-package-fixture";
+import { publishLocalPackage } from "../support/local-package-fixture";
 import { selectValue } from "./controls.helpers";
 
 test("local installation reviews dependencies and coordinated consumer updates, then restores the set offline", async ({

@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": [
+    "apps/api/src",
+    "apps/worker/src",
+    "apps/desktop/src/main",
+    "apps/desktop/src/utility",
+    "packages/server",
+    "packages/sdk/node",
+    "modules/*/server",
+    "modules/*/module-server.ts",
+    "modules/*/releases/*/module-server.ts",
+    "composition/src/server",
+    "composition/src/catalog/server.ts",
+    "tooling"
+  ],
+  "exclude": [
+    "tooling/modules/module-dev/preview.tsx",
+    "tooling/modules/registry-console/ui.tsx"
+  ]
+}

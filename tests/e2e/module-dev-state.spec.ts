@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 test.use({ actionTimeout: 10000 });
 
 test("stateful preview retains typed input, handles business rejection and recovers from a render failure", async ({

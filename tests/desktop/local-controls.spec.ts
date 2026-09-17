@@ -5,7 +5,7 @@ import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Pool } from "pg";
-import { publishLocalPackage } from "../local-package-fixture";
+import { publishLocalPackage } from "../support/local-package-fixture";
 import { selectValue } from "../e2e/controls.helpers";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("minimized native local module controls install signed code and recover an interrupted operation", async () => {

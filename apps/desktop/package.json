@@ -5,10 +5,10 @@
   "type": "module",
   "dependencies": {
     "@suite/module-sdk": "workspace:*",
-    "@suite/platform": "workspace:*",
+    "@suite/client": "workspace:*",
     "@suite/contracts": "workspace:*",
-    "@suite/api-client": "workspace:*",
     "@suite/app-web": "workspace:*",
+    "@suite/module-catalog": "workspace:*",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "openid-client": "6.8.8",
@@ -18,10 +18,10 @@
   },
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "node ../../tooling/build-desktop.mjs",
+    "build": "node ../../tooling/build/build-desktop.mjs",
     "start": "pnpm build && electron-forge start",
-    "package": "node ../../tooling/build-desktop.mjs --package && electron-forge package",
-    "make": "node ../../tooling/build-desktop.mjs --package && electron-forge make"
+    "package": "node ../../tooling/build/build-desktop.mjs --package && electron-forge package",
+    "make": "node ../../tooling/build/build-desktop.mjs --package && electron-forge make"
   },
   "devDependencies": {
     "electron": "44.3.0",

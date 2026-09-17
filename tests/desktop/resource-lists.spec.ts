@@ -12,7 +12,7 @@ import {
   resourceListId,
   resourceListData,
   exerciseResourceList,
-} from "../resource-list-journey";
+} from "../support/resource-list-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("native generated resource lists filter, page and expand structured values without focusing the desktop", async () => {

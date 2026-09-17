@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, rm, readdir, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { publishLocalPackage } from "../local-package-fixture";
+import { publishLocalPackage } from "../support/local-package-fixture";
 import { selectValue } from "../e2e/controls.helpers";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
@@ -42,14 +42,14 @@ test("minimized Electron executes a signed local package in its packaged worker 
   });
   const profile = await mkdtemp(resolve(tmpdir(), "suite-local-package-"));
   const worker = (await readdir("apps/desktop/dist/renderer/assets")).find(
-    (name) => /^local-worker-entry-.*\.js$/.test(name),
+    (name) => /^worker-entry-.*\.js$/.test(name),
   );
   expect(worker).toBeTruthy();
   // Use the production worker asset under the real native CSP and protocol.
   // The helper exposes profile APIs for this acceptance test, not production UI.
   const helper = await build({
     stdin: {
-      contents: `export * from './packages/platform/src/local-profiles';export {hydrateModule,createModuleClient} from '@suite/module-sdk';`,
+      contents: `export * from './composition/src/local/product';export {hydrateModule,createModuleClient} from '@suite/module-sdk';`,
       resolveDir: process.cwd(),
     },
     bundle: true,
@@ -60,13 +60,16 @@ test("minimized Electron executes a signed local package in its packaged worker 
       {
         name: "packaged-local-worker",
         setup(builder) {
-          builder.onLoad({ filter: /\/local-worker\.ts$/ }, async (args) => ({
-            contents: (await readFile(args.path, "utf8")).replace(
-              '"./local-worker-entry.ts"',
-              JSON.stringify(`suite://app/assets/${worker}`),
-            ),
-            loader: "ts",
-          }));
+          builder.onLoad(
+            { filter: /\/composition\/src\/local\/runtime\.ts$/ },
+            async (args) => ({
+              contents: (await readFile(args.path, "utf8")).replace(
+                '"./worker-entry.ts"',
+                JSON.stringify(`suite://app/assets/${worker}`),
+              ),
+              loader: "ts",
+            }),
+          );
         },
       },
     ],
@@ -96,7 +99,7 @@ test("minimized Electron executes a signed local package in its packaged worker 
         );
         const sdk = (await import(
           url
-        )) as typeof import("../../packages/platform/src/local-profiles") &
+        )) as typeof import("../../composition/src/local/product") &
           typeof import("@suite/module-sdk");
         URL.revokeObjectURL(url);
         const session = await sdk.createLocalProfile(
@@ -307,9 +310,8 @@ test("minimized Electron executes a signed local package in its packaged worker 
           const url = URL.createObjectURL(
             new Blob([javascript], { type: "text/javascript" }),
           );
-          type SDK =
-            typeof import("../../packages/platform/src/local-profiles") &
-              typeof import("@suite/module-sdk");
+          type SDK = typeof import("../../composition/src/local/product") &
+            typeof import("@suite/module-sdk");
           const sdk = (await import(url)) as SDK;
           URL.revokeObjectURL(url);
           const password = "correct horse battery staple";

@@ -1,4 +1,4 @@
-import type { ModuleStorage } from "../../packages/platform/src/module-storage";
+import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -6,12 +6,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { defineModule, resource, field, Type } from "@suite/module-sdk";
-import { signPackage } from "../../packages/module-sdk/node/signing";
+import { signPackage } from "../../packages/sdk/node/signing";
 import {
   submitRelease,
   reviewRelease,
   publishRelease,
-} from "../../tooling/registry-review";
+} from "../../tooling/modules/registry-review";
 import { selectValue } from "./controls.helpers";
 
 for (const lostReply of [false, true])

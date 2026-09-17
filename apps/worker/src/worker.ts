@@ -13,6 +13,7 @@ import {
   permissionRecipients,
   requireCondition,
 } from "@suite/server-core";
+import { productServerRuntime } from "@suite/module-catalog/presets";
 function csv(value: unknown) {
   let text = String(value ?? "");
   if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
@@ -111,6 +112,7 @@ export async function runBatch(db: DB) {
               },
               job.workspace_id,
               job.id,
+              productServerRuntime,
               "orders.export",
               "orders",
             );

@@ -1,0 +1,21 @@
+{
+  "name": "@suite/app-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/app/index.tsx",
+    "./styles.css": "./src/styles/index.css"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "8.3.1",
+    "@tanstack/react-query": "5.102.8",
+    "@suite/contracts": "workspace:*",
+    "@suite/client": "workspace:*",
+    "@suite/ui-web": "workspace:*",
+    "@suite/design-tokens": "workspace:*",
+    "@suite/module-sdk": "workspace:*"
+  }
+}

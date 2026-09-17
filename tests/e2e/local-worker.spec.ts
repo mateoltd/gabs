@@ -1,15 +1,15 @@
-import { publishLocalPackage } from "../local-package-fixture";
+import { publishLocalPackage } from "../support/local-package-fixture";
 import { test, expect } from "@playwright/test";
 import { build } from "esbuild";
 import { resolve } from "node:path";
 import { generateKeyPairSync } from "node:crypto";
 import { defineModule, field, resource, Type } from "@suite/module-sdk";
-import { signPackage } from "../../packages/module-sdk/node/signing";
+import { signPackage } from "../../packages/sdk/node/signing";
 import type { Page } from "@playwright/test";
 async function fixture(page: Page) {
   const source = await build({
     stdin: {
-      contents: `export * from './packages/platform/src/local-profiles';export {LocalWorkerHost} from './packages/platform/src/local-worker';export {resumeLocalDownload} from './packages/app-web/src/local-module-download';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {default as module} from './modules/contacts/module';export {default as projects} from './modules/projects/module';`,
+      contents: `export * from './composition/src/local/product';export {resumeLocalDownload} from './packages/shell/src/features/modules/local/download';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {default as module} from './modules/contacts/module';export {default as projects} from './modules/projects/module';`,
       resolveDir: process.cwd(),
     },
     write: false,
@@ -18,7 +18,7 @@ async function fixture(page: Page) {
     format: "esm",
   });
   const worker = await build({
-    entryPoints: [resolve("packages/platform/src/local-worker-entry.ts")],
+    entryPoints: [resolve("composition/src/local/worker-entry.ts")],
     write: false,
     bundle: true,
     platform: "browser",
@@ -30,7 +30,7 @@ async function fixture(page: Page) {
       body: source.outputFiles[0].text,
     }),
   );
-  await page.context().route("**/local-worker-entry.ts", (route) =>
+  await page.context().route("**/worker-entry.ts", (route) =>
     route.fulfill({
       contentType: "text/javascript",
       body: `if(typeof process!=="undefined"||typeof document!=="undefined"||typeof suiteDesktop!=="undefined"||typeof suite!=="undefined")throw Error("Privileged globals reached the worker");\n${worker.outputFiles[0].text}`,
@@ -51,7 +51,7 @@ test("real web workers persist atomic receipts offline and reject stale or remov
     const path = "/local-profile-proof.mjs";
     const sdk = (await import(
       path
-    )) as typeof import("../../packages/platform/src/local-profiles") & {
+    )) as typeof import("../../composition/src/local/product") & {
       module: typeof import("../../modules/contacts/module").default;
       createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
     };
@@ -146,7 +146,7 @@ test("a reviewed local executable installs, runs offline, upgrades and retains e
       const path = "/local-profile-proof.mjs";
       const sdk = (await import(
         path
-      )) as typeof import("../../packages/platform/src/local-profiles") & {
+      )) as typeof import("../../composition/src/local/product") & {
         hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
         createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
       };
@@ -298,7 +298,7 @@ test("signed local migrations commit atomically and retain compatible rollback, 
   const result = await page.evaluate(
     async ({ first, failed, next, compatible }) => {
       const path = "/local-profile-proof.mjs";
-      type SDK = typeof import("../../packages/platform/src/local-profiles") &
+      type SDK = typeof import("../../composition/src/local/product") &
         typeof import("@suite/module-sdk");
       const sdk = (await import(path)) as SDK;
       const password = "correct horse battery staple";
@@ -531,7 +531,7 @@ test("local dependency sets migrate atomically, preserve consumers and resume th
       nextConsumer,
     }) => {
       const path = "/local-profile-proof.mjs";
-      type SDK = typeof import("../../packages/platform/src/local-profiles") &
+      type SDK = typeof import("../../composition/src/local/product") &
         typeof import("@suite/module-sdk");
       const sdk = (await import(path)) as SDK;
       const password = "correct horse battery staple";
@@ -720,13 +720,13 @@ test("encrypted local download sets reject invalid bytes, foreign sources, cance
       const path = "/local-profile-proof.mjs";
       const sdk = (await import(
         path
-      )) as typeof import("../../packages/platform/src/local-profiles") &
+      )) as typeof import("../../composition/src/local/product") &
         Pick<
           typeof import("@suite/module-sdk"),
           "hydrateModule" | "createModuleClient"
         > &
         Pick<
-          typeof import("../../packages/app-web/src/local-module-download"),
+          typeof import("../../packages/shell/src/features/modules/local/download"),
           "resumeLocalDownload"
         >;
       const pass = "correct horse battery staple";
@@ -795,7 +795,7 @@ test("encrypted local download sets reject invalid bytes, foreign sources, cance
                 networkCalls++;
                 throw Error("Network must not run");
               },
-            } as unknown as import("../../packages/api-client/src").SuiteClient,
+            } as unknown as import("../../packages/client/src/api").SuiteClient,
           },
           new AbortController().signal,
         ),
@@ -906,12 +906,11 @@ test("cross-module reference grants persist and stale, foreign or unverified wor
     const path = "/local-profile-proof.mjs";
     const sdk = (await import(
       path
-    )) as typeof import("../../packages/platform/src/local-profiles") &
-      typeof import("../../packages/platform/src/local-worker") & {
-        module: typeof import("../../modules/contacts/module").default;
-        projects: typeof import("../../modules/projects/module").default;
-        createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
-      };
+    )) as typeof import("../../composition/src/local/product") & {
+      module: typeof import("../../modules/contacts/module").default;
+      projects: typeof import("../../modules/projects/module").default;
+      createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+    };
     const password = "correct horse battery staple";
     let owner = await sdk.createLocalProfile("Scoped references", password);
     const profileId = owner.id;
@@ -1087,11 +1086,10 @@ test("signed local reference providers require renewed consent after updates and
       const path = "/local-profile-proof.mjs";
       const sdk = (await import(
         path
-      )) as typeof import("../../packages/platform/src/local-profiles") &
-        typeof import("../../packages/platform/src/local-worker") & {
-          createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
-          hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
-        };
+      )) as typeof import("../../composition/src/local/product") & {
+        createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+        hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
+      };
       const session = await sdk.createLocalProfile(
         "Signed grants",
         "correct horse battery staple",
@@ -1231,7 +1229,7 @@ test("migration consent survives interruption, uses staged provider records and 
 }) => {
   test.setTimeout(150000);
   const { migrationGrantFixture } =
-    await import("../local-migration-grant-fixture");
+    await import("../support/local-migration-grant-fixture");
   const fixturePackages = await migrationGrantFixture();
   const upgrades = await fixturePackages.upgrade();
   await fixture(page);
@@ -1242,7 +1240,7 @@ test("migration consent survives interruption, uses staged provider records and 
       const path = "/local-profile-proof.mjs";
       const sdk = (await import(
         path
-      )) as typeof import("../../packages/platform/src/local-profiles") & {
+      )) as typeof import("../../composition/src/local/product") & {
         createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
         hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
       };
@@ -1445,7 +1443,8 @@ test("signed standalone service transactions survive interruption and reject sta
   page,
 }) => {
   test.setTimeout(150000);
-  const { localServiceFixture } = await import("../local-service-fixture");
+  const { localServiceFixture } =
+    await import("../support/local-service-fixture");
   const fixturePackages = await localServiceFixture();
   const providerNext = await fixturePackages.publishProvider("1.1.0");
   const consumerNext = await fixturePackages.publishConsumer("1.1.0");
@@ -1457,11 +1456,10 @@ test("signed standalone service transactions survive interruption and reject sta
       const path = "/local-profile-proof.mjs";
       const sdk = (await import(
         path
-      )) as typeof import("../../packages/platform/src/local-profiles") &
-        typeof import("../../packages/platform/src/local-worker") & {
-          createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
-          hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
-        };
+      )) as typeof import("../../composition/src/local/product") & {
+        createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+        hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
+      };
       const pass = "correct horse battery staple";
       let session = await sdk.createLocalProfile("Service worker proof", pass);
       const profile = session.id;

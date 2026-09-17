@@ -1,17 +1,21 @@
-import { assertModuleStorage } from "../../../packages/server-core/src/module-storage";
+import { assertModuleStorage } from "@suite/server-core/persistence/module-storage";
 import { businessQuery } from "./business-queries";
 import { registerWorkspacePolicy } from "./workspace-policy";
-import ordersDefinition from "../../../modules/orders/releases/1.1.0/module";
+import {
+  legacyInventory as inventoryDefinition,
+  legacyOrders as ordersDefinition,
+} from "@suite/module-catalog/business";
 import { moduleServers } from "@suite/module-catalog/server";
+import { productServerRuntime } from "@suite/module-catalog/presets";
 import {
   assertHostModuleRollout,
   validateConfiguredRollouts,
-} from "../../../packages/server-core/src/module-rollout";
+} from "@suite/server-core/registry/module-rollout";
 import { ModuleBusinessError } from "@suite/module-sdk/server";
-import inventoryDefinition from "../../../modules/inventory/releases/1.2.0/module";
 import { registerBilling } from "./billing";
 import { registerPlatform } from "./platform";
 import { ValidationError } from "@suite/module-sdk";
+import type { MutableModuleCatalog } from "@suite/module-sdk/catalog";
 import Fastify, { type FastifyRequest, type FastifyReply } from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -26,6 +30,7 @@ import {
   type Context,
   type Actor,
   type AuthConfig,
+  type ServerRuntime,
   connectDatabase,
   authConfig,
   authentication,
@@ -87,6 +92,7 @@ type Request<B = unknown> = FastifyRequest<{
   };
   Body: B;
 }>;
+type ApiRuntime = ServerRuntime & { catalog: MutableModuleCatalog };
 const { Type: T } = S;
 const Params = T.Object({
   workspaceId: S.Id,
@@ -98,11 +104,17 @@ const Enum = <const V extends readonly string[]>(values: V) =>
 const StringArray = T.Array(T.String(), { maxItems: 100, uniqueItems: true });
 const Empty = T.Object({}, { additionalProperties: false });
 export async function createApp(
-  options: { db?: DB; auth?: AuthConfig; logger?: boolean } = {},
+  options: {
+    db?: DB;
+    auth?: AuthConfig;
+    logger?: boolean;
+    runtime?: ApiRuntime;
+  } = {},
 ) {
   const db = options.db ?? connectDatabase();
   const config = options.auth ?? authConfig();
-  const auth = authentication(db, config);
+  const runtime = options.runtime ?? productServerRuntime;
+  const auth = authentication(db, config, runtime);
   const app = Fastify({
     logger: options.logger
       ? {
@@ -495,14 +507,18 @@ export async function createApp(
             currency: exists.currency,
           };
         }
-        return provisionWorkspace(tx, {
-          id: input.id,
-          name: input.name,
-          currency: input.currency,
-          userId: req.actor.id,
-          kind: "company",
-          requestId: req.id,
-        });
+        return provisionWorkspace(
+          tx,
+          {
+            id: input.id,
+            name: input.name,
+            currency: input.currency,
+            userId: req.actor.id,
+            kind: "company",
+            requestId: req.id,
+          },
+          runtime,
+        );
       });
     },
   );
@@ -535,6 +551,7 @@ export async function createApp(
               membershipId: "",
               permissions: [],
               roleNames: [],
+              runtime,
             },
             id,
             accept,
@@ -610,6 +627,7 @@ export async function createApp(
               request.actor,
               req.params.workspaceId,
               request.id,
+              runtime,
               typeof options.permission === "function"
                 ? options.permission(req)
                 : options.permission,
@@ -627,6 +645,7 @@ export async function createApp(
                 await assertHostModuleRollout(
                   tx,
                   ctx.workspaceId,
+                  ctx.runtime.catalog,
                   legacy,
                   moduleServers,
                 );
@@ -668,7 +687,13 @@ export async function createApp(
       const visible = async (module: S.ModuleId, permissions: string[]) => {
         if (!permissions.some((p) => ctx.permissions.includes(p))) return false;
         try {
-          await checkModule(tx, ctx.workspaceId, ctx.membershipId, module);
+          await checkModule(
+            tx,
+            ctx.workspaceId,
+            ctx.membershipId,
+            module,
+            runtime,
+          );
           return true;
         } catch (error) {
           if (
@@ -1049,7 +1074,12 @@ export async function createApp(
         req.params.moduleId,
         req.body,
       );
-      await validateConfiguredRollouts(tx, ctx.workspaceId, moduleServers);
+      await validateConfiguredRollouts(
+        tx,
+        ctx.workspaceId,
+        ctx.runtime.catalog,
+        moduleServers,
+      );
       return result;
     },
   });
@@ -1304,9 +1334,9 @@ export async function createApp(
       return { filename: `orders-${exportRow.id}.csv`, content };
     },
   });
-  await registerWorkspacePolicy(app, db, auth);
-  await registerPlatform(app, db);
-  await registerBilling(app, db, config.origin);
+  await registerWorkspacePolicy(app, db, auth, runtime);
+  await registerPlatform(app, db, runtime);
+  await registerBilling(app, db, config.origin, runtime);
   await app.ready();
   return { app, db, auth, config };
 }

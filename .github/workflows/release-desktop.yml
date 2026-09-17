@@ -28,7 +28,7 @@ jobs:
           version: 12.4.1
       - run: pnpm install --frozen-lockfile
       - name: Validate public release configuration
-        run: node tooling/validate-release.mjs
+        run: node tooling/modules/validate-release.mjs
       - name: Install signing credentials
         shell: bash
         env:
@@ -36,7 +36,7 @@ jobs:
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
           APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
           WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
-        run: node tooling/prepare-signing.mjs
+        run: node tooling/build/prepare-signing.mjs
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg
       - run: pnpm --filter @suite/desktop make

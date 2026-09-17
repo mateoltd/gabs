@@ -2,7 +2,6 @@ import Stripe from "stripe";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { Type as T } from "@suite/contracts";
-import { moduleDependencies, moduleDefinition } from "@suite/module-catalog";
 import {
   inWorkspace,
   authorize,
@@ -12,6 +11,7 @@ import {
   requireCondition,
   type DB,
   type Tx,
+  type ServerRuntime,
 } from "@suite/server-core";
 const params = T.Object({ workspaceId: T.String({ format: "uuid" }) });
 export function billingPrices(): Record<string, string> {
@@ -88,6 +88,7 @@ export async function registerBilling(
   app: FastifyInstance,
   db: DB,
   origin: string,
+  runtime: ServerRuntime,
 ) {
   const stripe = process.env.STRIPE_SECRET_KEY
     ? new Stripe(process.env.STRIPE_SECRET_KEY, {
@@ -105,7 +106,9 @@ export async function registerBilling(
           req.actor,
           req.params.workspaceId,
           req.id,
+          runtime,
           "billing.manage",
+          undefined,
         );
         const account = await tx
           .selectFrom("suite.billing_accounts")
@@ -163,7 +166,9 @@ export async function registerBilling(
           req.actor,
           req.params.workspaceId,
           req.id,
+          runtime,
           "billing.manage",
+          undefined,
         );
         await lockWorkspace(tx, ctx.workspaceId);
         const key = req.headers["idempotency-key"];
@@ -238,12 +243,12 @@ export async function registerBilling(
           ...new Set(
             (req.body.modules ?? []).flatMap((id) => {
               requireCondition(
-                moduleDefinition(id),
+                runtime.catalog.definition(id),
                 400,
                 "INVALID_MODULE",
                 "Unknown module.",
               );
-              return moduleDependencies(id);
+              return runtime.catalog.dependencies(id);
             }),
           ),
         ];

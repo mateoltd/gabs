@@ -8,13 +8,15 @@ import {
   type DB,
   type Actor,
   type authentication,
+  type ServerRuntime,
 } from "@suite/server-core";
-import { PolicySignals } from "../../../packages/server-core/src/policy-signals";
+import { PolicySignals } from "@suite/server-core/governance/policy-signals";
 
 export async function registerWorkspacePolicy(
   app: FastifyInstance,
   db: DB,
   auth: ReturnType<typeof authentication>,
+  runtime: ServerRuntime,
 ) {
   const signals = new PolicySignals(db);
   app.addHook("onClose", () => signals.close());
@@ -50,7 +52,15 @@ export async function registerWorkspacePolicy(
             .where("workspace_id", "=", workspaceId)
             .forShare()
             .executeTakeFirst();
-          const ctx = await authorize(tx, actor, workspaceId, request.id);
+          const ctx = await authorize(
+            tx,
+            actor,
+            workspaceId,
+            request.id,
+            runtime,
+            undefined,
+            undefined,
+          );
           const revision =
             (
               await tx

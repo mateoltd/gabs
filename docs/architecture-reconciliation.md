@@ -1,8 +1,8 @@
 # Architecture reconciliation
 
-Status: proposed target, 17 September 2026. This precedes further feature-parity expansion following the user's architecture feedback. No source migration has started. Product scope and the later UI-refinement goal remain unchanged.
+Status: implemented and locally accepted in the working tree, 17 September 2026. This reconciliation precedes further feature-parity expansion following the user's architecture feedback. Product scope and the later UI-refinement goal remain unchanged.
 
-## Diagnosis
+## Baseline diagnosis
 
 The directory structure reflects incremental implementation more than stable ownership:
 
@@ -76,9 +76,11 @@ packages/
       src/tables/
       src/overlays/
       src/layout/
-  composition/
-    src/catalog/             Generated official module bindings
-    src/presets/             Product defaults, initial roles and grants
+
+composition/                 Outermost product assembly, not a reusable package
+  src/catalog/               Generated official module bindings
+  src/presets/               Product defaults, initial roles and grants
+  src/web/                   Product shell views and navigation
 
 modules/
   contacts/
@@ -122,19 +124,44 @@ Physical directories and package identifiers are separate decisions. First move 
 
 ## Migration sequence and acceptance
 
-| Step | Work | Acceptance |
-| --- | --- | --- |
-| ARCH-01 | Record target ownership, current dependencies and exceptions. | Reviewable layout and explicit boundary rules. This document proposes them; migration is not complete. |
-| ARCH-02 | Mechanical directory moves and feature grouping. Update workspace globs, package exports, generators, build paths, CI paths and documentation. | Strict typecheck, boundary checks and all application builds; existing public imports still resolve. |
-| ARCH-03 | Separate contracts from product assembly; replace concrete catalog imports with injected interfaces; isolate retained legacy business adapters. | Generic SDK/runtime paths do not depend on Orders/Inventory; historical data and retry compatibility remain intact. |
-| ARCH-04 | Extract cohesive profile, installation, runtime, administration and shell responsibilities. Keep transaction orchestration explicit. | Focused business, authorization, lease, retry and atomicity regression checks. No incidental UI redesign. |
-| ARCH-05 | Enforce all-package boundaries and environment-specific TypeScript configurations. Reorganize fixtures and checks by responsibility. | Dependency/cycle failures are actionable; independently scaffold/build/install a module without host edits. |
-| ARCH-06 | Verify end-to-end behavior and reconcile tracker/evidence. | Headless browser and hidden/minimized native journeys; inspect relevant screenshots; then resume feature-parity expansion. |
+| Step    | Work                                                                                                                                            | Acceptance                                                                                                                 |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| ARCH-01 | Record target ownership, current dependencies and exceptions.                                                                                   | Reviewable layout and explicit boundary rules.                                                                             |
+| ARCH-02 | Mechanical directory moves and feature grouping. Update workspace globs, package exports, generators, build paths, CI paths and documentation.  | Strict typecheck, boundary checks and all application builds; existing public imports still resolve.                       |
+| ARCH-03 | Separate contracts from product assembly; replace concrete catalog imports with injected interfaces; isolate retained legacy business adapters. | Generic SDK/runtime paths do not depend on Orders/Inventory; historical data and retry compatibility remain intact.        |
+| ARCH-04 | Extract cohesive profile, installation, runtime, administration and shell responsibilities. Keep transaction orchestration explicit.            | Focused business, authorization, lease, retry and atomicity regression checks. No incidental UI redesign.                  |
+| ARCH-05 | Enforce all-package boundaries and environment-specific TypeScript configurations. Reorganize fixtures and checks by responsibility.            | Dependency/cycle failures are actionable; independently scaffold/build/install a module without host edits.                |
+| ARCH-06 | Verify end-to-end behavior and reconcile tracker/evidence.                                                                                      | Headless browser and hidden/minimized native journeys; inspect relevant screenshots; then resume feature-parity expansion. |
 
 Do not combine structural moves, public API redesign and visual redesign in one change. Do not add layers with no present responsibility. Unit tests may live beside their owner; multi-package integrations and user journeys remain in the root test suites. Historical verification artifacts remain at stable paths.
 
+## Implemented ownership and compatibility decisions
+
+- `composition/` is at the repository root because it is the outermost application assembly. It owns the generated bundled-module catalog, role and workspace presets, server bindings, local runtime assembly and product shell views. Placing it under `packages/` would imply that generic packages may depend on it. Hosts inject explicit catalog and shell composition objects; reusable client, server, shell and contract code does not import product assembly.
+- Physical package paths now express responsibility: `sdk`, `client`, `server`, `shell`, `ui/web` and `ui/tokens`. Existing published package identifiers such as `@suite/module-sdk`, `@suite/app-web` and `@suite/ui-web` remain compatible. The former API-client and platform implementations are one `@suite/client` package because they share browser storage, local execution and transport ownership.
+- The SDK index is a composition surface. Authoring, client, contract, runtime, testing and documentation code lives in named subdirectories. The stable `./local` and `./server` exports remain as narrow compatibility barrels while the implementations live under `runtime` and `authoring`.
+- Client, server and shell runtimes receive required composition objects. Registration remains in application assembly; reusable server consumers only require a read-only `ModuleCatalog`. Missing composition is a compile-time error rather than a process-global initialization state.
+- Discovery regenerates imports through module public entries and synchronizes every discovered bundled module into `composition/package.json`. Adding a fifth module does not require editing host source. The generated composition file is the only reviewed assembly surface allowed to bind discovered module entries.
+- Orders uses SDK services for current cross-module work. `modules/orders/server/legacy-inventory-adapter.ts` is the sole direct Orders-to-Inventory implementation exception, retained for version-1 signed receipts and historical recovery. The boundary checker matches that exact adapter rather than granting modules general access to one another.
+- Existing signed artifacts, package identities, host revisions and desktop output names remain unchanged. Generated OpenAPI JSON is byte-identical to the checkpoint, as are the generated API declarations and design-token values.
+- Tests are grouped into `unit`, `integration` and `support`; browser, desktop and fixture paths remain stable. [The test layout](../tests/README.md) records the responsibility rule and the old-to-new path mapping without rewriting historical evidence links.
+
+## Enforced dependency and environment proof
+
+`tooling/verification/check-boundaries.mjs` resolves TypeScript, dynamic import and CSS edges across every workspace, module and root assembly. It rejects unresolved internal paths, private cross-package imports, undeclared relative or package dependencies, package cycles and illegal layer direction. Type-only `import()` edges are included. Browser, worker, preload and Node graphs are checked transitively with separate TypeScript configurations.
+
+The integration fixtures prove rejection of an indirect browser-to-Node edge, Node package subpaths, worker-to-DOM edges, undeclared module-private imports, private relative app imports, module-to-server internals and contracts-to-product assembly. They also prove that public type-only module contracts and Node-based Vite configuration remain legal. The parent review's seven independent adversarial probes passed without checker-specific exceptions.
+
+## UI and wire continuity
+
+No visual declarations changed. Eight of the nine baseline CSS files are byte-identical at their new locations. The shared UI stylesheet changes only four `@import` paths, in the original order; the module-development host stylesheet likewise uses public stylesheet exports in the same order. All 16 named component implementations extracted from the former UI index have identical TypeScript-printed function bodies. Headless browser and minimized native acceptance passed after the fixture-path corrections recorded in the verification report.
+
+Regeneration preserves the frozen interfaces exactly: `docs/openapi.json`, `packages/client/src/api/schema.d.ts` and `packages/ui/tokens/src/values.ts` compare byte-for-byte with checkpoint `69aa1a3`. Desktop builds continue to emit `dist/main.cjs`, `dist/preload.cjs`, `dist/cache-worker.cjs` and `dist/renderer`.
+
 ## Preserved work and verification state
 
-The local-services feature remains uncommitted in the working tree. Its new typed service contracts, profile grants, worker transactions, UI and tests must be preserved through structural work. It has 250 passing unit/PostgreSQL tests and two passing focused browser journeys. The broader browser run completed with 15 passes and one accessibility failure involving a closing Select popup underneath the service-consent dialog; isolate the timing/visibility cause before claiming acceptance. The new native journey has not run. No additional tests were launched for this architecture review.
+Checkpoint `69aa1a3` contained the then-uncommitted local-services feature: typed service contracts, encrypted profile grants, worker transactions, UI and tests. That was the migration baseline, including its known intermittent accessibility failure while a Select popup completed its exit underneath the consent dialog. The structural work preserved the feature and its transaction, security and offline behavior. Acceptance identified the popup as still exposed to accessibility and interaction checks after Base UI had closed it; the popup is now `aria-hidden` and inert only while closed, with its existing exit animation retained. Three repeated local-services, keyboard/focus, motion, responsive and high-contrast runs passed all 36 cases, and the new minimized native local-services journey passed.
 
-The feature-parity goal remains incomplete. This architecture reconciliation takes execution priority; UI refinement remains a separate later goal.
+The complete local suite passed 257 unit/PostgreSQL tests across 56 files. The broad browser run passed 99 of 111 cases; all 12 failures were stale test routes for the renamed composition worker entry. Those 12 cases passed after their fixtures were corrected. A later focused run found the Select accessibility race, followed by the 36-case repeat above. The initial selected native run passed 10 of 13 cases; its three stale/default-fixture failures passed in a four-case repair run together with the second boundary case. All four production builds, strict environment checks, frozen lockfile installation and grouped CLI/distribution checks passed. [The detailed acceptance record](verification/architecture/README.md) keeps the run-by-run results rather than presenting them as one uninterrupted clean suite.
+
+The feature-parity goal remains incomplete. Architecture reconciliation is locally accepted; feature-parity expansion may resume after the repository checkpoint. UI refinement remains a separate later goal.

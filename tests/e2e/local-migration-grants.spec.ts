@@ -2,7 +2,7 @@ import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
-import { migrationGrantJourney } from "../local-migration-grant-journey";
+import { migrationGrantJourney } from "../support/local-migration-grant-journey";
 test("local installation reviews exact-release reference consent and rolls back denied coordinated migrations", async ({
   page,
 }) => {

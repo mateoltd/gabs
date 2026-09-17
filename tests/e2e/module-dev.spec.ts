@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 test.use({ actionTimeout: 10000 });
 
 test("independent React preview exercises real handlers, permissions, offline simulation and rebuild recovery", async ({
@@ -14,10 +14,7 @@ test("independent React preview exercises real handlers, permissions, offline si
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(resolve(".local/module-preview-"));
   const id = `preview-${randomUUID().slice(0, 8)}`;
-  const catalog = await readFile(
-    "packages/module-catalog/src/index.ts",
-    "utf8",
-  );
+  const catalog = await readFile("composition/src/catalog/index.ts", "utf8");
   for (const name of ["module.ts", "module-server.ts", "view.tsx", "view.css"])
     await writeFile(
       resolve(directory, name),
@@ -223,7 +220,7 @@ test("independent React preview exercises real handlers, permissions, offline si
       path: "docs/verification/module-preview/narrow.png",
       fullPage: true,
     });
-    expect(await readFile("packages/module-catalog/src/index.ts", "utf8")).toBe(
+    expect(await readFile("composition/src/catalog/index.ts", "utf8")).toBe(
       catalog,
     );
   } finally {

@@ -1,6 +1,7 @@
-import ordersDefinition from "../../../modules/orders/module";
-export * from "./business-cutover";
-import { moduleDefinitions } from "@suite/module-catalog";
+export * from "./commerce/business-cutover";
+export * from "./commerce/entities";
+export * from "./identity/permissions";
+import { OrderSchema } from "./commerce/entities";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 export { Type, type Static, type TSchema };
 export const LoginOptionsSchema = Type.Object(
@@ -16,87 +17,6 @@ export const Text = (max = 200) =>
   Type.String({ minLength: 1, maxLength: max });
 export const ModuleId = Type.String({ pattern: "^[a-z][a-z0-9-]{0,63}$" });
 export type ModuleId = string;
-export const PLATFORM_PERMISSIONS = [
-  "workspace.manage",
-  "members.manage",
-  "roles.manage",
-  "modules.manage",
-  "audit.read",
-  "billing.manage",
-] as const;
-export const PERMISSIONS: string[] = [
-  ...PLATFORM_PERMISSIONS,
-  ...moduleDefinitions.flatMap((m) => m.permissions),
-];
-export type Permission = string;
-export const PermissionSchema = Type.String({ maxLength: 200 });
-export const ROLE_PRESETS: Record<string, readonly Permission[]> = {
-  Owner: PERMISSIONS,
-  Administrator: PERMISSIONS,
-  Sales: [
-    "orders.read",
-    "orders.create",
-    "orders.edit",
-    "orders.confirm",
-    "orders.cancel",
-    "inventory.reservations.write",
-    "inventory.availability.read",
-    ...PERMISSIONS.filter((p) => p.startsWith("contacts.")),
-  ],
-  Warehouse: [
-    "orders.read",
-    "orders.fulfill",
-    "inventory.reservations.write",
-    "inventory.read",
-    "inventory.availability.read",
-    "inventory.products.manage",
-    "inventory.receive",
-    "inventory.adjust",
-  ],
-  Viewer: PERMISSIONS.filter((p) => p.endsWith(".read")),
-};
-/** Reviewed product onboarding template, independent of publisher-requested services. */
-export const DEFAULT_SERVICE_GRANTS = [
-  {
-    source: "orders",
-    target: "inventory",
-    services: ["resolve-products", "reserve", "release", "consume"],
-  },
-] as const;
-export const BUSINESS_PERMISSIONS = PERMISSIONS.filter(
-  (p) =>
-    !PLATFORM_PERMISSIONS.includes(p as (typeof PLATFORM_PERMISSIONS)[number]),
-);
-export const MODULES = moduleDefinitions.map((m) => ({
-  ...m,
-  dependencies: Object.keys(m.dependencies),
-}));
-export function refreshModuleCatalog() {
-  PERMISSIONS.splice(
-    0,
-    PERMISSIONS.length,
-    ...PLATFORM_PERMISSIONS,
-    ...moduleDefinitions.flatMap((m) => m.permissions),
-  );
-  BUSINESS_PERMISSIONS.splice(
-    0,
-    BUSINESS_PERMISSIONS.length,
-    ...PERMISSIONS.filter(
-      (p) =>
-        !PLATFORM_PERMISSIONS.includes(
-          p as (typeof PLATFORM_PERMISSIONS)[number],
-        ),
-    ),
-  );
-  MODULES.splice(
-    0,
-    MODULES.length,
-    ...moduleDefinitions.map((m) => ({
-      ...m,
-      dependencies: Object.keys(m.dependencies),
-    })),
-  );
-}
 export const UserSchema = Type.Object({
   id: Id,
   name: Text(),
@@ -142,60 +62,6 @@ export const page = (item: TSchema) =>
     items: Type.Array(item),
     nextCursor: Type.Union([Id, Type.Null()]),
   });
-export const ProductSchema = Type.Object({
-  id: Id,
-  sku: Text(80),
-  name: Text(),
-  priceMinor: Type.Integer(),
-  stockVersion: Type.Optional(Type.Integer()),
-  onHand: Type.Optional(Type.Integer()),
-  reserved: Type.Optional(Type.Integer()),
-  available: Type.Integer(),
-  version: Type.Integer(),
-  active: Type.Boolean(),
-});
-export type Product = Static<typeof ProductSchema>;
-export const OrderLineInput = Type.Object(
-  {
-    productId: Id,
-    quantity: Type.Integer({ minimum: 1, maximum: 1000000 }),
-    priceMinor: Type.Integer({ minimum: 0, maximum: 100000000 }),
-  },
-  { additionalProperties: false },
-);
-export const DraftInput = ordersDefinition.operations.draft.input;
-export type DraftInput = Static<typeof DraftInput>;
-export const OrderLineSchema = Type.Object(
-  {
-    ...OrderLineInput.properties,
-    sku: Type.String(),
-    name: Type.String(),
-  },
-  { additionalProperties: false },
-);
-export const OrderSchema = Type.Object({
-  id: Id,
-  number: Type.Integer(),
-  customerName: Type.String(),
-  status: Type.Union(
-    ["draft", "confirmed", "fulfilled", "cancelled"].map((v) =>
-      Type.Literal(v),
-    ),
-  ),
-  version: Type.Integer(),
-  totalMinor: Type.Number(),
-  createdAt: Type.String(),
-  lines: Type.Optional(Type.Array(OrderLineSchema)),
-  activity: Type.Optional(
-    Type.Array(
-      Type.Object({
-        action: Type.String(),
-        createdAt: Type.String(),
-      }),
-    ),
-  ),
-});
-export type Order = Static<typeof OrderSchema>;
 export const OverviewSchema = Type.Object({
   orders: Type.Union([
     Type.Null(),
@@ -251,16 +117,6 @@ export const BootstrapSchema = Type.Object({
   policyRevision: Type.Optional(Type.String({ pattern: "^[0-9]{1,20}$" })),
 });
 export type Bootstrap = Static<typeof BootstrapSchema>;
-export const MovementSchema = Type.Object({
-  id: Id,
-  productId: Id,
-  sku: Type.String(),
-  kind: Type.String(),
-  onHandDelta: Type.Integer(),
-  reservedDelta: Type.Integer(),
-  reason: Type.String(),
-  createdAt: Type.String(),
-});
 export const RoleSchema = Type.Object({
   id: Id,
   name: Type.String(),

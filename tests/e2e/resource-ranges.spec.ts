@@ -14,7 +14,7 @@ import {
   rangeData,
   exerciseRanges,
   setRange,
-} from "../resource-ranges-journey";
+} from "../support/resource-ranges-journey";
 test("typed range controls use server validation and isolated offline cache keys", async ({
   page,
   context,
@@ -203,7 +203,7 @@ test("standalone range controls query encrypted records offline and reset pagina
   const bundle = await build({
     stdin: {
       contents:
-        "export {createLocalProfile} from './packages/platform/src/local-profiles';export {hydrateModule,createModuleClient} from '@suite/module-sdk';export {moduleContract} from '@suite/module-sdk/client-artifact';",
+        "export {createLocalProfile} from './composition/src/local/product';export {hydrateModule,createModuleClient} from '@suite/module-sdk';export {moduleContract} from '@suite/module-sdk/client-artifact';",
       resolveDir: process.cwd(),
     },
     bundle: true,
@@ -218,13 +218,13 @@ test("standalone range controls query encrypted records offline and reset pagina
     }),
   );
   const worker = await build({
-    entryPoints: [resolve("packages/platform/src/local-worker-entry.ts")],
+    entryPoints: [resolve("composition/src/local/worker-entry.ts")],
     bundle: true,
     write: false,
     platform: "browser",
     format: "esm",
   });
-  await page.route("**/local-worker-entry.ts", (route) =>
+  await page.route("**/worker-entry.ts", (route) =>
     route.fulfill({
       contentType: "text/javascript",
       body: worker.outputFiles[0].text,
@@ -236,7 +236,7 @@ test("standalone range controls query encrypted records offline and reset pagina
       const path = "/table-profile-seed.mjs";
       const sdk = (await import(
         path
-      )) as typeof import("../../packages/platform/src/local-profiles") &
+      )) as typeof import("../../composition/src/local/product") &
         typeof import("@suite/module-sdk") &
         typeof import("@suite/module-sdk/client-artifact");
       const session = await sdk.createLocalProfile(

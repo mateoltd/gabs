@@ -7,8 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@sinclair/typebox": "0.34.52",
-    "@suite/module-sdk": "workspace:*",
-    "@suite/module-catalog": "workspace:*"
+    "@sinclair/typebox": "0.34.52"
   }
 }

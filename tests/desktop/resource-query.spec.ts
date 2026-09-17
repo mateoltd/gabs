@@ -13,7 +13,7 @@ import {
   queryName,
   queryData,
   exerciseQuery,
-} from "../resource-query-journey";
+} from "../support/resource-query-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("hidden desktop composes signed resource query views without taking focus", async () => {

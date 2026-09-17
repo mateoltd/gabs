@@ -7,14 +7,14 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Pool } from "pg";
 import type { ModuleDefinition } from "@suite/module-sdk";
-import { signPackage } from "../../packages/module-sdk/node/signing";
-import { buildServerPackage } from "../../packages/module-sdk/node/build-server";
+import { signPackage } from "../../packages/sdk/node/signing";
+import { buildServerPackage } from "../../packages/sdk/node/build-server";
 import {
   submitRelease,
   reviewRelease,
   stageRelease,
   publishRelease,
-} from "../../tooling/registry-review";
+} from "../../tooling/modules/registry-review";
 import { selectValue } from "./controls.helpers";
 
 test("administrator migrates nested references atomically through the real migration control", async ({

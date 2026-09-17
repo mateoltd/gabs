@@ -2,7 +2,7 @@ import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
-import { localServiceJourney } from "../local-service-journey";
+import { localServiceJourney } from "../support/local-service-journey";
 test("standalone service consent, encrypted retry and revocation preserve atomic module records", async ({
   page,
 }) => {
@@ -15,6 +15,13 @@ test("standalone service consent, encrypted retry and revocation preserve atomic
     page.getByRole("button", { name: "Account menu", exact: true }),
   ).toBeVisible();
   await localServiceJourney(page, false);
+  expect(
+    await page
+      .locator(
+        '.select-popup[data-closed]:not([aria-hidden="true"]), .select-popup[data-closed]:not([inert])',
+      )
+      .count(),
+  ).toBe(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await mkdir("docs/verification/local-services", { recursive: true });
   await page.screenshot({ path: "docs/verification/local-services/wide.png" });

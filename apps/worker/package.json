@@ -13,6 +13,6 @@
     "@suite/orders": "workspace:*"
   },
   "scripts": {
-    "build": "node ../../tooling/build-server.mjs worker"
+    "build": "node ../../tooling/build/build-server.mjs worker"
   }
 }

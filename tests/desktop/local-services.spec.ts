@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { localServiceJourney } from "../local-service-journey";
+import { localServiceJourney } from "../support/local-service-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("hidden native service consent and retry commit both modules atomically", async () => {
   test.setTimeout(150000);

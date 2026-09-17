@@ -37,6 +37,6 @@ Logs: `/tmp/gabs-references-full-verified.log`, `/tmp/gabs-references-final-buil
 
 ## Remaining scope
 
-See [the authoring guide](../../module-references.md). Tuple/map picker editors, complete nested/off-page table labels, independent-view/standalone/simulator adapters, recursive migration-link reconciliation and private-store/operation-input reference semantics remain open. General working-set limits, richer query controls and complete SDK composition are separate remaining requirements.
+See [the authoring guide](../../references.md). Tuple/map picker editors, complete nested/off-page table labels, independent-view/standalone/simulator adapters, recursive migration-link reconciliation and private-store/operation-input reference semantics remain open. General working-set limits, richer query controls and complete SDK composition are separate remaining requirements.
 
 The previous `f701463` / [CI 35165655671](https://github.com/mateoltd/gabs/actions/runs/35165655671) passed 180 unit tests, 84 browser cases, three unsigned desktop packages and a two-second logical restore. It failed unchanged 500/1,000 ms load targets at 854/1,788 ms. Fresh remote acceptance for this checkpoint remains pending. No hosted release, live billing effect or production deployment occurred.

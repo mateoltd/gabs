@@ -1,0 +1,25 @@
+{
+  "name": "@suite/ui-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./styles.css": "./src/styles/index.css",
+    "./controls.css": "./src/controls/controls.css",
+    "./work-list.css": "./src/tables/work-list.css",
+    "./icons": "./src/controls/icons.tsx"
+  },
+  "dependencies": {
+    "@suite/module-sdk": "workspace:*",
+    "@base-ui/react": "1.8.0",
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@hugeicons/core-free-icons": "4.3.3",
+    "@hugeicons/react": "1.1.10",
+    "@phosphor-icons/react": "2.1.10",
+    "@radix-ui/react-dialog": "1.1.23",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

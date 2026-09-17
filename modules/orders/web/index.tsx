@@ -42,13 +42,13 @@ import {
   ContentSkeleton,
   SegmentedControl,
 } from "@suite/ui-web";
-import { ApiError } from "@suite/api-client";
+import { ApiError } from "@suite/client/api";
 import {
   type FeatureProps,
   type LocalDraft,
   type PendingCommand,
-  canUse,
-} from "@suite/platform";
+  canUse as canUseWithCatalog,
+} from "@suite/client";
 import type { DraftInput, Order } from "@suite/contracts";
 function isOrderConflict(error: ApiError) {
   const detail = error.detail as
@@ -91,7 +91,13 @@ export default function Orders(
     snapshot,
     offlineEnabled,
     onError,
+    moduleCatalog,
   } = props;
+  const canUse = (
+    current: FeatureProps["bootstrap"],
+    moduleId: string,
+    permission: string,
+  ) => canUseWithCatalog(current, moduleId, permission, moduleCatalog);
   // The host verifies the installed package; this view consumes its stable command contract.
   const apiFor = (version = props.definition.version) =>
     client.module({ ...moduleDefinition, version }, scope.workspaceId);

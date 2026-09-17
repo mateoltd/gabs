@@ -12,7 +12,7 @@ import {
   rangeId,
   rangeData,
   exerciseRanges,
-} from "../resource-ranges-journey";
+} from "../support/resource-ranges-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("hidden desktop range controls validate numeric and date bounds without taking focus", async () => {

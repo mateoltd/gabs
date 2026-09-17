@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { publishEditableFixture } from "../editable-fixture";
+import { publishEditableFixture } from "../support/editable-fixture";
 
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("native custom-view updates preserve typed input and recover from invalid conversion", async () => {

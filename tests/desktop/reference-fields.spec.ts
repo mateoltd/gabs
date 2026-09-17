@@ -12,7 +12,7 @@ import {
   referenceModuleId,
   referenceTargets,
   exerciseReferencePicker,
-} from "../reference-journey";
+} from "../support/reference-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("native nested reference choices search and page without focusing the desktop", async () => {

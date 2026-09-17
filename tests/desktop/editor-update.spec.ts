@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { publishEditorFixture } from "../editor-fixture";
+import { publishEditorFixture } from "../support/editor-fixture";
 
 const require = createRequire(resolve("apps/desktop/package.json"));
 

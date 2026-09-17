@@ -1,0 +1,137 @@
+import type {
+  Bootstrap,
+  DraftInput,
+  Order,
+  Product,
+  OperationRequest,
+  LoginOptions,
+} from "@suite/contracts";
+export interface Scope {
+  userId: string;
+  workspaceId: string;
+}
+export type CacheKey =
+  | "snapshot"
+  | "drafts"
+  | "pending"
+  | "module-state"
+  | "relay-inbox"
+  | ModuleArtifactKey;
+export type ModuleArtifactKey = `module-artifact/${string}/${number}`;
+export const isModuleArtifactKey = (key: unknown): key is ModuleArtifactKey =>
+  typeof key === "string" &&
+  /^module-artifact\/[a-f0-9]{64}\/(0|[1-9][0-9]{0,3})$/.test(key);
+export interface Snapshot {
+  bootstrap: Bootstrap;
+  products: Product[];
+  orders: Order[];
+  expiresAt: number;
+  cachedAt: number;
+}
+export interface LocalDraft {
+  /** Exact release used by a submitted attempt; absent for a new, unsubmitted draft. */
+  moduleVersion?: string;
+  id: string;
+  input: DraftInput;
+  remoteId?: string;
+  baseVersion?: number;
+  uploadKey: string;
+  updatedAt: number;
+  state: "local" | "conflict" | "uploading";
+}
+export interface PendingCommand {
+  /** Older saved commands used the bundled Orders 1.1 contract. */
+  moduleVersion?: string;
+  operation: "orderConfirm" | "orderFulfill" | "orderCancel";
+  orderId: string;
+  version: number;
+  key: string;
+}
+export interface RememberedIdentity {
+  userId: string;
+  name: string;
+  workspaceId: string;
+}
+export interface Platform {
+  kind: "web" | "desktop";
+  load<T>(scope: Scope, key: CacheKey): Promise<T | undefined>;
+  save<T>(scope: Scope, key: CacheKey, value: T): Promise<void>;
+  pruneModuleArtifacts(scope: Scope, keep: ModuleArtifactKey[]): Promise<void>;
+  purgeWorkspace(scope: Scope): Promise<void>;
+  purgeUser(userId: string): Promise<void>;
+  identity(): Promise<RememberedIdentity | undefined>;
+  rememberIdentity(identity: RememberedIdentity | undefined): Promise<void>;
+  saveFile(filename: string, content: string): Promise<void>;
+  notify(title: string, message: string): Promise<void>;
+}
+export interface LanStatus {
+  enabled: boolean;
+  configured: boolean;
+  workspaceId?: string;
+  peers: { id: string; address: string; port: number; seen: number }[];
+  port?: number;
+}
+export interface DesktopBridge {
+  openModuleHost(
+    scope: Scope,
+    moduleId: string,
+    moduleVersion: string,
+  ): Promise<string>;
+  closeModuleHost(handle: string): Promise<void>;
+  moduleCapability(
+    handle: string,
+    capability: string,
+    input: unknown,
+  ): Promise<unknown>;
+  openBilling(url: string): Promise<void>;
+  lanStatus(): Promise<LanStatus>;
+  setLan(scope: Scope, enabled: boolean): Promise<LanStatus>;
+  relay(
+    scope: Scope,
+    peerId: string,
+    envelope: {
+      kind: "artifact" | "pending";
+      workspaceId: string;
+      id: string;
+      payload: string;
+      digest: string;
+    },
+  ): Promise<void>;
+  authStatus(): Promise<{
+    mode: "development" | "oidc" | "unconfigured";
+  }>;
+  execute(
+    request: OperationRequest,
+  ): Promise<{ status: number; body: unknown }>;
+  login(options?: LoginOptions): Promise<void>;
+  logout(): Promise<void>;
+  cacheRead(scope: Scope, key: CacheKey): Promise<unknown>;
+  cacheWrite(scope: Scope, key: CacheKey, value: unknown): Promise<void>;
+  cachePruneArtifacts(scope: Scope, keep: ModuleArtifactKey[]): Promise<void>;
+  cachePurge(scope: { userId: string; workspaceId?: string }): Promise<void>;
+  identity(): Promise<RememberedIdentity | undefined>;
+  rememberIdentity(value: RememberedIdentity | undefined): Promise<void>;
+  saveFile(filename: string, content: string): Promise<void>;
+  notify(title: string, message: string): Promise<void>;
+  securityStatus(): Promise<{
+    persistentStorage: boolean;
+    updateRequired: boolean;
+  }>;
+}
+declare global {
+  interface Window {
+    suiteDesktop?: DesktopBridge;
+  }
+}
+export function canReadSnapshot(
+  snapshot: Snapshot | undefined,
+  now = Date.now(),
+): snapshot is Snapshot {
+  return (
+    !!snapshot &&
+    snapshot.expiresAt > now &&
+    snapshot.cachedAt <= now &&
+    snapshot.bootstrap.offlineHours > 0
+  );
+}
+export * from "./modules/features";

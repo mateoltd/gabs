@@ -1,4 +1,4 @@
-import { provisionWorkspace as provisionCurrentWorkspace } from "../../packages/server-core/src/provision";
+import { provisionWorkspace as provisionCurrentWorkspace } from "../../composition/src/server/product";
 import inventoryDefault from "../../modules/inventory/module";
 import ordersDefault from "../../modules/orders/module";
 import { provisionLegacyWorkspace as provisionWorkspace } from "../fixtures/legacy-workspace";
@@ -13,7 +13,7 @@ import {
   connectDatabase,
   inWorkspace,
   type Actor,
-} from "../../packages/server-core/src";
+} from "../../composition/src/server/product";
 import { scopedBusinessFixture } from "../fixtures/scoped-business";
 import { selectValue } from "../e2e/controls.helpers";
 const require = createRequire(resolve("apps/desktop/package.json"));

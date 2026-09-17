@@ -1,5 +1,5 @@
-import type { Snapshot } from "../../packages/platform/src";
-import type { ModuleStorage } from "../../packages/platform/src/module-storage";
+import type { Snapshot } from "../../packages/client/src";
+import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";

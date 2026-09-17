@@ -1,7 +1,10 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
-import { connectDatabase, inWorkspace } from "../../packages/server-core/src";
+import {
+  connectDatabase,
+  inWorkspace,
+} from "../../composition/src/server/product";
 import { runBatch } from "../../apps/worker/src/worker";
 import { selectValue } from "./controls.helpers";
 

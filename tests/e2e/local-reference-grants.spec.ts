@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
-import { localReferenceGrantJourney } from "../local-reference-grant-journey";
+import { localReferenceGrantJourney } from "../support/local-reference-grant-journey";
 test.use({ actionTimeout: 10000 });
 test("local reference consent survives lock and revocation blocks lookup while preserving saved projects", async ({
   page,

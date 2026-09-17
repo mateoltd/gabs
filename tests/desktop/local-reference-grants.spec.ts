@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { localReferenceGrantJourney } from "../local-reference-grant-journey";
+import { localReferenceGrantJourney } from "../support/local-reference-grant-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("hidden native profiles grant, retain and revoke standalone references", async () => {
   const profile = await mkdtemp(resolve(tmpdir(), "suite-reference-grants-"));

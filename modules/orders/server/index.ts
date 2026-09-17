@@ -13,8 +13,8 @@ import {
   AppError,
   lockWorkspace,
 } from "@suite/server-core";
-import { applyOrderStock, resolveOrderProducts } from "@suite/inventory/server";
 import { transition, validateDraft, type OrderStatus } from "../domain";
+import { legacyInventoryService } from "./legacy-inventory-adapter";
 export async function getOrder(
   tx: Tx,
   workspaceId: string,
@@ -96,7 +96,7 @@ async function replaceLines(
   orderId: string,
   input: DraftInput,
 ) {
-  const products = await resolveOrderProducts(
+  const products = await legacyInventoryService.resolveProducts(
     tx,
     ctx,
     input.lines.map((l) => l.productId),
@@ -240,11 +240,11 @@ export async function changeOrder(
     .where("order_id", "=", id)
     .execute();
   if (action === "confirm")
-    await applyOrderStock(tx, ctx, id, lines, "reservation");
+    await legacyInventoryService.applyStock(tx, ctx, id, lines, "reservation");
   if (action === "fulfill")
-    await applyOrderStock(tx, ctx, id, lines, "fulfillment");
+    await legacyInventoryService.applyStock(tx, ctx, id, lines, "fulfillment");
   if (action === "cancel" && order.status === "confirmed")
-    await applyOrderStock(tx, ctx, id, lines, "release");
+    await legacyInventoryService.applyStock(tx, ctx, id, lines, "release");
   await tx
     .updateTable("suite.orders")
     .set({ status, version: order.version + 1, updated_at: new Date() })

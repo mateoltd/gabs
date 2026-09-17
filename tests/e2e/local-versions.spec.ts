@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Pool } from "pg";
 import { mkdir } from "node:fs/promises";
-import { publishLocalPackage } from "../local-package-fixture";
+import { publishLocalPackage } from "../support/local-package-fixture";
 import { selectValue } from "./controls.helpers";
 
 test("retained local releases support safe offline rollback and preserve installation history across removal and unlock", async ({

@@ -1,0 +1,37 @@
+{
+  "name": "@suite/module-catalog",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/catalog/index.ts",
+    "./business": "./src/catalog/business.ts",
+    "./server": "./src/catalog/server.ts",
+    "./local": "./src/catalog/local.ts",
+    "./local-runtime": "./src/local/runtime.ts",
+    "./local-product": "./src/local/product.ts",
+    "./presets": "./src/presets/index.ts",
+    "./server-product": "./src/server/product.ts",
+    "./web": "./src/web/shell.tsx"
+  },
+  "dependencies": {
+    "@suite/client": "workspace:*",
+    "@suite/contracts": "workspace:*",
+    "@suite/module-sdk": "workspace:*",
+    "@suite/server-core": "workspace:*",
+    "@suite/app-web": "workspace:*",
+    "react": "19.3.0",
+    "@suite/contacts": "workspace:*",
+    "@suite/inventory": "workspace:*",
+    "@suite/orders": "workspace:*",
+    "@suite/projects": "workspace:*"
+  },
+  "suite": {
+    "generatedModuleDependencies": [
+      "@suite/contacts",
+      "@suite/inventory",
+      "@suite/orders",
+      "@suite/projects"
+    ]
+  }
+}

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 
 test("typed generated editors preserve nested values, primitive choices and invalid JSON drafts", async ({
   page,

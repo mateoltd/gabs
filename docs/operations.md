@@ -12,7 +12,7 @@ Provision database roles before production migrations:
 - `suite_control`: NOLOGIN, narrow table permissions and explicit RLS policies used by security-definer functions. Runtime roles must not be its members.
 - Operator: a separate, audited human-controlled database credential for entitlement grants and recovery. It must not be deployed to the application.
 
-Run `pnpm exec tsx tooling/migrate.ts` with `MIGRATION_DATABASE_URL` from the secret manager. Migrations take an advisory lock and verify the checksums of previously applied SQL files. Do not edit an applied migration. On managed PostgreSQL without superuser privileges, have the database administrator create `suite_control`, grant the migration identity permission to set that role during ownership changes, and verify the grants before staging deployment.
+Run `pnpm exec tsx tooling/database/migrate.ts` with `MIGRATION_DATABASE_URL` from the secret manager. Migrations take an advisory lock and verify the checksums of previously applied SQL files. Do not edit an applied migration. On managed PostgreSQL without superuser privileges, have the database administrator create `suite_control`, grant the migration identity permission to set that role during ownership changes, and verify the grants before staging deployment.
 
 Never use the migration credential as DATABASE_URL. Enforce TLS using the provider's certificate chain and `sslmode=verify-full`; do not disable certificate verification. Repeat the integration isolation tests using the real application role after migrations.
 
@@ -49,8 +49,8 @@ Pilot request limiting is per process and IP. Configure a shared edge limit for 
 Production workspaces start without active commercial entitlements. A human operator grants the pilot allowance:
 
 ```sh
-OPERATOR_DATABASE_URL=... OPERATOR_USER_ID=... pnpm exec tsx tooling/grant-entitlement.ts <workspace-id> inventory true 10 "Pilot approval"
-OPERATOR_DATABASE_URL=... OPERATOR_USER_ID=... pnpm exec tsx tooling/grant-entitlement.ts <workspace-id> orders true 10 "Pilot approval"
+OPERATOR_DATABASE_URL=... OPERATOR_USER_ID=... pnpm exec tsx tooling/operations/grant-entitlement.ts <workspace-id> inventory true 10 "Pilot approval"
+OPERATOR_DATABASE_URL=... OPERATOR_USER_ID=... pnpm exec tsx tooling/operations/grant-entitlement.ts <workspace-id> orders true 10 "Pilot approval"
 ```
 
 The operator user ID must be their existing application identity for audit attribution. Supply secrets through the environment, not shell history. The CLI locks the workspace, rejects seat allowances below active membership usage, and records the grant. The company owner then configures and enables Inventory before Orders. There is no payment collection or automatic subscription lifecycle.

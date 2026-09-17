@@ -9,7 +9,7 @@ import {
   connectDatabase,
   inWorkspace,
   type Actor,
-} from "../../packages/server-core/src";
+} from "../../composition/src/server/product";
 import { scopedBusinessFixture } from "../fixtures/scoped-business";
 import legacyInventory from "../../modules/inventory/releases/1.2.0/module";
 import legacyOrders from "../../modules/orders/releases/1.1.0/module";

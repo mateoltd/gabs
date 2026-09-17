@@ -15,7 +15,7 @@ Audit of the approved typed authoring, generated documentation/UI and compositio
 
 ## Final gate: generated host responses and journal acknowledgment
 
-[Generated response acceptance](verification/generated-response/README.md) closes the separate direct-transport paths in `packages/app-web/src/module-view.tsx` and `syncModuleStorage`. Live/cached results are validated; queues retain each original signed module/resource/version contract rather than using the currently displayed release. Malformed responses remain pending, preserve keys, block dependent work and allow unrelated work to continue.
+[Generated response acceptance](verification/generated-response/README.md) closes the separate direct-transport paths in `packages/shell/src/module-view.tsx` and `syncModuleStorage`. Live/cached results are validated; queues retain each original signed module/resource/version contract rather than using the currently displayed release. Malformed responses remain pending, preserve keys, block dependent work and allow unrelated work to continue.
 
 The final audit checked the public resource/query client and response schemas, generated schema editors/tables/reference controls, schema-derived documentation generation, inferred configuration/event/error/service contracts and independent signed custom-view composition. Current strict compilation includes negative contract assertions. The full 235-test unit/PostgreSQL run, 20 headless browser journeys and four hidden native journeys preserve those scoped paths and verify the new integration.
 

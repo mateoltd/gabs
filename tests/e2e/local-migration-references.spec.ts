@@ -2,9 +2,9 @@ import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import { mkdir, readFile } from "node:fs/promises";
-import { publishLocalPackage } from "../local-package-fixture";
+import { publishLocalPackage } from "../support/local-package-fixture";
 import { selectValue } from "./controls.helpers";
-import type { LocalData } from "../../packages/platform/src/local-profiles";
+import type { LocalData } from "../../packages/client/src/identity/local-profiles";
 
 test("signed local updates reject broken new links and preserve historical archived links across recovery", async ({
   page,

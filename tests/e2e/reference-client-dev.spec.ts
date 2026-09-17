@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { startModuleDev } from "../../tooling/module-dev/server";
-import { clientReferenceRows } from "../reference-client-journey";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
+import { clientReferenceRows } from "../support/reference-client-journey";
 test("development reference pickers require explicit provider grants and honor permission changes", async ({
   page,
 }) => {

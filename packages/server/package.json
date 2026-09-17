@@ -1,0 +1,28 @@
+{
+  "name": "@suite/server-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./governance/business-cutover": "./src/governance/business-cutover.ts",
+    "./governance/policy-signals": "./src/governance/policy-signals.ts",
+    "./persistence/module-migrations": "./src/persistence/module-migrations.ts",
+    "./persistence/module-storage": "./src/persistence/module-storage.ts",
+    "./registry/installation-reports": "./src/registry/installation-reports.ts",
+    "./registry/module-installations": "./src/registry/module-installations.ts",
+    "./registry/module-releases": "./src/registry/module-releases.ts",
+    "./registry/module-rollout": "./src/registry/module-rollout.ts",
+    "./runtime/references": "./src/runtime/references.ts",
+    "./runtime/resources": "./src/runtime/resources.ts",
+    "./runtime/services": "./src/runtime/services.ts"
+  },
+  "dependencies": {
+    "@suite/contracts": "workspace:*",
+    "kysely": "0.29.5",
+    "pg": "8.23.0",
+    "jose": "6.2.12",
+    "openid-client": "6.8.8",
+    "@suite/module-sdk": "workspace:*"
+  }
+}

@@ -1,0 +1,633 @@
+import { validateConfiguredRollouts } from "../registry/module-rollout";
+import { randomUUID } from "node:crypto";
+import { sql } from "kysely";
+import {
+  assertSchema,
+  ValidationError,
+  hydrateModule,
+  identifier,
+  storageContract,
+  supportsStorage,
+  type MigrationContext,
+  type ModuleDefinition,
+  type JsonRecord,
+} from "@suite/module-sdk";
+import {
+  referenceFields,
+  referenceValues,
+  referenceTargetKey,
+  type ReferenceValue,
+} from "@suite/module-sdk/references";
+import { canonical } from "@suite/module-sdk/registry";
+import type { Tx } from "./database";
+import { authorize, type Context } from "../identity/authorization";
+import type { InstalledModuleServer } from "../runtime/services";
+import {
+  resolveWorkspaceRelease,
+  workspaceModule,
+} from "../registry/module-releases";
+import { stagedModuleServer } from "../registry/staged-module-server";
+import { validateReferenceValues } from "../runtime/resources";
+import {
+  lockModuleStorage,
+  moduleStorageVersions,
+  invalidateStorageVersions,
+  assertModuleStorage,
+} from "./module-storage";
+import { found, requireCondition } from "../errors";
+import { audit, publish } from "./transactions";
+
+/** Uses a savepoint so caught migration failures cannot commit partial data. */
+export async function migrateModuleStorage(
+  tx: Tx,
+  ctx: Context,
+  moduleId: string,
+  targetVersion: string,
+  builtins: readonly InstalledModuleServer[] = [],
+) {
+  await lockModuleStorage(tx, ctx.workspaceId, true);
+  ctx = await authorize(
+    tx,
+    ctx.actor,
+    ctx.workspaceId,
+    ctx.requestId,
+    ctx.runtime,
+    "modules.manage",
+  );
+  await sql`savepoint suite_module_migration`.execute(tx);
+  try {
+    const result = await applyMigration(
+      tx,
+      ctx,
+      moduleId,
+      targetVersion,
+      builtins,
+    );
+    await sql`release savepoint suite_module_migration`.execute(tx);
+    return result;
+  } catch (error) {
+    try {
+      await sql`rollback to savepoint suite_module_migration`.execute(tx);
+      await sql`release savepoint suite_module_migration`.execute(tx);
+    } catch {
+      /* A disconnected transaction is rolled back by PostgreSQL. */
+    }
+    invalidateStorageVersions(tx, ctx.workspaceId);
+    throw error;
+  }
+}
+/** Host-coordinated, dependency-ordered changes commit or roll back together.
+ * The caller must select compatible target pins in the same enclosing transaction.
+ */
+export async function migrateModuleStorageBatch(
+  tx: Tx,
+  ctx: Context,
+  targets: readonly { moduleId: string; version: string }[],
+  builtins: readonly InstalledModuleServer[] = [],
+) {
+  requireCondition(
+    targets.length > 0 &&
+      targets.length <= 64 &&
+      new Set(targets.map((t) => t.moduleId)).size === targets.length,
+    400,
+    "INVALID_MIGRATION_BATCH",
+    "Choose distinct modules in dependency order.",
+  );
+  await lockModuleStorage(tx, ctx.workspaceId, true);
+  ctx = await authorize(
+    tx,
+    ctx.actor,
+    ctx.workspaceId,
+    ctx.requestId,
+    ctx.runtime,
+    "modules.manage",
+  );
+  await sql`savepoint suite_module_batch`.execute(tx);
+  try {
+    const results = [];
+    for (const target of targets)
+      results.push(
+        await applyMigration(
+          tx,
+          ctx,
+          target.moduleId,
+          target.version,
+          builtins,
+          false,
+        ),
+      );
+    await validateConfiguredRollouts(
+      tx,
+      ctx.workspaceId,
+      ctx.runtime.catalog,
+      builtins,
+    );
+    await sql`release savepoint suite_module_batch`.execute(tx);
+    return results;
+  } catch (error) {
+    try {
+      await sql`rollback to savepoint suite_module_batch`.execute(tx);
+      await sql`release savepoint suite_module_batch`.execute(tx);
+    } catch {
+      /* A disconnected transaction is rolled back by PostgreSQL. */
+    }
+    invalidateStorageVersions(tx, ctx.workspaceId);
+    throw error;
+  }
+}
+
+async function applyMigration(
+  tx: Tx,
+  ctx: Context,
+  moduleId: string,
+  targetVersion: string,
+  builtins: readonly InstalledModuleServer[],
+  validateRollouts = true,
+) {
+  requireCondition(
+    ctx.permissions.includes("modules.manage"),
+    403,
+    "FORBIDDEN",
+    "Module administration permission is required for storage migrations.",
+  );
+  await lockModuleStorage(tx, ctx.workspaceId, true);
+  const packages = await resolveWorkspaceRelease(
+    tx,
+    ctx.workspaceId,
+    moduleId,
+    false,
+    targetVersion,
+  );
+  const pkg = found(packages.find((p) => p.module_id === moduleId));
+  const module = hydrateModule(pkg.artifact as unknown as ModuleDefinition);
+  const storage = storageContract(module);
+  const stored = await moduleStorageVersions(tx, ctx.workspaceId);
+  const current = stored.get(moduleId) ?? 1;
+  const entitlement = await tx
+    .selectFrom("suite.entitlements")
+    .select("active")
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("module_id", "=", moduleId)
+    .executeTakeFirst();
+  requireCondition(
+    entitlement?.active,
+    409,
+    "NOT_ENTITLED",
+    "An active module entitlement is required before migration.",
+  );
+  for (const dependency of packages.filter((p) => p.module_id !== moduleId))
+    await assertModuleStorage(
+      tx,
+      ctx.workspaceId,
+      hydrateModule(dependency.artifact as unknown as ModuleDefinition),
+    );
+  if (storage.version <= current) {
+    requireCondition(
+      supportsStorage(module, current),
+      409,
+      "SCHEMA_DOWNGRADE_FORBIDDEN",
+      "This executable cannot use the stored schema. Data migrations are forward-only.",
+    );
+    return { moduleId, schemaVersion: current, applied: [] as string[] };
+  }
+  if (current === 1 && (moduleId === "orders" || moduleId === "inventory")) {
+    const legacy = await sql<{
+      present: boolean;
+    }>`select exists(select 1 from suite.products where workspace_id=${ctx.workspaceId}::uuid) or exists(select 1 from suite.orders where workspace_id=${ctx.workspaceId}::uuid) as present`.execute(
+      tx,
+    );
+    if (legacy.rows[0].present) {
+      const prepared = await tx
+        .selectFrom("suite.platform_settings")
+        .select("value")
+        .where("workspace_id", "=", ctx.workspaceId)
+        .where("key", "=", "business-storage-import")
+        .executeTakeFirst();
+      requireCondition(
+        prepared?.value.state === "prepared" &&
+          (prepared.value.versions as Record<string, unknown> | undefined)?.[
+            moduleId
+          ] === targetVersion,
+        409,
+        "BUSINESS_MIGRATION_REQUIRED",
+        "Orders and Inventory contain legacy data. Use the coordinated business migration before selecting these releases.",
+      );
+    }
+  }
+  const count = await tx
+    .selectFrom("suite.module_records")
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("module_id", "=", moduleId)
+    .executeTakeFirstOrThrow();
+  const initialize = !stored.has(moduleId) && Number(count.count) === 0;
+  const steps: { name: string; from: number; to: number }[] = [];
+  if (!initialize)
+    for (let version = current; version < storage.version; version++) {
+      const entry = Object.entries(storage.migrations).find(
+        ([, step]) => step.from === version,
+      );
+      requireCondition(
+        entry,
+        409,
+        "MIGRATION_PATH_MISSING",
+        `No reviewed migration from stored schema ${version} for ${moduleId}@${targetVersion}.`,
+      );
+      steps.push({ name: entry[0], ...entry[1] });
+    }
+  const server = steps.length
+    ? await stagedModuleServer(tx, module, builtins)
+    : undefined;
+  if (steps.length)
+    requireCondition(
+      server?.kind === "scoped" &&
+        server.migrate &&
+        canonical(server.module) === canonical(module),
+      409,
+      "MIGRATION_BACKEND_UNAVAILABLE",
+      "Stage the exact reviewed migration backend before changing stored data.",
+    );
+  // Keep the original record identities on the database connection, rather than
+  // retaining the whole company dataset in the server heap. A savepoint rollback
+  // removes this table as well; ON COMMIT DROP covers aborted callers.
+  const referenceResources = Object.entries(module.resources)
+    .filter(([, resource]) => referenceFields(resource.schema).length)
+    .map(([name]) => name);
+  let baseline: string | undefined;
+  let source: ModuleDefinition | undefined;
+  if (steps.length && referenceResources.length) {
+    const storedRelease = await tx
+      .selectFrom("suite.module_storage")
+      .select("release_version")
+      .where("workspace_id", "=", ctx.workspaceId)
+      .where("module_id", "=", moduleId)
+      .executeTakeFirst();
+    source = await workspaceModule(
+      tx,
+      ctx.workspaceId,
+      moduleId,
+      ctx.runtime.catalog,
+      storedRelease?.release_version,
+    );
+    // An explicit executable pin may select the migration target before its
+    // schema is installed. It cannot prove the former meaning of stored data.
+    if (
+      !supportsStorage(source, current) ||
+      storageContract(source).version > current
+    )
+      source = undefined;
+    baseline = `suite_migration_${randomUUID().replaceAll("-", "")}`;
+    await sql`create temporary table ${sql.id(baseline)} on commit drop as
+      select resource, id, data from suite.module_records
+      where workspace_id=${ctx.workspaceId}::uuid and module_id=${moduleId}
+        and resource in (${sql.join(referenceResources)})`.execute(tx);
+    await sql`create unique index on ${sql.id(baseline)} (resource, id)`.execute(
+      tx,
+    );
+  }
+  const referenceIdentity = (reference: ReferenceValue) =>
+    JSON.stringify([
+      reference.path,
+      referenceTargetKey(reference.target),
+      reference.value.toLowerCase(),
+    ]);
+  for (const step of steps) {
+    const validNamespace = (name: string) =>
+      identifier.test(name.startsWith("$") ? name.slice(1) : name);
+    let closed = false,
+      failed = false,
+      failure: unknown;
+    const pending = new Set<Promise<unknown>>();
+    const guarded = <T>(run: () => Promise<T>) => {
+      const task = Promise.resolve().then(() => {
+        requireCondition(
+          !closed,
+          409,
+          "MIGRATION_CLOSED",
+          "This migration step has finished.",
+        );
+        return run();
+      });
+      pending.add(task);
+      void task.then(
+        () => pending.delete(task),
+        (error) => {
+          failed = true;
+          failure ??= error;
+          pending.delete(task);
+        },
+      );
+      return task;
+    };
+    const context: MigrationContext = {
+      workspaceId: ctx.workspaceId,
+      from: step.from,
+      to: step.to,
+      store: (name) => {
+        requireCondition(
+          identifier.test(name),
+          400,
+          "INVALID_STORE",
+          "Use a private store name in this module.",
+        );
+        const namespace = `$${name}`;
+        return Object.freeze({
+          scan: (after?: string) => context.scan(namespace, after),
+          create: (data: Record<string, unknown>, id?: string) =>
+            context.create(namespace, data, id),
+          archive: (id: string, version: number) =>
+            context.archive(namespace, id, version),
+          write: (id: string, data: Record<string, unknown>, version: number) =>
+            context.write(namespace, id, data, version),
+        });
+      },
+      scan: (resource, after) =>
+        guarded(async () => {
+          requireCondition(
+            validNamespace(resource),
+            400,
+            "INVALID_RESOURCE",
+            "Migration resources must be valid names in this module namespace.",
+          );
+          let query = tx
+            .selectFrom("suite.module_records")
+            .select(["id", "resource", "data", "version", "archived"])
+            .where("workspace_id", "=", ctx.workspaceId)
+            .where("module_id", "=", moduleId)
+            .where("resource", "=", resource)
+            .orderBy("id")
+            .limit(101);
+          if (after) query = query.where("id", ">", after);
+          const rows = await query.execute();
+          return {
+            items: rows.slice(0, 100),
+            next: rows.length > 100 ? rows[99].id : null,
+          };
+        }),
+      create: (resource, data, id = randomUUID()) =>
+        guarded(async () => {
+          requireCondition(
+            resource.startsWith("$")
+              ? Object.hasOwn(module.stores ?? {}, resource.slice(1))
+              : Object.hasOwn(module.resources, resource),
+            400,
+            "INVALID_RESOURCE",
+            "Create records only in resources declared by the target module.",
+          );
+          await tx
+            .insertInto("suite.module_records")
+            .values({
+              workspace_id: ctx.workspaceId,
+              module_id: moduleId,
+              resource,
+              id,
+              data,
+              version: 1,
+              archived: false,
+              created_by: ctx.actor.id,
+              updated_at: new Date(),
+            })
+            .execute();
+          await tx
+            .insertInto("suite.module_revisions")
+            .values({
+              workspace_id: ctx.workspaceId,
+              module_id: moduleId,
+              resource,
+              record_id: id,
+              version: 1,
+              data,
+            })
+            .execute();
+          return { id, resource, data, version: 1, archived: false };
+        }),
+      archive: (resource, id, expectedVersion) =>
+        guarded(async () => {
+          requireCondition(
+            validNamespace(resource) && Number.isSafeInteger(expectedVersion),
+            400,
+            "INVALID_RECORD",
+            "Supply a resource and current record version.",
+          );
+          const row = await tx
+            .updateTable("suite.module_records")
+            .set({
+              archived: true,
+              version: expectedVersion + 1,
+              updated_at: new Date(),
+            })
+            .where("workspace_id", "=", ctx.workspaceId)
+            .where("module_id", "=", moduleId)
+            .where("resource", "=", resource)
+            .where("id", "=", id)
+            .where("version", "=", expectedVersion)
+            .returning("data")
+            .executeTakeFirst();
+          requireCondition(
+            row,
+            412,
+            "MIGRATION_RECORD_CONFLICT",
+            "The record is missing from this module namespace or its version changed.",
+          );
+          await tx
+            .insertInto("suite.module_revisions")
+            .values({
+              workspace_id: ctx.workspaceId,
+              module_id: moduleId,
+              resource,
+              record_id: id,
+              version: expectedVersion + 1,
+              data: row.data,
+            })
+            .execute();
+        }),
+      write: (resource, id, data, expectedVersion) =>
+        guarded(async () => {
+          requireCondition(
+            validNamespace(resource) && Number.isSafeInteger(expectedVersion),
+            400,
+            "INVALID_RECORD",
+            "Supply a resource and current record version.",
+          );
+          const result = await tx
+            .updateTable("suite.module_records")
+            .set({ data, version: expectedVersion + 1, updated_at: new Date() })
+            .where("workspace_id", "=", ctx.workspaceId)
+            .where("module_id", "=", moduleId)
+            .where("resource", "=", resource)
+            .where("id", "=", id)
+            .where("version", "=", expectedVersion)
+            .returning("id")
+            .executeTakeFirst();
+          requireCondition(
+            result,
+            412,
+            "MIGRATION_RECORD_CONFLICT",
+            "The record is missing from this module namespace or its version changed.",
+          );
+          await tx
+            .insertInto("suite.module_revisions")
+            .values({
+              workspace_id: ctx.workspaceId,
+              module_id: moduleId,
+              resource,
+              record_id: id,
+              version: expectedVersion + 1,
+              data,
+            })
+            .execute();
+        }),
+    };
+    try {
+      await (server!.kind === "scoped"
+        ? server!.migrate!(step.name, context)
+        : Promise.reject(Error("Unscoped migration")));
+    } catch (error) {
+      failed = true;
+      failure ??= error;
+    } finally {
+      closed = true;
+      while (pending.size) await Promise.allSettled([...pending]);
+    }
+    if (failed) throw failure;
+    await tx
+      .insertInto("suite.module_migrations")
+      .values({
+        workspace_id: ctx.workspaceId,
+        module_id: moduleId,
+        from_version: step.from,
+        to_version: step.to,
+        migration_id: step.name,
+        release_version: module.version,
+        actor_id: ctx.actor.id,
+      })
+      .execute();
+  }
+  // Validate every retained record, including archived records, before committing the schema version.
+  for (const [resource, definition] of Object.entries({
+    ...module.resources,
+    ...Object.fromEntries(
+      Object.entries(module.stores ?? {}).map(([name, store]) => [
+        `$${name}`,
+        store,
+      ]),
+    ),
+  })) {
+    let cursor: string | undefined;
+    for (;;) {
+      let query = tx
+        .selectFrom("suite.module_records")
+        .select(["id", "data"])
+        .where("workspace_id", "=", ctx.workspaceId)
+        .where("module_id", "=", moduleId)
+        .where("resource", "=", resource)
+        .orderBy("id")
+        .limit(100);
+      if (cursor) query = query.where("id", ">", cursor);
+      const records = await query.execute();
+      const originals = new Map<string, JsonRecord>();
+      if (baseline && referenceResources.includes(resource) && records.length) {
+        const previous = await sql<{ id: string; data: JsonRecord }>`
+          select id, data from ${sql.id(baseline)} where resource=${resource}
+          and id in (${sql.join(records.map((record) => sql`${record.id}::uuid`))})
+        `.execute(tx);
+        for (const row of previous.rows) originals.set(row.id, row.data);
+      }
+      for (const record of records) {
+        assertSchema(definition.schema, record.data);
+        if (!referenceResources.includes(resource)) continue;
+        const historical = new Set<string>();
+        const original = originals.get(record.id);
+        const previousSchema = source?.resources[resource]?.schema;
+        if (original && previousSchema) {
+          try {
+            for (const reference of referenceValues(previousSchema, original))
+              historical.add(referenceIdentity(reference));
+          } catch (error) {
+            // Invalid legacy data may be repaired, but cannot establish a
+            // trusted historical-link exemption under its former contract.
+            if (!(error instanceof ValidationError)) throw error;
+          }
+        }
+        await validateReferenceValues(
+          tx,
+          ctx,
+          module,
+          referenceValues(definition.schema, record.data).filter(
+            (reference) => !historical.has(referenceIdentity(reference)),
+          ),
+        );
+      }
+      if (records.length < 100) break;
+      cursor = records.at(-1)!.id;
+    }
+    if (resource.startsWith("$"))
+      for (const field of module.stores![resource.slice(1)].unique) {
+        const value = sql`data -> ${field}`;
+        const duplicate = await tx
+          .selectFrom("suite.module_records")
+          .select(value.as("value"))
+          .where("workspace_id", "=", ctx.workspaceId)
+          .where("module_id", "=", moduleId)
+          .where("resource", "=", resource)
+          .where("archived", "=", false)
+          .where(
+            sql<boolean>`${value} IS NOT NULL AND ${value} != 'null'::jsonb`,
+          )
+          .groupBy("value")
+          .having(sql<boolean>`count(*) > 1`)
+          .limit(1)
+          .executeTakeFirst();
+        requireCondition(
+          !duplicate,
+          409,
+          "STORE_UNIQUE_CONFLICT",
+          `Migration creates duplicate values for ${resource.slice(1)}.${field}.`,
+        );
+      }
+  }
+  if (baseline) await sql`drop table ${sql.id(baseline)}`.execute(tx);
+  await tx
+    .insertInto("suite.module_storage")
+    .values({
+      workspace_id: ctx.workspaceId,
+      module_id: moduleId,
+      schema_version: storage.version,
+      release_version: module.version,
+      updated_at: new Date(),
+    })
+    .onConflict((oc) =>
+      oc.columns(["workspace_id", "module_id"]).doUpdateSet({
+        schema_version: storage.version,
+        release_version: module.version,
+        updated_at: new Date(),
+      }),
+    )
+    .execute();
+  invalidateStorageVersions(tx, ctx.workspaceId);
+  if (validateRollouts)
+    await validateConfiguredRollouts(
+      tx,
+      ctx.workspaceId,
+      ctx.runtime.catalog,
+      builtins,
+    );
+  await audit(
+    tx,
+    ctx,
+    initialize ? "modules.storage.initialized" : "modules.storage.migrated",
+    moduleId,
+  );
+  await publish(tx, ctx, "module.storage.migrated", {
+    moduleId,
+    releaseVersion: module.version,
+    from: current,
+    to: storage.version,
+    steps: steps.map((s) => s.name),
+  });
+  return {
+    moduleId,
+    schemaVersion: storage.version,
+    applied: steps.map((s) => s.name),
+  };
+}

@@ -17,6 +17,7 @@
     "apps",
     "packages",
     "modules",
+    "composition",
     "tooling",
     "tests",
     "vitest.config.ts",

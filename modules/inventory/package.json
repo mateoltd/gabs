@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    ".": "./module.ts",
     "./domain": "./domain/index.ts",
     "./contracts": "./contracts/index.ts",
     "./server": "./server/index.ts",
-    "./web": "./web/index.tsx"
+    "./web": "./web/index.tsx",
+    "./module-server": "./module-server.ts",
+    "./releases/*/module": "./releases/*/module.ts",
+    "./releases/*/module-server": "./releases/*/module-server.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",
@@ -15,11 +19,9 @@
     "kysely": "0.29.5",
     "react": "19.3.0",
     "@suite/ui-web": "workspace:*",
-    "@suite/api-client": "workspace:*",
     "@tanstack/react-query": "5.102.8",
-    "@suite/platform": "workspace:*",
+    "@suite/client": "workspace:*",
     "react-router": "8.3.1",
-    "@suite/module-sdk": "workspace:*",
-    "@suite/module-catalog": "workspace:*"
+    "@suite/module-sdk": "workspace:*"
   }
 }

@@ -3,12 +3,14 @@ import { assertSchema, Type, type Static } from "@suite/module-sdk";
 import { moduleServers } from "@suite/module-catalog/server";
 import { orderExportRows } from "@suite/orders/server";
 import { requireCondition, type Context, type Tx } from "@suite/server-core";
-import legacyOrders from "../../../modules/orders/releases/1.1.0/module";
-import orders from "../../../modules/orders/releases/2.0.0/module";
-import { workspaceModule } from "../../../packages/server-core/src/module-releases";
-import { assertHostModuleRollout } from "../../../packages/server-core/src/module-rollout";
-import { moduleStorageVersions } from "../../../packages/server-core/src/module-storage";
-import { executeModuleOperation } from "../../../packages/server-core/src/module-services";
+import {
+  currentOrders as orders,
+  legacyOrders,
+} from "@suite/module-catalog/business";
+import { workspaceModule } from "@suite/server-core/registry/module-releases";
+import { assertHostModuleRollout } from "@suite/server-core/registry/module-rollout";
+import { moduleStorageVersions } from "@suite/server-core/persistence/module-storage";
+import { executeModuleOperation } from "@suite/server-core/runtime/services";
 
 type ExportRow = Static<
   (typeof orders.operations)["export-page"]["output"]
@@ -35,6 +37,7 @@ export async function* orderExportPages(
     await assertHostModuleRollout(
       tx,
       ctx.workspaceId,
+      ctx.runtime.catalog,
       legacyOrders,
       moduleServers,
     );
@@ -54,7 +57,12 @@ export async function* orderExportPages(
     yield mapped as ExportRow[];
     return;
   }
-  const definition = await workspaceModule(tx, ctx.workspaceId, "orders");
+  const definition = await workspaceModule(
+    tx,
+    ctx.workspaceId,
+    "orders",
+    ctx.runtime.catalog,
+  );
   requireCondition(
     definition.operations["export-page"]?.kind === "query",
     409,

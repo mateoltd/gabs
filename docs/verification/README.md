@@ -451,3 +451,11 @@ Source checkpoint `7429b7bb127b322b41b29541b798c55fb576a402` / [CI 35208850942](
 Wide/narrow consent captures, scoped Axe and the final native result were reviewed. A capture-only rerun passed after waiting for the selector’s collapsed state and completing finite screenshot animations; the app’s control behavior was unchanged. Historical captures and shared development data were preserved.
 
 Source checkpoint `7418548903a540345958152f7f48948bb3e652dc` / [CI 35210471760](https://github.com/mateoltd/gabs/actions/runs/35210471760) started no jobs. All four ended with zero steps; check `105166518239` reports: “The job was not started because an Actions budget is preventing further use.” Local acceptance above passed; remote acceptance requires restored account capacity.
+
+## Architecture reconciliation, 17 September 2026
+
+[Architecture acceptance](architecture/README.md) records the move to responsibility-owned SDK, client, server, shell and UI trees; explicit product composition injection; generalized package/module/environment checks; grouped tests and tooling; and stable signed/runtime interfaces. The frozen OpenAPI, generated client declarations and token values match checkpoint `69aa1a3` byte-for-byte. Desktop output filenames remain stable.
+
+Local acceptance passed 257 unit/PostgreSQL tests, 5 focused CLI/distribution tests, six architecture fixtures, seven independent checker probes, all four builds and a frozen-lockfile install. The broad browser run passed 99/111 before 12 stale worker-route fixtures were corrected; those 12 passed in the focused repair run. A separate intermittent closed-Select accessibility failure was corrected and the affected accessibility/focus/UI set passed 36/36 across three repeats. The selected native run passed 10/13 before three migrated fixture expectations were corrected; the repair run passed 4/4. All native runs were minimized and unfocused.
+
+Architecture captures were reviewed separately and historical screenshots restored. This verifies the migration and preserved local-services behavior. It does not claim full product parity, remote CI, signed release acceptance or final UI approval.

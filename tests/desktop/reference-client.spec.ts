@@ -11,7 +11,7 @@ import {
   clientReferenceId,
   clientReferenceRows,
   exerciseClientReference,
-} from "../reference-client-journey";
+} from "../support/reference-client-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("hidden Electron supplies the typed reference client to independent views", async () => {
   test.setTimeout(120000);

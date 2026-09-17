@@ -13,7 +13,7 @@ import {
   inspectTableLabels,
   tableLabelsName,
   tableData,
-} from "../table-labels-journey";
+} from "../support/table-labels-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("hidden Electron resolves structured reference tables without taking focus", async () => {
   test.setTimeout(120000);

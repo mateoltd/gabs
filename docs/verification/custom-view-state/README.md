@@ -8,7 +8,7 @@ A view declares its editable schema and state version once in the signed manifes
 
 The existing update dialog offers **Update and keep input**. The candidate is verified and preloaded before it can replace the old component. Same-version input must validate against the target schema; a state-version change requires a publisher conversion whose result is also validated. Active custom writes block replacement. Invalid conversion keeps the current component/input. An initial render failure restores the previous executable and its checkpoint. Once the candidate renders successfully, the handoff is complete. The explicit discard fallback remains available for views without this contract.
 
-[Public authoring guide](../../module-view-state.md) and [example source](../../../tests/fixtures/editable-notes/view.tsx).
+[Public authoring guide](../../view-state.md) and [example source](../../../tests/fixtures/editable-notes/view.tsx).
 
 ## Evidence
 

@@ -1,11 +1,19 @@
+import "dotenv/config";
 import { test, expect, _electron as electron } from "@playwright/test";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import {
+  connectDatabase,
+  inWorkspace,
+} from "../../composition/src/server/product";
+import { provisionLegacyWorkspace } from "../fixtures/legacy-workspace";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("native UI keeps tokens and arbitrary capabilities out of its renderer", async () => {
   const profile = await mkdtemp(resolve(tmpdir(), "common-electron-test-"));
+  const db = connectDatabase();
   const app = await electron.launch({
     executablePath: require("electron"),
     args: [resolve("apps/desktop/dist/main.cjs"), `--user-data-dir=${profile}`],
@@ -165,20 +173,21 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
       ]);
     });
     expect(artifactBoundary).toEqual([true, true, true, true]);
-    const moduleRelease = await page.evaluate(async () => {
-      // Use an isolated, provisioned company instead of shared mutable seed data.
-      const workspaceId = crypto.randomUUID();
-      const created = await window.suiteDesktop!.execute({
-        operation: "workspaceCreate",
-        body: {
-          id: workspaceId,
-          name: "Native contract acceptance",
-          currency: "EUR",
-        },
-        idempotencyKey: crypto.randomUUID(),
-      });
-      if (created.status !== 200)
-        throw Error("Could not provision contract fixture");
+    const actor = await page.evaluate(async () => {
+      const me = (await window.suiteDesktop!.execute({ operation: "me" }))
+        .body as { user: { id: string } };
+      return me.user;
+    });
+    const workspaceId = randomUUID();
+    await inWorkspace(db, workspaceId, (tx) =>
+      provisionLegacyWorkspace(tx, {
+        id: workspaceId,
+        userId: actor.id,
+        name: "Native contract acceptance",
+        kind: "company",
+      }),
+    );
+    const moduleRelease = await page.evaluate(async (workspaceId) => {
       const params = { workspaceId, moduleId: "contacts" };
       const stale = await window.suiteDesktop!.execute({
         operation: "moduleRequest",
@@ -240,7 +249,7 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
         refused,
         security: await window.suiteDesktop!.securityStatus(),
       };
-    });
+    }, workspaceId);
     expect(moduleRelease.stale).toMatchObject({
       status: 409,
       body: { code: "MODULE_UPDATE_REQUIRED" },
@@ -305,6 +314,7 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
     });
   } finally {
     await app.close();
+    await db.destroy();
     await rm(profile, { recursive: true, force: true });
   }
 });

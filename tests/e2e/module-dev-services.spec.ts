@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { cp, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 import AxeBuilder from "@axe-core/playwright";
 test.use({ actionTimeout: 10000 });
 
@@ -12,10 +12,7 @@ test("preview executes independent providers, revokes grants and reloads typed p
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(resolve(".local/service-preview-"));
   await cp("tests/fixtures/service-preview", directory, { recursive: true });
-  const catalog = await readFile(
-    "packages/module-catalog/src/index.ts",
-    "utf8",
-  );
+  const catalog = await readFile("composition/src/catalog/index.ts", "utf8");
   const server = await startModuleDev(directory, 0, [
     resolve(directory, "provider"),
   ]);
@@ -108,7 +105,7 @@ test("preview executes independent providers, revokes grants and reloads typed p
       path: "docs/verification/module-services-preview/narrow.png",
       fullPage: true,
     });
-    expect(await readFile("packages/module-catalog/src/index.ts", "utf8")).toBe(
+    expect(await readFile("composition/src/catalog/index.ts", "utf8")).toBe(
       catalog,
     );
   } finally {

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/app.ts"
+  },
   "dependencies": {
     "@suite/contracts": "workspace:*",
     "@suite/server-core": "workspace:*",
@@ -22,6 +25,6 @@
     "stripe": "22.6.2"
   },
   "scripts": {
-    "build": "node ../../tooling/build-server.mjs api"
+    "build": "node ../../tooling/build/build-server.mjs api"
   }
 }

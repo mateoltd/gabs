@@ -1,0 +1,43 @@
+{
+  "name": "@suite/module-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./registry": "./src/contracts/registry.ts",
+    "./catalog": "./src/contracts/catalog.ts",
+    "./sync": "./src/contracts/sync.ts",
+    "./governance": "./src/contracts/governance.ts",
+    "./platform": "./src/contracts/platform.ts",
+    "./server": "./src/contracts/server.ts",
+    "./simulator": "./src/testing/simulator.ts",
+    "./scenarios": "./src/testing/scenarios.ts",
+    "./queries": "./src/client/resource-query.ts",
+    "./forms": "./src/authoring/forms.ts",
+    "./documentation": "./src/documentation/index.ts",
+    "./ui": "./src/contracts/ui.ts",
+    "./client-artifact": "./src/contracts/client-artifact.ts",
+    "./local": "./src/contracts/local.ts",
+    "./local-artifact": "./src/contracts/local-artifact.ts",
+    "./verification": "./src/contracts/verification.ts",
+    "./references": "./src/contracts/references.ts",
+    "./host-capabilities": "./src/contracts/host-capabilities.ts",
+    "./host-ui": "./src/contracts/host-ui.ts",
+    "./release-packages": "./src/contracts/release-packages.ts",
+    "./node/signing": "./node/signing.ts",
+    "./node/server-package": "./node/server-package.ts",
+    "./node/build-client": "./node/build-client.ts",
+    "./node/build-local": "./node/build-local.ts",
+    "./node/build-server": "./node/build-server.ts",
+    "./node/service-contracts": "./node/service-contracts.ts"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.52",
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@types/semver": "7.7.1",
+    "typescript": "5.9.3"
+  }
+}

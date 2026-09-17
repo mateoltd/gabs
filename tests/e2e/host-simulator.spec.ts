@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 
 test("independent preview simulates typed host outcomes, revocation and offline failure without device effects", async ({
   page,

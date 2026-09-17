@@ -4,9 +4,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { Pool } from "pg";
-import { publishEditorFixture } from "../editor-fixture";
-import { publishExecutableFixture } from "../executable-fixture";
-import { publishEditableFixture } from "../editable-fixture";
+import { publishEditorFixture } from "../support/editor-fixture";
+import { publishExecutableFixture } from "../support/executable-fixture";
+import { publishEditableFixture } from "../support/editable-fixture";
 import { selectValue } from "./controls.helpers";
 
 async function openWorkspace(page: Page, moduleId: string, version: string) {

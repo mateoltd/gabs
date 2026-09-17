@@ -46,7 +46,9 @@ test("minimized desktop saves through a local worker and recovers the encrypted 
     await page
       .getByRole("button", { name: "Save locally", exact: true })
       .click();
-    expect((await worker).url()).toContain("local-worker-entry");
+    expect((await worker).url()).toMatch(
+      /^suite:\/\/app\/assets\/worker-entry-[^/]+\.js$/,
+    );
     await expect(
       page.getByRole("cell", { name: "Native private contact", exact: true }),
     ).toBeVisible();

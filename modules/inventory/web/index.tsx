@@ -47,7 +47,7 @@ import {
   SummaryStrip,
   RecordIdentity,
 } from "@suite/ui-web";
-import { type FeatureProps, canUse } from "@suite/platform";
+import { type FeatureProps, canUse as canUseWithCatalog } from "@suite/client";
 import type { Product } from "@suite/contracts";
 export default function Inventory({
   client,
@@ -57,7 +57,13 @@ export default function Inventory({
   snapshot,
   onError,
   definition,
+  moduleCatalog,
 }: FeatureProps & { definition: ModuleDefinition }) {
+  const canUse = (
+    current: FeatureProps["bootstrap"],
+    moduleId: string,
+    permission: string,
+  ) => canUseWithCatalog(current, moduleId, permission, moduleCatalog);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const lowStock = searchParams.get("stock") === "low";

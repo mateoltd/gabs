@@ -1,4 +1,4 @@
-import { provisionWorkspace } from "../../packages/server-core/src/provision";
+import { provisionWorkspace } from "../../composition/src/server/product";
 import inventory from "../../modules/inventory/releases/1.2.0/module";
 import orders from "../../modules/orders/releases/1.1.0/module";
 /** Explicit historical fixtures exercise supported legacy contracts and migration sources. */

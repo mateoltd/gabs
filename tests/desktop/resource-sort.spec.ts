@@ -12,7 +12,7 @@ import {
   sortId,
   sortData,
   exerciseSort,
-} from "../resource-sort-journey";
+} from "../support/resource-sort-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("hidden desktop sorts and pages typed records without taking focus", async () => {

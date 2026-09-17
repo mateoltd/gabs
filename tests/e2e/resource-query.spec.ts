@@ -6,7 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { Pool } from "pg";
 import { resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 import { selectValue } from "./controls.helpers";
 import {
   publishQueryFixture,
@@ -15,7 +15,7 @@ import {
   queryName,
   queryData,
   exerciseQuery,
-} from "../resource-query-journey";
+} from "../support/resource-query-journey";
 
 test("development resource queries cancel stale pages, survive rerenders and recheck changed permissions", async ({
   page,

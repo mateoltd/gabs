@@ -5,7 +5,7 @@ import { Pool } from "pg";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { selectValue } from "./controls.helpers";
-import { startModuleDev } from "../../tooling/module-dev/server";
+import { startModuleDev } from "../../tooling/modules/module-dev/server";
 import {
   assignMapTuple,
   publishMapTuple,
@@ -14,7 +14,7 @@ import {
   mapTupleRows,
   mapTupleExpected,
   exerciseMapTuple,
-} from "../map-tuple-journey";
+} from "../support/map-tuple-journey";
 test("development tuple and map editors preserve typed references, keys and unfinished JSON", async ({
   page,
 }) => {

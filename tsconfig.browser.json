@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "react", "react-dom"]
+  },
+  "include": [
+    "apps/web/src",
+    "apps/desktop/src/renderer",
+    "packages/client",
+    "packages/shell",
+    "packages/ui/web",
+    "modules/*/web",
+    "composition/src/web",
+    "tooling/modules/module-dev/preview.tsx",
+    "tooling/modules/registry-console/ui.tsx"
+  ]
+}

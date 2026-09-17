@@ -2,7 +2,7 @@ import "dotenv/config";
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import { mkdir } from "node:fs/promises";
-import { publishExecutableFixture } from "../executable-fixture";
+import { publishExecutableFixture } from "../support/executable-fixture";
 import module from "../fixtures/custom-notes/module";
 import { selectValue } from "./controls.helpers";
 

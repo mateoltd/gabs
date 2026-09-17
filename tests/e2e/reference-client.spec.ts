@@ -11,7 +11,7 @@ import {
   clientReferenceName,
   clientReferenceRows,
   exerciseClientReference,
-} from "../reference-client-journey";
+} from "../support/reference-client-journey";
 test("independent view uses typed lookup, server query and standalone reference choices", async ({
   page,
   context,

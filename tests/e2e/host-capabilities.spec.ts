@@ -7,7 +7,7 @@ import {
   publishHostFixture,
   assignHostFixture,
   exportPermission,
-} from "../host-capability-journey";
+} from "../support/host-capability-journey";
 import { selectValue } from "./controls.helpers";
 test("published modules use typed host exports while current authority rejects undeclared, revoked and foreign requests", async ({
   page,

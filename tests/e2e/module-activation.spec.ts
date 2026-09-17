@@ -3,7 +3,7 @@ import { test, expect, request as apiRequest } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { Pool } from "pg";
-import { publishExecutableFixture } from "../executable-fixture";
+import { publishExecutableFixture } from "../support/executable-fixture";
 import { selectValue } from "./controls.helpers";
 
 test("an existing company configures, publishes and assigns a newly reviewed module through administration", async ({

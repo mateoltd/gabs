@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { test, expect } from "@playwright/test";
-import { publishExecutableFixture } from "../executable-fixture";
+import { publishExecutableFixture } from "../support/executable-fixture";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { Pool } from "pg";

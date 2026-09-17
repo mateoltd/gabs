@@ -11,7 +11,7 @@ import {
   resourceListId,
   resourceListData,
   exerciseResourceList,
-} from "../resource-list-journey";
+} from "../support/resource-list-journey";
 test("generated resource filters and paging work through the authoritative API and offline cache", async ({
   page,
   context,

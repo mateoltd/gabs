@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "WebWorker"],
+    "types": []
+  },
+  "include": [
+    "composition/src/local/worker-entry.ts",
+    "packages/client/src/local/runtime.ts",
+    "modules/*/local",
+    "modules/*/module-local.ts"
+  ]
+}

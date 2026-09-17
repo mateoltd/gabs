@@ -648,7 +648,7 @@ test("notification cards approve access and show the server decision", async ({
   const workspaceId = await workspace(page);
   await import("dotenv/config");
   const { connectDatabase, inWorkspace } =
-    await import("../../packages/server-core/src");
+    await import("../../composition/src/server/product");
   const db = connectDatabase();
   try {
     await inWorkspace(db, workspaceId, async (tx) => {

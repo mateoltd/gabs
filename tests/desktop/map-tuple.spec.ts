@@ -13,7 +13,7 @@ import {
   exerciseMapTuple,
   mapTupleName,
   mapTupleExpected,
-} from "../map-tuple-journey";
+} from "../support/map-tuple-journey";
 const require = createRequire(resolve("apps/desktop/package.json"));
 test("hidden Electron saves typed tuple and map references without taking focus", async () => {
   test.setTimeout(120000);
