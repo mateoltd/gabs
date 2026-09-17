@@ -1,7 +1,7 @@
 import { LocalActions } from "./local-actions";
 import { LocalModules, type LocalRegistry } from "./local-modules";
 import { Table } from "@suite/ui-web";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createModuleClient, type ResourceRecord } from "@suite/module-sdk";
 import {
   availableLocalModules,
@@ -56,6 +56,13 @@ export function LocalWorkspace({
     [editing, setEditing] = useState<ResourceRecord | null | undefined>(),
     [revision, setRevision] = useState(0);
   const selected = resources.find((r) => r.key === key) ?? resources[0];
+  const referenceLoader = useMemo(() => {
+    if (!selected || !session) return undefined;
+    return createModuleClient(selected.module, (call, options) =>
+      session.execute(selected.module, call, options),
+    ).resource(selected.key.slice(selected.module.id.length + 1))
+      .loadReferences;
+  }, [selected?.module, selected?.key, session]);
   useEffect(() => {
     if (selected && selected.key !== key) {
       setKey(selected.key);
@@ -322,6 +329,7 @@ export function LocalWorkspace({
           <SchemaForm
             schema={(selected?.resource.schema ?? {}) as FormSchema}
             fieldOrder={selected?.resource.columns}
+            loadReferences={referenceLoader}
             value={form}
             onChange={setForm}
           />

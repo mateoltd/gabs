@@ -49,7 +49,9 @@ export async function buildLocalBundle(
                   ],
                 };
             } else if (
-              !/^@suite\/module-sdk(?:\/(local|registry))?$/.test(args.path)
+              !/^@suite\/module-sdk(?:\/(local|registry|references))?$/.test(
+                args.path,
+              )
             )
               return {
                 errors: [

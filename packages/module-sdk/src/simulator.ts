@@ -1,9 +1,19 @@
 import {
+  referenceQueryField,
+  pageReferenceOptions,
+  resourceReferenceOptions,
+  ReferenceOptionSchema,
+  type ReferenceQuery,
+} from "./references";
+import {
   listResourceRecords,
   type ResourceListOptions,
 } from "./resource-query";
 import {
   assertSchema,
+  Type,
+  type Static,
+  type ModuleRequestOptions,
   createModuleClient,
   type ModuleCall,
   type ModuleDefinition,
@@ -42,7 +52,26 @@ export type SimulatorOptions<M extends ModuleDefinition> = Omit<
 > & {
   providers?: readonly SimulationModule[];
   personal?: boolean;
+  /** Explicit workspace fixtures; standalone profiles have no membership directory. */
+  members?: readonly SimulationMember[];
+  readGrants?: readonly SimulationReadGrant[];
 };
+const simulationMemberSchema = Type.Object(
+  {
+    id: ReferenceOptionSchema.properties.value,
+    name: Type.String(),
+    active: Type.Optional(Type.Boolean()),
+    userActive: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+export type SimulationMember = Static<typeof simulationMemberSchema>;
+export const SimulationReadGrantSchema = Type.Object(
+  { consumerId: Type.String(), providerId: Type.String() },
+  { additionalProperties: false },
+);
+export type SimulationReadGrant = Static<typeof SimulationReadGrantSchema>;
+
 export const simulationIdentity = Object.freeze({
   userId: "00000000-0000-4000-8000-000000000001",
   membershipId: "00000000-0000-4000-8000-000000000002",
@@ -67,6 +96,8 @@ export interface SimulatorSnapshot extends NamespaceData {
   online: boolean;
   permissions: string[];
   grants: SimulationGrant[];
+  readGrants: SimulationReadGrant[];
+  members: SimulationMember[];
   providers: Record<
     string,
     NamespaceData & { module: ModuleDefinition; permissions: string[] }
@@ -82,6 +113,8 @@ export function createModuleSimulator<M extends ModuleDefinition>(
   let data: Record<string, NamespaceData> = {};
   const permissions = new Map<string, string[]>();
   let grants: SimulationGrant[] = [];
+  let readGrants: SimulationReadGrant[] = [];
+  let members: SimulationMember[] = [];
   let online = true;
   const journal: JournalEntry[] = [],
     events: SimulatorSnapshot["events"] = [],
@@ -178,6 +211,43 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     }
     grants = structuredClone([...values]);
   }
+  function setReadGrants(values: readonly SimulationReadGrant[]) {
+    assertSchema(
+      Type.Array(SimulationReadGrantSchema, { maxItems: 500 }),
+      values,
+    );
+    for (const grant of values) {
+      const consumer = modules.get(grant.consumerId)?.module;
+      if (
+        !consumer ||
+        !modules.has(grant.providerId) ||
+        !Object.hasOwn(consumer.dependencies, grant.providerId)
+      )
+        throw rejected(
+          400,
+          "INVALID_READ_GRANT",
+          "A read grant requires a declared dependency and loaded provider.",
+        );
+    }
+    readGrants = structuredClone([...values]);
+  }
+  function setMembers(values: readonly SimulationMember[]) {
+    assertSchema(Type.Array(simulationMemberSchema), values);
+    if (
+      new Set(values.map((member) => member.id.toLowerCase())).size !==
+      values.length
+    )
+      throw rejected(
+        400,
+        "INVALID_MEMBERS",
+        "Member fixture identifiers must be unique.",
+      );
+    members = structuredClone([...values]);
+  }
+  setReadGrants(
+    [...modules.values()].flatMap((fixture) => fixture.readGrants ?? []),
+  );
+  setMembers([...modules.values()].flatMap((fixture) => fixture.members ?? []));
   setGrants([...modules.values()].flatMap((fixture) => fixture.grants ?? []));
   function policy(
     scope: SimulationModule,
@@ -217,7 +287,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     const permission =
       call.action === "operation"
         ? module.operations[name].permission
-        : `${module.id}.${name}.${["get", "list"].includes(call.action) ? "read" : "write"}`;
+        : `${module.id}.${name}.${["get", "list", "references"].includes(call.action) ? "read" : "write"}`;
     if (!permissions.get(module.id)!.includes(permission))
       throw rejected(403, "FORBIDDEN", `Missing permission: ${permission}`);
     if (
@@ -319,18 +389,24 @@ export function createModuleSimulator<M extends ModuleDefinition>(
           permissions: permissions.get(module.id)!,
           configuration: scope.configuration ?? {},
           resource: (request) =>
-            guarded(!["get", "list"].includes(request.action), async () => {
-              if (
-                request.action === "operation" ||
-                request.moduleId !== module.id
-              )
-                throw rejected(
-                  403,
-                  "CAPABILITY_DENIED",
-                  "Use declared services for cross-module access.",
-                );
-              return execute(scope, request, requestId, [...active, identity]);
-            }),
+            guarded(
+              !["get", "list", "references"].includes(request.action),
+              async () => {
+                if (
+                  request.action === "operation" ||
+                  request.moduleId !== module.id
+                )
+                  throw rejected(
+                    403,
+                    "CAPABILITY_DENIED",
+                    "Use declared services for cross-module access.",
+                  );
+                return execute(scope, request, requestId, [
+                  ...active,
+                  identity,
+                ]);
+              },
+            ),
           store: (name, command) =>
             guarded(
               !["get", "scan", "query", "aggregate"].includes(command.action) ||
@@ -460,6 +536,82 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         );
       return result;
     }
+    if (call.action === "references") {
+      const { target } = referenceQueryField(
+        module.resources[call.resource!].schema,
+        call.input,
+      );
+      const query = call.input as ReferenceQuery;
+      if (target.kind === "member") {
+        if (options.personal)
+          throw rejected(
+            400,
+            "MEMBERSHIP_UNAVAILABLE",
+            "Standalone profiles have no corporate membership directory.",
+          );
+        return pageReferenceOptions(
+          members
+            .filter(
+              (member) =>
+                member.active !== false && member.userActive !== false,
+            )
+            .map((member) => ({ value: member.id, label: member.name })),
+          query,
+        );
+      }
+      const provider = modules.get(target.moduleId)?.module;
+      if (!provider)
+        throw rejected(
+          404,
+          "NOT_FOUND",
+          "Load the referenced provider's fixtures.",
+        );
+      if (target.moduleId !== module.id) {
+        if (options.personal)
+          throw rejected(
+            403,
+            "LOCAL_SCOPE_DENIED",
+            "Cross-module local reference lookup requires a granted host capability.",
+          );
+        if (!Object.hasOwn(module.dependencies, target.moduleId))
+          throw rejected(
+            400,
+            "UNDECLARED_DEPENDENCY",
+            "Declare the referenced provider dependency.",
+          );
+        if (!satisfies(provider.version, module.dependencies[target.moduleId]))
+          throw rejected(
+            409,
+            "RELEASE_INCOMPATIBLE",
+            "The referenced provider version is incompatible.",
+          );
+        if (
+          !readGrants.some(
+            (grant) =>
+              grant.consumerId === module.id &&
+              grant.providerId === target.moduleId,
+          )
+        )
+          throw rejected(
+            403,
+            "GRANT_REQUIRED",
+            "Supply an explicit module read grant.",
+          );
+      }
+      policy(modules.get(target.moduleId)!, {
+        moduleId: target.moduleId,
+        moduleVersion: provider.version,
+        resource: target.resource,
+        action: "list",
+        input: {},
+      });
+      return pageReferenceOptions(
+        resourceReferenceOptions(
+          data[target.moduleId].records[target.resource],
+        ),
+        query,
+      );
+    }
     const resource = module.resources[call.resource!],
       rows = data[module.id].records[call.resource!];
     const input = call.input as {
@@ -521,13 +673,17 @@ export function createModuleSimulator<M extends ModuleDefinition>(
   };
   // All namespaces and effects share one serialized development transaction.
   let tail: Promise<unknown> = Promise.resolve();
-  const send = (call: ModuleCall): Promise<unknown> => {
+  const send = (
+    call: ModuleCall,
+    requestOptions: ModuleRequestOptions = {},
+  ): Promise<unknown> => {
     const run = async () => {
+      requestOptions.signal?.throwIfAborted();
       policy(root, call);
       if (!online && !options.personal)
         throw rejected(503, "OFFLINE", "The simulated server is offline.");
       const readOnly =
-        ["get", "list"].includes(call.action) ||
+        ["get", "list", "references"].includes(call.action) ||
         (call.action === "operation" &&
           module.operations[call.operation!].kind === "query");
       const request = canonical(call),
@@ -606,6 +762,8 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         online,
         permissions: permissions.get(module.id)!,
         grants,
+        readGrants,
+        members,
         providers: Object.fromEntries(
           [...modules]
             .filter(([id]) => id !== module.id)
@@ -639,6 +797,8 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     },
     setModulePermissions,
     setGrants,
+    setReadGrants,
+    setMembers,
     async submit(
       call: ModuleCall,
     ): Promise<
@@ -649,7 +809,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
         !online &&
         !options.personal &&
         execution === "queued" &&
-        !["get", "list"].includes(call.action)
+        !["get", "list", "references"].includes(call.action)
       ) {
         if (call.action === "operation")
           assertSchema(module.operations[call.operation!].input, call.input);

@@ -1,18 +1,13 @@
 import { useEffect, useState } from "react";
 import type {
   ReferencePage,
-  ReferenceQuery,
   ReferenceTarget,
 } from "@suite/module-sdk/references";
 import { Button, Field } from "./index";
 import { Input, Select, SelectOption } from "./controls";
 
-/** The host resolves a declared target; the form never receives arbitrary API access. */
-export type ReferenceLoader = (
-  target: ReferenceTarget,
-  query: Omit<ReferenceQuery, "field"> & { limit: number },
-  signal: AbortSignal,
-) => Promise<ReferencePage & { offline?: boolean }>;
+export type { ReferenceLoader } from "@suite/module-sdk/references";
+import type { ReferenceLoader } from "@suite/module-sdk/references";
 export function ReferencePicker({
   target,
   load,

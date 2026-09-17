@@ -1,3 +1,4 @@
+import * as references from "../src/references";
 import { build } from "esbuild";
 import { realpath } from "node:fs/promises";
 import { resolve, relative, dirname, isAbsolute } from "node:path";
@@ -23,6 +24,7 @@ export async function buildServerPackage(
     throw Error("Server entry must remain inside its module.");
   const shims: Record<string, string> = {
     "@suite/module-sdk": `export const {${Object.keys(sdk).join(",")}} = __suiteHost.sdk;`,
+    "@suite/module-sdk/references": `export const {${Object.keys(references).join(",")}} = __suiteHost.references;`,
     "@suite/module-sdk/server":
       "export const {defineModuleServer} = __suiteHost.server;",
   };

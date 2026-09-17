@@ -860,7 +860,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
               "LOCAL_CANCELLED",
               "The local operation was cancelled.",
             );
-          if (!["get", "list"].includes(call.action)) {
+          if (!["get", "list", "references"].includes(call.action)) {
             const next: LocalData = {
               ...data,
               ...(attemptId && data.attempts?.[attemptId]

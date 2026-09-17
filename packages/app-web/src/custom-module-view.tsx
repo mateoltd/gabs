@@ -445,8 +445,9 @@ function CustomModuleView(
   }, [allowed, props.pkg.digest, props.publicKey, viewId]);
   const client = React.useMemo(
     () =>
-      createModuleClient(module, async (call) => {
+      createModuleClient(module, async (call, options) => {
         const current = latest.current;
+        options?.signal?.throwIfAborted();
         if (!mounted.current)
           throw Error(
             "This module view is no longer active. Open it again before sending a request.",
@@ -458,7 +459,7 @@ function CustomModuleView(
         const permission =
           call.action === "operation"
             ? module.operations[call.operation!]?.permission
-            : `${module.id}.${call.resource}.${["list", "get"].includes(call.action) ? "read" : "write"}`;
+            : `${module.id}.${call.resource}.${["list", "get", "references"].includes(call.action) ? "read" : "write"}`;
         if (!permission || !canUse(current.bootstrap, module.id, permission))
           throw Error(
             "This action is not available with your current permissions.",
@@ -469,9 +470,25 @@ function CustomModuleView(
         )
           throw Error("This operation requires a standalone local workspace.");
         const mutation =
-          call.kind !== "query" && !["list", "get"].includes(call.action);
+          call.kind !== "query" &&
+          !["list", "get", "references"].includes(call.action);
         if (mutation) current.executing?.(1);
         try {
+          if (call.action === "references")
+            return await current.client.request(
+              {
+                operation: "moduleReferences",
+                params: {
+                  workspaceId: current.scope.workspaceId,
+                  moduleId: module.id,
+                  resource: call.resource!,
+                },
+                query:
+                  call.input as import("@suite/module-sdk/references").ReferenceQuery,
+                moduleVersion: call.moduleVersion,
+              },
+              options,
+            );
           return await (call.action === "operation"
             ? current.client.request({
                 operation:

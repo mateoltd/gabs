@@ -1,3 +1,4 @@
+import { listModuleReferences } from "./module-references";
 import { assertModuleStorage } from "./module-storage";
 import { executeStore } from "./module-stores";
 import { assertSchema, type ModuleDefinition } from "@suite/module-sdk";
@@ -174,7 +175,8 @@ export async function executeModuleOperation(
             }),
           resource: (call) =>
             guarded(async () => {
-              if (!["get", "list"].includes(call.action)) writable();
+              if (!["get", "list", "references"].includes(call.action))
+                writable();
               requireCondition(
                 call.moduleId === module.id &&
                   call.resource &&
@@ -183,6 +185,14 @@ export async function executeModuleOperation(
                 "CAPABILITY_DENIED",
                 "Use declared services for cross-module access.",
               );
+              if (call.action === "references")
+                return listModuleReferences(
+                  tx,
+                  ctx,
+                  module,
+                  call.resource,
+                  call.input as import("@suite/module-sdk/references").ReferenceQuery,
+                );
               return executeResource(
                 tx,
                 ctx,

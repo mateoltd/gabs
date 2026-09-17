@@ -118,19 +118,10 @@ export function useModuleReferences(
       }
       let page: ReferencePage;
       try {
-        page = await client.request(
-          {
-            operation: "moduleReferences",
-            moduleVersion: module.version,
-            params: {
-              workspaceId: scope.workspaceId,
-              moduleId: module.id,
-              resource,
-            },
-            query: { ...query, field: declaration.schemaPath },
-          },
-          { signal },
-        );
+        page = await client
+          .module(module, scope.workspaceId)
+          .resource(resource)
+          .references({ ...query, field: declaration.schemaPath }, { signal });
       } catch (error) {
         if (error instanceof ApiError && [403, 404].includes(error.status)) {
           setReferences((current) => {

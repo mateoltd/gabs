@@ -1,3 +1,10 @@
+import {
+  referenceQueryField,
+  ReferencePageSchema,
+  createReferenceLoader,
+  type ReferenceQuery,
+  type ReferencePage,
+} from "./references";
 import { ownSchemaValue } from "./schema-value";
 import type { ResourceListOptions } from "./resource-query";
 export type { ResourceListOptions } from "./resource-query";
@@ -332,19 +339,32 @@ export interface ModuleCall {
   /** Signed module release used to author this request, retained when queued. */
   moduleVersion?: string;
   resource?: string;
-  action: "list" | "get" | "create" | "update" | "archive" | "operation";
+  action:
+    | "list"
+    | "get"
+    | "references"
+    | "create"
+    | "update"
+    | "archive"
+    | "operation";
   operation?: string;
   kind?: "query";
   input: unknown;
   key?: string;
 }
-export type ModuleTransport = (call: ModuleCall) => Promise<unknown>;
+export interface ModuleRequestOptions {
+  signal?: AbortSignal;
+}
+export type ModuleTransport = (
+  call: ModuleCall,
+  options?: ModuleRequestOptions,
+) => Promise<unknown>;
 export function createModuleClient<M extends ModuleDefinition>(
   module: M,
   send: ModuleTransport,
 ) {
-  const transport: ModuleTransport = (call) =>
-    send({ ...call, moduleVersion: module.version });
+  const transport: ModuleTransport = (call, options) =>
+    send({ ...call, moduleVersion: module.version }, options);
   async function call<K extends keyof M["operations"] & string>(
     name: K,
     input: Static<M["operations"][K]["input"]>,
@@ -400,7 +420,26 @@ export function createModuleClient<M extends ModuleDefinition>(
     call,
     resource<K extends keyof M["resources"] & string>(name: K) {
       type Data = Static<M["resources"][K]["schema"]>;
+      const references = async (
+        input: ReferenceQuery,
+        options: ModuleRequestOptions = {},
+      ): Promise<ReferencePage> => {
+        options.signal?.throwIfAborted();
+        referenceQueryField(module.resources[name].schema, input);
+        const result = await transport(
+          { moduleId: module.id, resource: name, action: "references", input },
+          options,
+        );
+        options.signal?.throwIfAborted();
+        assertSchema(ReferencePageSchema, result);
+        return result as ReferencePage;
+      };
       return {
+        references,
+        loadReferences: createReferenceLoader(
+          module.resources[name].schema,
+          references,
+        ),
         get: (id: string) =>
           transport({
             moduleId: module.id,

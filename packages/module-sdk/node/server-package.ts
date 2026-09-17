@@ -1,3 +1,4 @@
+import * as references from "../src/references";
 import { createHash, createPublicKey, sign, verify } from "node:crypto";
 import * as sdk from "../src/index";
 import { defineModuleServer, type ScopedModuleServer } from "../src/server";
@@ -71,6 +72,7 @@ export async function loadServerPackage(
     throw Error("Missing server factory.");
   const server = loaded.createServer({
     sdk,
+    references,
     server: { defineModuleServer },
   }) as ScopedModuleServer;
   if (

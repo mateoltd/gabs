@@ -1,3 +1,5 @@
+import { SuiteClient } from "../packages/api-client/src";
+import { operationPath } from "../packages/contracts/src";
 import { provisionLegacyWorkspace as provisionWorkspace } from "./fixtures/legacy-workspace";
 import "dotenv/config";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
@@ -118,6 +120,24 @@ describe("Public module runtime", () => {
     ).toEqual(ids.slice(0, 2));
     expect(first.body.selected.value).toBe(ids[2]);
     expect(first.body.nextCursor).toBe(ids[1]);
+    const sdk = new SuiteClient(async (request) => {
+      const path = operationPath(request);
+      const response = await server.app.inject({
+        method: path.method,
+        url: path.path,
+        headers: { ...headers, "x-module-version": request.moduleVersion! },
+      });
+      return { status: response.statusCode, body: response.json() };
+    })
+      .module(contacts, workspace)
+      .resource("notes");
+    expect(
+      await sdk.loadReferences(
+        { kind: "resource", moduleId: "contacts", resource: "contacts" },
+        { search: marker, limit: 2, selected: ids[2] },
+        new AbortController().signal,
+      ),
+    ).toEqual(first.body);
     const second = await lookup({ ...input, cursor: first.body.nextCursor });
     expect(
       second.body.items.map((item: { value: string }) => item.value),

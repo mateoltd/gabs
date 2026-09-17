@@ -3,12 +3,14 @@ import type { ClientBundles } from "@suite/module-sdk/client-artifact";
 import type {
   SimulatorSnapshot,
   SimulationGrant,
+  SimulationReadGrant,
 } from "@suite/module-sdk/simulator";
 
 export type DevAction =
   | { action: "network"; online: boolean }
   | { action: "permissions"; moduleId?: string; permissions: string[] }
   | { action: "grants"; grants: SimulationGrant[] }
+  | { action: "readGrants"; grants: SimulationReadGrant[] }
   | { action: "sync" }
   | { action: "submit" | "execute"; call: ModuleCall };
 export type DevState = SimulatorSnapshot & {

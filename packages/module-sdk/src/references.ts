@@ -1,9 +1,8 @@
+import { Type, type Static } from "@sinclair/typebox";
 import { ownSchemaValue } from "./schema-value";
 import { Value } from "@sinclair/typebox/value";
 import {
   assertSchema,
-  Type,
-  type Static,
   hydrateSchema,
   ValidationError,
   type TSchema,
@@ -11,16 +10,6 @@ import {
 
 export type ReferenceTarget =
   { kind: "member" } | { kind: "resource"; moduleId: string; resource: string };
-export interface ReferenceOption {
-  value: string;
-  label: string;
-}
-export interface ReferencePage {
-  items: ReferenceOption[];
-  nextCursor: string | null;
-  /** Resolved separately so an existing value remains visible while searching. */
-  selected?: ReferenceOption | null;
-}
 const identifier = Type.String({
   pattern:
     "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
@@ -37,6 +26,108 @@ export const ReferenceQuerySchema = Type.Object(
 );
 
 export type ReferenceQuery = Static<typeof ReferenceQuerySchema>;
+export const ReferenceOptionSchema = Type.Object(
+  { value: identifier, label: Type.String() },
+  { additionalProperties: false },
+);
+export const ReferencePageSchema = Type.Object(
+  {
+    items: Type.Array(ReferenceOptionSchema, { maxItems: 100 }),
+    nextCursor: Type.Union([identifier, Type.Null()]),
+    selected: Type.Optional(Type.Union([ReferenceOptionSchema, Type.Null()])),
+  },
+  { additionalProperties: false },
+);
+export type ReferenceOption = Static<typeof ReferenceOptionSchema>;
+export type ReferencePage = Static<typeof ReferencePageSchema>;
+export type ReferenceLookup = (
+  query: ReferenceQuery,
+  options?: { signal?: AbortSignal },
+) => Promise<ReferencePage>;
+export type ReferenceLoader = (
+  target: ReferenceTarget,
+  query: Omit<ReferenceQuery, "field"> & { limit: number },
+  signal: AbortSignal,
+) => Promise<ReferencePage & { offline?: boolean }>;
+/** Resolve only fields declared by the source contract; callers never supply a target route. */
+export function referenceQueryField(
+  schema: TSchema,
+  input: unknown,
+): ReferenceField {
+  assertSchema(ReferenceQuerySchema, input);
+  const query = input as ReferenceQuery;
+  const field = referenceFields(schema).find(
+    (field) => field.schemaPath === query.field,
+  );
+  if (!field)
+    throw new ValidationError(
+      "Choose a declared reference field in this resource.",
+    );
+  return field;
+}
+/** Adapter shared by generated and independent forms, without a React dependency. */
+export function createReferenceLoader(
+  schema: TSchema,
+  lookup: ReferenceLookup,
+): ReferenceLoader {
+  let fields: ReferenceField[] | undefined;
+  return async (target, query, signal) => {
+    signal.throwIfAborted();
+    const field = (fields ??= referenceFields(schema)).find(
+      (field) =>
+        referenceTargetKey(field.target) === referenceTargetKey(target),
+    );
+    if (!field)
+      return Promise.reject(
+        new ValidationError("The module does not declare this reference."),
+      );
+    return lookup({ ...query, field: field.schemaPath }, { signal });
+  };
+}
+/** Deterministic local/development paging, matching the server's UUID order and literal label search. */
+export function pageReferenceOptions(
+  options: readonly ReferenceOption[],
+  input: ReferenceQuery,
+): ReferencePage {
+  assertSchema(ReferenceQuerySchema, input);
+  const rows = options
+    .map((option) => ({ ...option, value: option.value.toLowerCase() }))
+    .sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+  const limit = input.limit ?? 25;
+  const items = rows
+    .filter(
+      (row) =>
+        (!input.cursor || row.value > input.cursor.toLowerCase()) &&
+        (!input.search ||
+          row.label.toLowerCase().includes(input.search.toLowerCase())),
+    )
+    .slice(0, limit + 1);
+  return {
+    items: items.slice(0, limit),
+    nextCursor: items.length > limit ? items[limit - 1].value : null,
+    ...(input.selected
+      ? {
+          selected:
+            rows.find((row) => row.value === input.selected!.toLowerCase()) ??
+            null,
+        }
+      : {}),
+  };
+}
+export function resourceReferenceOptions(
+  records: readonly import("./index").ResourceRecord[],
+): ReferenceOption[] {
+  return records
+    .filter((row) => !row.archived)
+    .map((row) => ({
+      value: row.id,
+      label:
+        ([row.data.name, row.data.title].find(
+          (value) => typeof value === "string" && value.length > 0,
+        ) as string | undefined) ?? row.id,
+    }));
+}
+
 export interface ReferenceField {
   /** JSON pointer into the resource schema, independent of array indices in a record. */
   schemaPath: string;

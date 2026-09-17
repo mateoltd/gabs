@@ -25,7 +25,10 @@ export const module = defineModule({
   configuration: Type.Object({}),
   resources: {
     notes: resource(
-      { text: field.text() },
+      {
+        text: field.text(),
+        linked: field.optional(field.reference("local-proof", "notes")),
+      },
       { title: "Notes", standalone: true },
     ),
     corporate: resource({ text: field.text() }, { title: "Corporate" }),

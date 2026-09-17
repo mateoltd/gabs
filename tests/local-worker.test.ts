@@ -216,3 +216,45 @@ function compileTimeContracts() {
   });
 }
 void compileTimeContracts;
+
+it("looks up standalone references in the actual worker without creating a receipt", async () => {
+  const runner = host();
+  const id = "00000000-0000-4000-8000-000000000080";
+  const snapshot: LocalSnapshot = {
+    records: {
+      notes: [
+        {
+          id,
+          data: { text: "Worker note" },
+          version: 1,
+          archived: false,
+          updatedAt: "2026-09-17T00:00:00Z",
+        },
+      ],
+    },
+    receipts: {},
+  };
+  try {
+    const result = await runner.run(
+      module,
+      request(
+        {
+          moduleId: module.id,
+          moduleVersion: module.version,
+          resource: "notes",
+          action: "references",
+          input: { field: "/properties/linked", selected: id },
+        },
+        snapshot,
+      ),
+    );
+    expect(result.result).toEqual({
+      items: [{ value: id, label: id }],
+      nextCursor: null,
+      selected: { value: id, label: id },
+    });
+    expect(result.snapshot).toEqual(snapshot);
+  } finally {
+    runner.close();
+  }
+});

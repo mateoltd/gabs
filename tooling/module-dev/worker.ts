@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import { assertSchema, Type } from "@suite/module-sdk";
-import { createModuleSimulator } from "@suite/module-sdk/simulator";
+import {
+  createModuleSimulator,
+  SimulationReadGrantSchema,
+} from "@suite/module-sdk/simulator";
 import { checkModuleSources } from "../module-workspace";
 import { loadSimulationGraph } from "../module-simulation";
 import { buildClientViews } from "../../packages/module-sdk/node/build-client";
@@ -21,9 +24,15 @@ try {
       moduleId: Type.Literal(module.id),
       moduleVersion: Type.Optional(Type.Literal(module.version)),
       action: Type.Union(
-        ["create", "update", "archive", "get", "list", "operation"].map(
-          (value) => Type.Literal(value),
-        ),
+        [
+          "create",
+          "update",
+          "archive",
+          "get",
+          "list",
+          "references",
+          "operation",
+        ].map((value) => Type.Literal(value)),
       ),
       kind: Type.Optional(
         Type.Union([Type.Literal("query"), Type.Literal("command")]),
@@ -36,6 +45,13 @@ try {
     { additionalProperties: false },
   );
   const input = Type.Union([
+    Type.Object(
+      {
+        action: Type.Literal("readGrants"),
+        grants: Type.Array(SimulationReadGrantSchema, { maxItems: 500 }),
+      },
+      { additionalProperties: false },
+    ),
     Type.Object(
       {
         action: Type.Literal("grants"),
@@ -89,6 +105,8 @@ try {
           action.permissions,
         );
       if (action.action === "grants") simulator.setGrants(action.grants);
+      if (action.action === "readGrants")
+        simulator.setReadGrants(action.grants);
       if (action.action === "sync") result = await simulator.sync();
       if (action.action === "submit")
         result = await simulator.submit(action.call);

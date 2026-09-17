@@ -110,31 +110,46 @@ export class SuiteClient {
     this.transport = transport ?? httpTransport("", () => this.csrf);
   }
   module<const M extends ModuleDefinition>(definition: M, workspaceId: string) {
-    return createModuleClient(definition, (call) =>
-      call.action === "operation"
-        ? this.request({
-            operation:
-              call.kind === "query" ? "moduleQuery" : "moduleOperation",
-            params: {
-              workspaceId,
-              moduleId: definition.id,
-              operationName: call.operation!,
+    return createModuleClient(definition, (call, options) =>
+      call.action === "references"
+        ? this.request(
+            {
+              operation: "moduleReferences",
+              params: {
+                workspaceId,
+                moduleId: definition.id,
+                resource: call.resource!,
+              },
+              query:
+                call.input as import("@suite/module-sdk/references").ReferenceQuery,
+              moduleVersion: call.moduleVersion,
             },
-            body: call.input,
-            idempotencyKey: call.key,
-            moduleVersion: call.moduleVersion,
-          })
-        : this.request({
-            operation: "moduleRequest",
-            params: { workspaceId, moduleId: definition.id },
-            body: {
-              action: call.action,
-              resource: call.resource,
-              input: call.input,
-            },
-            idempotencyKey: call.key,
-            moduleVersion: call.moduleVersion,
-          }),
+            options,
+          )
+        : call.action === "operation"
+          ? this.request({
+              operation:
+                call.kind === "query" ? "moduleQuery" : "moduleOperation",
+              params: {
+                workspaceId,
+                moduleId: definition.id,
+                operationName: call.operation!,
+              },
+              body: call.input,
+              idempotencyKey: call.key,
+              moduleVersion: call.moduleVersion,
+            })
+          : this.request({
+              operation: "moduleRequest",
+              params: { workspaceId, moduleId: definition.id },
+              body: {
+                action: call.action,
+                resource: call.resource,
+                input: call.input,
+              },
+              idempotencyKey: call.key,
+              moduleVersion: call.moduleVersion,
+            }),
     );
   }
   async request<K extends OperationId>(

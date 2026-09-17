@@ -88,6 +88,28 @@ pnpm module test tests/fixtures/service-preview --dependency tests/fixtures/serv
 pnpm module dev tests/fixtures/service-preview --dependency tests/fixtures/service-preview/provider
 ```
 
+## Reference fixtures
+
+Public resource clients expose `.references(query, { signal })` and the form-compatible `.loadReferences`. Reference queries need explicit member and cross-module read fixtures, independently of service grants:
+
+```ts
+export default defineSimulationModule(module, {
+  readGrants: [{ consumerId: module.id, providerId: "contacts" }],
+  members: [
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Alex",
+      active: true,
+      userActive: true,
+    },
+  ],
+});
+```
+
+The consumer must declare the provider dependency, and the provider must be loaded at a compatible version. `simulation.setReadGrants(...)`, `setMembers(...)` and `setModulePermissions(...)` exercise revocation. Member IDs must be unique; inactive members/accounts and archived resource records are omitted. No corporate member is fabricated from the simulator actor. Source and target read permissions are required on every lookup.
+
+The development workspace exposes read grants under **Module grants and provider permissions**. Reload restores file-based fixtures. Offline corporate queries fail without journaling; `personal: true` permits same-module standalone targets and rejects corporate membership or cross-module targets. These lookup rules do not add corporate reference validation to simulated resource writes.
+
 ## Verification boundary
 
 These scenarios help module authors iterate. Private stores, service calls and simulated audit entries run in serialized in-memory transactions. This does not establish PostgreSQL concurrency/isolation, database locale and exact numeric behavior, corporate authorization, durable persistence or historical field merging. Standalone resource simulation is available through `personal: true`; actual local workers retain their separate browser/native acceptance. Keep PostgreSQL, browser and native acceptance for their own behaviors. [The SDK-03 acceptance map](verification/module-services-preview/README.md) ties the scenario, preview and provider evidence together.

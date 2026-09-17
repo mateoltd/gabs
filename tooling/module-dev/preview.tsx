@@ -1,3 +1,4 @@
+export { referenceFields } from "@suite/module-sdk/references";
 import * as React from "react";
 import * as jsx from "react/jsx-runtime";
 import { createRoot, type Root } from "react-dom/client";
@@ -5,7 +6,7 @@ import * as ui from "@suite/ui-web";
 import {
   createModuleClient,
   hydrateModule,
-  type ModuleCall,
+  type ModuleTransport,
   type ModuleDefinition,
 } from "@suite/module-sdk";
 import {
@@ -20,7 +21,7 @@ import type { DevState } from "./contracts";
 type View = React.ComponentType<
   ModuleViewProps<ModuleDefinition> & { state?: EditableViewState<unknown> }
 > & { suiteViewState?: ViewStateMetadata };
-type Transport = (call: ModuleCall) => Promise<unknown>;
+type Transport = ModuleTransport;
 const hostCSS = fetch("/host.css").then(async (response) => {
   if (!response.ok) throw Error("The host UI stylesheet could not be loaded.");
   return (
@@ -111,7 +112,7 @@ function Surface({
   }, [data.revision, viewId]);
   const client = React.useMemo(
     () =>
-      createModuleClient(module, (call) => {
+      createModuleClient(module, (call, options) => {
         if (
           !latest.current.active ||
           !latest.current.data.permissions.includes(view.permission)
@@ -119,7 +120,7 @@ function Surface({
           return Promise.reject(
             Error("This preview is no longer active or authorized."),
           );
-        return latest.current.send(call);
+        return latest.current.send(call, options);
       }),
     [module, view.permission],
   );

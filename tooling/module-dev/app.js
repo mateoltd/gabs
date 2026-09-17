@@ -1,4 +1,4 @@
-import { updatePreview, hidePreview } from "/preview.js";
+import { updatePreview, hidePreview, referenceFields } from "/preview.js";
 const $ = (id) => document.getElementById(id);
 let state, revision, buildStatus;
 const text = (tag, value) => {
@@ -6,7 +6,7 @@ const text = (tag, value) => {
   element.textContent = value;
   return element;
 };
-async function request(body) {
+async function request(body, options = {}) {
   const response = await fetch("/action", {
     method: "POST",
     headers: {
@@ -14,6 +14,7 @@ async function request(body) {
       "x-module-dev-revision": revision,
     },
     body: JSON.stringify(body),
+    signal: options.signal,
   });
   const data = await response.json();
   if (!response.ok) throw Object.assign(Error(data.message), data);
@@ -107,7 +108,8 @@ function renderState() {
   );
   updatePreview(
     state,
-    async (call) => (await request({ action: "execute", call })).result,
+    async (call, options) =>
+      (await request({ action: "execute", call }, options)).result,
   );
 }
 function serviceControls() {
@@ -118,9 +120,9 @@ function serviceControls() {
     { module: state.module, permissions: state.permissions },
     ...Object.values(state.providers),
   ];
-  const selected = () =>
-    [...$("grants").querySelectorAll("input:checked")].map((input) =>
-      JSON.parse(input.value),
+  const selected = (kind = "service") =>
+    [...$("grants").querySelectorAll(`input[data-kind="${kind}"]:checked`)].map(
+      (input) => JSON.parse(input.value),
     );
   for (const { module } of modules)
     for (const [alias, reference] of Object.entries(module.services ?? {})) {
@@ -136,6 +138,7 @@ function serviceControls() {
       const box = document.createElement("input");
       box.type = "checkbox";
       box.value = JSON.stringify(grant);
+      box.dataset.kind = "service";
       box.checked = state.grants.some((current) =>
         Object.keys(grant).every((key) => current[key] === grant[key]),
       );
@@ -150,6 +153,45 @@ function serviceControls() {
       label.prepend(box);
       $("grants").append(label);
     }
+  for (const { module } of modules) {
+    const providers = new Set(
+      Object.values(module.resources)
+        .flatMap((resource) => referenceFields(resource.schema))
+        .filter(
+          (field) =>
+            field.target.kind === "resource" &&
+            field.target.moduleId !== module.id,
+        )
+        .map((field) => field.target.moduleId),
+    );
+    for (const providerId of providers) {
+      const grant = { consumerId: module.id, providerId };
+      const label = text(
+        "label",
+        `${module.id}: read references from ${providerId}`,
+      );
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.kind = "read";
+      box.value = JSON.stringify(grant);
+      box.checked = state.readGrants.some(
+        (current) =>
+          current.consumerId === module.id && current.providerId === providerId,
+      );
+      box.disabled =
+        !Object.hasOwn(module.dependencies, providerId) ||
+        !modules.some((provider) => provider.module.id === providerId);
+      box.onchange = () =>
+        request({ action: "readGrants", grants: selected("read") }).catch(
+          (error) => {
+            box.checked = !box.checked;
+            feedback(error.message);
+          },
+        );
+      label.prepend(box);
+      $("grants").append(label);
+    }
+  }
   for (const provider of Object.values(state.providers)) {
     const fieldset = document.createElement("fieldset");
     fieldset.append(text("legend", `${provider.module.name} permissions`));

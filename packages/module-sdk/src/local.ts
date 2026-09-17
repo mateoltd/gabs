@@ -1,4 +1,12 @@
 import {
+  referenceQueryField,
+  pageReferenceOptions,
+  resourceReferenceOptions,
+  type ReferenceQuery,
+  type ReferenceLookup,
+  type ReferenceLoader,
+} from "./references";
+import {
   listResourceRecords,
   type ResourceListOptions,
 } from "./resource-query";
@@ -55,6 +63,8 @@ export function createLocalModuleClient<M extends ModuleDefinition>(
   };
 }
 export interface LocalResourceClient<D> {
+  references: ReferenceLookup;
+  loadReferences: ReferenceLoader;
   get(id: string): Promise<ResourceRecord<D>>;
   list(input?: ResourceListOptions<D>): Promise<ResourcePage<D>>;
   create(data: D, key?: string): Promise<ResourceRecord<D>>;
@@ -236,12 +246,18 @@ export async function executeLocalCall(
       "The local request does not match the installed module.",
     );
   const snapshot = structuredClone(request.snapshot);
-  const mutation = !["list", "get"].includes(call.action);
+  const mutation = !["list", "get", "references"].includes(call.action);
   const assertCapability = (command: ModuleCall) => {
     if (
-      !["list", "get", "create", "update", "archive", "operation"].includes(
-        command.action,
-      )
+      ![
+        "list",
+        "get",
+        "references",
+        "create",
+        "update",
+        "archive",
+        "operation",
+      ].includes(command.action)
     )
       fail("INVALID_LOCAL_ACTION", "Unknown local action.");
     if (
@@ -309,6 +325,38 @@ export async function executeLocalCall(
         );
       const name = command.resource!,
         definition = module.resources[name];
+      if (command.action === "references") {
+        const { target } = referenceQueryField(
+          definition.schema,
+          command.input,
+        );
+        if (target.kind === "member")
+          fail(
+            "MEMBERSHIP_UNAVAILABLE",
+            "Standalone profiles have no corporate membership directory.",
+          );
+        if (target.moduleId !== module.id)
+          fail(
+            "LOCAL_SCOPE_DENIED",
+            "Cross-module local reference lookup requires a granted host capability.",
+          );
+        const resource =
+          Object.hasOwn(module.resources, target.resource) &&
+          module.resources[target.resource];
+        if (!resource || !resource.standalone)
+          fail(
+            "LOCAL_ONLY",
+            "The referenced resource is not available in this standalone module.",
+          );
+        return pageReferenceOptions(
+          resourceReferenceOptions(
+            Object.hasOwn(snapshot.records, target.resource)
+              ? snapshot.records[target.resource]
+              : [],
+          ),
+          command.input as ReferenceQuery,
+        );
+      }
       const rows = Object.hasOwn(snapshot.records, name)
         ? snapshot.records[name]
         : (snapshot.records[name] = []);

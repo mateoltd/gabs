@@ -38,7 +38,7 @@ test("preview executes independent providers, revokes grants and reloads typed p
       "preview-provider.recorded",
     );
     await page
-      .getByText("Service grants and provider permissions", { exact: true })
+      .getByText("Module grants and provider permissions", { exact: true })
       .click();
     const grant = page.getByLabel(
       "service-notes: record (preview-provider.record)",
@@ -81,7 +81,7 @@ test("preview executes independent providers, revokes grants and reloads typed p
     );
     await expect(page.locator("#providers")).not.toContainText("Allowed again");
     await page
-      .getByText("Service grants and provider permissions", { exact: true })
+      .getByText("Module grants and provider permissions", { exact: true })
       .click();
     await expect(view.locator(".page-heading p")).toHaveCSS("opacity", "1");
     expect(

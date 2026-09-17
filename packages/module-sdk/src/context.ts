@@ -132,6 +132,8 @@ export type QueryContext<M extends ModuleDefinition> = Omit<
   resource<K extends keyof M["resources"] & string>(
     name: K,
   ): {
+    references: import("./references").ReferenceLookup;
+    loadReferences: import("./references").ReferenceLoader;
     get(
       id: string,
     ): Promise<

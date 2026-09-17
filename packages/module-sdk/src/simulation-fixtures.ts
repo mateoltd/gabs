@@ -42,6 +42,8 @@ export interface SimulationModule<
   configuration?: Static<M["configuration"]>;
   server?: ScopedModuleServer;
   grants?: readonly SimulationGrant[];
+  readGrants?: readonly import("./simulator").SimulationReadGrant[];
+  members?: readonly import("./simulator").SimulationMember[];
 }
 export interface SimulationGrant {
   consumerId: string;
