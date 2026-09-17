@@ -41,3 +41,14 @@ The browser and native results are cumulative repair evidence. They do not claim
 The [architecture screenshots](screenshots/) preserve light, dark, 390-pixel and 768-pixel People/Inventory states, wide/narrow local-service consent, the minimized native consent flow and restored native suspension. Review found consistent shell structure, typography, controls and bounded responsive tables, with no architecture-induced clipping or structural regression. This is continuity evidence, not approval of the interface as final design polish. Historical screenshot artifacts were restored to their checkpoint bytes after the acceptance runs.
 
 The only UI behavior correction in this pass applies `aria-hidden` and `inert` to a closed Select popup while Base UI retains it for exit animation. It keeps the existing rendering and motion props. Repeated Axe, keyboard selection, Escape and focus-restoration coverage passed.
+
+## Follow-up architecture review, 18 September 2026
+
+The user-requested Sol review ran at xhigh effort against `88f45f7`, preserved by the local tag `checkpoint/architecture-review-2026-09-18`. The earlier restructuring was already committed in `92fd5fb`; this pass reviewed its current state instead of repeating directory moves. Parent review accepted the existing ownership layout and two focused checker corrections:
+
+- Every SDK and platform-contract source file is now a portable runtime entry for dependency analysis, even when no application currently imports it. Node/server and DOM/UI runtime edges are rejected; type-only React contracts remain legal. Explicit SDK Node entry points remain outside the portable tree.
+- Conditional wildcard exports substitute the matched path after selecting the export target. Fixtures prove that a declared application import resolves while an illegal cross-module implementation import still fails.
+
+Nine architecture fixtures passed. The initial run passed eight and exposed an incorrect new fixture expectation: the forbidden module import produces both a layer violation and a cross-module violation. Parent review corrected the exact expected diagnostics; no checker rule was weakened. `pnpm build` passed strict TypeScript, all four environment checks, dependency/copy checks and all four application builds. The existing web chunk-size warning remains. Logs: `/tmp/gabs-architecture-review-tests-final.log` and `/tmp/gabs-architecture-review-build.log`.
+
+The architecture overview now describes independently distributed executable modules and the still-open hosted trust/fifth-module acceptance accurately. No application, UI, style, public package identity, or signed release changed in this follow-up. No browser or desktop was launched; the earlier visual acceptance above is historical evidence, not a new UI run. SDK-05 and full parity remain open.

@@ -32,7 +32,7 @@ async function fixture(files: Record<string, string | object>) {
 
 const manifest = (
   name: string,
-  exports: string | Record<string, string> | undefined,
+  exports: string | Record<string, unknown> | undefined,
   dependencies: Record<string, string> = {},
 ) => ({
   name,
@@ -192,5 +192,91 @@ describe("architecture boundaries", () => {
         expect.stringContaining("worker runtime reaches DOM/UI code"),
       ]),
     );
+  });
+
+  it("checks dormant portable SDK and contract files without rejecting type-only UI contracts", async () => {
+    const root = await fixture({
+      "packages/sdk/package.json": manifest(
+        "@fixture/sdk",
+        {
+          ".": "./src/index.ts",
+          "./ui": "./src/contracts/ui.ts",
+        },
+        { react: "*" },
+      ),
+      "packages/sdk/src/index.ts": "export {};",
+      "packages/sdk/src/contracts/ui.ts":
+        'import type { ComponentType } from "react";\nexport type View = ComponentType<{}>;',
+      "packages/sdk/src/dormant-node.ts":
+        'import { readFileSync } from "node:fs";\nexport const read = readFileSync;',
+      "packages/contracts/package.json": manifest(
+        "@fixture/contracts",
+        "./src/index.ts",
+        { react: "*" },
+      ),
+      "packages/contracts/src/index.ts": "export {};",
+      "packages/contracts/src/dormant-view.ts":
+        'import React from "react";\nexport const view = React.createElement("div");',
+    });
+
+    const issues = analyzeArchitecture(root);
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "packages/sdk/src/dormant-node.ts: portable runtime reaches Node/server code",
+        ),
+        expect.stringContaining(
+          "packages/contracts/src/dormant-view.ts: portable runtime reaches DOM/UI code",
+        ),
+      ]),
+    );
+    expect(issues).toHaveLength(2);
+  });
+
+  it("resolves conditional wildcard exports before enforcing module boundaries", async () => {
+    const root = await fixture({
+      "modules/contacts/package.json": manifest(
+        "@fixture/contacts",
+        "./module.ts",
+        { "@fixture/projects": "workspace:*" },
+      ),
+      "modules/contacts/module.ts":
+        'import project from "@fixture/projects/releases/1.0.0/module";\nexport default project;',
+      "modules/projects/package.json": manifest("@fixture/projects", {
+        ".": "./module.ts",
+        "./releases/*/module": {
+          types: "./releases/*/module.ts",
+          import: "./releases/*/module.ts",
+        },
+      }),
+      "modules/projects/module.ts": "export default {};",
+      "modules/projects/releases/1.0.0/module.ts": "export default {};",
+    });
+
+    expect(analyzeArchitecture(root)).toEqual([
+      expect.stringContaining("module package cannot depend on module package"),
+      expect.stringContaining("cross-module implementation dependency"),
+    ]);
+  });
+
+  it("accepts a declared conditional wildcard export from an application", async () => {
+    const root = await fixture({
+      "apps/api/package.json": manifest("@fixture/api", undefined, {
+        "@fixture/projects": "workspace:*",
+      }),
+      "apps/api/src/main.ts":
+        'import project from "@fixture/projects/releases/1.0.0/module";\nexport default project;',
+      "modules/projects/package.json": manifest("@fixture/projects", {
+        ".": "./module.ts",
+        "./releases/*/module": {
+          types: "./releases/*/module.ts",
+          import: "./releases/*/module.ts",
+        },
+      }),
+      "modules/projects/module.ts": "export default {};",
+      "modules/projects/releases/1.0.0/module.ts": "export default {};",
+    });
+
+    expect(analyzeArchitecture(root)).toEqual([]);
   });
 });

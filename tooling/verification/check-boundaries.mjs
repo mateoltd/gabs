@@ -103,23 +103,28 @@ function exportedTarget(exports, subpath) {
   if (typeof exports === "string") return subpath === "." ? exports : undefined;
   if (!exports || typeof exports !== "object") return undefined;
   let value = exports[subpath];
+  let patternMatch;
   if (value === undefined) {
     for (const [pattern, candidate] of Object.entries(exports)) {
       if (!pattern.includes("*")) continue;
       const [before, after] = pattern.split("*");
       if (!subpath.startsWith(before) || !subpath.endsWith(after)) continue;
-      const match = subpath.slice(before.length, subpath.length - after.length);
-      value =
-        typeof candidate === "string"
-          ? candidate.replace("*", match)
-          : candidate;
+      patternMatch = subpath.slice(
+        before.length,
+        subpath.length - after.length,
+      );
+      value = candidate;
       break;
     }
   }
   while (value && typeof value === "object")
     value =
       value.import ?? value.default ?? value.types ?? Object.values(value)[0];
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string"
+    ? patternMatch === undefined
+      ? value
+      : value.replaceAll("*", patternMatch)
+    : undefined;
 }
 
 function resolveFile(candidate) {
@@ -286,6 +291,14 @@ function workerEntry(root, file) {
   return (
     name === "composition/src/local/worker-entry.ts" ||
     /^modules\/[^/]+\/(?:local\/|module-local\.)/.test(name)
+  );
+}
+
+function portableEntry(root, file) {
+  const name = normalized(root, file);
+  return (
+    name.startsWith("packages/contracts/src/") ||
+    name.startsWith("packages/sdk/src/")
   );
 }
 
@@ -506,26 +519,32 @@ export function analyzeArchitecture(projectRoot) {
   for (const name of packageGraph.keys()) findPackageCycle(name);
 
   const environmentEntries = files.filter(
-    (file) => browserEntry(root, file) || workerEntry(root, file),
+    (file) =>
+      browserEntry(root, file) ||
+      workerEntry(root, file) ||
+      portableEntry(root, file),
   );
   for (const entry of environmentEntries) {
-    const environment = workerEntry(root, entry) ? "worker" : "browser";
+    const environment = workerEntry(root, entry)
+      ? "worker"
+      : portableEntry(root, entry)
+        ? "portable"
+        : "browser";
     const seen = new Set();
     const visit = (file, chain) => {
       if (seen.has(file)) return;
       seen.add(file);
       for (const edge of runtimeGraph.get(file) ?? []) {
+        const reachesNode =
+          edge.target.startsWith("node:") || isNodeFile(root, edge.target);
+        const reachesDom =
+          edge.target.startsWith("dom:") || isDomFile(root, edge.target);
         const forbidden =
-          edge.target.startsWith("node:") ||
-          isNodeFile(root, edge.target) ||
-          (environment === "worker" &&
-            (edge.target.startsWith("dom:") || isDomFile(root, edge.target)));
+          reachesNode ||
+          ((environment === "worker" || environment === "portable") &&
+            reachesDom);
         if (forbidden) {
-          const reason =
-            environment === "worker" &&
-            (edge.target.startsWith("dom:") || isDomFile(root, edge.target))
-              ? "DOM/UI"
-              : "Node/server";
+          const reason = !reachesNode && reachesDom ? "DOM/UI" : "Node/server";
           const path = [...chain, normalized(root, file), edge.specifier].join(
             " -> ",
           );
