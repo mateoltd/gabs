@@ -419,3 +419,5 @@ Implementation checkpoint `99119e16ea03e3a1053df1c4ee9cc221fa19d1da` / [CI 35186
 ## SDK-04 validated resource-client results, 17 September 2026
 
 [Resource response acceptance](resource-response/README.md) records 231 unit/PostgreSQL tests, final focused guard/copy checks, strict checks/four builds, eleven distinct headless journeys across correction runs and a hidden/unfocused native journey. Corrupted successful mutation responses retain a recoverable key; a repeated key creates no duplicate record/audit. Malformed read data never becomes a successful custom table page. Two final error captures were inspected and historical captures restored. The [SDK-04 map](../sdk-04-acceptance.md) keeps generated host/cache/journal integration open.
+
+Implementation checkpoint `839a5e638d999f7eec3d76c325211da4c94149f1` / [CI 35188337883](https://github.com/mateoltd/gabs/actions/runs/35188337883) started no jobs. All four jobs ended with zero steps; the verified annotation states that the Actions budget prevents further use. Local acceptance above passed. Remote acceptance still requires restored account capacity.
