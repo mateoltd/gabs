@@ -58,8 +58,17 @@ export type HostCapabilityKind = keyof typeof hostCapabilitySchemas;
 export interface HostCapability {
   kind: HostCapabilityKind;
   permission: string;
+  /** Requires a server-issued, expiring lease. Omitted declarations remain online-only. */
+  offline?: "lease";
 }
-export function capability<const C extends HostCapability>(definition: C): C {
+type CapabilityDeclaration = HostCapability &
+  (
+    | { kind: "files.export" | "notifications.show" }
+    | { kind: "lan.status" | "lan.relay"; offline?: never }
+  );
+export function capability<const C extends CapabilityDeclaration>(
+  definition: C,
+): C {
   return definition;
 }
 export interface HostCapabilityCall {
@@ -87,6 +96,11 @@ export function validateHostCapabilities(
       !/^[a-z][a-z0-9-]{0,63}$/.test(name) ||
       !declaration ||
       !Object.hasOwn(hostCapabilitySchemas, declaration.kind) ||
+      (declaration.offline !== undefined &&
+        (declaration.offline !== "lease" ||
+          !["files.export", "notifications.show"].includes(
+            declaration.kind,
+          ))) ||
       !module.permissions.includes(declaration.permission) ||
       !declaration.permission.startsWith(module.id + ".")
     )

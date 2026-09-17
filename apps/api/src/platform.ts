@@ -1,4 +1,13 @@
 import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
+import {
+  CapabilityLeaseSchema,
+  CapabilityLeaseKeySchema,
+} from "@suite/module-sdk/capability-leases";
+import {
+  issueCapabilityLease,
+  prepareCapabilityLease,
+  capabilityLeaseKey,
+} from "@suite/server-core/identity/capability-leases";
 import AjvCompiler from "@fastify/ajv-compiler";
 import { resourceListSchema } from "@suite/module-sdk/queries";
 import { listModuleReferences } from "@suite/server-core/runtime/references";
@@ -158,6 +167,7 @@ export async function registerPlatform(
   app: FastifyInstance,
   db: DB,
   runtime: ServerRuntime & { catalog: MutableModuleCatalog },
+  issuer: string,
 ) {
   const authorize = (
     tx: Tx,
@@ -781,6 +791,91 @@ export async function registerPlatform(
           workspaceId: ctx.workspaceId,
         };
       }),
+  );
+  app.get(
+    "/api/v1/capabilities/key",
+    {
+      schema: {
+        operationId: "capabilityLeaseKey",
+        response: { 200: CapabilityLeaseKeySchema },
+      },
+    },
+    async () => capabilityLeaseKey(),
+  );
+  app.post<{
+    Params: { workspaceId: string; moduleId: string };
+    Body: { capability: string };
+  }>(
+    "/api/v1/module/:moduleId/workspaces/:workspaceId/capabilities/lease",
+    {
+      schema: {
+        operationId: "moduleCapabilityLease",
+        headers: moduleHeaders,
+        params: T.Object({ workspaceId: id, moduleId: slug }),
+        body: T.Object({ capability: slug }, { additionalProperties: false }),
+        response: { 200: CapabilityLeaseSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(
+        db,
+        req.params.workspaceId,
+        async (tx) => {
+          const ctx = await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+            undefined,
+            req.params.moduleId,
+          );
+          requireCondition(
+            typeof req.headers["x-module-version"] === "string",
+            400,
+            "MODULE_VERSION_REQUIRED",
+            "Offline host actions require an identified module release.",
+          );
+          const module = await clientModule(
+            tx,
+            ctx.workspaceId,
+            ctx.runtime.catalog,
+            req.params.moduleId,
+            req.headers["x-module-version"],
+            moduleServers,
+          );
+          const payload = await prepareCapabilityLease(
+            tx,
+            ctx,
+            module,
+            req.body.capability,
+            issuer,
+          );
+          const lease = await idempotent(
+            tx,
+            ctx,
+            req.headers["idempotency-key"] as string | undefined,
+            "module.capability.lease",
+            {
+              moduleId: module.id,
+              version: module.version,
+              capability: req.body.capability,
+            },
+            () => issueCapabilityLease(tx, ctx, payload),
+          );
+          requireCondition(
+            lease.payload.policyRevision === payload.policyRevision &&
+              lease.payload.issuer === issuer &&
+              lease.payload.expiresAt > Date.now() &&
+              lease.payload.expiresAt <= payload.expiresAt &&
+              lease.keyId === capabilityLeaseKey().keyId,
+            409,
+            "CAPABILITY_LEASE_RENEWAL_REQUIRED",
+            "This lease request belongs to an older policy, time window or signing key. Request a new offline lease with a new request identifier.",
+          );
+          return lease;
+        },
+        { snapshot: true },
+      ),
   );
   app.post<{
     Params: { workspaceId: string; moduleId: string };

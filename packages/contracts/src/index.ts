@@ -233,6 +233,11 @@ export const OPERATIONS = {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/capabilities/authorize",
   },
+  moduleCapabilityLease: {
+    method: "POST",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/capabilities/lease",
+  },
+  capabilityLeaseKey: { method: "GET", path: "/api/v1/capabilities/key" },
   moduleRequest: {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/records",

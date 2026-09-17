@@ -23,6 +23,7 @@
     "./verification": "./src/contracts/verification.ts",
     "./references": "./src/contracts/references.ts",
     "./host-capabilities": "./src/contracts/host-capabilities.ts",
+    "./capability-leases": "./src/contracts/capability-leases.ts",
     "./host-ui": "./src/contracts/host-ui.ts",
     "./release-packages": "./src/contracts/release-packages.ts",
     "./node/signing": "./node/signing.ts",

@@ -481,3 +481,7 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 ## Standalone device development simulation, 17 September 2026
 
 [SDK/CLI/preview acceptance](local-device-simulator/README.md) verifies real local transaction handlers with simulated device consent and outcomes. The final focused suite passed 64 tests across 16 files, and two authored CLI scenarios passed. Three existing preview regressions passed; the standalone journey passed after waiting for the rebuilt worker generation before reading reset state. Scoped Axe and wide/narrow captures were inspected. No real device effects, native acceptance or final product UI approval are claimed by simulation results. Corporate offline host leases and the rest of SDK-05 remain open.
+
+## Corporate capability lease authority in progress, 17 September 2026
+
+[Authority milestone](capability-leases/README.md) adds signed exact-context leases, explicit offline declarations, separate online signing keys and audited server issuance. Final combined acceptance passed 17 tests across 7 files after expiry/replay hardening, including server/verifier/host/policy and SDK regressions. Strict checks and all four builds pass, and API schemas were regenerated after PostgreSQL recovered without an assistant-initiated OrbStack restart. Browser/native lease integration and real offline acceptance remain required. No offline client completion is claimed.

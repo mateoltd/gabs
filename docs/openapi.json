@@ -12398,6 +12398,228 @@
         }
       }
     },
+    "/api/v1/capabilities/key": {
+      "get": {
+        "operationId": "capabilityLeaseKey",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "keyId",
+                    "publicKey"
+                  ],
+                  "properties": {
+                    "keyId": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "publicKey": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/capabilities/lease": {
+      "post": {
+        "operationId": "moduleCapabilityLease",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "capability"
+                ],
+                "properties": {
+                  "capability": {
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "moduleId",
+            "required": true
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-module-version",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "payload",
+                    "keyId",
+                    "signature"
+                  ],
+                  "properties": {
+                    "payload": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "moduleId",
+                        "moduleVersion",
+                        "capability",
+                        "kind",
+                        "userId",
+                        "workspaceId",
+                        "purpose",
+                        "id",
+                        "issuer",
+                        "membershipId",
+                        "permission",
+                        "contractDigest",
+                        "policyRevision",
+                        "issuedAt",
+                        "expiresAt"
+                      ],
+                      "properties": {
+                        "moduleId": {
+                          "type": "string"
+                        },
+                        "moduleVersion": {
+                          "type": "string"
+                        },
+                        "capability": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "files.export"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "notifications.show"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "lan.status"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "lan.relay"
+                              ]
+                            }
+                          ]
+                        },
+                        "userId": {
+                          "type": "string"
+                        },
+                        "workspaceId": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string",
+                          "enum": [
+                            "suite:corporate-device:v1"
+                          ]
+                        },
+                        "id": {
+                          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
+                          "type": "string"
+                        },
+                        "issuer": {
+                          "minLength": 1,
+                          "maxLength": 2048,
+                          "type": "string"
+                        },
+                        "membershipId": {
+                          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
+                          "type": "string"
+                        },
+                        "permission": {
+                          "minLength": 1,
+                          "maxLength": 200,
+                          "type": "string"
+                        },
+                        "contractDigest": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "policyRevision": {
+                          "pattern": "^(0|[1-9][0-9]{0,18})$",
+                          "type": "string"
+                        },
+                        "issuedAt": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "expiresAt": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "keyId": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "signature": {
+                      "pattern": "^[A-Za-z0-9+/]{86}==$",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/records": {
       "post": {
         "operationId": "moduleRequest",

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./identity/capability-leases": "./src/identity/capability-leases.ts",
     "./governance/business-cutover": "./src/governance/business-cutover.ts",
     "./governance/policy-signals": "./src/governance/policy-signals.ts",
     "./persistence/module-migrations": "./src/persistence/module-migrations.ts",

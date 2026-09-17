@@ -236,12 +236,20 @@ export function renderModuleDocumentation(module: ModuleDefinition): string {
     ...(entries(module.capabilities).length
       ? [
           "## Host capabilities",
-          "A signed declaration requests access; the current workspace permission grants it. Corporate host actions currently require a live authorization check. LAN capabilities also require enabled managed desktop transport.",
+          "A signed declaration requests access; the current workspace permission grants it. Corporate host actions require live authorization by default. Offline declarations additionally require an unexpired server-issued lease and host support. LAN capabilities require enabled managed desktop transport. Device access never authorizes corporate business changes.",
           ...entries(module.capabilities).flatMap(([name, capability]) => [
             `### ${text(name)}`,
             table(
-              ["Capability", "Permission"],
-              [[capability.kind, capability.permission]],
+              ["Capability", "Permission", "Offline access"],
+              [
+                [
+                  capability.kind,
+                  capability.permission,
+                  capability.offline === "lease"
+                    ? "Server lease and host support required"
+                    : "Not declared",
+                ],
+              ],
             ),
             schemaReference(
               "Input",

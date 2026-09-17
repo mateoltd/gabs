@@ -708,6 +708,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/capabilities/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["capabilityLeaseKey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/capabilities/lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["moduleCapabilityLease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/records": {
         parameters: {
             query?: never;
@@ -5717,6 +5749,81 @@ export interface operations {
                         kind: "files.export" | "notifications.show" | "lan.status" | "lan.relay";
                         userId: string;
                         workspaceId: string;
+                    };
+                };
+            };
+        };
+    };
+    capabilityLeaseKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        keyId: string;
+                        publicKey: string;
+                    };
+                };
+            };
+        };
+    };
+    moduleCapabilityLease: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
+            path: {
+                workspaceId: string;
+                moduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    capability: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        payload: {
+                            moduleId: string;
+                            moduleVersion: string;
+                            capability: string;
+                            kind: "files.export" | "notifications.show" | "lan.status" | "lan.relay";
+                            userId: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            purpose: "suite:corporate-device:v1";
+                            id: string;
+                            issuer: string;
+                            membershipId: string;
+                            permission: string;
+                            contractDigest: string;
+                            policyRevision: string;
+                            issuedAt: number;
+                            expiresAt: number;
+                        };
+                        keyId: string;
+                        signature: string;
                     };
                 };
             };

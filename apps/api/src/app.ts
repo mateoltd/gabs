@@ -1335,7 +1335,7 @@ export async function createApp(
     },
   });
   await registerWorkspacePolicy(app, db, auth, runtime);
-  await registerPlatform(app, db, runtime);
+  await registerPlatform(app, db, runtime, new URL(config.apiOrigin).origin);
   await registerBilling(app, db, config.origin, runtime);
   await app.ready();
   return { app, db, auth, config };

@@ -78,6 +78,7 @@ export function validateOperation(value: unknown): OperationRequest {
         "moduleMembers",
         "moduleReferences",
         "moduleCapabilityAuthorize",
+        "moduleCapabilityLease",
       ].includes(r.operation))
   )
     throw Error("Invalid module version");
