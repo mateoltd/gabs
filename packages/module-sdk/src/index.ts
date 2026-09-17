@@ -341,6 +341,59 @@ export interface ResourcePage<T = JsonRecord> {
   items: ResourceRecord<T>[];
   nextCursor: string | null;
 }
+/** Metadata stays extensible; resource data obeys the module's declared schema. */
+export function resourceRecordSchema<S extends TSchema>(data: S) {
+  return Type.Object({
+    id: Type.String({ minLength: 1 }),
+    data,
+    version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+    archived: Type.Boolean(),
+    updatedAt: Type.String({ minLength: 1 }),
+  });
+}
+export function resourcePageSchema<S extends TSchema>(data: S) {
+  return Type.Object({
+    items: Type.Array(resourceRecordSchema(data)),
+    nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  });
+}
+export class ResourceResponseError extends Error {
+  readonly code = "INVALID_RESOURCE_RESPONSE";
+  constructor(
+    readonly moduleId: string,
+    readonly resource: string,
+    readonly action: string,
+    readonly idempotencyKey: string | undefined,
+    cause: unknown,
+  ) {
+    super(
+      "The module returned data that could not be verified." +
+        (idempotencyKey
+          ? " The request may have completed. Check the record before retrying."
+          : " Refresh the records to try again."),
+      { cause },
+    );
+  }
+}
+/** Structural guard also works when an independently bundled view has its own SDK copy. */
+export function isResourceResponseError(
+  error: unknown,
+): error is Pick<
+  ResourceResponseError,
+  "code" | "moduleId" | "resource" | "action" | "idempotencyKey" | "message"
+> {
+  if (!error || typeof error !== "object") return false;
+  const value = error as Record<string, unknown>;
+  return (
+    value.code === "INVALID_RESOURCE_RESPONSE" &&
+    typeof value.moduleId === "string" &&
+    typeof value.resource === "string" &&
+    typeof value.action === "string" &&
+    typeof value.message === "string" &&
+    (value.idempotencyKey === undefined ||
+      typeof value.idempotencyKey === "string")
+  );
+}
 export interface ModuleCall {
   moduleId: string;
   /** Signed module release used to author this request, retained when queued. */
@@ -405,16 +458,32 @@ export function createModuleClient<M extends ModuleDefinition>(
     name: string,
     action: "get" | "list",
     input: unknown,
+    schema: TSchema,
     options: ModuleRequestOptions = {},
   ): Promise<T> {
     options.signal?.throwIfAborted();
     try {
-      return (await transport(
+      const result = await transport(
         { moduleId: module.id, resource: name, action, input },
         options,
-      )) as T;
+      );
+      validateResponse(schema, result, name, action);
+      return result as T;
     } finally {
       options.signal?.throwIfAborted();
+    }
+  }
+  function validateResponse(
+    schema: TSchema,
+    result: unknown,
+    name: string,
+    action: string,
+    key?: string,
+  ) {
+    try {
+      assertSchema(schema, result);
+    } catch (cause) {
+      throw new ResourceResponseError(module.id, name, action, key, cause);
     }
   }
   async function call<K extends keyof M["operations"] & string>(
@@ -478,6 +547,28 @@ export function createModuleClient<M extends ModuleDefinition>(
         throw new ValidationError(`Unknown resource: ${name}`);
       const cached = resources.get(name) as ResourceClient<Data> | undefined;
       if (cached) return cached;
+      const recordSchema = resourceRecordSchema(module.resources[name].schema);
+      const pageSchema = resourcePageSchema(module.resources[name].schema);
+      function mutate(
+        action: "create" | "update" | "archive",
+        input: unknown,
+        key: string,
+      ): Promise<ResourceRecord<Data>> {
+        const pending = transport({
+          moduleId: module.id,
+          resource: name,
+          action,
+          input,
+          key,
+        }).then((result) => {
+          validateResponse(recordSchema, result, name, action, key);
+          return result as ResourceRecord<Data>;
+        });
+        // Hosts track detached operations for transaction rollback. Drain the derived
+        // validation promise too, without changing the rejection observed by callers.
+        void pending.catch(() => undefined);
+        return pending;
+      }
       const references = async (
         input: ReferenceQuery,
         options: ModuleRequestOptions = {},
@@ -499,18 +590,18 @@ export function createModuleClient<M extends ModuleDefinition>(
           references,
         ),
         get: (id, options) =>
-          read<ResourceRecord<Data>>(name, "get", { id }, options),
+          read<ResourceRecord<Data>>(
+            name,
+            "get",
+            { id },
+            recordSchema,
+            options,
+          ),
         list: (input = {}, options) =>
-          read<ResourcePage<Data>>(name, "list", input, options),
+          read<ResourcePage<Data>>(name, "list", input, pageSchema, options),
         create: (data: Data, key: string = crypto.randomUUID()) => {
           assertSchema(module.resources[name].schema, data);
-          return transport({
-            moduleId: module.id,
-            resource: name,
-            action: "create",
-            input: { data },
-            key,
-          }) as Promise<ResourceRecord<Data>>;
+          return mutate("create", { data }, key);
         },
         update: (
           id: string,
@@ -519,26 +610,17 @@ export function createModuleClient<M extends ModuleDefinition>(
           key: string = crypto.randomUUID(),
         ) => {
           assertSchema(module.resources[name].schema, data);
-          return transport({
-            moduleId: module.id,
-            resource: name,
-            action: "update",
-            input: { id, data, baseVersion: base.version, baseData: base.data },
+          return mutate(
+            "update",
+            { id, data, baseVersion: base.version, baseData: base.data },
             key,
-          }) as Promise<ResourceRecord<Data>>;
+          );
         },
         archive: (
           id: string,
           version: number,
           key: string = crypto.randomUUID(),
-        ) =>
-          transport({
-            moduleId: module.id,
-            resource: name,
-            action: "archive",
-            input: { id, baseVersion: version },
-            key,
-          }) as Promise<ResourceRecord<Data>>,
+        ) => mutate("archive", { id, baseVersion: version }, key),
       };
       resources.set(name, client);
       return client;

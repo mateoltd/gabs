@@ -1,0 +1,29 @@
+# Typed resource responses
+
+`createModuleClient(module, transport).resource(name)` validates results from `get`, `list`, `create`, `update` and `archive` before resolving a typed success. The resource's declared data schema remains the source of validation, including nested fields, choices and additional-property rules.
+
+`resourceRecordSchema(dataSchema)` and `resourcePageSchema(dataSchema)` are public TypeBox schema constructors for module operation outputs and custom adapters. They retain the data schema's inferred types. Record metadata requires nonempty string IDs and `updatedAt` values, positive safe-integer versions and a boolean archive flag. A page contains validated records and either a nonempty cursor string or `null`. Envelope metadata permits additional fields for forward compatibility; resource data follows its own declared rules. These checks do not establish timestamp chronology or server authorization.
+
+For example, a module that declares `resources.records` can derive an operation output without repeating its fields:
+
+```ts
+import { resourcePageSchema, type Static } from "@suite/module-sdk";
+import module from "./module";
+
+const pageSchema = resourcePageSchema(module.resources.records.schema);
+type Page = Static<typeof pageSchema>;
+```
+
+## Invalid results and recovery
+
+An invalid result rejects with `INVALID_RESOURCE_RESPONSE`. `isResourceResponseError(error)` structurally narrows its message, module/resource/action identity and optional `idempotencyKey`. Use the guard rather than relying on constructor identity across independently bundled SDK copies. Diagnostic schema details remain in the error cause; user-facing copy provides the appropriate next action.
+
+Malformed reads cannot become successful `useResourceList` pages. Cancelled reads remain cancelled, including when a late transport result is malformed. Transport failures keep their original error behavior.
+
+An invalid mutation response does **not** prove that the mutation failed. The request may already have committed. The error retains the exact key sent to the transport, including an SDK-generated key, and the SDK does not automatically retry. Check authoritative state and retain the original key for appropriate recovery; do not create a new key merely because the response could not be verified. Full durable recovery remains part of the offline/profile acceptance work.
+
+Pending/provisional envelopes do not satisfy a confirmed record schema. This validator does not invent accepted results or add a new offline mutation protocol. Standalone modules retain their explicit local authority and receipts.
+
+New custom-view builds require `client.resources` revision **3**, which includes response validation. Current hosts explicitly support revisions 1, 2 and 3; supported revision sets are not inferred from numeric ordering. See [signed host compatibility](module-client-packages.md#host-ui-compatibility-sdk-04).
+
+The generated host screens currently have separate direct-transport paths. Extending these checks to their live reads, cached pages and journal acknowledgment, using the appropriate signed release contract, remains an explicit SDK-04 gate in the [acceptance map](sdk-04-acceptance.md).

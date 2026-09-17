@@ -55,7 +55,14 @@ describe("Module authoring and trust", () => {
     const sent: ModuleCall[] = [];
     const client = createModuleClient(contacts, async (call) => {
       sent.push(structuredClone(call));
-      return {};
+      const row = {
+        id: "one",
+        data: { name: "A", kind: "organization", relationship: "customer" },
+        version: 1,
+        archived: call.action === "archive",
+        updatedAt: new Date().toISOString(),
+      };
+      return call.action === "list" ? { items: [row], nextCursor: null } : row;
     });
     await client.resource("contacts").list();
     await client.resource("contacts").get("one");

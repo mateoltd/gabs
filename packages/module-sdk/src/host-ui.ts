@@ -74,7 +74,7 @@ export function describeViewHost(bindings: {
 }): ViewHostCapabilities {
   const capabilities: Record<string, readonly number[]> = {
     "view.context": [1],
-    "client.resources": [1, 2],
+    "client.resources": [1, 2, 3],
   };
   for (const [namespace, names] of Object.entries(viewHostExports))
     for (const name of names)

@@ -165,7 +165,10 @@ test("incompatible signed updates fail before download and preserve the installe
     await expect(card.getByRole("alert")).toContainText(
       "requires host contract ui.Button revision 99",
     );
-    expect(downloads).toBeGreaterThan(0);
+    await expect.poll(() => downloads).toBeGreaterThan(0);
+    await expect(
+      card.getByRole("button", { name: "Update", exact: true }),
+    ).toBeEnabled();
     await expect(card).toContainText(`Installed ${first.version}`);
     await expect(
       card.getByText("Installation pending", { exact: false }),

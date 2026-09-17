@@ -1,5 +1,7 @@
 import "dotenv/config";
 import { test, expect } from "@playwright/test";
+import { createModuleClient } from "@suite/module-sdk";
+import queryModule from "../fixtures/resource-query/module";
 import AxeBuilder from "@axe-core/playwright";
 import { Pool } from "pg";
 import { resolve } from "node:path";
@@ -188,6 +190,67 @@ test("signed resource query views compose public controls, cancel transport and 
         );
         expect(saved.ok(), await saved.text()).toBe(true);
       }
+    let damageMutation = true;
+    const typed = createModuleClient(
+      { ...queryModule, id: queryId, version: pkg.version },
+      async (call) => {
+        const response = await page.request.post(
+          `/api/v1/module/${queryId}/workspaces/${workspace}/records`,
+          {
+            headers: {
+              ...headers,
+              "x-module-version": pkg.version,
+              ...(call.key ? { "idempotency-key": call.key } : {}),
+            },
+            data: {
+              resource: call.resource,
+              action: call.action,
+              input: call.input,
+            },
+          },
+        );
+        expect(response.ok(), await response.text()).toBe(true);
+        const result = await response.json();
+        if (call.action === "create" && damageMutation) {
+          damageMutation = false;
+          return { ...result, data: { ...result.data, amount: "malformed" } };
+        }
+        return result;
+      },
+    ).resource("records");
+    const receiptKey = crypto.randomUUID();
+    const captured = {
+      name: "Response recovery proof",
+      amount: 99,
+      approved: false,
+    };
+    await expect(typed.create(captured, receiptKey)).rejects.toMatchObject({
+      code: "INVALID_RESOURCE_RESPONSE",
+      idempotencyKey: receiptKey,
+    });
+    const accepted = await typed.create(captured, receiptKey);
+    expect(accepted.data).toEqual(captured);
+    expect(
+      Number(
+        (
+          await pool.query(
+            "select count(*) from suite.module_records where workspace_id=$1 and module_id=$2 and data->>'name'=$3",
+            [workspace, queryId, captured.name],
+          )
+        ).rows[0].count,
+      ),
+    ).toBe(1);
+    expect(
+      Number(
+        (
+          await pool.query(
+            "select count(*) from suite.audit where workspace_id=$1 and action=$2 and target_id=$3",
+            [workspace, `${queryId}.records.create`, accepted.id],
+          )
+        ).rows[0].count,
+      ),
+    ).toBe(1);
+    await typed.archive(accepted.id, accepted.version, crypto.randomUUID());
     const query = (data: { minimum: number; cursor?: string }) =>
       page.request.post(
         `/api/v1/module/${queryId}/workspaces/${workspace}/queries/approved`,
@@ -233,6 +296,42 @@ test("signed resource query views compose public controls, cancel transport and 
     ).toBeVisible();
     await page.getByRole("link", { name: queryName, exact: true }).click();
     const { table, state } = await exerciseQuery(page);
+    const resourceRoute = `**/module/${queryId}/workspaces/${workspace}/records`;
+    await page.route(resourceRoute, async (route) => {
+      if (route.request().postDataJSON()?.action !== "list")
+        return route.continue();
+      const response = await route.fetch();
+      const body = await response.json();
+      body.items[0].data.amount = "malformed";
+      await route.fulfill({ response, json: body });
+    });
+    await page
+      .getByRole("button", { name: "Refresh records", exact: true })
+      .click();
+    await expect(state).toHaveText("Records could not be loaded.");
+    await expect(table).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: queryName, exact: true }),
+    ).toContainText("data that could not be verified");
+    await mkdir("docs/verification/resource-response", { recursive: true });
+    await page.screenshot({
+      path: "docs/verification/resource-response/invalid-read.png",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: "docs/verification/resource-response/invalid-read-narrow.png",
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.unroute(resourceRoute);
+    await page
+      .getByRole("button", { name: "Retry records", exact: true })
+      .click();
+    await expect(table).toContainText("Record 07");
     expect(
       (
         await new AxeBuilder({ page })

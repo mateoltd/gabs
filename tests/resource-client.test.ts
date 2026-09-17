@@ -82,7 +82,7 @@ it("reads normally through the same stable client and keeps mutation semantics",
   const row: ResourceRecord = {
     id: "one",
     version: 1,
-    data: { name: "Contact" },
+    data: { name: "Contact", kind: "person", relationship: "customer" },
     archived: false,
     updatedAt: "now",
   };

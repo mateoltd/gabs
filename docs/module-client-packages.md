@@ -20,7 +20,7 @@ Custom views can call schema-inferred module operations through the same client.
 
 ## Host UI compatibility (SDK-04)
 
-New builds derive a per-view `requires` map from host value imports, for example `ui.Button: 1` and `react.useState: 1`. The builder includes view-context revision 1 and resource-client revision 2. Requirements are copied into signed manifest `clientRequirements`; Node, browser and registry review verify that the artifact and manifest agree. `module inspect` exposes this metadata alongside the ordinary release contract.
+New builds derive a per-view `requires` map from host value imports, for example `ui.Button: 1` and `react.useState: 1`. The builder includes view-context revision 1 and resource-client revision 3 (validated resource responses). Requirements are copied into signed manifest `clientRequirements`; Node, browser and registry review verify that the artifact and manifest agree. `module inspect` exposes this metadata alongside the ordinary release contract.
 
 Named imports, aliases and named reexports select their individual contracts. Type-only imports add no requirements. Default React, namespace, dynamic and literal CommonJS imports conservatively require all exports of that host namespace. The JSX runtime requires its shared `jsx`, `jsxs` and `Fragment` contracts. Prefer named value imports when a module only uses a small part of the UI kit.
 
