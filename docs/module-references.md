@@ -57,6 +57,6 @@ With offline storage enabled and a valid corporate lease, the host remembers at 
 
 - Generated object and homogeneous-array editors use recursive pickers. Tuple and record-map fields retain the structured JSON editor; their references are validated server-side, but per-item picker UI remains open.
 - Tables use known top-level labels; resolving every nested or off-page table label remains open.
-- Resource CRUD is covered. Operation inputs/private stores do not acquire reference semantics solely from these annotations. Migration writes retain their existing changed top-level link checks and final schema validation; recursive migration-link reconciliation remains open.
+- Resource CRUD and [recursive migration reconciliation](module-storage-migrations.md) are covered. Migrations compare final records with their original signed contract and validate new links before committing. Operation inputs/private stores do not acquire reference semantics solely from these annotations.
 - Pagination is not a snapshot. Archiving or revocation after lookup can cause a subsequent write to be rejected.
 - Broader SDK composition, standalone/custom capability integration, accessibility acceptance and platform parity remain open.

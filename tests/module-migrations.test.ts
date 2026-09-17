@@ -83,14 +83,80 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
         max === 1
           ? "name:field.text()"
           : `name:field.text(), category:${schema === 2 ? "field.text()" : "Type.Optional(field.text())"}`;
+      const nested = `
+        links:Type.Optional(Type.Array(Type.Object({target:field.reference('${id}','notes')}))),
+        future:Type.Optional(field.reference('${id}','notes')),
+        members:Type.Optional(Type.Array(field.member())),
+        partners:Type.Optional(Type.Record(Type.String(),field.reference('contacts','people'))),
+        variant:Type.Optional(Type.Union([
+          Type.Object({kind:Type.Literal('text'),value:Type.String()}),
+          Type.Object({kind:Type.Literal('link'),value:field.reference('${id}','notes')})
+        ])),
+        promoted:Type.Optional(${schema === 2 ? `field.reference('${id}','notes')` : "Type.String()"}),
+        retargeted:Type.Optional(field.reference('${id}','${schema === 2 ? "legacy" : "notes"}')),
+      `;
       await writeFile(
         resolve(folder, "module.ts"),
-        `import {defineModule,resource,store,field,Type} from '@suite/module-sdk'; export default defineModule({id:'${id}',name:'Migration notes',version:'${version}',description:'Migration acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.notes.read','${id}.notes.write'],configuration:Type.Object({}),operations:{},stores:{balances:store({${properties}},{unique:['name']})},resources:{notes:resource({${properties},sibling:Type.Optional(field.reference('${id}','notes')),assignee:Type.Optional(field.member()),contact:Type.Optional(field.reference('contacts','people'))},{title:'Notes'})},storage:{version:${schema},compatible:{minimum:${schema},maximum:${max}},migrations:${schema === 2 ? "{'add-category':{from:1,to:2}}" : "{}"}}});`,
+        `import {defineModule,resource,store,field,Type} from '@suite/module-sdk'; export default defineModule({id:'${id}',name:'Migration notes',version:'${version}',description:'Migration acceptance',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.notes.read','${id}.notes.write'],configuration:Type.Object({}),operations:{},stores:{balances:store({${properties}},{unique:['name']})},resources:{notes:resource({${properties},sibling:Type.Optional(field.reference('${id}','notes')),assignee:Type.Optional(field.member()),contact:Type.Optional(field.reference('contacts','people')),${nested}},{title:'Notes'})},storage:{version:${schema},compatible:{minimum:${schema},maximum:${max}},migrations:${schema === 2 ? "{'add-category':{from:1,to:2}}" : "{}"}}});`,
       );
       if (schema === 2)
         await writeFile(
           resolve(folder, "module-server.ts"),
-          `import {defineModuleServer} from '@suite/module-sdk/server'; import module from './module'; export default defineModuleServer(module)({}, {'add-category':async(ctx)=>{const balances=ctx.store('balances');const privatePage=await balances.scan();for(const row of privatePage.items)await balances.write(row.id,{...row.data,category:'general'},row.version);const oldStore=ctx.store('old-balances');for(const row of (await oldStore.scan()).items){await balances.create({...row.data,category:'general'},row.id);await oldStore.archive(row.id,row.version);}let cursor;do{const page=await ctx.scan('notes',cursor);for(const row of page.items){await ctx.write('notes',row.id,{...row.data,category:'general',...(row.data.name==='invalid-write'?{sibling:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{}),...(row.data.name==='invalid-member'?{assignee:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{}),...(row.data.name==='invalid-cross-module'?{contact:'ffffffff-ffff-4fff-8fff-ffffffffffff'}:{})},row.version);if(row.data.name==='invalid-create')await ctx.create('notes',{name:'Invalid',category:'general',sibling:'ffffffff-ffff-4fff-8fff-ffffffffffff'});if(row.data.name==='fail')throw Error('Fixture migration rejected');}cursor=page.next??undefined;}while(cursor);const legacy=await ctx.scan('legacy');for(const row of legacy.items){await ctx.create('notes',{name:row.data.name,category:'general'},row.id);await ctx.archive('legacy',row.id,row.version);}}});`,
+          `import {defineModuleServer} from '@suite/module-sdk/server';
+          import module from './module';
+          export default defineModuleServer(module)({}, {'add-category':async(ctx)=>{
+            const invalid='ffffffff-ffff-4fff-8fff-ffffffffffff';
+            const balances=ctx.store('balances');
+            for(const row of (await balances.scan()).items)
+              await balances.write(row.id,{...row.data,category:'general'},row.version);
+            const oldStore=ctx.store('old-balances');
+            for(const row of (await oldStore.scan()).items){
+              await balances.create({...row.data,category:'general'},row.id);
+              await oldStore.archive(row.id,row.version);
+            }
+            let cursor;
+            do{
+              const page=await ctx.scan('notes',cursor);
+              for(const row of page.items){
+                const data={...row.data,category:'general'};
+                if(row.data.name==='first')data.future='00000000-0000-4000-8000-000000000003';
+                let version=row.version;
+                if(row.data.name==='invalid-write')data.sibling=invalid;
+                if(row.data.name==='invalid-member')data.assignee=invalid;
+                if(row.data.name==='invalid-cross-module')data.contact=invalid;
+                if(row.data.name==='invalid-nested')data.links=[{target:invalid}];
+                if(row.data.name==='invalid-copy-link')data.promoted=row.data.sibling;
+                if(row.data.name==='invalid-archive-target'){
+                  data.links=[{target:'${first}'}];
+                  await ctx.archive('notes','${first}',2);
+                }
+                if(row.data.name==='invalid-nested-member')data.members=[invalid];
+                if(row.data.name==='invalid-nested-cross')data.partners={supplier:invalid};
+                if(row.data.name==='invalid-union')data.variant={kind:'link',value:row.data.variant.value};
+                if(row.data.name==='invalid-intermediate'){
+                  // An intermediate invalid target shape must not make the next
+                  // write's new UUID look like an unchanged historical link.
+                  await ctx.write('notes',row.id,{name:row.data.name,links:[{target:invalid}]},version++);
+                  data.links=[{target:invalid}];
+                }
+                if(row.data.name==='invalid-create-rewrite'){
+                  const created=await ctx.create('notes',{name:'New',links:[{target:invalid}]});
+                  await ctx.write('notes',created.id,{...created.data,category:'general'},created.version);
+                }
+                // This retained record changes schema semantics without a write.
+                if(row.data.name!=='invalid-untouched')
+                  await ctx.write('notes',row.id,data,version);
+                if(row.data.name==='invalid-create')
+                  await ctx.create('notes',{name:'Invalid',category:'general',sibling:invalid});
+                if(row.data.name==='fail')throw Error('Fixture migration rejected');
+              }
+              cursor=page.next??undefined;
+            }while(cursor);
+            for(const row of (await ctx.scan('legacy')).items){
+              await ctx.create('notes',{name:row.data.name,category:'general'},row.id);
+              await ctx.archive('legacy',row.id,row.version);
+            }
+          }});`,
         );
       const module = (
         await import(pathToFileURL(resolve(folder, "module.ts")).href)
@@ -258,12 +324,70 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
       ["invalid-create", "NOT_FOUND"],
       ["invalid-member", "INVALID_MEMBER"],
       ["invalid-cross-module", "UNDECLARED_DEPENDENCY"],
+      ["invalid-nested", "NOT_FOUND"],
+      ["invalid-nested-member", "INVALID_MEMBER"],
+      ["invalid-nested-cross", "UNDECLARED_DEPENDENCY"],
+      ["invalid-union", "NOT_FOUND"],
+      ["invalid-promoted", "NOT_FOUND"],
+      ["invalid-retargeted", "NOT_FOUND"],
+      ["invalid-untouched", "NOT_FOUND"],
+      ["invalid-intermediate", "NOT_FOUND"],
+      ["invalid-create-rewrite", "NOT_FOUND"],
+      ["invalid-archive-target", "NOT_FOUND"],
+      ["invalid-original", "NOT_FOUND"],
+      ["invalid-copy-link", "NOT_FOUND"],
     ]) {
       await admin.query(
         "update suite.module_records set data=$3 where workspace_id=$1 and module_id=$2 and id=$4",
-        [workspace, id, { name }, second],
+        [
+          workspace,
+          id,
+          {
+            name,
+            ...(name === "invalid-copy-link" ? { sibling: second } : {}),
+            ...(name === "invalid-original"
+              ? { category: 123, links: [{ target: second }] }
+              : {}),
+            ...(name === "invalid-union"
+              ? { variant: { kind: "text", value: second } }
+              : {}),
+            ...(name === "invalid-promoted" ? { promoted: second } : {}),
+            ...(name === "invalid-retargeted" ? { retargeted: second } : {}),
+            ...(name === "invalid-untouched"
+              ? { category: "general", promoted: second }
+              : {}),
+          },
+          second,
+        ],
       );
-      await expect(apply()).rejects.toMatchObject({ code });
+      if (name === "invalid-untouched")
+        await admin.query(
+          "insert into suite.platform_settings(workspace_id,key,value) values($1,$2,$3)",
+          [
+            workspace,
+            `pin:${id}`,
+            { moduleId: id, version: "2.0.0", mandatory: true },
+          ],
+        );
+      await inWorkspace(db, workspace, async (tx) => {
+        await expect(
+          migrateModuleStorage(tx, await context(tx), id, "2.0.0"),
+          name,
+        ).rejects.toMatchObject({ code });
+        // A caught failure cannot leak a baseline table or partially apply data.
+        const tables = await sql<{
+          count: string;
+        }>`select count(*) from pg_tables
+          where schemaname=(select nspname from pg_namespace where oid=pg_my_temp_schema()) and tablename like 'suite_migration_%'`.execute(
+          tx,
+        );
+        expect(tables.rows[0].count).toBe("0");
+      });
+      if (name === "invalid-untouched")
+        await admin.query(
+          "delete from suite.platform_settings where workspace_id=$1 and key=$2",
+          [workspace, `pin:${id}`],
+        );
       expect((await snapshot())[0]).toEqual({
         data: { name: "first" },
         version: 1,
@@ -387,10 +511,26 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
         )
         .execute();
     });
+    // Initialized namespaces use the signed schema-producing release as their
+    // original contract, including when another executable version is pinned.
+    await admin.query(
+      "insert into suite.module_storage(workspace_id,module_id,schema_version,release_version) values($1,$2,1,'1.1.0')",
+      [workspace, id],
+    );
     // Preserve an existing historical link to an archived record.
     await admin.query(
       "update suite.module_records set data=$3 where workspace_id=$1 and module_id=$2 and id=$4",
-      [workspace, id, { name: "first", sibling: second }, first],
+      [
+        workspace,
+        id,
+        {
+          name: "first",
+          sibling: second,
+          links: [{ target: second }],
+          variant: { kind: "link", value: second },
+        },
+        first,
+      ],
     );
     // Private-store migrations must reject duplicate unique values and roll back their earlier writes.
     const duplicate = randomUUID();
@@ -450,7 +590,14 @@ it("migrates only its workspace namespace, rolls back failed/interrupted work, a
     expect(migrated.every((r) => r.data.category === "general")).toBe(true);
     expect(migrated.slice(0, 2)).toEqual([
       {
-        data: { name: "first", category: "general", sibling: second },
+        data: {
+          name: "first",
+          category: "general",
+          sibling: second,
+          future: "00000000-0000-4000-8000-000000000003",
+          links: [{ target: second }],
+          variant: { kind: "link", value: second },
+        },
         version: 2,
       },
       { data: { name: "second", category: "general" }, version: 2 },

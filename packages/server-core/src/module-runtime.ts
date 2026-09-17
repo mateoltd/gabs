@@ -1,6 +1,7 @@
 import {
   referenceValues,
   referenceTargetKey,
+  type ReferenceValue,
 } from "@suite/module-sdk/references";
 import { authorizeReferenceTarget } from "./module-references";
 import { validateResourceList } from "@suite/module-sdk/server";
@@ -38,6 +39,20 @@ export async function validateReferences(
   data: JsonRecord,
   schema: TSchema = module.resources[resource].schema,
 ) {
+  return validateReferenceValues(
+    tx,
+    ctx,
+    module,
+    referenceValues(schema, data),
+  );
+}
+/** Internal authority check for already schema-validated reference values. */
+export async function validateReferenceValues(
+  tx: Tx,
+  ctx: Context,
+  module: ModuleDefinition,
+  references: readonly ReferenceValue[],
+) {
   const groups = new Map<
     string,
     {
@@ -45,7 +60,7 @@ export async function validateReferences(
       ids: Set<string>;
     }
   >();
-  for (const reference of referenceValues(schema, data)) {
+  for (const reference of references) {
     const key = referenceTargetKey(reference.target);
     let group = groups.get(key);
     if (!group) {

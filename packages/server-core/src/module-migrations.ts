@@ -3,22 +3,28 @@ import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import {
   assertSchema,
-  Type,
+  ValidationError,
   hydrateModule,
   identifier,
   storageContract,
   supportsStorage,
   type MigrationContext,
   type ModuleDefinition,
-  type TSchema,
+  type JsonRecord,
 } from "@suite/module-sdk";
+import {
+  referenceFields,
+  referenceValues,
+  referenceTargetKey,
+  type ReferenceValue,
+} from "@suite/module-sdk/references";
 import { canonical } from "@suite/module-sdk/registry";
 import type { Tx } from "./database";
 import { authorize, type Context } from "./authorization";
 import type { InstalledModuleServer } from "./module-services";
-import { resolveWorkspaceRelease } from "./module-releases";
+import { resolveWorkspaceRelease, workspaceModule } from "./module-releases";
 import { stagedModuleServer } from "./staged-module-server";
-import { validateReferences } from "./module-runtime";
+import { validateReferenceValues } from "./module-runtime";
 import {
   lockModuleStorage,
   moduleStorageVersions,
@@ -231,6 +237,49 @@ async function applyMigration(
       "MIGRATION_BACKEND_UNAVAILABLE",
       "Stage the exact reviewed migration backend before changing stored data.",
     );
+  // Keep the original record identities on the database connection, rather than
+  // retaining the whole company dataset in the server heap. A savepoint rollback
+  // removes this table as well; ON COMMIT DROP covers aborted callers.
+  const referenceResources = Object.entries(module.resources)
+    .filter(([, resource]) => referenceFields(resource.schema).length)
+    .map(([name]) => name);
+  let baseline: string | undefined;
+  let source: ModuleDefinition | undefined;
+  if (steps.length && referenceResources.length) {
+    const storedRelease = await tx
+      .selectFrom("suite.module_storage")
+      .select("release_version")
+      .where("workspace_id", "=", ctx.workspaceId)
+      .where("module_id", "=", moduleId)
+      .executeTakeFirst();
+    source = await workspaceModule(
+      tx,
+      ctx.workspaceId,
+      moduleId,
+      storedRelease?.release_version,
+    );
+    // An explicit executable pin may select the migration target before its
+    // schema is installed. It cannot prove the former meaning of stored data.
+    if (
+      !supportsStorage(source, current) ||
+      storageContract(source).version > current
+    )
+      source = undefined;
+    baseline = `suite_migration_${randomUUID().replaceAll("-", "")}`;
+    await sql`create temporary table ${sql.id(baseline)} on commit drop as
+      select resource, id, data from suite.module_records
+      where workspace_id=${ctx.workspaceId}::uuid and module_id=${moduleId}
+        and resource in (${sql.join(referenceResources)})`.execute(tx);
+    await sql`create unique index on ${sql.id(baseline)} (resource, id)`.execute(
+      tx,
+    );
+  }
+  const referenceIdentity = (reference: ReferenceValue) =>
+    JSON.stringify([
+      reference.path,
+      referenceTargetKey(reference.target),
+      reference.value.toLowerCase(),
+    ]);
   for (const step of steps) {
     const validNamespace = (name: string) =>
       identifier.test(name.startsWith("$") ? name.slice(1) : name);
@@ -314,8 +363,6 @@ async function applyMigration(
             "INVALID_RESOURCE",
             "Create records only in resources declared by the target module.",
           );
-          if (!resource.startsWith("$"))
-            await validateReferences(tx, ctx, module, resource, data);
           await tx
             .insertInto("suite.module_records")
             .values({
@@ -391,38 +438,6 @@ async function applyMigration(
             "INVALID_RECORD",
             "Supply a resource and current record version.",
           );
-          const properties = module.resources[resource]?.schema.properties as
-            Record<string, TSchema> | undefined;
-          const references = Object.entries(properties ?? {}).filter(
-            ([, field]) => field["x-reference"] || field["x-membership"],
-          );
-          if (references.length) {
-            const previous = found(
-              await tx
-                .selectFrom("suite.module_records")
-                .select("data")
-                .where("workspace_id", "=", ctx.workspaceId)
-                .where("module_id", "=", moduleId)
-                .where("resource", "=", resource)
-                .where("id", "=", id)
-                .where("version", "=", expectedVersion)
-                .forUpdate()
-                .executeTakeFirst(),
-            );
-            // Preserve historical links, including archived targets. New links
-            // require the same current membership and cross-module grants as CRUD.
-            const changed = references.filter(
-              ([key]) => data[key] !== previous.data[key],
-            );
-            await validateReferences(
-              tx,
-              ctx,
-              module,
-              resource,
-              Object.fromEntries(changed.map(([key]) => [key, data[key]])),
-              Type.Object(Object.fromEntries(changed)),
-            );
-          }
           const result = await tx
             .updateTable("suite.module_records")
             .set({ data, version: expectedVersion + 1, updated_at: new Date() })
@@ -499,8 +514,39 @@ async function applyMigration(
         .limit(100);
       if (cursor) query = query.where("id", ">", cursor);
       const records = await query.execute();
-      for (const record of records)
+      const originals = new Map<string, JsonRecord>();
+      if (baseline && referenceResources.includes(resource) && records.length) {
+        const previous = await sql<{ id: string; data: JsonRecord }>`
+          select id, data from ${sql.id(baseline)} where resource=${resource}
+          and id in (${sql.join(records.map((record) => sql`${record.id}::uuid`))})
+        `.execute(tx);
+        for (const row of previous.rows) originals.set(row.id, row.data);
+      }
+      for (const record of records) {
         assertSchema(definition.schema, record.data);
+        if (!referenceResources.includes(resource)) continue;
+        const historical = new Set<string>();
+        const original = originals.get(record.id);
+        const previousSchema = source?.resources[resource]?.schema;
+        if (original && previousSchema) {
+          try {
+            for (const reference of referenceValues(previousSchema, original))
+              historical.add(referenceIdentity(reference));
+          } catch (error) {
+            // Invalid legacy data may be repaired, but cannot establish a
+            // trusted historical-link exemption under its former contract.
+            if (!(error instanceof ValidationError)) throw error;
+          }
+        }
+        await validateReferenceValues(
+          tx,
+          ctx,
+          module,
+          referenceValues(definition.schema, record.data).filter(
+            (reference) => !historical.has(referenceIdentity(reference)),
+          ),
+        );
+      }
       if (records.length < 100) break;
       cursor = records.at(-1)!.id;
     }
@@ -529,6 +575,7 @@ async function applyMigration(
         );
       }
   }
+  if (baseline) await sql`drop table ${sql.id(baseline)}`.execute(tx);
   await tx
     .insertInto("suite.module_storage")
     .values({

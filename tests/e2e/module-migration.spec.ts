@@ -17,7 +17,7 @@ import {
 } from "../../tooling/registry-review";
 import { selectValue } from "./controls.helpers";
 
-test("administrator upgrades stored module records through the real migration control", async ({
+test("administrator migrates nested references atomically through the real migration control", async ({
   page,
 }) => {
   const id = `schema-ui-${randomUUID().slice(0, 8)}`,
@@ -42,12 +42,12 @@ test("administrator upgrades stored module records through the real migration co
       await mkdir(folder);
       await writeFile(
         resolve(folder, "module.ts"),
-        `import {defineModule,resource,field,Type} from '@suite/module-sdk'; export default defineModule({id:'${id}',name:'${name}',version:'${version}.0.0',description:'Migration UI fixture',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.notes.read','${id}.notes.write'],configuration:Type.Object({}),operations:{},navigation:{path:'/${id}',permission:'${id}.notes.read'},resources:{notes:resource({name:field.text()${version === 2 ? ",category:field.text()" : ""}},{title:'Notes'})},storage:{version:${version},compatible:{minimum:${version},maximum:${version}},migrations:${version === 2 ? "{'add-category':{from:1,to:2}}" : "{}"}}});`,
+        `import {defineModule,resource,field,Type} from '@suite/module-sdk'; export default defineModule({id:'${id}',name:'${name}',version:'${version}.0.0',description:'Migration UI fixture',host:'^1.0.0',backend:'^1.0.0',publisher:'suite',dependencies:{},permissions:['${id}.notes.read','${id}.notes.write'],configuration:Type.Object({}),operations:{},navigation:{path:'/${id}',permission:'${id}.notes.read'},resources:{notes:resource({links:Type.Optional(Type.Array(Type.Object({target:field.reference('${id}','notes')}))),name:field.text()${version === 2 ? ",category:field.text()" : ""}},{title:'Notes'})},storage:{version:${version},compatible:{minimum:${version},maximum:${version}},migrations:${version === 2 ? "{'add-category':{from:1,to:2}}" : "{}"}}});`,
       );
       if (version === 2)
         await writeFile(
           resolve(folder, "module-server.ts"),
-          `import {defineModuleServer} from '@suite/module-sdk/server';import module from './module';export default defineModuleServer(module)({}, {'add-category':async(ctx)=>{let cursor;do{const page=await ctx.scan('notes',cursor);for(const row of page.items){await ctx.write('notes',row.id,{name:row.data.name,category:'general'},row.version);if(row.data.name==='Fail fixture')throw Error('Migration fixture rejected');}cursor=page.next??undefined;}while(cursor);}});`,
+          `import {defineModuleServer} from '@suite/module-sdk/server';import module from './module';export default defineModuleServer(module)({}, {'add-category':async(ctx)=>{let cursor;do{const page=await ctx.scan('notes',cursor);for(const row of page.items){await ctx.write('notes',row.id,{...row.data,category:'general',...(row.data.name==='Fail fixture'?{links:[{target:'ffffffff-ffff-4fff-8fff-ffffffffffff'}]}:{})},row.version);}cursor=page.next??undefined;}while(cursor);}});`,
         );
       const module = (
         await import(pathToFileURL(resolve(folder, "module.ts")).href)
@@ -115,10 +115,16 @@ test("administrator upgrades stored module records through the real migration co
       "update suite.roles set permissions=array(select distinct unnest(permissions || $2::text[])) where workspace_id=$1 and name='Owner'",
       [workspace, [`${id}.notes.read`, `${id}.notes.write`]],
     );
-    const record = randomUUID();
+    const record = randomUUID(),
+      archivedTarget = randomUUID();
+    const links = [{ target: archivedTarget }];
+    await admin.query(
+      "insert into suite.module_records(workspace_id,module_id,resource,id,data,created_by,archived) values($1,$2,'notes',$3,$4,$5,true)",
+      [workspace, id, archivedTarget, { name: "Archived target" }, me.user.id],
+    );
     await admin.query(
       "insert into suite.module_records(workspace_id,module_id,resource,id,data,created_by) values($1,$2,'notes',$3,$4,$5)",
-      [workspace, id, record, { name: "Existing note" }, me.user.id],
+      [workspace, id, record, { name: "Existing note", links }, me.user.id],
     );
     await page.reload();
     await selectValue(page, "Workspace", workspace);
@@ -129,6 +135,9 @@ test("administrator upgrades stored module records through the real migration co
         exact: true,
       }),
     });
+    await expect(
+      card.getByText("Installed 1.0.0", { exact: true }),
+    ).toBeVisible({ timeout: 30000 });
     await card.getByRole("button", { name: "Configure", exact: true }).click();
     const dialog = page.getByRole("dialog", {
       name: `Configure ${name}`,
@@ -143,18 +152,20 @@ test("administrator upgrades stored module records through the real migration co
         exact: true,
       }),
     ).toContainText("2.0.0 (schema 2)");
-    await mkdir("docs/verification/module-migrations", { recursive: true });
+    await mkdir("docs/verification/migration-references", { recursive: true });
     await page.screenshot({
-      path: "docs/verification/module-migrations/before.png",
+      path: "docs/verification/migration-references/before.png",
     });
     await admin.query(
       "update suite.module_records set data=$4 where workspace_id=$1 and module_id=$2 and id=$3",
-      [workspace, id, record, { name: "Fail fixture" }],
+      [workspace, id, record, { name: "Fail fixture", links }],
     );
     await dialog
       .getByRole("button", { name: "Migrate storage", exact: true })
       .click();
-    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(dialog.getByRole("alert")).toContainText(
+      "A referenced record was not found in this workspace.",
+    );
     await expect(
       dialog.getByText("Current schema: 1.", { exact: false }),
     ).toBeVisible();
@@ -165,13 +176,13 @@ test("administrator upgrades stored module records through the real migration co
           [workspace, id, record],
         )
       ).rows[0],
-    ).toEqual({ data: { name: "Fail fixture" }, version: 1 });
+    ).toEqual({ data: { name: "Fail fixture", links }, version: 1 });
     await page.screenshot({
-      path: "docs/verification/module-migrations/failure.png",
+      path: "docs/verification/migration-references/failure.png",
     });
     await admin.query(
       "update suite.module_records set data=$4 where workspace_id=$1 and module_id=$2 and id=$3",
-      [workspace, id, record, { name: "Existing note" }],
+      [workspace, id, record, { name: "Existing note", links }],
     );
     await dialog
       .getByRole("button", { name: "Migrate storage", exact: true })
@@ -183,8 +194,28 @@ test("administrator upgrades stored module records through the real migration co
       dialog.getByRole("button", { name: "Migrate storage", exact: true }),
     ).toBeDisabled();
     await page.screenshot({
-      path: "docs/verification/module-migrations/after.png",
+      path: "docs/verification/migration-references/after.png",
     });
+    expect(
+      (
+        await admin.query(
+          "select data,version from suite.module_records where workspace_id=$1 and module_id=$2 and id=$3",
+          [workspace, id, record],
+        )
+      ).rows[0],
+    ).toEqual({
+      data: { name: "Existing note", links, category: "general" },
+      version: 2,
+    });
+    expect(
+      (
+        await admin.query(
+          "select archived from suite.module_records where workspace_id=$1 and module_id=$2 and id=$3",
+          [workspace, id, archivedTarget],
+        )
+      ).rows[0].archived,
+    ).toBe(true);
+
     expect(
       (
         await new AxeBuilder({ page })
@@ -198,7 +229,7 @@ test("administrator upgrades stored module records through the real migration co
       .getByRole("button", { name: "Migrate storage", exact: true })
       .scrollIntoViewIfNeeded();
     await page.screenshot({
-      path: "docs/verification/module-migrations/narrow.png",
+      path: "docs/verification/migration-references/narrow.png",
     });
     await page.setViewportSize({ width: 1280, height: 720 });
     await dialog
@@ -221,9 +252,14 @@ test("administrator upgrades stored module records through the real migration co
       ).rows[0].count,
     ).toBe("0");
     await page.screenshot({
-      path: "docs/verification/module-migrations/incompatible-pin.png",
+      path: "docs/verification/migration-references/incompatible-pin.png",
     });
     await page.keyboard.press("Escape");
+    // Storage acceptance precedes the background client installation. Wait for
+    // the actual device state before asserting that its new view is usable.
+    await expect(
+      card.getByText("Installed 2.0.0", { exact: true }),
+    ).toBeVisible({ timeout: 30000 });
     await page
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name, exact: true })
