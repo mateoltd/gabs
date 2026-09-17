@@ -465,3 +465,7 @@ Architecture captures were reviewed separately and historical screenshots restor
 [Local device grants](local-device-grants/README.md) add encrypted profile decisions bound to exact releases and aliases, with fresh lock/revocation checks before effects. Local acceptance passed 36 final local/host unit tests, two headless browser journeys plus the expanded grant proof rerun, and all four builds with strict environment/boundary checks. The new browser proof verifies offline persistence, signature-bound installation, revoke/regrant, cross-window invalidation, update/rollback, uninstall/reinstall and retained records.
 
 SDK-05 remains active: consent UI, worker message brokering, desktop effect integration and corporate offline capability leases remain required. This milestone grants no new production-facing device effects.
+
+## Local device consent, 17 September 2026
+
+[Local device consent](local-device-consent/README.md) connects exact-release declarations to profile-owner controls. Final acceptance passed two headless consent/service journeys, one hidden/unfocused native journey, scoped Axe and inspected wide/narrow/native captures, plus strict checks and all four builds. An earlier pair also reran the unchanged grant-authority proof. Consent works offline and survives lock/unlock; corrupted stored packages block grants while saved access remains revocable. No standalone device effects were exposed or verified. SDK-05 remains active for bounded worker brokering, native effects and corporate offline leases.

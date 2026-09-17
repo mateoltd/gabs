@@ -21,3 +21,5 @@
 The final unit set includes the 12-test focused set; these counts are not additive. After subsystem extraction, the expanded device-grant browser proof passed again, including exact-release repair and profile removal. Browser acceptance ran in a fresh migrated/seeded database and removed that database afterward. Historical service-consent screenshots were restored. No device export, OS notification or LAN effect was performed.
 
 Local logs: `/tmp/gabs-local-capability-unit.log`, `/tmp/gabs-local-capability-final-unit.log`, `/tmp/gabs-local-capability-browser.log`, `/tmp/gabs-local-capability-browser-final.log`, `/tmp/gabs-local-capability-build-final.log`.
+
+Follow-up: [owner consent UI](../local-device-consent/README.md) now has separate web/native acceptance. This authority milestone retains its original verification scope.
