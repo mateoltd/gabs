@@ -1,12 +1,16 @@
 import { updatePreview, hidePreview, referenceFields } from "/preview.js";
 const $ = (id) => document.getElementById(id);
 let state, revision, buildStatus;
+let requestSequence = 0,
+  appliedSequence = 0;
 const text = (tag, value) => {
   const element = document.createElement(tag);
   element.textContent = value;
   return element;
 };
 async function request(body, options = {}) {
+  const sequence = ++requestSequence;
+  options.signal?.throwIfAborted();
   const response = await fetch("/action", {
     method: "POST",
     headers: {
@@ -18,8 +22,13 @@ async function request(body, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) throw Object.assign(Error(data.message), data);
-  state = { ...state, ...data };
-  renderState();
+  options.signal?.throwIfAborted();
+  // An older read must not restore permissions or other controls from its snapshot.
+  if (sequence >= appliedSequence) {
+    appliedSequence = sequence;
+    state = { ...state, ...data };
+    renderState();
+  }
   return data;
 }
 function feedback(message) {

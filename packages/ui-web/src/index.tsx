@@ -665,3 +665,9 @@ export { TypedResourceRanges } from "./resource-ranges";
 export { TypedResourceFilters } from "./resource-filters";
 
 export { ReferencePicker, type ReferenceLoader } from "./reference-picker";
+
+export {
+  useResourceList,
+  type ResourceListQuery,
+  type ResourceListState,
+} from "./use-resource-list";

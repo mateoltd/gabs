@@ -502,20 +502,23 @@ function CustomModuleView(
                 idempotencyKey: call.key,
                 moduleVersion: call.moduleVersion,
               })
-            : current.client.request({
-                operation: "moduleRequest",
-                params: {
-                  workspaceId: current.scope.workspaceId,
-                  moduleId: module.id,
+            : current.client.request(
+                {
+                  operation: "moduleRequest",
+                  params: {
+                    workspaceId: current.scope.workspaceId,
+                    moduleId: module.id,
+                  },
+                  body: {
+                    action: call.action,
+                    resource: call.resource,
+                    input: call.input,
+                  },
+                  idempotencyKey: call.key,
+                  moduleVersion: call.moduleVersion,
                 },
-                body: {
-                  action: call.action,
-                  resource: call.resource,
-                  input: call.input,
-                },
-                idempotencyKey: call.key,
-                moduleVersion: call.moduleVersion,
-              }));
+                options,
+              ));
         } finally {
           if (mutation) current.executing?.(-1);
         }

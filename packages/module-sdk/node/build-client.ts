@@ -75,7 +75,7 @@ export async function buildClientViews(
                     ],
                   };
               } else if (
-                !/^@suite\/module-sdk(?:\/(?:ui|forms|references))?$/.test(
+                !/^@suite\/module-sdk(?:\/(?:ui|forms|references|queries))?$/.test(
                   args.path,
                 )
               ) {

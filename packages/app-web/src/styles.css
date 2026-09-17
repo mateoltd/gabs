@@ -2290,13 +2290,6 @@ legend {
 }
 
 /* Module screens share the host's controls, table rhythm and surface geometry. */
-.module-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin-block: 20px;
-}
 .module-resource-content {
   min-width: 0;
 }

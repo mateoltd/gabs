@@ -202,6 +202,11 @@ export const viewUIExports = [
   "TypedSchemaForm",
   "TypedResourceTable",
   "TypedResourceFilters",
+  "TypedResourceRanges",
+  "TypedResourceSort",
+  "useResourceList",
+  "Select",
+  "SelectOption",
   "ResourceValue",
   "ReferencePicker",
 ] as const;

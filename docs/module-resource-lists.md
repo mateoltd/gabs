@@ -81,6 +81,72 @@ Sorted pagination records the last row's sort values and ID. A later request can
 
 This milestone does not implement nested sort paths, locale-specific collations, aggregates, arbitrary schema intersections or performance guarantees for large local datasets. Further resource-client ergonomics and SDK composition remain open.
 
+## Reusable React query state
+
+`useResourceList` from `@suite/ui-web` derives its input and returned record types from a resource client:
+
+```tsx
+import { defineView } from "@suite/module-sdk/ui";
+import {
+  useResourceList,
+  TypedResourceTable,
+  Button,
+  Loading,
+  ErrorMessage,
+} from "@suite/ui-web";
+import module from "../modules/contacts/module";
+
+export default defineView(module, function Customers({ client, online }) {
+  const contacts = client.resource("contacts");
+  const list = useResourceList(
+    contacts,
+    {
+      where: { relationship: "customer" },
+      orderBy: [{ field: "name", direction: "asc" }],
+      limit: 25,
+    },
+    { enabled: online },
+  );
+  if (list.status === "idle") return <p>Reconnect to read customers.</p>;
+  if (list.status === "loading") return <Loading />;
+  if (list.status === "error")
+    return (
+      <>
+        <ErrorMessage error={list.error} />
+        <Button onClick={list.reload}>Retry</Button>
+      </>
+    );
+  return (
+    <>
+      <TypedResourceTable
+        schema={module.resources.contacts.schema}
+        rows={list.page.items}
+        label="Customers"
+        loadReferences={contacts.loadReferences}
+      />
+      <Button disabled={!list.hasPreviousPage} onClick={list.previousPage}>
+        Previous
+      </Button>
+      <Button disabled={!list.hasNextPage} onClick={list.nextPage}>
+        Next
+      </Button>
+    </>
+  );
+});
+```
+
+The four result states are discriminated: `page` exists only after `status === "success"`; errors are `unknown` and can be passed to the host error component. Filter values, range/sort fields and returned records retain the resource schema. `ResourceListQuery<T>` omits `cursor`, which the hook owns. It provides `pageNumber`, next/previous availability, `nextPage()`, `previousPage()`, `firstPage()` and `reload()`.
+
+Query conditions can be written inline. Equivalent JSON objects, including different field insertion order, retain the current query; unrelated React renders do not refetch. Changing conditions, resource client or `enabled` resets paging. `reload()` retries the current boundary; `firstPage()` discards page history and reads the first page again. Refresh after a successful mutation explicitly with `list.reload()`.
+
+`client.resource(name)` returns a stable `ResourceClient<Data>` within one module client, including its reference loader. A new host workspace/authorization context receives a different client. Do not cache a client across those host contexts. Existing code that relied on constructing another client object to reload should use an explicit reload or include its own refresh revision in its effect dependencies.
+
+`get(id, { signal })` and `list(query, { signal })` support read cancellation. They reject already-aborted calls before transport and reject cancelled completions even when a transport cannot stop its underlying work. The corporate web host forwards the signal to HTTP. Desktop IPC or other adapters may finish already-dispatched work; cancellation does not undo business mutations.
+
+The hook cancels superseded reads and ignores their completions. It masks the prior result during render when a query/client/enabled context changes, before effects run, and clears records on loading, error or pause. It owns no persistent offline cache and does not silently show old rows as fresh results. A local module can supply its own resource client; mounting independent custom views in standalone workspaces remains separate work. Corporate callers use the host's online/authorization context and existing offline lease rules.
+
+Signed custom views on the current host can import `useResourceList`, `TypedResourceFilters`, `TypedResourceRanges`, `TypedResourceSort`, `Select` and `SelectOption` through the shared UI contract. Supported SDK helpers under `@suite/module-sdk/queries` are also available to their build. Broader host-capability/version compatibility and full UI-kit composition remain tracked.
+
 ## Host UI composition
 
 `TypedResourceTable` and `TypedResourceFilters` are public `@suite/ui-web` components. Their schema determines the accepted columns, rows, filter values and custom-cell parameter types; callers do not repeat data interfaces. Filters reuse the schema form, including nullable, numeric, enum, boolean and structured fields. Render the filter component outside another HTML form.
@@ -112,10 +178,10 @@ export function Contacts({
 
 ### Authorized reference labels
 
-Pass the resource client's stable `.loadReferences` callback to `TypedResourceTable` to resolve annotated links, including tuple slots, map entries, matching union branches and nested objects/arrays. Memoize the resource client from the supplied view client when using it across renders:
+Pass the resource client's stable `.loadReferences` callback to `TypedResourceTable` to resolve annotated links, including tuple slots, map entries, matching union branches and nested objects/arrays. Resource clients are stable within the supplied view client, so they can be used directly during rendering:
 
 ```tsx
-const records = useMemo(() => client.resource("records"), [client]);
+const records = client.resource("records");
 <TypedResourceTable
   schema={module.resources.records.schema}
   rows={page.items}

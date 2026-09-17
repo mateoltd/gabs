@@ -899,6 +899,13 @@ strong {
   flex-wrap: wrap;
 }
 
+.module-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-block: 20px;
+}
 .resource-query-controls {
   display: flex;
   flex-wrap: wrap;

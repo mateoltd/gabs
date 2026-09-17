@@ -4,6 +4,7 @@ import {
   createReferenceLoader,
   type ReferenceQuery,
   type ReferencePage,
+  type ReferenceLoader,
 } from "./references";
 import { ownSchemaValue } from "./schema-value";
 import type { ResourceListOptions } from "./resource-query";
@@ -365,12 +366,57 @@ export type ModuleTransport = (
   call: ModuleCall,
   options?: ModuleRequestOptions,
 ) => Promise<unknown>;
+/** Stable within one module client; a new host authorization context gets a new client. */
+export interface ResourceClient<Data = JsonRecord> {
+  references(
+    input: ReferenceQuery,
+    options?: ModuleRequestOptions,
+  ): Promise<ReferencePage>;
+  loadReferences: ReferenceLoader;
+  get(
+    id: string,
+    options?: ModuleRequestOptions,
+  ): Promise<ResourceRecord<Data>>;
+  list(
+    input?: ResourceListOptions<Data>,
+    options?: ModuleRequestOptions,
+  ): Promise<ResourcePage<Data>>;
+  create(data: Data, key?: string): Promise<ResourceRecord<Data>>;
+  update(
+    id: string,
+    data: Data,
+    base: ResourceRecord<Data>,
+    key?: string,
+  ): Promise<ResourceRecord<Data>>;
+  archive(
+    id: string,
+    version: number,
+    key?: string,
+  ): Promise<ResourceRecord<Data>>;
+}
 export function createModuleClient<M extends ModuleDefinition>(
   module: M,
   send: ModuleTransport,
 ) {
   const transport: ModuleTransport = (call, options) =>
     send({ ...call, moduleVersion: module.version }, options);
+  const resources = new Map<string, unknown>();
+  async function read<T>(
+    name: string,
+    action: "get" | "list",
+    input: unknown,
+    options: ModuleRequestOptions = {},
+  ): Promise<T> {
+    options.signal?.throwIfAborted();
+    try {
+      return (await transport(
+        { moduleId: module.id, resource: name, action, input },
+        options,
+      )) as T;
+    } finally {
+      options.signal?.throwIfAborted();
+    }
+  }
   async function call<K extends keyof M["operations"] & string>(
     name: K,
     input: Static<M["operations"][K]["input"]>,
@@ -424,8 +470,14 @@ export function createModuleClient<M extends ModuleDefinition>(
       }
     },
     call,
-    resource<K extends keyof M["resources"] & string>(name: K) {
+    resource<K extends keyof M["resources"] & string>(
+      name: K,
+    ): ResourceClient<Static<M["resources"][K]["schema"]>> {
       type Data = Static<M["resources"][K]["schema"]>;
+      if (!Object.hasOwn(module.resources, name))
+        throw new ValidationError(`Unknown resource: ${name}`);
+      const cached = resources.get(name) as ResourceClient<Data> | undefined;
+      if (cached) return cached;
       const references = async (
         input: ReferenceQuery,
         options: ModuleRequestOptions = {},
@@ -440,26 +492,16 @@ export function createModuleClient<M extends ModuleDefinition>(
         assertSchema(ReferencePageSchema, result);
         return result as ReferencePage;
       };
-      return {
+      const client: ResourceClient<Data> = {
         references,
         loadReferences: createReferenceLoader(
           module.resources[name].schema,
           references,
         ),
-        get: (id: string) =>
-          transport({
-            moduleId: module.id,
-            resource: name,
-            action: "get",
-            input: { id },
-          }) as Promise<ResourceRecord<Data>>,
-        list: (input: ResourceListOptions<Data> = {}) =>
-          transport({
-            moduleId: module.id,
-            resource: name,
-            action: "list",
-            input,
-          }) as Promise<ResourcePage<Data>>,
+        get: (id, options) =>
+          read<ResourceRecord<Data>>(name, "get", { id }, options),
+        list: (input = {}, options) =>
+          read<ResourcePage<Data>>(name, "list", input, options),
         create: (data: Data, key: string = crypto.randomUUID()) => {
           assertSchema(module.resources[name].schema, data);
           return transport({
@@ -498,6 +540,8 @@ export function createModuleClient<M extends ModuleDefinition>(
             key,
           }) as Promise<ResourceRecord<Data>>,
       };
+      resources.set(name, client);
+      return client;
     },
   };
 }
