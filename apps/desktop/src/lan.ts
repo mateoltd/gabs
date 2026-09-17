@@ -247,7 +247,7 @@ export class LanTransport {
   status() {
     return {
       enabled: !!this.server,
-      peers: [...this.peers.values()],
+      peers: [...this.peers].map(([id, peer]) => ({ id, ...peer })),
       port: (this.server?.address() as { port?: number } | null)?.port,
     };
   }

@@ -21,6 +21,7 @@
     "./local-artifact": "./src/local-artifact.ts",
     "./verification": "./src/verification.ts",
     "./references": "./src/references.ts",
+    "./host-capabilities": "./src/host-capabilities.ts",
     "./host-ui": "./src/host-ui.ts"
   },
   "dependencies": {

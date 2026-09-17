@@ -373,6 +373,10 @@ export const OPERATIONS = {
     method: "GET",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/members/:resource/:field",
   },
+  moduleCapabilityAuthorize: {
+    method: "POST",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/capabilities/authorize",
+  },
   moduleRequest: {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/records",

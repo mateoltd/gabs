@@ -48,6 +48,7 @@ export interface ViewStateMetadata {
 
 /** The renderer supplies this context. Corporate requests always recheck authority. */
 export interface ModuleViewProps<M extends ModuleDefinition> {
+  host: import("./host-capabilities").ModuleHost<M>;
   client: ReturnType<typeof createModuleClient<M>>;
   scope: Readonly<{ userId: string; workspaceId: string }>;
   online: boolean;

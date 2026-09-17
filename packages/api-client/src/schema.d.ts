@@ -692,6 +692,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/capabilities/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["moduleCapabilityAuthorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/records": {
         parameters: {
             query?: never;
@@ -5665,6 +5681,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    moduleCapabilityAuthorize: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
+            path: {
+                workspaceId: string;
+                moduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    capability: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        moduleId: string;
+                        moduleVersion: string;
+                        capability: string;
+                        kind: "files.export" | "notifications.show" | "lan.status" | "lan.relay";
+                        userId: string;
+                        workspaceId: string;
+                    };
+                };
             };
         };
     };

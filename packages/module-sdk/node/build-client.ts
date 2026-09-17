@@ -125,7 +125,11 @@ export async function buildClientViews(
       throw Error(
         `View ${name} must produce only self-contained JavaScript and CSS.`,
       );
-    const requires = await requiredHostContracts(result.metafile.inputs);
+    const requires = {
+      ...(await requiredHostContracts(result.metafile.inputs)),
+    };
+    if (Object.keys(module.capabilities ?? {}).length)
+      requires["client.host"] = 1;
     const css = [
       ...result.outputFiles
         .filter((file) => file.path.endsWith(".css"))

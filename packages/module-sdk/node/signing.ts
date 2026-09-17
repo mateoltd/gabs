@@ -1,3 +1,4 @@
+import { verifyCapabilityManifest } from "../src/host-capabilities";
 import { validateLocalArtifact, type LocalBundle } from "../src/local-artifact";
 import { createHash, sign, verify, createPublicKey } from "node:crypto";
 import {
@@ -40,6 +41,7 @@ export function signPackage(
     backend: module.backend,
     dependencies: module.dependencies,
     permissions: module.permissions,
+    ...(module.capabilities ? { capabilities: module.capabilities } : {}),
     ...(Object.keys(requirements).length
       ? { clientRequirements: requirements }
       : {}),
@@ -92,6 +94,7 @@ export function verifyPackage(pkg: SignedPackage, publicKey: string) {
     throw Error("Module identity does not match its signed manifest.");
   validateClientArtifacts(pkg.artifact);
   verifyClientRequirements(pkg.artifact, pkg.manifest);
+  verifyCapabilityManifest(pkg.artifact, pkg.manifest);
   validateLocalArtifact(pkg.artifact);
   return pkg;
 }

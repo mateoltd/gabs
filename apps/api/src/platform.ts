@@ -1,3 +1,4 @@
+import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
 import AjvCompiler from "@fastify/ajv-compiler";
 import { resourceListSchema } from "@suite/module-sdk/queries";
 import { listModuleReferences } from "../../../packages/server-core/src/module-references";
@@ -679,6 +680,70 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
             Object.fromEntries(roles.map((r) => [r.id, r.permissions])),
             policy,
           ).sources,
+        };
+      }),
+  );
+  app.post<{
+    Params: { workspaceId: string; moduleId: string };
+    Body: { capability: string };
+  }>(
+    "/api/v1/module/:moduleId/workspaces/:workspaceId/capabilities/authorize",
+    {
+      schema: {
+        operationId: "moduleCapabilityAuthorize",
+        headers: moduleHeaders,
+        params,
+        body: T.Object({ capability: slug }, { additionalProperties: false }),
+        response: { 200: HostAuthorizationSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+          undefined,
+          req.params.moduleId,
+        );
+        requireCondition(
+          typeof req.headers["x-module-version"] === "string",
+          400,
+          "MODULE_VERSION_REQUIRED",
+          "Host actions require an identified module release.",
+        );
+        const module = await clientModule(
+          tx,
+          ctx.workspaceId,
+          req.params.moduleId,
+          req.headers["x-module-version"],
+          moduleServers,
+        );
+        const declaration =
+          module.capabilities &&
+          Object.hasOwn(module.capabilities, req.body.capability)
+            ? module.capabilities[req.body.capability]
+            : undefined;
+        requireCondition(
+          declaration,
+          403,
+          "CAPABILITY_UNDECLARED",
+          "This module did not declare the requested host capability.",
+        );
+        requireCondition(
+          ctx.permissions.includes(declaration.permission),
+          403,
+          "FORBIDDEN",
+          "Your current permissions do not allow this host action.",
+        );
+        return {
+          moduleId: module.id,
+          moduleVersion: module.version,
+          capability: req.body.capability,
+          kind: declaration.kind,
+          userId: ctx.actor.id,
+          workspaceId: ctx.workspaceId,
         };
       }),
   );

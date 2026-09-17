@@ -1,3 +1,7 @@
+import {
+  createModuleHost,
+  HostCapabilityError,
+} from "@suite/module-sdk/host-capabilities";
 import { describeViewHost } from "@suite/module-sdk/host-ui";
 export { referenceFields } from "@suite/module-sdk/references";
 import * as React from "react";
@@ -167,6 +171,12 @@ function Surface({
       `}
     >
       <loaded.View
+        host={createModuleHost(module, async () => {
+          throw new HostCapabilityError(
+            "CAPABILITY_UNAVAILABLE",
+            "Host actions require an installed workspace. This preview has no device grant.",
+          );
+        })}
         client={client}
         scope={data.scope}
         online={data.online}

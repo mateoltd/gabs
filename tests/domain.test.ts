@@ -103,6 +103,13 @@ describe("offline and native boundaries", () => {
     expect(
       validateOperation({
         ...moduleRequest,
+        operation: "moduleCapabilityAuthorize",
+        body: { capability: "export" },
+      }).moduleVersion,
+    ).toBe("1.1.0");
+    expect(
+      validateOperation({
+        ...moduleRequest,
         operation: "moduleQuery",
         params: { ...moduleRequest.params, operationName: "overview" },
       }).moduleVersion,

@@ -1,3 +1,6 @@
+import { validateHostCapabilities } from "./host-capabilities";
+export { capability, createModuleHost } from "./host-capabilities";
+export type { ModuleHost, HostCapability } from "./host-capabilities";
 import {
   referenceQueryField,
   ReferencePageSchema,
@@ -140,6 +143,7 @@ export function operation<const O extends Operation>(
   return definition;
 }
 export interface ModuleDefinition {
+  capabilities?: Record<string, import("./host-capabilities").HostCapability>;
   storage?: StorageContract;
   /** Standalone profile schemas evolve independently from corporate storage. */
   localStorage?: StorageContract;
@@ -176,6 +180,11 @@ export interface ModuleDefinition {
 }
 export function defineModule<const M extends ModuleDefinition>(
   definition: M & {
+    capabilities?: {
+      [K in keyof NonNullable<M["capabilities"]>]: {
+        permission: M["permissions"][number];
+      };
+    };
     operations: {
       [K in keyof M["operations"]]: { permission: M["permissions"][number] };
     };
@@ -187,6 +196,7 @@ export function defineModule<const M extends ModuleDefinition>(
     navigation?: { view?: keyof NonNullable<M["views"]> & string };
   },
 ): M {
+  validateHostCapabilities(definition);
   if (definition.storage) validateStorageContract(definition.storage);
   if (definition.localStorage) validateStorageContract(definition.localStorage);
   if (!identifier.test(definition.id))

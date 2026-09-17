@@ -98,11 +98,13 @@ describe("Managed local transport", () => {
       await first.discover();
       expect(first.status().port).toBe(ports[0]);
       expect(second.status().port).toBe(ports[1]);
+      const peer = first.status().peers.find((peer) => peer.port === ports[1]);
+      expect(peer).toMatchObject({ address: "127.0.0.1", port: ports[1] });
       const payload = JSON.stringify({
         operation: "draft",
         data: "pending only",
       });
-      await first.relay("127.0.0.1", {
+      await first.relay(peer!.id, {
         kind: "pending",
         workspaceId: "test-workspace",
         id: "message-1",
@@ -111,7 +113,7 @@ describe("Managed local transport", () => {
       });
       expect(messages).toHaveLength(1);
       await expect(
-        first.relay("127.0.0.1", {
+        first.relay(peer!.id, {
           kind: "pending",
           workspaceId: "foreign",
           id: "message-2",

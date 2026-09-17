@@ -68,10 +68,21 @@ export interface LanStatus {
   enabled: boolean;
   configured: boolean;
   workspaceId?: string;
-  peers: { address: string; port: number; seen: number }[];
+  peers: { id: string; address: string; port: number; seen: number }[];
   port?: number;
 }
 export interface DesktopBridge {
+  openModuleHost(
+    scope: Scope,
+    moduleId: string,
+    moduleVersion: string,
+  ): Promise<string>;
+  closeModuleHost(handle: string): Promise<void>;
+  moduleCapability(
+    handle: string,
+    capability: string,
+    input: unknown,
+  ): Promise<unknown>;
   openBilling(url: string): Promise<void>;
   lanStatus(): Promise<LanStatus>;
   setLan(scope: Scope, enabled: boolean): Promise<LanStatus>;

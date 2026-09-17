@@ -4,6 +4,21 @@ window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.os = process.platform;
 });
 const bridge: DesktopBridge = {
+  openModuleHost: (scope, moduleId, version) =>
+    ipcRenderer.invoke("suite:module-host-open", scope, moduleId, version),
+  closeModuleHost: (handle) =>
+    ipcRenderer.invoke("suite:module-host-close", handle),
+  moduleCapability: async (handle, capability, input) => {
+    const response = await ipcRenderer.invoke(
+      "suite:module-capability",
+      handle,
+      capability,
+      input,
+    );
+    if (!response?.ok)
+      throw Error(response?.message ?? "The host action failed.");
+    return response.result;
+  },
   openBilling: (url) => ipcRenderer.invoke("suite:billing-open", url),
   lanStatus: () => ipcRenderer.invoke("suite:lan-status"),
   setLan: (scope, enabled) =>

@@ -1,3 +1,4 @@
+import { hostCapabilitySchemas } from "./host-capabilities";
 import type { ModuleDefinition, Operation, TSchema } from "./index";
 import { localStorageContract, storageContract } from "./storage";
 
@@ -188,6 +189,7 @@ export function renderModuleDocumentation(module: ModuleDefinition): string {
       "Release and compatibility",
       "Dependencies",
       "Permissions",
+      ...(entries(module.capabilities).length ? ["Host capabilities"] : []),
       "Configuration",
       "Resources",
       "Operations",
@@ -231,6 +233,29 @@ export function renderModuleDocumentation(module: ModuleDefinition): string {
       ? module.permissions.map((p) => `- ${text(p)}`).join("\n")
       : "No permissions declared.",
     "Server authorization remains authoritative. A manifest permission or offline policy is not a grant.",
+    ...(entries(module.capabilities).length
+      ? [
+          "## Host capabilities",
+          "A signed declaration requests access; the current workspace permission grants it. Corporate host actions currently require a live authorization check. LAN capabilities also require enabled managed desktop transport.",
+          ...entries(module.capabilities).flatMap(([name, capability]) => [
+            `### ${text(name)}`,
+            table(
+              ["Capability", "Permission"],
+              [[capability.kind, capability.permission]],
+            ),
+            schemaReference(
+              "Input",
+              hostCapabilitySchemas[capability.kind].input,
+              4,
+            ),
+            schemaReference(
+              "Result",
+              hostCapabilitySchemas[capability.kind].output,
+              4,
+            ),
+          ]),
+        ]
+      : []),
     "## Configuration",
     schemaReference("Configuration schema", module.configuration),
     "## Resources",

@@ -1,3 +1,4 @@
+import { ModuleHostSessions } from "./module-capabilities";
 import { LanTransport, type RelayEnvelope } from "./lan";
 import {
   openCache,
@@ -6,7 +7,7 @@ import {
   cachePurge,
   cachePruneArtifacts,
 } from "./cache-service";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import {
   app,
   BrowserWindow,
@@ -70,6 +71,7 @@ const oidcConfigured =
   !!config.audience;
 let win: BrowserWindow | undefined;
 let userId: string | undefined;
+const moduleHosts = new ModuleHostSessions(() => userId);
 let accessToken: string | undefined,
   refreshToken: string | undefined,
   expiresAt = 0,
@@ -402,6 +404,125 @@ async function login(options: LoginOptions) {
   });
 }
 function handlers() {
+  ipcMain.handle(
+    "suite:module-host-open",
+    (event, scope: Scope, moduleId: string, version: string) => {
+      sender(event);
+      validateScope(scope, userId);
+      return moduleHosts.open(scope, moduleId, version);
+    },
+  );
+  ipcMain.handle("suite:module-host-close", (event, handle) => {
+    sender(event);
+    moduleHosts.close(handle);
+  });
+  ipcMain.handle(
+    "suite:module-capability",
+    async (event, handle, capability, input) => {
+      sender(event);
+      return moduleHosts
+        .execute(handle, capability, input, {
+          authorize: async (scope, call) => {
+            const result = await execute({
+              operation: "moduleCapabilityAuthorize",
+              params: {
+                workspaceId: scope.workspaceId,
+                moduleId: call.moduleId,
+              },
+              moduleVersion: call.moduleVersion,
+              body: { capability: call.capability },
+            });
+            if (result.status !== 200)
+              throw Error(
+                (result.body as { message?: string }).message ??
+                  "This host action is not authorized.",
+              );
+            return result.body;
+          },
+          invoke: async (authorization, input, recheck) => {
+            if (authorization.kind === "files.export") {
+              const value = input as { filename: string; content: string };
+              const result = await dialog.showSaveDialog(win!, {
+                defaultPath: value.filename,
+                filters: [
+                  {
+                    name: "Module export",
+                    extensions: [value.filename.split(".").at(-1)!],
+                  },
+                ],
+              });
+              if (result.canceled || !result.filePath)
+                return { status: "cancelled" };
+              await recheck();
+              await writeFile(result.filePath, value.content, { mode: 0o600 });
+              return { status: "saved" };
+            }
+            if (authorization.kind === "notifications.show") {
+              const value = input as { title: string; message: string };
+              if (!Notification.isSupported()) return { requested: false };
+              new Notification({
+                title: value.title,
+                body: value.message,
+              }).show();
+              return { requested: true };
+            }
+            const activeLan =
+              lan &&
+              lanScope?.userId === authorization.userId &&
+              lanScope.workspaceId === authorization.workspaceId &&
+              Date.now() < lanExpiry
+                ? lan
+                : undefined;
+            if (authorization.kind === "lan.status")
+              return {
+                enabled: !!activeLan,
+                configured: lanConfigured(),
+                peers: activeLan?.status().peers ?? [],
+              };
+            if (!activeLan)
+              throw Error(
+                "Enable the authorized local network for this workspace before using this capability.",
+              );
+            const value = input as {
+              peerId: string;
+              kind: "artifact" | "pending";
+              id: string;
+              payload: string;
+            };
+            const payload = JSON.parse(value.payload);
+            if (
+              value.kind === "artifact"
+                ? payload.module_id !== authorization.moduleId
+                : payload.call?.moduleId !== authorization.moduleId ||
+                  payload.workspaceId !== authorization.workspaceId ||
+                  payload.userId !== authorization.userId
+            )
+              throw Error(
+                "Relay content must belong to this module and workspace.",
+              );
+            const digest = createHash("sha256")
+              .update(value.payload)
+              .digest("hex");
+            await activeLan.relay(value.peerId, {
+              ...value,
+              workspaceId: authorization.workspaceId,
+              digest,
+            });
+            return { relayed: true, authoritative: false };
+          },
+        })
+        .then(
+          (result) => ({ ok: true, result }),
+          (error) => ({
+            ok: false,
+            message:
+              error instanceof Error
+                ? error.message
+                : "The host action failed.",
+          }),
+        );
+    },
+  );
   ipcMain.handle("suite:billing-open", async (event, value: unknown) => {
     sender(event);
     if (typeof value !== "string" || value.length > 4096)
@@ -511,6 +632,7 @@ function handlers() {
   });
   ipcMain.handle("suite:login", async (event, value) => {
     sender(event);
+    moduleHosts.clear();
     const options = validateLogin(value);
     loginPromise ??= login(options);
     try {
@@ -521,6 +643,7 @@ function handlers() {
   });
   ipcMain.handle("suite:logout", async (event) => {
     sender(event);
+    moduleHosts.clear();
     const token = refreshToken;
     if (lan) await lan.stop();
     lan = undefined;
@@ -742,6 +865,12 @@ async function start() {
       },
     });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    win.webContents.on(
+      "did-start-navigation",
+      (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) moduleHosts.clear();
+      },
+    );
     win.webContents.on("will-navigate", (event) => event.preventDefault());
     win.webContents.session.setPermissionRequestHandler(
       (_wc, _permission, callback) => callback(false),

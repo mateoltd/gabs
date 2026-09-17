@@ -1,3 +1,4 @@
+import { verifyCapabilityManifest } from "./host-capabilities";
 import { canonical } from "./registry";
 import {
   validateClientArtifacts,
@@ -48,5 +49,6 @@ export async function verifyArtifact(pkg: SignedArtifact, pem: string) {
     throw Error("Module identity verification failed.");
   validateClientArtifacts(pkg.artifact);
   verifyClientRequirements(pkg.artifact, pkg.manifest);
+  verifyCapabilityManifest(pkg.artifact, pkg.manifest);
   validateLocalArtifact(pkg.artifact);
 }

@@ -1,3 +1,5 @@
+import { createModuleHost } from "@suite/module-sdk/host-capabilities";
+import { executeWebHostCapability } from "./module-host-capabilities";
 import { viewHost } from "./view-host";
 import { assertViewHost } from "@suite/module-sdk/host-ui";
 import * as React from "react";
@@ -411,6 +413,19 @@ function CustomModuleView(
   const allowed = canUse(props.bootstrap, module.id, view.permission);
   const latest = React.useRef(props);
   latest.current = props;
+  const nativeHost = React.useRef<Promise<string> | undefined>(undefined);
+  const hostEpoch = React.useRef(0);
+  React.useEffect(
+    () => () => {
+      hostEpoch.current++;
+      const previous = nativeHost.current;
+      nativeHost.current = undefined;
+      void previous
+        ?.then((handle) => window.suiteDesktop?.closeModuleHost(handle))
+        .catch(() => {});
+    },
+    [allowed],
+  );
   const mounted = React.useRef(false);
   React.useEffect(() => {
     mounted.current = true;
@@ -549,6 +564,55 @@ function CustomModuleView(
       >
         <View
           state={props.editable}
+          host={createModuleHost(module, async (call) => {
+            const epoch = hostEpoch.current;
+            const check = () => {
+              const current = latest.current;
+              const permission =
+                module.capabilities?.[call.capability]?.permission;
+              if (!mounted.current || epoch !== hostEpoch.current)
+                throw Error(
+                  "This module view is no longer active. Reopen it before using a host action.",
+                );
+              if (!current.online || !navigator.onLine)
+                throw Error("Reconnect before using this host action.");
+              if (
+                !permission ||
+                !canUse(current.bootstrap, module.id, permission) ||
+                !canUse(current.bootstrap, module.id, view.permission)
+              )
+                throw Error(
+                  "Your current permissions do not allow this host action.",
+                );
+              return current;
+            };
+            const current = check();
+            if (window.suiteDesktop) {
+              nativeHost.current ??= window.suiteDesktop.openModuleHost(
+                current.scope,
+                module.id,
+                module.version,
+              );
+              const handle = await nativeHost.current;
+              check();
+              return window.suiteDesktop.moduleCapability(
+                handle,
+                call.capability,
+                call.input,
+              );
+            }
+            const authorization = await current.client.request({
+              operation: "moduleCapabilityAuthorize",
+              params: {
+                workspaceId: current.scope.workspaceId,
+                moduleId: module.id,
+              },
+              moduleVersion: module.version,
+              body: { capability: call.capability },
+            });
+            check();
+            return executeWebHostCapability(authorization, call, current.scope);
+          })}
           client={client}
           scope={props.scope}
           online={props.online}

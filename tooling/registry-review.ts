@@ -77,6 +77,7 @@ function verifySubmission(
       backend: module.backend,
       dependencies: module.dependencies,
       permissions: module.permissions,
+      ...(module.capabilities ? { capabilities: module.capabilities } : {}),
       ...(Object.keys(requirements).length
         ? { clientRequirements: requirements }
         : {}),
