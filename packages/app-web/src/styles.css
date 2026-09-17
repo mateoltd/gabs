@@ -2333,10 +2333,6 @@ legend {
   min-height: 32px;
   padding: 6px 12px;
 }
-.table-scroll {
-  max-width: 100%;
-  overflow: auto;
-}
 .module-pending {
   display: flex;
   flex-wrap: wrap;

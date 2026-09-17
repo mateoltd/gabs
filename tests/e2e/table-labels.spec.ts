@@ -48,6 +48,10 @@ test("preview tables bound and deduplicate lookups and discard results after per
   });
   try {
     await page.goto(server.origin);
+    await expect(page.locator("#build-status")).toHaveText(
+      "Ready. Each source or fixture change starts a fresh simulation.",
+      { timeout: 45000 },
+    );
     const { table } = await inspectTableLabels(page);
     await expect.poll(() => requests).toBe(10);
     await expect.poll(() => active).toBe(0);

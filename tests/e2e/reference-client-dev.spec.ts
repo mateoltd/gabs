@@ -61,9 +61,6 @@ test("development reference pickers require explicit provider grants and honor p
       { exact: true },
     );
     await grant.check();
-    await picker
-      .getByRole("button", { name: "Retry choices", exact: true })
-      .click();
     await expect(picker.getByRole("alert")).toHaveCount(0);
     await picker.locator("summary").click();
     await picker.getByRole("textbox").fill("Target 105");
@@ -93,10 +90,8 @@ test("development reference pickers require explicit provider grants and honor p
     await page
       .getByLabel("preview-reference-provider.people.read", { exact: true })
       .check();
+    await expect(picker.getByRole("alert")).toHaveCount(0);
     await grant.uncheck();
-    await picker
-      .getByRole("button", { name: "Retry choices", exact: true })
-      .click();
     await expect(picker.getByRole("alert")).toContainText(
       "explicit module read grant",
     );

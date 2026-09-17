@@ -1,7 +1,11 @@
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { LocalActions } from "./local-actions";
 import { LocalModules, type LocalRegistry } from "./local-modules";
-import { TypedResourceTable, TypedResourceRanges } from "@suite/ui-web";
+import {
+  TypedResourceTable,
+  TypedResourceRanges,
+  TypedResourceSort,
+} from "@suite/ui-web";
 import { listResourceRecords } from "@suite/module-sdk/queries";
 import { useEffect, useState, useMemo } from "react";
 import {
@@ -9,6 +13,7 @@ import {
   type ResourceRecord,
   type TObject,
   type ResourceRangeBounds,
+  type ResourceSort,
 } from "@suite/module-sdk";
 import {
   availableLocalModules,
@@ -76,24 +81,55 @@ export function LocalWorkspace({
   );
   const setRanges = (value: Record<string, ResourceRangeBounds>) =>
     setRangeState({ scope: rangeScope, value });
-  const [cursor, setCursor] = useState<string>();
-  const [previous, setPrevious] = useState<(string | undefined)[]>([]);
+  const [orderState, setOrderState] = useState<{
+    scope: string;
+    value: ResourceSort[];
+  }>();
+  const orderBy = useMemo(
+    () => (orderState?.scope === rangeScope ? orderState.value : []),
+    [orderState, rangeScope],
+  );
+  const setOrderBy = (value: ResourceSort[]) =>
+    setOrderState({ scope: rangeScope, value });
+  const [cursorState, setCursorState] = useState<{
+    scope: string;
+    value?: string;
+  }>();
+  const cursor =
+    cursorState?.scope === rangeScope ? cursorState.value : undefined;
+  const setCursor = (value: string | undefined) =>
+    setCursorState({ scope: rangeScope, value });
+  const [previousState, setPreviousState] = useState<{
+    scope: string;
+    value: (string | undefined)[];
+  }>();
+  const previous =
+    previousState?.scope === rangeScope ? previousState.value : [];
+  const setPrevious = (value: (string | undefined)[]) =>
+    setPreviousState({ scope: rangeScope, value });
   useEffect(() => {
     setCursor(undefined);
     setPrevious([]);
     setRanges({});
+    setOrderBy([]);
   }, [rangeScope]);
-  const page = useMemo(
-    () =>
-      selected && session
-        ? listResourceRecords(
-            selected.resource.schema,
-            session.data.records[selected.key] ?? [],
-            { limit: 50, cursor, ranges },
-          )
-        : { items: [], nextCursor: null, total: 0 },
-    [selected, session, revision, cursor, ranges],
-  );
+  const page = useMemo(() => {
+    try {
+      return {
+        ...(selected && session
+          ? listResourceRecords(
+              selected.resource.schema,
+              session.data.records[selected.key] ?? [],
+              { limit: 50, cursor, ranges, orderBy },
+              `${session.id}/${selected.module.id}@${selected.module.version}/${selected.key.slice(selected.module.id.length + 1)}`,
+            )
+          : { items: [], nextCursor: null }),
+        error: undefined as unknown,
+      };
+    } catch (error) {
+      return { items: [], nextCursor: null, error };
+    }
+  }, [selected, session, revision, cursor, ranges, orderBy, rangeScope]);
   const referenceLoader = useMemo(() => {
     if (!selected || !session) return undefined;
     return createModuleClient(selected.module, (call, options) =>
@@ -305,16 +341,39 @@ export function LocalWorkspace({
           )}
           {selected && (
             <>
-              <TypedResourceRanges
-                key={rangeScope}
-                schema={selected.resource.schema as TObject}
-                value={ranges}
-                onChange={(next) => {
-                  setRanges(next);
-                  setCursor(undefined);
-                  setPrevious([]);
-                }}
-              />
+              <div className="resource-query-controls">
+                <TypedResourceRanges
+                  key={rangeScope}
+                  schema={selected.resource.schema as TObject}
+                  value={ranges}
+                  onChange={(next) => {
+                    setRanges(next);
+                    setCursor(undefined);
+                    setPrevious([]);
+                  }}
+                />
+                <TypedResourceSort
+                  key={`sort/${rangeScope}`}
+                  schema={selected.resource.schema as TObject}
+                  value={orderBy}
+                  onChange={(next) => {
+                    setOrderBy([...next]);
+                    setCursor(undefined);
+                    setPrevious([]);
+                  }}
+                />
+              </div>
+              <ErrorMessage error={page.error} />
+              {!!page.error && cursor && (
+                <Button
+                  onClick={() => {
+                    setCursor(undefined);
+                    setPrevious([]);
+                  }}
+                >
+                  Return to first page
+                </Button>
+              )}
               <TypedResourceTable
                 schema={selected.resource.schema as TObject}
                 columns={selected.resource.columns}

@@ -660,6 +660,7 @@ export {
 } from "./data-components";
 
 export { TypedResourceTable, ResourceValue } from "./resource-table";
+export { TypedResourceSort } from "./resource-sort";
 export { TypedResourceRanges } from "./resource-ranges";
 export { TypedResourceFilters } from "./resource-filters";
 

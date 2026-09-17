@@ -7,12 +7,17 @@ import { authorizeReferenceTarget } from "./module-references";
 import {
   validateResourceList,
   resourceRangeKind,
+  resourceSortKind,
+  resourceSortValues,
+  validateResourceSortAnchor,
+  resourceListScope,
   type ResourceRangeBounds,
 } from "@suite/module-sdk/queries";
 import { assertModuleStorage } from "./module-storage";
 import { workspaceModule } from "./module-releases";
-import { randomUUID } from "node:crypto";
-import { sql } from "kysely";
+import { queryCursor } from "./module-query-cursor";
+import { createHash, randomUUID } from "node:crypto";
+import { sql, type RawBuilder } from "kysely";
 import {
   assertSchema,
   mergeFields,
@@ -181,10 +186,69 @@ export async function executeResource(
   if (command.action === "list") {
     validateResourceList(resource.schema, command.input);
     const limit = command.input.limit ?? 50;
-    let q = select()
-      .where("archived", "=", command.input.archived ?? false)
-      .orderBy("id");
-    if (command.input.cursor) q = q.where("id", ">", command.input.cursor);
+    let q = select().where("archived", "=", command.input.archived ?? false);
+    const order = command.input.orderBy ?? [];
+    const expressionFor = (key: string, kind: string) =>
+      kind === "number"
+        ? sql`case when jsonb_typeof(data -> ${key}) = 'number' then (data ->> ${key})::numeric end`
+        : kind === "boolean"
+          ? sql`case when jsonb_typeof(data -> ${key}) = 'boolean' then (data ->> ${key})::boolean end`
+          : sql`(case when jsonb_typeof(data -> ${key}) = 'string' then data ->> ${key} end) collate "C"`;
+    const fields = order.map((item) => ({
+      ...item,
+      expression: expressionFor(
+        item.field,
+        resourceSortKind(resource.schema.properties[item.field])!,
+      ),
+    }));
+    const codec = fields.length
+      ? queryCursor(
+          createHash("sha256")
+            .update(
+              resourceListScope(
+                command.input,
+                `${ctx.workspaceId}/${ctx.actor.id}/${moduleId}@${module.version}/${command.resource}`,
+              ),
+            )
+            .digest("hex"),
+          "resource",
+        )
+      : undefined;
+    if (command.input.cursor) {
+      if (!codec) q = q.where("id", ">", command.input.cursor);
+      else {
+        const cursor = codec.decode(command.input.cursor);
+        validateResourceSortAnchor(resource.schema, order, cursor);
+        const prefixes: RawBuilder<unknown>[] = [],
+          alternatives: RawBuilder<unknown>[] = [];
+        for (const [index, current] of fields.entries()) {
+          const value = cursor.values[index];
+          if (value !== null) {
+            const beyond =
+              current.direction === "asc"
+                ? sql`${current.expression} > ${value}`
+                : sql`${current.expression} < ${value}`;
+            alternatives.push(
+              sql`(${sql.join([...prefixes, sql`(${beyond} or ${current.expression} is null)`], sql` and `)})`,
+            );
+          }
+          prefixes.push(
+            sql`${current.expression} is not distinct from ${value}`,
+          );
+        }
+        alternatives.push(
+          sql`(${sql.join([...prefixes, sql`id > ${cursor.id}::uuid`], sql` and `)})`,
+        );
+        q = q.where(sql<boolean>`(${sql.join(alternatives, sql` or `)})`);
+      }
+    }
+    for (const current of fields)
+      q = q.orderBy(
+        current.direction === "asc"
+          ? sql`${current.expression} asc nulls last`
+          : sql`${current.expression} desc nulls last`,
+      );
+    q = q.orderBy("id");
     for (const [key, value] of Object.entries(command.input.where ?? {}))
       q = q.where(
         sql<boolean>`data -> ${key} = ${JSON.stringify(value)}::jsonb`,
@@ -194,11 +258,8 @@ export async function executeResource(
       ResourceRangeBounds,
     ][]) {
       const kind = resourceRangeKind(resource.schema.properties[key]);
-      // Guard retained legacy values before casting; neither field names nor values are SQL identifiers.
-      const expression =
-        kind === "number"
-          ? sql`case when jsonb_typeof(data -> ${key}) = 'number' then (data ->> ${key})::numeric end`
-          : sql`(case when jsonb_typeof(data -> ${key}) = 'string' then data ->> ${key} end) collate "C"`;
+      // Guard retained legacy values before casting; field names remain parameters.
+      const expression = expressionFor(key, kind!);
       for (const [operator, value] of Object.entries(bounds)) {
         if (operator === "gt")
           q = q.where(sql<boolean>`${expression} > ${value}`);
@@ -215,10 +276,23 @@ export async function executeResource(
         sql<boolean>`data::text ilike ${"%" + command.input.search.replace(/[\\%_]/g, "\\$&") + "%"}`,
       );
     const rows = await q.limit(limit + 1).execute();
-    return {
-      items: rows.slice(0, limit).map(view),
-      nextCursor: rows.length > limit ? rows[limit - 1].id : null,
-    };
+    let nextCursor: string | null = null;
+    if (rows.length > limit) {
+      const last = rows[limit - 1];
+      nextCursor = codec
+        ? codec.encode({
+            id: last.id,
+            values: resourceSortValues(resource.schema, last.data, order),
+          })
+        : last.id;
+      requireCondition(
+        nextCursor.length <= 24576,
+        422,
+        "QUERY_CURSOR_TOO_LARGE",
+        "Sort by shorter fields to keep pagination within its size limit.",
+      );
+    }
+    return { items: rows.slice(0, limit).map(view), nextCursor };
   }
   const id = command.input.id ?? randomUUID();
   await lockKey(tx, `${ctx.workspaceId}:${moduleId}:${command.resource}:${id}`);

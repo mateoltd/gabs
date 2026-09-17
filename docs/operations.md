@@ -28,11 +28,11 @@ The ordering matters: a challenge must complete before the later Action inspects
 
 API secrets: DATABASE_URL, AUTH0_CLIENT_SECRET. Public configuration: AUTH0_ISSUER (including trailing slash), AUTH0_CLIENT_ID, AUTH0_DESKTOP_CLIENT_ID, AUTH0_AUDIENCE, AUTH0_MFA_CLAIM, APP_ORIGIN, API_ORIGIN. Set AUTH_MODE=oidc, NODE_ENV=production and HOST=0.0.0.0. Development auth refuses production mode and non-loopback binding.
 
-## Private module query cursors
+## Module query cursors
 
-Set `MODULE_QUERY_CURSOR_KEY` through the secret manager for production API and worker processes that execute private-store queries. It must be a shared 32-byte key encoded as 64 hexadecimal characters; never send it to web or desktop clients. A missing or invalid production key rejects private queries. It encrypts and authenticates pagination sort values, separately from package signing and business authority.
+Set `MODULE_QUERY_CURSOR_KEY` through the secret manager for production API and worker processes that execute private-store or sorted resource queries. It must be a shared 32-byte key encoded as 64 hexadecimal characters; never send it to web or desktop clients. A missing or invalid production key rejects those queries. It encrypts and authenticates pagination sort values, separately from package signing and business authority.
 
-Keep the same key across instances and restarts. Rotation invalidates existing pagination tokens; clients must reload the list. This changes no business records or pending operations. Development/test may omit the variable and use a process-local key with the same reload requirement after restart. See [query acceptance and limits](verification/store-queries/README.md).
+Keep the same key across instances and restarts. Rotation invalidates existing pagination tokens; clients must reload the list. This changes no business records or pending operations. Development/test may omit the variable and use a process-local key with the same reload requirement after restart. See [private query acceptance](verification/store-queries/README.md) and [resource sorting acceptance](verification/resource-sort/README.md). Sorted resource tokens use a separate authenticated scope and a derived HMAC key for stable cache identity; rotating the key also changes that identity. Clients reload from the first page to obtain fresh cursors.
 
 ## Containers and exports
 

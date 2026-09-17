@@ -9,6 +9,8 @@ import { ownSchemaValue } from "./schema-value";
 import type { ResourceListOptions } from "./resource-query";
 export type {
   ResourceListOptions,
+  ResourceOrder,
+  ResourceSort,
   ResourceRanges,
   ResourceRangeBounds,
 } from "./resource-query";

@@ -653,7 +653,12 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       baseVersion?: number;
     } & ResourceListOptions;
     if (call.action === "list")
-      return listResourceRecords(resource.schema, rows, input);
+      return listResourceRecords(
+        resource.schema,
+        rows,
+        input,
+        `${module.id}@${module.version}/${call.resource}`,
+      );
     const old = rows.find((r) => r.id === input.id);
     if (call.action === "get") {
       if (!old) throw rejected(404, "NOT_FOUND", "Record not found.");

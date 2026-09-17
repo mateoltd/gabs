@@ -5707,6 +5707,10 @@ export interface operations {
                             };
                         };
                         search?: string;
+                        orderBy?: {
+                            field: string;
+                            direction: "asc" | "desc";
+                        }[];
                         cursor?: string;
                         limit?: number;
                         archived?: boolean;

@@ -404,7 +404,12 @@ export async function executeLocalCall(
       if (!input || typeof input !== "object")
         fail("INVALID_INPUT", "Expected a resource request.");
       if (command.action === "list")
-        return listResourceRecords(definition.schema, rows, input);
+        return listResourceRecords(
+          definition.schema,
+          rows,
+          input,
+          `${request.profileId}/${module.id}@${module.version}/${name}`,
+        );
       const row = rows.find((r) => r.id === input.id);
       if (command.action === "get") {
         if (!row) fail("NOT_FOUND", "Local record not found.");

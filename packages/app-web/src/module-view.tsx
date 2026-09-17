@@ -1,10 +1,12 @@
-import type { ResourceRangeBounds } from "@suite/module-sdk";
+import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
+import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
 import { useModuleReferences } from "./module-references";
 import { canonical } from "@suite/module-sdk/registry";
 import {
   TypedResourceTable,
   TypedResourceFilters,
   TypedResourceRanges,
+  TypedResourceSort,
   Select,
   SelectOption,
 } from "@suite/ui-web";
@@ -66,6 +68,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const [limit, setLimit] = useState(50);
   const [where, setWhere] = useState<Record<string, unknown>>({});
   const [ranges, setRanges] = useState<Record<string, ResourceRangeBounds>>({});
+  const [orderBy, setOrderBy] = useState<ResourceSort[]>([]);
   const resetPage = () => {
     setCursor(undefined);
     setPrevious([]);
@@ -148,11 +151,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     module.version,
     resource,
     search,
-    cursor ?? null,
+    resourceCursorCacheKey(cursor),
     archived,
     limit,
     where,
     ...(Object.keys(ranges).length ? [ranges] : []),
+    ...(orderBy.length ? [{ sort: orderBy }] : []),
   ]);
   const draftKey = `${moduleId}/${resource}`;
   const allowed = canUse(bootstrap, moduleId, `${moduleId}.${resource}.read`);
@@ -188,6 +192,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       limit,
       where,
       ranges,
+      orderBy,
     ],
     enabled: online && allowed && resourceAvailable,
     queryFn: async () => {
@@ -196,7 +201,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         moduleVersion: module.version,
         resource,
         action: "list",
-        input: { search, cursor, archived, limit, where, ranges },
+        input: { search, cursor, archived, limit, where, ranges, orderBy },
       })) as ResourcePage;
       if (props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (s) => {
@@ -251,7 +256,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     : (storage?.pages[pageKey] ??
       (limit === 50 &&
       Object.keys(where).length === 0 &&
-      Object.keys(ranges).length === 0
+      Object.keys(ranges).length === 0 &&
+      orderBy.length === 0
         ? storage?.pages[
             `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`
           ]
@@ -386,6 +392,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           setSearch("");
           setWhere({});
           setRanges({});
+          setOrderBy([]);
           setArchived(false);
         }}
       />
@@ -449,6 +456,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             value={ranges}
             onChange={(next) => {
               setRanges(next);
+              resetPage();
+            }}
+          />
+          <TypedResourceSort
+            key={`sort/${resource}@${module.version}`}
+            schema={definition.schema as TObject}
+            value={orderBy}
+            onChange={(next) => {
+              setOrderBy([...next]);
               resetPage();
             }}
           />

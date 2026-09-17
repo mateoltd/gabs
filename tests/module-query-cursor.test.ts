@@ -1,3 +1,4 @@
+import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
 import { randomBytes } from "node:crypto";
 import { expect, it } from "vitest";
 import { queryCursor } from "../packages/server-core/src/module-query-cursor";
@@ -42,4 +43,26 @@ it("requires a shared production key and retains cursors across codecs only with
     if (previousKey === undefined) delete process.env.MODULE_QUERY_CURSOR_KEY;
     else process.env.MODULE_QUERY_CURSOR_KEY = previousKey;
   }
+});
+
+it("separates encrypted resource cursors from private-store cursors and rejects changed scopes", () => {
+  const codec = queryCursor("resource-scope", "resource");
+  const value = { id: "record", values: ["Private label", 12] };
+  const cursor = codec.encode(value);
+  expect(cursor).toMatch(/^rq1\./);
+  const reissued = codec.encode(value);
+  expect(reissued).not.toBe(cursor);
+  expect(resourceCursorCacheKey(reissued)).toBe(resourceCursorCacheKey(cursor));
+  expect(
+    resourceCursorCacheKey(codec.encode({ ...value, id: "other" })),
+  ).not.toBe(resourceCursorCacheKey(cursor));
+  expect(cursor).not.toContain("Private label");
+  expect(codec.decode(cursor)).toEqual(value);
+  expect(() => queryCursor("other-scope", "resource").decode(cursor)).toThrow();
+  expect(() => queryCursor("resource-scope").decode(cursor)).toThrow();
+  expect(() =>
+    codec.decode(
+      cursor.slice(0, 10) + (cursor[10] === "a" ? "b" : "a") + cursor.slice(11),
+    ),
+  ).toThrow();
 });

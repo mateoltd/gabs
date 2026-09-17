@@ -12410,8 +12410,44 @@
                         "maxLength": 100,
                         "type": "string"
                       },
+                      "orderBy": {
+                        "maxItems": 3,
+                        "type": "array",
+                        "items": {
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "field",
+                            "direction"
+                          ],
+                          "properties": {
+                            "field": {
+                              "minLength": 1,
+                              "maxLength": 200,
+                              "type": "string"
+                            },
+                            "direction": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "asc"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "desc"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
                       "cursor": {
-                        "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
+                        "minLength": 1,
+                        "maxLength": 24576,
                         "type": "string"
                       },
                       "limit": {
