@@ -19,3 +19,5 @@ The independently built Resource explorer fixture now includes a read-only serve
 ## Remaining SDK-04 acceptance
 
 The [acceptance map](../../sdk-04-acceptance.md) identifies an actual remaining validator gap: resource get/list/mutation responses are currently cast to `ResourceRecord`/`ResourcePage` without validating the returned resource schema and envelope. Runtime operation outputs and reference pages already have validators; their existence does not prove resource response validation. That work is next. Broader UI-kit, standalone capability, offline, performance and production-release gates remain tracked separately without changing the original scope.
+
+Implementation checkpoint `99119e16ea03e3a1053df1c4ee9cc221fa19d1da` / [CI 35186877936](https://github.com/mateoltd/gabs/actions/runs/35186877936) started no jobs: all four jobs ended with zero steps, and the verified annotation states that the Actions budget prevents further use. Local acceptance above passed; remote acceptance still requires restored account capacity.

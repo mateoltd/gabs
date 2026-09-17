@@ -413,3 +413,5 @@ Implementation checkpoint `3f4507f511cc658ff0f74b57a08b43ed67958035` / [CI 35186
 ## SDK-04 read-only resource query contracts, 17 September 2026
 
 [Query-context acceptance](query-context/README.md) records the removal of duplicated, incomplete read-only resource query types. Strict checks/four builds, 226 unit/PostgreSQL tests across 48 files, two headless browser journeys and one hidden/unfocused Electron journey passed on temporary databases. An independently published query combines filters/ranges/sorting/pagination and rejects a changed cursor query or revoked resource read permission. Shared development data and historical captures were preserved. The [SDK-04 audit](../sdk-04-acceptance.md) keeps returned resource-record/page validation explicitly open.
+
+Implementation checkpoint `99119e16ea03e3a1053df1c4ee9cc221fa19d1da` / [CI 35186877936](https://github.com/mateoltd/gabs/actions/runs/35186877936) started no jobs: all four jobs ended with zero steps, and the verified annotation states that the Actions budget prevents further use. Local acceptance above passed; remote acceptance still requires restored account capacity.
