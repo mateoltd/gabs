@@ -1,3 +1,4 @@
+import { useModuleReferences } from "./module-references";
 import { canonical } from "@suite/module-sdk/registry";
 import {
   TypedResourceTable,
@@ -14,7 +15,6 @@ import {
   type ResourcePage,
   type ModuleCall,
   type ModuleDefinition,
-  type TSchema,
   type TObject,
 } from "@suite/module-sdk";
 import { canUse, type FeatureProps } from "@suite/platform";
@@ -71,10 +71,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     [form, setForm] = useState<Record<string, unknown>>({}),
     [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
-  const [storage, setStorage] = useState<ModuleStorage>(),
-    [refs, setRefs] = useState<
-      Record<string, { value: string; label: string }[]>
-    >({});
+  const [storage, setStorage] = useState<ModuleStorage>();
+  const {
+    references: refs,
+    loadReferences,
+    error: referenceError,
+  } = useModuleReferences(props, module, resource);
+  useEffect(() => {
+    if (referenceError) setError(referenceError);
+  }, [referenceError]);
   const [editingVersion, setEditingVersion] = useState(module.version);
   const [carriedInput, setCarriedInput] = useState<{
     version: string;
@@ -229,94 +234,6 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       clearInterval(timer);
     };
   }, [online, allowed, bootstrap.authorizedAt, moduleId]);
-  useEffect(() => {
-    let active = true;
-    const referenceKey = `${moduleId}@${module.version}/${resource}`;
-    setRefs({});
-    const load = async () => {
-      if (!online) {
-        const stored = await readModuleStorage(platform, scope);
-        if (active) setRefs(stored.referenceOptions?.[referenceKey] ?? {});
-        return;
-      }
-      const values: typeof refs = {};
-      let providers: { id: string; version: string }[] | undefined;
-      for (const [key, schema] of Object.entries(
-        definition.schema.properties as Record<string, TSchema>,
-      )) {
-        if (schema["x-membership"]) {
-          values[key] = [];
-          let cursor: string | null = null;
-          do {
-            if (!active) return;
-            const directory: import("@suite/module-sdk").MemberPage =
-              await client.request({
-                operation: "moduleMembers",
-                moduleVersion: module.version,
-                params: {
-                  workspaceId: scope.workspaceId,
-                  moduleId,
-                  resource,
-                  field: key,
-                },
-                query: cursor ? { cursor } : {},
-              });
-            values[key].push(
-              ...directory.items.map((m) => ({ value: m.id, label: m.name })),
-            );
-            cursor = directory.nextCursor;
-          } while (cursor);
-          continue;
-        }
-        const ref = schema["x-reference"] as
-          { module: string; resource: string } | undefined;
-        if (!ref) continue;
-        try {
-          // Same-module references use the installed contract. Other providers
-          // use this workspace's selected contract, never a global catalog entry.
-          if (ref.module !== moduleId && !providers)
-            providers = (
-              await client.request({
-                operation: "platformState",
-                params: { workspaceId: scope.workspaceId },
-              })
-            ).modules;
-          const version =
-            ref.module === moduleId
-              ? module.version
-              : providers?.find((provider) => provider.id === ref.module)
-                  ?.version;
-          if (!version) throw Error("The referenced module is unavailable.");
-          const page = (await send({
-            moduleId: ref.module,
-            moduleVersion: version,
-            resource: ref.resource,
-            action: "list",
-            input: { limit: 100 },
-          })) as ResourcePage;
-          values[key] = page.items.map((r) => ({
-            value: r.id,
-            label: String(r.data.name ?? r.data.title ?? r.id),
-          }));
-        } catch {
-          /* Server still validates references and grants on save. */
-        }
-      }
-      if (active) {
-        setRefs(values);
-        if (props.offlineEnabled)
-          await changeModuleStorage(platform, scope, (s) => {
-            if (active) (s.referenceOptions ??= {})[referenceKey] = values;
-          });
-      }
-    };
-    void load().catch((error) => {
-      if (active) setError(error);
-    });
-    return () => {
-      active = false;
-    };
-  }, [resource, editing !== undefined, online, module.version]);
   if (!allowed)
     return (
       <Empty
@@ -515,6 +432,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             resetPage();
           }}
           references={refs}
+          loadReferences={loadReferences}
         />
         {!online && (
           <p role="status">
@@ -770,6 +688,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               fieldOrder={definition.columns}
               value={form}
               referenceOptions={refs}
+              loadReferences={loadReferences}
               onChange={(v) => {
                 setForm(v);
                 if (props.offlineEnabled && bootstrap.offlineHours)

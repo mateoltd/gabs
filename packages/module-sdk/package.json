@@ -18,7 +18,8 @@
     "./client-artifact": "./src/client-artifact.ts",
     "./local": "./src/local.ts",
     "./local-artifact": "./src/local-artifact.ts",
-    "./verification": "./src/verification.ts"
+    "./verification": "./src/verification.ts",
+    "./references": "./src/references.ts"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",

@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, writeFile, rm, copyFile } from "node:fs/promises";
+import { renderToStaticMarkup } from "react-dom/server";
+import * as ui from "@suite/ui-web";
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { resolve } from "node:path";
@@ -169,6 +172,49 @@ describe("Independent executable client packages", () => {
     expect(() => checkpointValue(Type.Unknown(), "x".repeat(65536))).toThrow(
       /64 KiB/,
     );
+  });
+  it("bundles reference helpers and composable resource controls through the public view ABI", async () => {
+    await mkdir(".local", { recursive: true });
+    const directory = await mkdtemp(resolve(".local/reference-view-"));
+    try {
+      await copyFile(
+        "tests/fixtures/custom-notes/module.ts",
+        resolve(directory, "module.ts"),
+      );
+      await writeFile(
+        resolve(directory, "view.tsx"),
+        `
+        import { defineView } from "@suite/module-sdk/ui";
+        import { referenceTarget } from "@suite/module-sdk/references";
+        import { TypedResourceTable, TypedResourceFilters, ReferencePicker, ResourceValue } from "@suite/ui-web";
+        import module from "./module";
+        export default defineView(module, () => <>
+          <TypedResourceTable schema={module.resources.notes.schema} rows={[]} label="Reference table" />
+          <TypedResourceFilters schema={module.resources.notes.schema} value={{}} onChange={() => {}} />
+          <ReferencePicker target={referenceTarget({"x-membership":true})!} label="Reviewer" value={undefined} onChange={() => {}} load={async () => ({items:[],nextCursor:null})} />
+          <ResourceValue value={false} />
+        </>);
+      `,
+      );
+      const bundles = await buildClientViews(
+        {
+          ...module,
+          views: { home: { ...module.views.home, stylesheet: undefined } },
+        },
+        directory,
+      );
+      const entry = await import(
+        `data:text/javascript;base64,${Buffer.from(bundles.home.javascript).toString("base64")}`
+      );
+      const View = entry.createView({ react: React, jsx, ui });
+      const html = renderToStaticMarkup(React.createElement(View));
+      expect(html).toContain("Reference table");
+      expect(html).toContain("Find reviewer");
+      expect(html).toContain("Filters");
+      expect(html).toContain(">No<");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
   it("builds a typed TSX view with the host React runtime and signs all code and style bytes", async () => {
     const client = await buildClientViews(

@@ -1,3 +1,8 @@
+import {
+  referenceValues,
+  referenceTargetKey,
+} from "@suite/module-sdk/references";
+import { authorizeReferenceTarget } from "./module-references";
 import { validateResourceList } from "@suite/module-sdk/server";
 import { assertModuleStorage } from "./module-storage";
 import { workspaceModule } from "./module-releases";
@@ -9,6 +14,7 @@ import {
   type ModuleDefinition,
   type JsonRecord,
   type ResourceListOptions,
+  type TSchema,
 } from "@suite/module-sdk";
 import { moduleDefinition } from "@suite/module-catalog";
 import { type Tx } from "./database";
@@ -30,87 +36,63 @@ export async function validateReferences(
   module: ModuleDefinition,
   resource: string,
   data: JsonRecord,
+  schema: TSchema = module.resources[resource].schema,
 ) {
-  for (const [key, schema] of Object.entries(
-    module.resources[resource].schema.properties as Record<
-      string,
-      import("@suite/module-sdk").TSchema
-    >,
-  )) {
-    if (schema["x-membership"] && data[key]) {
-      const member = await tx
-        .selectFrom("suite.memberships as m")
-        .innerJoin("suite.users as u", "u.id", "m.user_id")
-        .select("m.id")
-        .where("m.workspace_id", "=", ctx.workspaceId)
-        .where("m.id", "=", String(data[key]))
-        .where("m.active", "=", true)
-        .where("u.active", "=", true)
-        .executeTakeFirst();
-      requireCondition(
-        member,
-        400,
-        "INVALID_MEMBER",
-        "Choose an active member of this workspace.",
-      );
+  const groups = new Map<
+    string,
+    {
+      target: import("@suite/module-sdk/references").ReferenceTarget;
+      ids: Set<string>;
     }
-    const reference = schema["x-reference"] as
-      { module: string; resource: string } | undefined;
-    if (!reference || !data[key]) continue;
-    requireCondition(
-      typeof data[key] === "string" &&
-        /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
-          String(data[key]),
-        ),
-      400,
-      "INVALID_REFERENCE",
-      "A reference must be a valid record identifier.",
-    );
-    if (reference.module !== module.id) {
-      requireCondition(
-        reference.module in module.dependencies,
-        400,
-        "UNDECLARED_DEPENDENCY",
-        "This reference requires a declared dependency.",
-      );
-      requireCondition(
-        ctx.permissions.includes(
-          `${reference.module}.${reference.resource}.read`,
-        ),
-        403,
-        "FORBIDDEN",
-        "Your role cannot read the referenced resource.",
-      );
-      await checkModule(
-        tx,
-        ctx.workspaceId,
-        ctx.membershipId,
-        reference.module,
-      );
-      const grant = await tx
-        .selectFrom("suite.platform_settings")
-        .select("value")
-        .where("workspace_id", "=", ctx.workspaceId)
-        .where("key", "=", `grant:${module.id}:${reference.module}`)
-        .executeTakeFirst();
-      requireCondition(
-        (grant?.value as { read?: boolean } | undefined)?.read,
-        403,
-        "GRANT_REQUIRED",
-        `An administrator must grant ${module.name} access to ${reference.module}.`,
-      );
+  >();
+  for (const reference of referenceValues(schema, data)) {
+    const key = referenceTargetKey(reference.target);
+    let group = groups.get(key);
+    if (!group) {
+      group = { target: reference.target, ids: new Set() };
+      groups.set(key, group);
     }
-    found(
-      await tx
-        .selectFrom("suite.module_records")
-        .select("id")
-        .where("workspace_id", "=", ctx.workspaceId)
-        .where("module_id", "=", reference.module)
-        .where("resource", "=", reference.resource)
-        .where("id", "=", String(data[key]))
-        .where("archived", "=", false)
-        .executeTakeFirst(),
-    );
+    group.ids.add(reference.value.toLowerCase());
+  }
+  for (const { target, ids } of groups.values()) {
+    await authorizeReferenceTarget(tx, ctx, module, target);
+    const values = [...ids];
+    for (let offset = 0; offset < values.length; offset += 500) {
+      const batch = values.slice(offset, offset + 500);
+      if (target.kind === "member") {
+        const members = await tx
+          .selectFrom("suite.memberships as m")
+          .innerJoin("suite.users as u", "u.id", "m.user_id")
+          .select("m.id")
+          .where("m.workspace_id", "=", ctx.workspaceId)
+          .where("m.id", "in", batch)
+          .where("m.active", "=", true)
+          .where("u.active", "=", true)
+          .execute();
+        requireCondition(
+          members.length === batch.length,
+          400,
+          "INVALID_MEMBER",
+          "Choose an active member of this workspace.",
+        );
+      } else {
+        const records = await tx
+          .selectFrom("suite.module_records")
+          .select("id")
+          .where("workspace_id", "=", ctx.workspaceId)
+          .where("module_id", "=", target.moduleId)
+          .where("resource", "=", target.resource)
+          .where("id", "in", batch)
+          .where("archived", "=", false)
+          .execute();
+        requireCondition(
+          records.length === batch.length,
+          404,
+          "NOT_FOUND",
+          "A referenced record was not found in this workspace.",
+        );
+      }
+    }
   }
 }
 export async function executeResource(

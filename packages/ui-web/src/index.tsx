@@ -654,3 +654,5 @@ export {
 
 export { TypedResourceTable, ResourceValue } from "./resource-table";
 export { TypedResourceFilters } from "./resource-filters";
+
+export { ReferencePicker, type ReferenceLoader } from "./reference-picker";

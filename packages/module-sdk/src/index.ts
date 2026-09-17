@@ -1,3 +1,4 @@
+import { ownSchemaValue } from "./schema-value";
 import type { ResourceListOptions } from "./resource-query";
 export type { ResourceListOptions } from "./resource-query";
 export type { StoreQuery, StoreFilter, StoreAggregate } from "./store-query";
@@ -300,8 +301,9 @@ export function assertSchema<S extends TSchema>(
   schema: S,
   value: unknown,
 ): asserts value is Static<S> {
-  if (!Value.Check(schema, value)) {
-    const errors = [...Value.Errors(schema, value)]
+  const candidate = ownSchemaValue(value);
+  if (!Value.Check(schema, candidate)) {
+    const errors = [...Value.Errors(schema, candidate)]
       .slice(0, 5)
       .map((e) => `${e.path || "/"}: ${e.message}`);
     throw new ValidationError(errors.join("; "));

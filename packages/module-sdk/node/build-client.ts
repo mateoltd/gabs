@@ -75,12 +75,14 @@ export async function buildClientViews(
                     ],
                   };
               } else if (
-                !/^@suite\/module-sdk(?:\/(?:ui|forms))?$/.test(args.path)
+                !/^@suite\/module-sdk(?:\/(?:ui|forms|references))?$/.test(
+                  args.path,
+                )
               ) {
                 return {
                   errors: [
                     {
-                      text: `Unsupported module import ${args.path}. Use local source, React, @suite/module-sdk/ui, @suite/module-sdk/forms or the public host UI kit.`,
+                      text: `Unsupported module import ${args.path}. Use local source, React, @suite/module-sdk/ui, @suite/module-sdk/forms, @suite/module-sdk/references or the public host UI kit.`,
                     },
                   ],
                 };

@@ -81,7 +81,20 @@ export function Select({
   return (
     <BaseSelect.Root
       value={value || null}
-      onValueChange={(next) => onValueChange(next ?? "")}
+      onValueChange={(next, details) => {
+        // A changing async option list can briefly unregister a still-present item.
+        // Keep controlled values until the caller actually removes or clears them.
+        if (
+          next === null &&
+          details.reason === "none" &&
+          value &&
+          items.some((item) => item.value === value)
+        ) {
+          details.cancel();
+          return;
+        }
+        onValueChange(next ?? "");
+      }}
       items={items}
       required={required}
       disabled={disabled}

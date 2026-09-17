@@ -365,6 +365,10 @@ export const OPERATIONS = {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/operations/:operationName",
   },
+  moduleReferences: {
+    method: "GET",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/references/:resource",
+  },
   moduleMembers: {
     method: "GET",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/members/:resource/:field",

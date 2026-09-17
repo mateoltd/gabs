@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import {
   assertSchema,
+  Type,
   hydrateModule,
   identifier,
   storageContract,
@@ -410,16 +411,16 @@ async function applyMigration(
             );
             // Preserve historical links, including archived targets. New links
             // require the same current membership and cross-module grants as CRUD.
+            const changed = references.filter(
+              ([key]) => data[key] !== previous.data[key],
+            );
             await validateReferences(
               tx,
               ctx,
               module,
               resource,
-              Object.fromEntries(
-                references
-                  .filter(([key]) => data[key] !== previous.data[key])
-                  .map(([key]) => [key, data[key]]),
-              ),
+              Object.fromEntries(changed.map(([key]) => [key, data[key]])),
+              Type.Object(Object.fromEntries(changed)),
             );
           }
           const result = await tx

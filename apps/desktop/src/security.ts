@@ -1,3 +1,5 @@
+import { assertSchema } from "@suite/module-sdk";
+import { ReferenceQuerySchema } from "@suite/module-sdk/references";
 import {
   OPERATIONS,
   operationPath,
@@ -74,6 +76,7 @@ export function validateOperation(value: unknown): OperationRequest {
         "moduleOperation",
         "moduleQuery",
         "moduleMembers",
+        "moduleReferences",
       ].includes(r.operation))
   )
     throw Error("Invalid module version");
@@ -88,6 +91,10 @@ export function validateOperation(value: unknown): OperationRequest {
     Object.keys(r.query).some(
       (k) =>
         !["cursor", "limit", "search", "status", "stock"].includes(k) &&
+        !(
+          r.operation === "moduleReferences" &&
+          ["field", "selected"].includes(k)
+        ) &&
         !(r.operation === "moduleFleet" && k === "offset") &&
         !(r.operation === "workspacePolicy" && k === "since"),
     )
@@ -105,6 +112,8 @@ export function validateOperation(value: unknown): OperationRequest {
     !/^[0-9]{1,20}$/.test(String(r.query.since))
   )
     throw Error("Invalid policy revision");
+  if (r.operation === "moduleReferences")
+    assertSchema(ReferenceQuerySchema, r.query);
   operationPath(r);
   return r;
 }

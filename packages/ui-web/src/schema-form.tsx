@@ -1,3 +1,5 @@
+import { ReferencePicker, type ReferenceLoader } from "./reference-picker";
+import { referenceTarget } from "@suite/module-sdk/references";
 import { createPortal } from "react-dom";
 import {
   createContext,
@@ -27,6 +29,8 @@ import {
 import type { Static, TObject, TSchema } from "@suite/module-sdk";
 
 export interface FormSchema {
+  "x-reference"?: unknown;
+  "x-membership"?: unknown;
   type?: string;
   properties?: Record<string, FormSchema>;
   required?: readonly string[];
@@ -76,6 +80,7 @@ interface FieldProps {
   references: References;
   issues: SchemaIssue[];
 }
+const ReferenceLoading = createContext<ReferenceLoader | undefined>(undefined);
 const InvalidFields = createContext<(path: string, invalid: boolean) => void>(
   () => {},
 );
@@ -226,6 +231,7 @@ function ObjectFields({
   );
 }
 function SchemaField(props: FieldProps): ReactNode {
+  const loadReference = useContext(ReferenceLoading);
   const [chosen, setChosen] = useState(-1);
   const rowKeys = useRef<string[]>([]);
   const { schema, value, onChange, label, path, required, references, issues } =
@@ -335,6 +341,20 @@ function SchemaField(props: FieldProps): ReactNode {
       </Group>
     );
   }
+  const target = referenceTarget(schema);
+  if (target && loadReference)
+    return (
+      <ReferencePicker
+        target={target}
+        load={loadReference}
+        value={value}
+        onChange={onChange}
+        label={label}
+        required={required}
+        hint={error ?? schema.description}
+        invalid={!!error}
+      />
+    );
   let choices =
     schema.enum ??
     (schema.anyOf?.every((option) => Object.hasOwn(option, "const"))
@@ -505,6 +525,7 @@ interface SchemaFormProps {
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
   referenceOptions?: References;
+  loadReferences?: ReferenceLoader;
   fieldOrder?: readonly string[];
   validate?: boolean;
   onValidityChange?: (valid: boolean) => void;
@@ -514,6 +535,7 @@ export function SchemaForm({
   value,
   onChange,
   referenceOptions = {},
+  loadReferences,
   fieldOrder = [],
   validate = false,
   onValidityChange,
@@ -540,29 +562,31 @@ export function SchemaForm({
   useEffect(() => onValidityChange?.(valid), [onValidityChange, valid]);
   const issues = validate && result && !result.ok ? result.issues : [];
   return (
-    <InvalidFields.Provider value={report}>
-      <ObjectFields
-        schema={schema}
-        value={value}
-        onChange={(value) => onChange(object(value))}
-        path=""
-        references={referenceOptions}
-        issues={issues}
-        fieldOrder={fieldOrder}
-      />
-      {issues.length > 0 && (
-        <div className="schema-errors" role="alert">
-          <p>Review the marked fields before saving.</p>
-          <ul>
-            {issues.map((issue, index) => (
-              <li key={index}>
-                {issue.path || "Record"}: {issue.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </InvalidFields.Provider>
+    <ReferenceLoading.Provider value={loadReferences}>
+      <InvalidFields.Provider value={report}>
+        <ObjectFields
+          schema={schema}
+          value={value}
+          onChange={(value) => onChange(object(value))}
+          path=""
+          references={referenceOptions}
+          issues={issues}
+          fieldOrder={fieldOrder}
+        />
+        {issues.length > 0 && (
+          <div className="schema-errors" role="alert">
+            <p>Review the marked fields before saving.</p>
+            <ul>
+              {issues.map((issue, index) => (
+                <li key={index}>
+                  {issue.path || "Record"}: {issue.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </InvalidFields.Provider>
+    </ReferenceLoading.Provider>
   );
 }
 /** The schema alone determines draft field names and values in custom module views. */

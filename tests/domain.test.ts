@@ -107,6 +107,28 @@ describe("offline and native boundaries", () => {
         params: { ...moduleRequest.params, operationName: "overview" },
       }).moduleVersion,
     ).toBe("1.1.0");
+    const references = {
+      ...moduleRequest,
+      operation: "moduleReferences",
+      params: { ...moduleRequest.params, resource: "notes" },
+      query: {
+        field: "/properties/contactId",
+        limit: 25,
+        selected: randomUUID(),
+      },
+    };
+    expect(validateOperation(references).query).toEqual(references.query);
+    for (const query of [
+      undefined,
+      { ...references.query, field: "" },
+      { ...references.query, limit: 101 },
+      { ...references.query, selected: "invalid" },
+      { ...references.query, target: "foreign" },
+    ])
+      expect(() => validateOperation({ ...references, query })).toThrow();
+    expect(() =>
+      validateOperation({ ...references, operation: "moduleMembers" }),
+    ).toThrow();
     const fleetRequest = {
       operation: "moduleFleet",
       params: { workspaceId: crypto.randomUUID(), moduleId: "contacts" },

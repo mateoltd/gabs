@@ -875,6 +875,16 @@ strong {
 .resource-value dd {
   margin: 0 0 8px;
 }
+.reference-picker {
+  gap: 8px;
+}
+.reference-picker details > .form-stack {
+  gap: 12px;
+  margin-top: 8px;
+}
+.reference-picker p {
+  margin: 0;
+}
 .resource-pagination {
   flex-wrap: wrap;
 }

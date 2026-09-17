@@ -1,3 +1,4 @@
+import { ownSchemaValue } from "./schema-value";
 import { Value } from "@sinclair/typebox/value";
 import {
   assertSchema,
@@ -27,7 +28,7 @@ export function parseSchemaInput<S extends TSchema>(
   value: unknown,
 ): SchemaResult<S> {
   const hydrated = hydrateSchema(schema);
-  const issues = [...Value.Errors(hydrated, value)]
+  const issues = [...Value.Errors(hydrated, ownSchemaValue(value))]
     .slice(0, 100)
     .map(({ path, message }) => ({ path, message }));
   return issues.length

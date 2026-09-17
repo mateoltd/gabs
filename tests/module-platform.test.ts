@@ -77,6 +77,67 @@ afterAll(async () => {
   await db.destroy();
 });
 describe("Public module runtime", () => {
+  it("serves authorized reference pages through versioned API contracts", async () => {
+    const marker = `${randomUUID()} 50%_literal`;
+    const ids: string[] = [];
+    for (let index = 0; index < 3; index++) {
+      const created = await call("contacts", "contacts", "create", {
+        data: {
+          name: `${marker} ${index}`,
+          kind: "person",
+          relationship: "other",
+        },
+      });
+      expect(created.status).toBe(200);
+      ids.push(created.body.id);
+    }
+    ids.sort();
+    const lookup = async (
+      query: Record<string, string>,
+      version: string = contacts.version,
+      resource = "notes",
+      moduleId = "contacts",
+    ) => {
+      const response = await server.app.inject({
+        method: "GET",
+        url: `/api/v1/module/${moduleId}/workspaces/${workspace}/references/${resource}?${new URLSearchParams(query)}`,
+        headers: { ...headers, "x-module-version": version },
+      });
+      return { status: response.statusCode, body: response.json() };
+    };
+    const input = {
+      field: "/properties/contactId",
+      search: marker,
+      limit: "2",
+      selected: ids[2].toUpperCase(),
+    };
+    const first = await lookup(input);
+    expect(first.status).toBe(200);
+    expect(
+      first.body.items.map((item: { value: string }) => item.value),
+    ).toEqual(ids.slice(0, 2));
+    expect(first.body.selected.value).toBe(ids[2]);
+    expect(first.body.nextCursor).toBe(ids[1]);
+    const second = await lookup({ ...input, cursor: first.body.nextCursor });
+    expect(
+      second.body.items.map((item: { value: string }) => item.value),
+    ).toEqual(ids.slice(2));
+    expect(second.body.nextCursor).toBeNull();
+    expect((await lookup({ ...input, limit: "101" })).status).toBe(400);
+    expect(
+      (await lookup({ ...input, field: "/properties/text" })).body.code,
+    ).toBe("INVALID_REFERENCE_FIELD");
+    expect((await lookup(input, "99.0.0")).status).not.toBe(200);
+    const members = await lookup(
+      { field: "/properties/assigneeId", limit: "1" },
+      projects.version,
+      "tasks",
+      "projects",
+    );
+    expect(members.status).toBe(200);
+    expect(members.body.items).toHaveLength(1);
+    expect(members.body.items[0].label).toBe("Module owner");
+  });
   it("filters schema fields before stable paging and rejects malicious list envelopes", async () => {
     const prefix = randomUUID();
     const ids: string[] = [];

@@ -1,3 +1,8 @@
+import { listModuleReferences } from "../../../packages/server-core/src/module-references";
+import {
+  ReferenceQuerySchema,
+  type ReferenceQuery,
+} from "@suite/module-sdk/references";
 import {
   reviewBusinessCutover,
   applyBusinessCutover,
@@ -419,6 +424,45 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
               moduleServers,
             );
           },
+        );
+      }),
+  );
+  app.get<{
+    Params: { workspaceId: string; moduleId: string; resource: string };
+    Querystring: ReferenceQuery;
+  }>(
+    "/api/v1/module/:moduleId/workspaces/:workspaceId/references/:resource",
+    {
+      schema: {
+        operationId: "moduleReferences",
+        headers: moduleHeaders,
+        params: T.Object({ workspaceId: id, moduleId: slug, resource: slug }),
+        querystring: ReferenceQuerySchema,
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+          `${req.params.moduleId}.${req.params.resource}.read`,
+          req.params.moduleId,
+        );
+        const module = await clientModule(
+          tx,
+          ctx.workspaceId,
+          req.params.moduleId,
+          req.headers["x-module-version"],
+          moduleServers,
+        );
+        return listModuleReferences(
+          tx,
+          ctx,
+          module,
+          req.params.resource,
+          req.query,
         );
       }),
   );

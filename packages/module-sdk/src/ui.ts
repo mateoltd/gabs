@@ -200,6 +200,10 @@ export const viewUIExports = [
   "Table",
   "SchemaForm",
   "TypedSchemaForm",
+  "TypedResourceTable",
+  "TypedResourceFilters",
+  "ResourceValue",
+  "ReferencePicker",
 ] as const;
 export const viewReactExports = [
   "Children",

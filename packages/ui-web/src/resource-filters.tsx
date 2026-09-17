@@ -1,3 +1,4 @@
+import type { ReferenceLoader } from "./reference-picker";
 import { useMemo, useState } from "react";
 import {
   Type,
@@ -17,10 +18,12 @@ export function TypedResourceFilters<S extends TObject>({
   value,
   onChange,
   references,
+  loadReferences,
 }: {
   schema: S;
   value: Partial<Static<NoInfer<S>>>;
   onChange: (value: Partial<Static<NoInfer<S>>>) => void;
+  loadReferences?: ReferenceLoader;
   references?: Record<string, { value: string; label: string }[]>;
 }) {
   const [open, setOpen] = useState(false);
@@ -131,6 +134,7 @@ export function TypedResourceFilters<S extends TObject>({
             value={draft}
             onChange={setDraft}
             referenceOptions={references}
+            loadReferences={loadReferences}
             onValidityChange={(valid) => setInvalid(!valid)}
           />
           <p className="muted">
