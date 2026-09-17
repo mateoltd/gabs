@@ -21,14 +21,15 @@ async function request(body, options = {}) {
     signal: options.signal,
   });
   const data = await response.json();
-  if (!response.ok) throw Object.assign(Error(data.message), data);
   options.signal?.throwIfAborted();
+  const snapshot = response.ok ? data : data.simulation;
   // An older read must not restore permissions or other controls from its snapshot.
-  if (sequence >= appliedSequence) {
+  if (snapshot && sequence >= appliedSequence) {
     appliedSequence = sequence;
-    state = { ...state, ...data };
+    state = { ...state, ...snapshot };
     renderState();
   }
+  if (!response.ok) throw Object.assign(Error(data.message), data);
   return data;
 }
 function feedback(message) {
@@ -75,6 +76,8 @@ function renderState() {
       ),
     ]),
   );
+  if (!Object.keys(state.records).length)
+    $("records").append(text("p", "No resources declared."));
   $("journal").replaceChildren(
     table(
       state.journal.map((e) => ({
@@ -88,6 +91,17 @@ function renderState() {
   );
   $("events").textContent = JSON.stringify(state.events, null, 2);
   $("audits").replaceChildren(table(state.audits, "Simulated audit entries"));
+  $("host-actions").replaceChildren(
+    table(
+      state.hostActions.map((action) => ({
+        capability: action.capability,
+        state: action.state,
+        result: action.result ?? "",
+        error: action.error ?? "",
+      })),
+      "Simulated host actions",
+    ),
+  );
   const collections = (data, scope) =>
     Object.entries(data).flatMap(([name, rows]) => [
       text("h3", name),
@@ -119,8 +133,32 @@ function renderState() {
     state,
     async (call, options) =>
       (await request({ action: "execute", call }, options)).result,
+    async (call) => (await request({ action: "host", call })).result,
   );
 }
+function hostResult() {
+  $("host-result").value = JSON.stringify(
+    state.hostResults[$("host-capability").value] ?? null,
+    null,
+    2,
+  );
+}
+$("host-capability").onchange = hostResult;
+$("host-form").onsubmit = async (event) => {
+  event.preventDefault();
+  try {
+    await request({
+      action: "hostResult",
+      capability: $("host-capability").value,
+      result: JSON.parse($("host-result").value),
+    });
+    hostResult();
+    $("host-feedback").textContent =
+      "Simulated result updated. No device action was performed.";
+  } catch (error) {
+    $("host-feedback").textContent = error.message;
+  }
+};
 function serviceControls() {
   $("service-controls").hidden =
     !Object.keys(state.providers).length &&
@@ -364,6 +402,16 @@ async function load() {
     return;
   }
   $("title").textContent = `${state.module.name} ${state.module.version}`;
+  $("host-controls").hidden = !Object.keys(state.module.capabilities ?? {})
+    .length;
+  for (const [name, declaration] of Object.entries(
+    state.module.capabilities ?? {},
+  )) {
+    const option = text("option", `${name} (${declaration.kind})`);
+    option.value = name;
+    $("host-capability").append(option);
+  }
+  if (!$("host-controls").hidden) hostResult();
   serviceControls();
   for (const [kind, definitions] of [
     ["resource", state.module.resources],
@@ -392,7 +440,12 @@ async function load() {
   }
   renderState();
   if ($("contract").value) fields();
-  else $("form").hidden = true;
+  else {
+    $("form").hidden = true;
+    $("contract").hidden = true;
+    $("contract-label").hidden = true;
+    $("policy").textContent = "No resource or operation contracts declared.";
+  }
 }
 await load();
 setInterval(async () => {

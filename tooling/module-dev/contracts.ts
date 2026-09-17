@@ -1,5 +1,6 @@
 import type { ModuleCall, ModuleDefinition } from "@suite/module-sdk";
 import type { ClientBundles } from "@suite/module-sdk/client-artifact";
+import type { HostCapabilityCall } from "@suite/module-sdk/host-capabilities";
 import type {
   SimulatorSnapshot,
   SimulationGrant,
@@ -7,6 +8,8 @@ import type {
 } from "@suite/module-sdk/simulator";
 
 export type DevAction =
+  | { action: "host"; call: HostCapabilityCall }
+  | { action: "hostResult"; capability: string; result: unknown }
   | { action: "network"; online: boolean }
   | { action: "permissions"; moduleId?: string; permissions: string[] }
   | { action: "grants"; grants: SimulationGrant[] }

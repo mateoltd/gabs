@@ -22,12 +22,15 @@ Changes to root or provider module sources, custom TSX, CSS, typed/JSON fixtures
 ## Exercising behavior
 
 - Custom views receive the typed client, simulated account/workspace, connectivity and permission checks through `defineView`. Resource calls and custom scoped operations execute in the isolated simulator. Declared business rejections retain their typed error envelope for `client.attempt`.
+- Views also receive the inferred `host` client. The host capability simulator validates declarations, current simulated permissions, connectivity, release identity and configured result schemas. It never invokes device adapters. Edit a result in the inspector or provide typed `hostResults` in `module.simulation.ts`; see [host fixtures](module-scenarios.md#host-capability-fixtures).
 - Stateful views receive the declared `state` capability. Values are schema-validated and retained during ordinary preview renders, then cleared by `state.clear` or a rebuild. A mismatched executable/state contract fails visibly.
 - The permission controls change simulated actor permissions. Removing a view's permission hides it; operation/resource permissions are checked again when the request executes.
 - Preview requests use immediate simulated server execution. Offline mode disables or rejects those requests. Use the generated resource/operation inspector to capture provisional queued work, reconnect and synchronize; accepted records and the journal remain distinct.
 - Build failures hide the previous workspace and block requests. Render failures stay within the preview boundary. Fixing the source restores the preview. Requests from an earlier build cannot mutate the replacement simulator.
 
 The local host preserves same-origin/Host validation, strict input schemas, a 64 KB action limit and revision checks. Build execution is limited to 120 seconds and requests to 30 seconds. An unresponsive module is terminated without blocking the HTTP host. Authored server code is trusted developer code, not sandboxed publisher code; previewing a module is not a signing or publication decision.
+
+Host actions have separate simulated/rejected observations, bounded to the latest 100 calls. The log omits input content and relay payloads. These observations do not create business records, journal entries, emitted events or corporate audit records. A configured successful reply is a test fixture, not proof that a file was written, a notification delivered or an authorized peer contacted. Invalid result edits preserve the previous valid fixture. JSON `null` resets the inspector's result to its default; relay has no default success. Source reload clears observations and restores file-based fixtures.
 
 ## Current boundaries
 

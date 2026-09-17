@@ -44,9 +44,35 @@
           </p>
           <div id="preview-root"></div>
         </section>
+        <section id="host-controls" hidden>
+          <h2>Host capability simulator</h2>
+          <p>
+            Host results are simulated. This preview does not download files,
+            show system notifications or contact LAN peers. Current simulated
+            permissions and server availability still apply.
+          </p>
+          <form id="host-form">
+            <label for="host-capability">Host capability</label>
+            <select id="host-capability"></select>
+            <label for="host-result">Simulated result (JSON)</label>
+            <textarea id="host-result" rows="6" spellcheck="false"></textarea>
+            <p>
+              Use null to restore the default result. Relay calls require an
+              explicit simulated result.
+            </p>
+            <button type="submit">Apply simulated result</button>
+          </form>
+          <p id="host-feedback" role="status"></p>
+          <h3>Recent host actions</h3>
+          <p>
+            The latest 100 results are retained. Export content and relay
+            payloads are not logged.
+          </p>
+          <div id="host-actions"></div>
+        </section>
         <section>
           <h2>Resources and operations</h2>
-          <label for="contract">Contract</label>
+          <label id="contract-label" for="contract">Contract</label>
           <select id="contract"></select>
           <p id="policy"></p>
           <form id="form">

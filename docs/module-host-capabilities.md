@@ -1,6 +1,6 @@
 # Module host capabilities
 
-SDK-05 adds typed, signed capability declarations to independently published modules. Corporate custom views can request a bounded export, a notification, or access to an already authorized desktop LAN transport. Every corporate call currently requires a live server authorization check. Standalone/offline grants and development simulation remain unfinished in the [acceptance map](sdk-05-acceptance.md).
+SDK-05 adds typed, signed capability declarations to independently published modules. Corporate custom views can request a bounded export, a notification, or access to an already authorized desktop LAN transport. Every corporate call currently requires a live server authorization check. [Development simulation](module-scenarios.md#host-capability-fixtures) is available with typed result fixtures and explicit simulated outcomes. Standalone/offline grants remain unfinished in the [acceptance map](sdk-05-acceptance.md).
 
 ## Authoring
 

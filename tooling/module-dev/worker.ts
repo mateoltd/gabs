@@ -47,6 +47,29 @@ try {
   const input = Type.Union([
     Type.Object(
       {
+        action: Type.Literal("host"),
+        call: Type.Object(
+          {
+            moduleId: Type.Literal(module.id),
+            moduleVersion: Type.Literal(module.version),
+            capability: Type.String(),
+            input: Type.Unknown(),
+          },
+          { additionalProperties: false },
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        action: Type.Literal("hostResult"),
+        capability: Type.String(),
+        result: Type.Unknown(),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
         action: Type.Literal("readGrants"),
         grants: Type.Array(SimulationReadGrantSchema, { maxItems: 500 }),
       },
@@ -98,6 +121,13 @@ try {
     try {
       assertSchema(input, message.action);
       const action = message.action;
+      if (action.action === "host")
+        result = await simulator.sendHost(action.call);
+      if (action.action === "hostResult")
+        simulator.setHostResult(
+          action.capability,
+          (action.result === null ? undefined : action.result) as never,
+        );
       if (action.action === "network") simulator.setOnline(action.online);
       if (action.action === "permissions")
         simulator.setModulePermissions(

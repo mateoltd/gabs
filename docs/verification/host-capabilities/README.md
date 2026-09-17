@@ -27,3 +27,5 @@ Historical regression screenshots are preserved. Temporary databases/profiles ar
 See the [SDK-05 map](../../sdk-05-acceptance.md) for standalone/offline grants, local cross-module services/references, capability simulation, official adapter migration and administrator grant review. Positive native module LAN relay/receipt, persistent notification delivery, broader profile recovery and hosted release acceptance remain open. Review/code containment does not sandbox hostile publishers or protect against a compromised OS.
 
 GitHub Actions budget and artifact quota remain separate remote-acceptance dependencies; local passes do not establish executed release CI acceptance.
+
+Source checkpoint `637f0ee06b82786176c4d045ddbb6600a7f9d26a` / [CI 35193234094](https://github.com/mateoltd/gabs/actions/runs/35193234094) started no jobs: all four failed with zero steps. The verified annotation states that the Actions budget prevents further use. These failures do not represent executed test failures.

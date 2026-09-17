@@ -110,6 +110,33 @@ The consumer must declare the provider dependency, and the provider must be load
 
 The development workspace exposes read grants under **Module grants and provider permissions**. Reload restores file-based fixtures. Offline corporate queries fail without journaling; `personal: true` permits same-module standalone targets and rejects corporate membership or cross-module targets. Creates and updates validate present links against these same permissions, grants and active targets. Missing or archived targets reject the whole transaction. Offline captures remain provisional until synchronization validates them. Seed fixtures may deliberately contain historical or invalid links for recovery scenarios; loading fixtures does not act as an accepted business write.
 
+## Host capability fixtures
+
+Modules declaring [host capabilities](module-host-capabilities.md) can configure inferred adapter results in `module.simulation.ts` or scenario options:
+
+```ts
+import { defineSimulationModule } from "@suite/module-sdk/simulator";
+import module from "./module";
+
+export default defineSimulationModule(module, {
+  hostResults: {
+    export: { status: "cancelled" },
+    notify: { requested: true },
+  },
+});
+```
+
+Use the aliases declared by your module. Wrong aliases/result types fail compilation, and imported fixtures are also runtime-validated. `simulation.host.call(alias, input)` shares the public client's inferred input/result contract. `simulation.setHostResult(alias, result)` changes a fixture; `undefined` restores its default. Results, snapshots and fixture inputs are cloned so callers cannot mutate the configured state accidentally.
+
+Defaults simulate a browser export being offered, unavailable notifications and disabled LAN status. Relay requires an explicit `{ relayed: true, authoritative: false }` fixture. These are response simulations; no filesystem, notification or network adapter runs. Corporate host calls still reject revoked permissions and offline mode, and never enter the operation journal. Standalone host grants remain unavailable until the corresponding SDK-05 work is implemented.
+
+Each scenario begins with fresh host fixtures and observations. `snapshot().hostActions` records up to 100 simulated/rejected results without export content or relay payloads. The independently authored [host scenarios](../tests/fixtures/host-capabilities/module.scenarios.ts) verify changed outcomes, fresh state, permission revocation and offline rejection:
+
+```sh
+pnpm module test tests/fixtures/host-capabilities
+pnpm module dev tests/fixtures/host-capabilities
+```
+
 ## Verification boundary
 
 These scenarios help module authors iterate. Private stores, service calls and simulated audit entries run in serialized in-memory transactions. This does not establish PostgreSQL concurrency/isolation, database locale and exact numeric behavior, corporate authorization, durable persistence or historical field merging. Standalone resource simulation is available through `personal: true`; actual local workers retain their separate browser/native acceptance. Keep PostgreSQL, browser and native acceptance for their own behaviors. [The SDK-03 acceptance map](verification/module-services-preview/README.md) ties the scenario, preview and provider evidence together.

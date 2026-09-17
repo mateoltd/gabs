@@ -9,6 +9,10 @@ import {
   type ReferenceQuery,
 } from "./references";
 import {
+  createHostSimulator,
+  type SimulatedHostAction,
+} from "./simulation-host";
+import {
   listResourceRecords,
   type ResourceListOptions,
 } from "./resource-query";
@@ -85,6 +89,8 @@ interface NamespaceData {
   stores: Record<string, SimulationStoreRecord[]>;
 }
 export interface SimulatorSnapshot extends NamespaceData {
+  hostResults: Record<string, unknown>;
+  hostActions: SimulatedHostAction[];
   scope: { userId: string; workspaceId: string };
   journal: JournalEntry[];
   events: { moduleId: string; name: string; payload: unknown }[];
@@ -119,6 +125,15 @@ export function createModuleSimulator<M extends ModuleDefinition>(
   let readGrants: SimulationReadGrant[] = [];
   let members: SimulationMember[] = [];
   let online = true;
+  const hostSimulator = createHostSimulator(
+    module,
+    () => ({
+      online,
+      personal: options.personal ?? false,
+      permissions: permissions.get(module.id) ?? [],
+    }),
+    options.hostResults,
+  );
   const journal: JournalEntry[] = [],
     events: SimulatorSnapshot["events"] = [],
     audits: SimulatorSnapshot["audits"] = [];
@@ -786,10 +801,14 @@ export function createModuleSimulator<M extends ModuleDefinition>(
   };
   return {
     client: createModuleClient(module, send),
+    host: hostSimulator.host,
+    sendHost: hostSimulator.send,
+    setHostResult: hostSimulator.setResult,
     send,
     snapshot: (): SimulatorSnapshot =>
       structuredClone({
         ...data[module.id],
+        ...hostSimulator.snapshot(),
         scope: {
           userId: simulationIdentity.userId,
           workspaceId: simulationIdentity.workspaceId,

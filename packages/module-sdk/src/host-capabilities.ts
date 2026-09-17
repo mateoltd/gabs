@@ -123,11 +123,21 @@ export function resolveHostCapability(
   assertSchema(schema.input, input);
   return declared;
 }
-type Names<M extends ModuleDefinition> = keyof NonNullable<M["capabilities"]> &
+export type HostCapabilityName<M extends ModuleDefinition> = keyof NonNullable<
+  M["capabilities"]
+> &
   string;
+type Names<M extends ModuleDefinition> = HostCapabilityName<M>;
 type Kind<M extends ModuleDefinition, N extends Names<M>> = NonNullable<
   M["capabilities"]
 >[N]["kind"];
+export type HostCapabilityResult<
+  M extends ModuleDefinition,
+  N extends Names<M>,
+> = Static<(typeof hostCapabilitySchemas)[Kind<M, N>]["output"]>;
+export type HostCapabilityResults<M extends ModuleDefinition> = {
+  [N in Names<M>]?: HostCapabilityResult<M, N>;
+};
 export interface ModuleHost<M extends ModuleDefinition> {
   call<N extends Names<M>>(
     name: N,

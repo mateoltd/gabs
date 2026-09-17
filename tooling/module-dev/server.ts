@@ -253,7 +253,7 @@ export async function startModuleDev(
         });
       });
       if (response.error) {
-        json(response.error.status, response.error);
+        json(response.error.status, { ...response.error, simulation: state });
         return;
       }
       json(200, { result: response.result, ...state });

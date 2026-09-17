@@ -9,6 +9,10 @@ import {
 } from "./index";
 import type { ScopedModuleServer } from "./server";
 import { canonical } from "./registry";
+import {
+  hostCapabilitySchemas,
+  type HostCapabilityResults,
+} from "./host-capabilities";
 
 export type ModuleFixtures<M extends ModuleDefinition> = {
   [K in keyof M["resources"]]?: Array<Static<M["resources"][K]["schema"]>>;
@@ -44,6 +48,8 @@ export interface SimulationModule<
   grants?: readonly SimulationGrant[];
   readGrants?: readonly import("./simulator").SimulationReadGrant[];
   members?: readonly import("./simulator").SimulationMember[];
+  /** Simulated adapter replies; no device effect is performed. */
+  hostResults?: HostCapabilityResults<M>;
 }
 export interface SimulationGrant {
   consumerId: string;
@@ -121,6 +127,15 @@ export function defineSimulationModule<const M extends ModuleDefinition>(
 ): SimulationModule<M> {
   assertSchema(module.configuration, options.configuration ?? {});
   validateFixtures(module, options.fixtures ?? {});
+  for (const [name, result] of Object.entries(options.hostResults ?? {})) {
+    if (!module.capabilities || !Object.hasOwn(module.capabilities, name))
+      throw Error(`Undeclared host capability fixture: ${name}`);
+    if (result === undefined) continue;
+    assertSchema(
+      hostCapabilitySchemas[module.capabilities[name].kind].output,
+      result,
+    );
+  }
   if (
     options.server &&
     (options.server.kind !== "scoped" ||

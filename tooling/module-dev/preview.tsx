@@ -1,6 +1,6 @@
 import {
   createModuleHost,
-  HostCapabilityError,
+  type HostCapabilityCall,
 } from "@suite/module-sdk/host-capabilities";
 import { describeViewHost } from "@suite/module-sdk/host-ui";
 export { referenceFields } from "@suite/module-sdk/references";
@@ -61,10 +61,12 @@ function Surface({
   data,
   viewId,
   send,
+  sendHost,
 }: {
   data: DevState;
   viewId: string;
   send: Transport;
+  sendHost: (call: HostCapabilityCall) => Promise<unknown>;
 }) {
   const module = React.useMemo(
     () => hydrateModule(data.module),
@@ -74,9 +76,10 @@ function Surface({
   const [loaded, setLoaded] = React.useState<{ View: View; css: string }>();
   const [error, setError] = React.useState<unknown>();
   const [value, setValue] = React.useState<unknown>();
-  const latest = React.useRef({ data, send, active: true });
+  const latest = React.useRef({ data, send, sendHost, active: true });
   latest.current.data = data;
   latest.current.send = send;
+  latest.current.sendHost = sendHost;
   React.useEffect(() => {
     latest.current.active = true;
     return () => {
@@ -145,6 +148,20 @@ function Surface({
       }),
     [module, view.permission, authorization],
   );
+  const host = React.useMemo(
+    () =>
+      createModuleHost(module, (call) => {
+        if (
+          !latest.current.active ||
+          !latest.current.data.permissions.includes(view.permission)
+        )
+          return Promise.reject(
+            Error("This preview is no longer active or authorized."),
+          );
+        return latest.current.sendHost(call);
+      }),
+    [module, view.permission, authorization],
+  );
   if (error)
     return (
       <p role="alert">
@@ -171,12 +188,7 @@ function Surface({
       `}
     >
       <loaded.View
-        host={createModuleHost(module, async () => {
-          throw new HostCapabilityError(
-            "CAPABILITY_UNAVAILABLE",
-            "Host actions require an installed workspace. This preview has no device grant.",
-          );
-        })}
+        host={host}
         client={client}
         scope={data.scope}
         online={data.online}
@@ -187,7 +199,15 @@ function Surface({
   );
 }
 
-function Preview({ data, send }: { data: DevState; send: Transport }) {
+function Preview({
+  data,
+  send,
+  sendHost,
+}: {
+  data: DevState;
+  send: Transport;
+  sendHost: (call: HostCapabilityCall) => Promise<unknown>;
+}) {
   const selectId = React.useId();
   const names = Object.keys(data.module.views ?? {});
   const [viewId, setViewId] = React.useState(
@@ -210,7 +230,12 @@ function Preview({ data, send }: { data: DevState; send: Transport }) {
       </select>
       {view && data.permissions.includes(view.permission) ? (
         <Boundary key={`${data.revision}:${viewId}`}>
-          <Surface data={data} viewId={viewId} send={send} />
+          <Surface
+            data={data}
+            viewId={viewId}
+            send={send}
+            sendHost={sendHost}
+          />
         </Boundary>
       ) : (
         <p role="status">Your simulated permissions do not allow this view.</p>
@@ -219,12 +244,18 @@ function Preview({ data, send }: { data: DevState; send: Transport }) {
   );
 }
 let root: Root | undefined;
-export function updatePreview(data: DevState, send: Transport) {
+export function updatePreview(
+  data: DevState,
+  send: Transport,
+  sendHost: (call: HostCapabilityCall) => Promise<unknown>,
+) {
   const section = document.getElementById("custom-preview")!;
   section.hidden = !Object.keys(data.module.views ?? {}).length;
   if (section.hidden) return;
   root ??= createRoot(document.getElementById("preview-root")!);
-  root.render(<Preview key={data.revision} data={data} send={send} />);
+  root.render(
+    <Preview key={data.revision} data={data} send={send} sendHost={sendHost} />,
+  );
 }
 export function hidePreview() {
   root?.unmount();
