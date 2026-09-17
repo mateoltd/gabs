@@ -1,3 +1,7 @@
+import {
+  validateModuleResponse,
+  ResponseContractUnavailable,
+} from "@suite/platform/module-response";
 import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
 import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
 import { useModuleReferences } from "./module-references";
@@ -48,6 +52,9 @@ import { Plus, Search } from "@suite/ui-web/icons";
 export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const { client, scope, bootstrap, online, platform, module } = props;
   const moduleId = module.id;
+  const responseModules = useRef(new Map<string, ModuleDefinition>());
+  responseModules.current.set(`${module.id}@${module.version}`, module);
+  const [archiveAttempt, setArchiveAttempt] = useState<ModuleCall>();
   const qc = useQueryClient();
   const names = Object.keys(module.resources).sort((a, b) =>
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
@@ -166,7 +173,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     Date.now() <
       new Date(bootstrap.authorizedAt).getTime() +
         Math.max(bootstrap.offlineHours, 1 / 60) * 3600000;
-  const send = (call: ModuleCall) =>
+  const transport = (call: ModuleCall) =>
     client.request({
       operation: "moduleRequest",
       params: { workspaceId: scope.workspaceId, moduleId: call.moduleId },
@@ -174,6 +181,37 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       idempotencyKey: call.key,
       moduleVersion: call.moduleVersion,
     });
+  const send = async (call: ModuleCall) => {
+    const contract = responseModules.current.get(
+      `${call.moduleId}@${call.moduleVersion}`,
+    );
+    if (!contract) throw new ResponseContractUnavailable();
+    const result = await transport(call);
+    validateModuleResponse(contract, call, result);
+    return result;
+  };
+  const archive = async (call: ModuleCall) => {
+    setArchiveAttempt(call);
+    setBusy(true);
+    setError(undefined);
+    try {
+      await send(call);
+      setArchiveAttempt(undefined);
+      await query.refetch();
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (
+        status &&
+        status >= 400 &&
+        status < 500 &&
+        ![408, 429].includes(status)
+      )
+        setArchiveAttempt(undefined);
+      setError(error);
+    } finally {
+      setBusy(false);
+    }
+  };
   const read = async () => {
     const s = await readModuleStorage(platform, scope);
     setStorage(s);
@@ -226,7 +264,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     let active = true;
     const sync = async () => {
       try {
-        await syncModuleStorage(platform, scope, send, authorized);
+        await syncModuleStorage(platform, scope, transport, authorized);
         if (active) {
           await read();
           await qc.invalidateQueries({
@@ -251,17 +289,38 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         description="Ask your administrator for access to this module."
       />
     );
-  const page = online
+  const candidatePage = online
     ? query.data
-    : (storage?.pages[pageKey] ??
-      (limit === 50 &&
-      Object.keys(where).length === 0 &&
-      Object.keys(ranges).length === 0 &&
-      orderBy.length === 0
+    : storage?.pages[pageKey] !== undefined
+      ? storage.pages[pageKey]
+      : limit === 50 &&
+          Object.keys(where).length === 0 &&
+          Object.keys(ranges).length === 0 &&
+          orderBy.length === 0
         ? storage?.pages[
             `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`
           ]
-        : undefined));
+        : undefined;
+  let page: ResourcePage | undefined;
+  let responseError: unknown;
+  if (candidatePage !== undefined) {
+    try {
+      validateModuleResponse(
+        module,
+        {
+          moduleId,
+          moduleVersion: module.version,
+          resource,
+          action: "list",
+          input: {},
+        },
+        candidatePage,
+      );
+      if (!online || !query.error) page = candidatePage;
+    } catch (error) {
+      responseError = error;
+    }
+  }
   const pending =
     storage?.journal.filter(
       (e) =>
@@ -315,7 +374,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         setEditing(undefined);
         setReviewId(undefined);
         setReviewTargetId(undefined);
-        if (online) await syncModuleStorage(platform, scope, send, authorized);
+        if (online)
+          await syncModuleStorage(platform, scope, transport, authorized);
       }
       if (props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (s) => {
@@ -342,7 +402,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     } catch (e) {
       if (
         (e as { status?: number }).status &&
-        (e as { status: number }).status < 500
+        (e as { status: number }).status < 500 &&
+        ![408, 429].includes((e as { status: number }).status)
       )
         attempt.current = undefined;
       setError(e);
@@ -474,9 +535,41 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             Offline copy. Changes remain pending until the server accepts them.
           </p>
         )}
-        <ErrorMessage error={error ?? query.error} />
-        {query.isLoading ? (
+        <ErrorMessage
+          error={error ?? responseError ?? (online ? query.error : undefined)}
+        />
+        {archiveAttempt && (
+          <div className="module-toolbar">
+            <p role="status">
+              The archive response is uncertain. Retry the same request to
+              confirm it.
+            </p>
+            <Button
+              disabled={!online || busy}
+              onClick={() => void archive(archiveAttempt)}
+            >
+              Retry archive
+            </Button>
+          </div>
+        )}
+        {online && query.isLoading ? (
           <Loading />
+        ) : responseError || (online && query.error) ? (
+          <Empty
+            title="Records unavailable"
+            description={
+              online
+                ? "The response could not be verified. Retry loading these records."
+                : "This offline copy could not be verified. Reconnect to refresh it."
+            }
+            action={
+              online ? (
+                <Button onClick={() => void query.refetch()}>
+                  Retry records
+                </Button>
+              ) : undefined
+            }
+          />
         ) : !page?.items.length ? (
           <Empty
             title="No records"
@@ -516,28 +609,17 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                   </Button>
                   <Button
                     variant="ghost"
-                    disabled={!online || busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      try {
-                        await send({
-                          moduleId,
-                          moduleVersion: module.version,
-                          resource,
-                          action: "archive",
-                          input: {
-                            id: row.id,
-                            baseVersion: row.version,
-                          },
-                          key: crypto.randomUUID(),
-                        });
-                        await query.refetch();
-                      } catch (e) {
-                        setError(e);
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
+                    disabled={!online || busy || !!archiveAttempt}
+                    onClick={() =>
+                      void archive({
+                        moduleId,
+                        moduleVersion: module.version,
+                        resource,
+                        action: "archive",
+                        input: { id: row.id, baseVersion: row.version },
+                        key: crypto.randomUUID(),
+                      })
+                    }
                   >
                     Archive
                   </Button>
@@ -563,8 +645,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             Previous page
           </Button>
           <span role="status">
-            Page {previous.length + 1}. {page?.items.length ?? 0}{" "}
-            {page?.items.length === 1 ? "record" : "records"}.
+            {page
+              ? `Page ${previous.length + 1}. ${page.items.length} ${page.items.length === 1 ? "record" : "records"}.`
+              : "Record count unavailable."}
           </span>
           <Button
             disabled={!page?.nextCursor || query.isFetching}

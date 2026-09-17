@@ -1,6 +1,6 @@
 # SDK-04: validated resource-client results
 
-17 September 2026. Public SDK response validation is implemented; generated host/journal integration and full SDK-04 acceptance remain open.
+17 September 2026. Public SDK response validation is implemented. Subsequent [generated host/journal acceptance](../generated-response/README.md) closes the integration gate described in this historical checkpoint.
 
 ## Behavior
 

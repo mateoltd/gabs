@@ -22,11 +22,27 @@ import {
 
 const require = createRequire(resolve("apps/desktop/package.json"));
 
-for (const lostReply of [false, true])
+async function assertHidden(app: ElectronApplication) {
+  expect(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().every(
+        (window) =>
+          !window.isFocused() && (!window.isVisible() || window.isMinimized()),
+      ),
+    ),
+  ).toBe(true);
+}
+for (const { lostReply, malformedReply } of [
+  { lostReply: false, malformedReply: false },
+  { lostReply: true, malformedReply: false },
+  { lostReply: true, malformedReply: true },
+])
   test(
-    lostReply
-      ? "native queued work recovers a lost acceptance after process restart and a mandatory update"
-      : "native queued work survives process restart and requires review after a mandatory update",
+    malformedReply
+      ? "hidden native queued work retains a malformed acceptance across restart and a mandatory update"
+      : lostReply
+        ? "native queued work recovers a lost acceptance after process restart and a mandatory update"
+        : "native queued work survives process restart and requires review after a mandatory update",
     async () => {
       test.setTimeout(120000);
       const profile = await mkdtemp(
@@ -43,8 +59,8 @@ for (const lostReply of [false, true])
       const name = `Native notes ${id.slice(-8)}`;
       const workspaceId = randomUUID();
       let app: ElectronApplication | undefined;
-      const launch = () =>
-        electron.launch({
+      const launch = async () => {
+        const application = await electron.launch({
           executablePath: require("electron"),
           args: [
             resolve("apps/desktop/dist/main.cjs"),
@@ -54,14 +70,19 @@ for (const lostReply of [false, true])
             ...process.env,
             NODE_ENV: "development",
             SUITE_DESKTOP_DEV_AUTH: "1",
+            SUITE_DESKTOP_TEST_MINIMIZED: "1",
           },
         });
+        await application.firstWindow();
+        await assertHidden(application);
+        return application;
+      };
       const fault = async (
         application: ElectronApplication,
         commitFirst: boolean,
       ) =>
         application.evaluate(
-          (_, { id, workspaceId, commitFirst }) => {
+          (_, { id, workspaceId, commitFirst, malformedReply }) => {
             // Interrupt only transport in the main process. The renderer, preload,
             // durable journal, installer and authoritative API remain real.
             const state = {
@@ -86,6 +107,22 @@ for (const lostReply of [false, true])
                   new Headers(init.headers).get("idempotency-key")!,
                 );
                 if (state.enabled) {
+                  if (malformedReply) {
+                    const response = await original(input, init);
+                    if (!response.ok) return response;
+                    state.accepted = true;
+                    return new Response(
+                      JSON.stringify({
+                        ...(await response.json()),
+                        version: 0,
+                      }),
+                      {
+                        status: 200,
+                        headers: { "content-type": "application/json" },
+                      },
+                    );
+                  }
+
                   if (state.commitFirst) {
                     state.commitFirst = false;
                     const response = await original(input, init);
@@ -99,7 +136,7 @@ for (const lostReply of [false, true])
               return original(input, init);
             };
           },
-          { id, workspaceId, commitFirst },
+          { id, workspaceId, commitFirst, malformedReply },
         );
       try {
         const keyDir =
@@ -317,7 +354,15 @@ for (const lostReply of [false, true])
           )
           .toBe(lostReply);
         expect((await journal())[0].state).toBe("pending");
+        if (malformedReply) {
+          await expect(page.locator(".module-pending")).toContainText(
+            "data that could not be verified",
+          );
+          expect((await journal())[0].result).toBeUndefined();
+        }
+
         await policy("1.1.0", 1);
+        await assertHidden(app);
         await app.close();
         app = undefined;
         app = await launch();
@@ -424,9 +469,13 @@ for (const lostReply of [false, true])
         );
         expect(keys).toContain(pending.id);
         if (lostReply) expect([...new Set(keys)]).toEqual([pending.id]);
-        await mkdir("docs/verification/native-rollout", { recursive: true });
+        await assertHidden(app);
+        const evidence = malformedReply
+          ? "docs/verification/generated-response"
+          : "docs/verification/native-rollout";
+        await mkdir(evidence, { recursive: true });
         await page.screenshot({
-          path: `docs/verification/native-rollout/${lostReply ? "recovered-receipt" : "reviewed-request"}.png`,
+          path: `${evidence}/${malformedReply ? "native-recovered-receipt" : lostReply ? "recovered-receipt" : "reviewed-request"}.png`,
         });
       } finally {
         await app?.close();

@@ -9,7 +9,7 @@ interface ArtifactReference {
 type Installed = ModuleStorage["installed"][string];
 export interface StoredModuleState extends Omit<
   ModuleStorage,
-  "installed" | "downloads"
+  "installed" | "downloads" | "responseContracts"
 > {
   installed: Record<
     string,
@@ -18,6 +18,11 @@ export interface StoredModuleState extends Omit<
       signedRef?: ArtifactReference;
     }
   >;
+  responseContractRefs?: Record<
+    string,
+    { signedRef: ArtifactReference; publicKey: string }
+  >;
+  responseContracts?: ModuleStorage["responseContracts"];
   downloads?: Record<string, SignedArtifact>;
   downloadRefs?: Record<string, ArtifactReference>;
 }
@@ -51,6 +56,9 @@ export function retainedArtifactKeys(
         entry.signedRef ? keys(entry.signedRef) : [],
       ),
       ...Object.values(state.downloadRefs ?? {}).flatMap(keys),
+      ...Object.values(state.responseContractRefs ?? {}).flatMap((entry) =>
+        keys(entry.signedRef),
+      ),
     ]),
   ];
 }
@@ -75,7 +83,7 @@ export async function hydrateModuleArtifacts(
     packages.set(ref.digest, value);
     return value;
   };
-  const { downloadRefs, ...state } = stored;
+  const { downloadRefs, responseContractRefs, ...state } = stored;
   const installed: ModuleStorage["installed"] = {};
   for (const [id, entry] of Object.entries(stored.installed)) {
     const { signedRef, ...rest } = entry;
@@ -91,7 +99,12 @@ export async function hydrateModuleArtifacts(
     const pkg = await load(ref);
     if (pkg) downloads[id] = pkg;
   }
-  return { ...state, installed, downloads };
+  const responseContracts = { ...stored.responseContracts };
+  for (const [key, entry] of Object.entries(responseContractRefs ?? {})) {
+    const signed = await load(entry.signedRef);
+    if (signed) responseContracts[key] = { signed, publicKey: entry.publicKey };
+  }
+  return { ...state, installed, downloads, responseContracts };
 }
 export async function persistModuleArtifacts(
   platform: Platform,
@@ -116,11 +129,12 @@ export async function persistModuleArtifacts(
     written.set(digest, ref);
     return ref;
   };
-  const { downloads, ...rest } = state;
+  const { downloads, responseContracts, ...rest } = state;
   const stored: StoredModuleState = {
     ...rest,
     installed: {},
     downloadRefs: {},
+    responseContractRefs: {},
   };
   for (const [id, entry] of Object.entries(state.installed)) {
     const { signed, artifact, ...metadata } = entry;
@@ -130,5 +144,18 @@ export async function persistModuleArtifacts(
   }
   for (const [id, pkg] of Object.entries(downloads ?? {}))
     stored.downloadRefs![id] = await save(pkg);
+  const retained = new Set(
+    state.journal
+      .filter((entry) => entry.state !== "accepted" && !entry.supersededBy)
+      .map(
+        (entry) => `${entry.call.moduleId}@${entry.call.moduleVersion ?? ""}`,
+      ),
+  );
+  for (const [key, entry] of Object.entries(responseContracts ?? {}))
+    if (retained.has(key))
+      stored.responseContractRefs![key] = {
+        signedRef: await save(entry.signed),
+        publicKey: entry.publicKey,
+      };
   return stored;
 }

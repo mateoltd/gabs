@@ -26,4 +26,6 @@ Pending/provisional envelopes do not satisfy a confirmed record schema. This val
 
 New custom-view builds require `client.resources` revision **3**, which includes response validation. Current hosts explicitly support revisions 1, 2 and 3; supported revision sets are not inferred from numeric ordering. See [signed host compatibility](module-client-packages.md#host-ui-compatibility-sdk-04).
 
-The generated host screens currently have separate direct-transport paths. Extending these checks to their live reads, cached pages and journal acknowledgment, using the appropriate signed release contract, remains an explicit SDK-04 gate in the [acceptance map](sdk-04-acceptance.md).
+Generated host screens apply the same validation before using live or cached resource results. Their journal retains the original signed package and key atomically with queued work, including across updates/removal. Each response is checked against that request's original module/resource/version contract. Invalid replies remain pending and retain their keys; dependencies wait while unrelated entries continue. A missing or damaged contract requires recovery of the exact original signed release. See [generated host acceptance](verification/generated-response/README.md) and the [SDK-04 map](sdk-04-acceptance.md).
+
+The generated save/archive retry preserves the mounted screen's original request. This is not a claim of complete durable online/custom-operation recovery across navigation, lock or process failure; those remain separate offline/profile requirements.

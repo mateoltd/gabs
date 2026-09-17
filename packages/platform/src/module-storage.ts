@@ -1,4 +1,11 @@
 import {
+  ResponseContractUnavailable,
+  responseContractKey,
+  verifyResponseContract,
+  validateModuleResponse,
+  type ResponseContract,
+} from "./module-response";
+import {
   hydrateModuleArtifacts,
   persistModuleArtifacts,
   retainedArtifactKeys,
@@ -28,6 +35,7 @@ export interface InstallationAttempt {
   retry?: { failures: number; nextAttemptAt: number };
 }
 export interface ModuleStorage {
+  responseContracts?: Record<string, ResponseContract>;
   installationReports?: Record<
     string,
     {
@@ -70,6 +78,24 @@ const empty = (): ModuleStorage => ({
 });
 const lockKey = (scope: Scope) =>
   `suite-modules:${scope.userId}:${scope.workspaceId}`;
+async function responseContract(state: ModuleStorage, call: ModuleCall) {
+  const installed = state.installed[call.moduleId];
+  const candidates = [
+    state.responseContracts?.[responseContractKey(call)],
+    installed?.signed && installed.publicKey
+      ? { signed: installed.signed, publicKey: installed.publicKey }
+      : undefined,
+  ];
+  for (const contract of candidates) {
+    if (!contract) continue;
+    try {
+      return { contract, module: await verifyResponseContract(contract, call) };
+    } catch {
+      // A repaired installation may restore this exact signed version.
+    }
+  }
+  throw new ResponseContractUnavailable();
+}
 async function readUnlocked(platform: Platform, scope: Scope) {
   const stored = await platform.load<StoredModuleState>(scope, "module-state");
   return stored ? hydrateModuleArtifacts(platform, scope, stored) : empty();
@@ -121,7 +147,11 @@ export async function enqueue(
     createdAt: Date.now(),
     attempts: 0,
   };
-  await changeModuleStorage(platform, scope, (s) => {
+  await changeModuleStorage(platform, scope, async (s) => {
+    if (!s.journal.some((e) => e.id === entry.id)) {
+      const { contract } = await responseContract(s, call);
+      (s.responseContracts ??= {})[responseContractKey(call)] = contract;
+    }
     if (!s.journal.some((e) => e.id === entry.id)) s.journal.push(entry);
     if (recovery) {
       delete s.drafts[recovery.draftKey];
@@ -152,14 +182,37 @@ export async function syncModuleStorage(
     async () => {
       await flushJournal(
         {
-          list: async () => (await readModuleStorage(platform, scope)).journal,
+          list: async () =>
+            (await readModuleStorage(platform, scope)).journal.filter(
+              (entry) =>
+                entry.userId === scope.userId &&
+                entry.workspaceId === scope.workspaceId,
+            ),
           put: async (entry) => {
             await changeModuleStorage(platform, scope, (s) => {
-              s.journal = s.journal.map((e) => (e.id === entry.id ? entry : e));
+              s.journal = s.journal.map((e) =>
+                e.id === entry.id &&
+                e.userId === scope.userId &&
+                e.workspaceId === scope.workspaceId
+                  ? entry
+                  : e,
+              );
             });
           },
         },
-        send,
+        async (call) => {
+          const state = await readModuleStorage(platform, scope);
+          const { contract, module } = await responseContract(state, call);
+          // Persist a legacy or repaired entry's exact contract before dispatch.
+          if (state.responseContracts?.[responseContractKey(call)] !== contract)
+            await changeModuleStorage(platform, scope, (s) => {
+              (s.responseContracts ??= {})[responseContractKey(call)] =
+                contract;
+            });
+          const result = await send(call);
+          validateModuleResponse(module, call, result);
+          return result;
+        },
         authorized,
       );
     },

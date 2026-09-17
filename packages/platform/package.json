@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
     "./module-storage": "./src/module-storage.ts",
-    "./local-profiles": "./src/local-profiles.ts"
+    "./local-profiles": "./src/local-profiles.ts",
+    "./module-response": "./src/module-response.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",
