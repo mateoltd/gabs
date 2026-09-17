@@ -469,3 +469,7 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 ## Local device consent, 17 September 2026
 
 [Local device consent](local-device-consent/README.md) connects exact-release declarations to profile-owner controls. Final acceptance passed two headless consent/service journeys, one hidden/unfocused native journey, scoped Axe and inspected wide/narrow/native captures, plus strict checks and all four builds. An earlier pair also reran the unchanged grant-authority proof. Consent works offline and survives lock/unlock; corrupted stored packages block grants while saved access remains revocable. No standalone device effects were exposed or verified. SDK-05 remains active for bounded worker brokering, native effects and corporate offline leases.
+
+## Standalone device request journal, 17 September 2026
+
+[Standalone device requests](local-device-requests/README.md) connect inferred worker requests to atomic records/receipts and an encrypted host journal. Processing releases the write queue, rechecks consent, bounds interaction and preserves uncertain outcomes. Device-only retries preserve business writes. Verification passed 265 full unit/PostgreSQL tests before final hardening, 42 final focused tests, strict checks/four builds, three headless journeys plus expanded page-termination recovery, and two hidden native regressions. Real standalone device effects and owner recovery UI remain required under SDK-05; controlled adapter callbacks do not establish OS or LAN acceptance.

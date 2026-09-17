@@ -1,4 +1,5 @@
 import {
+  bundledDeviceDigest,
   executeLocalTransaction,
   migrateLocalSnapshot,
   type LocalRequest,
@@ -115,6 +116,26 @@ export function createLocalWorkerHandler(
           composition,
           event.data.serviceArtifacts?.[participant.module.id],
         );
+      }
+      for (const grant of event.data.request.deviceGrants ?? []) {
+        const definition =
+          grant.moduleId === module.id
+            ? module
+            : participants.find((p) => p.module.id === grant.moduleId)?.module;
+        const artifact =
+          grant.moduleId === module.id
+            ? event.data.artifact
+            : event.data.serviceArtifacts?.[grant.moduleId];
+        if (
+          !definition ||
+          grant.moduleVersion !== definition.version ||
+          grant.releaseDigest !==
+            (artifact?.package.digest ??
+              (await bundledDeviceDigest(definition)))
+        )
+          throw Error(
+            "The device grant does not match a verified transaction participant.",
+          );
       }
       for (const provider of [event.data.request, ...participants].flatMap(
         (r) => r.referenceProviders ?? [],

@@ -88,7 +88,7 @@ export async function buildLocalBundle(
       "Local handlers must produce one self-contained JavaScript bundle.",
     );
   const bundle: LocalBundle = {
-    format: "suite-local-v1",
+    format: "suite-local-v2",
     javascript: `${result.outputFiles[0].text}\nexport default SuiteLocal.default;\n`,
   };
   validateLocalArtifact({ ...module, local: bundle });

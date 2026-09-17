@@ -1,6 +1,6 @@
 # Local device capability authority
 
-The local profile host stores device-capability consent alongside encrypted records and installation metadata. Profile owners review and change it under **Manage local modules → Device access**. [Web and hidden desktop consent acceptance](verification/local-device-consent/README.md) verifies keyboard access, lock/unlock persistence and revocation. Worker messages and native effect integration remain unfinished under SDK-05.
+The local profile host stores device-capability consent alongside encrypted records and installation metadata. Profile owners review and change it under **Manage local modules → Device access**. [Web and hidden desktop consent acceptance](verification/local-device-consent/README.md) verifies keyboard access, lock/unlock persistence and revocation. [Typed worker requests and durable host processing](local-device-requests.md) are implemented. Actual standalone device adapters and request recovery controls remain unfinished under SDK-05.
 
 ## Profile API
 
@@ -22,8 +22,8 @@ The guard rechecks current encrypted-vault revision, unlocked state, installed r
 
 ## Remaining integration
 
-Add bounded worker request/reply messages and revalidate in the desktop effect broker. Verify cancellation, delayed authorization and native context changes with actual bounded adapters. Preserve typed SDK capability clients and result validation. Corporate offline capability leases and positive LAN transport remain separate SDK-05/OPS work.
+Connect actual browser/native effects and request recovery controls to the durable device processor. Verify cancellation, delayed authorization and native context changes with actual bounded adapters. Preserve typed SDK capability clients and result validation. Corporate offline capability leases and positive LAN transport remain separate SDK-05/OPS work.
 
-`prepareCapability` waits for outstanding profile transactions. Calling it from a worker callback while that same transaction waits for the worker would deadlock. The broker must explicitly coordinate its execution phases and cancellation; device dialogs must not hold the profile write queue. External device effects also cannot be rolled back with local business records. Resolve that execution contract before exposing worker-side effect calls.
+`prepareCapability` waits for outstanding profile transactions. Calling it from a worker callback while that same transaction waits for the worker would deadlock. The broker must explicitly coordinate its execution phases and cancellation; device dialogs must not hold the profile write queue. External device effects also cannot be rolled back with local business records. The [device request contract](local-device-requests.md) resolves this by committing requests with records and processing them after the transaction releases its queue. Worker handlers enqueue requests; they do not await device effects.
 
 [Authority verification](verification/local-device-grants/README.md) and [consent verification](verification/local-device-consent/README.md) have separate evidence. Neither establishes worker/native device execution.

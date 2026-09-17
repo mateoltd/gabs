@@ -31,6 +31,14 @@ import type {
   ServiceResult,
 } from "../authoring/context";
 import { canonical, satisfies } from "../contracts/registry";
+import {
+  deviceRequestBytes,
+  localDeviceLimits,
+  resolveLocalDeviceGrant,
+  type LocalDeviceClient,
+  type LocalDeviceGrant,
+  type LocalDeviceIntent,
+} from "../contracts/local-devices";
 
 export type LocalOperation<M extends ModuleDefinition> = {
   [K in keyof M["operations"]]: M["operations"][K] extends { policy: "local" }
@@ -105,6 +113,7 @@ export interface LocalContext<
   readonly requestId: string;
   readonly configuration: Readonly<Configuration<M>>;
   readonly caller?: Readonly<{ moduleId: string; operation: string }>;
+  readonly device: LocalDeviceClient<M>;
   service<S extends LocalService<M>>(
     name: S,
     input: Static<ModuleServices<M>[S]["contract"]["input"]>,
@@ -131,6 +140,7 @@ export interface LocalModule {
       resource: ModuleTransport;
       caller?: { moduleId: string; operation: string };
       service?: (name: string, input: unknown) => Promise<unknown>;
+      device?: (name: string, input: unknown) => Promise<string>;
     },
   ): Promise<unknown>;
 }
@@ -224,6 +234,16 @@ export function defineLocalModule<const M extends ModuleDefinition>(module: M) {
             ? { caller: Object.freeze({ ...capabilities.caller }) }
             : {}),
           service,
+          device: Object.freeze({
+            request(name: string, input: unknown) {
+              if (!capabilities.device)
+                fail(
+                  "CAPABILITY_UNAVAILABLE",
+                  "This host cannot commit local device requests. Update the application.",
+                );
+              return capabilities.device(name, input);
+            },
+          }),
           async serviceAttempt(name: string, input: unknown) {
             try {
               return { ok: true as const, value: await service(name, input) };
@@ -293,6 +313,7 @@ export interface LocalRequest {
   referenceProviders?: LocalReferenceProvider[];
   serviceParticipants?: LocalServiceParticipant[];
   serviceGrants?: LocalServiceGrant[];
+  deviceGrants?: LocalDeviceGrant[];
 }
 export interface LocalServiceGrant {
   consumerId: string;
@@ -315,6 +336,7 @@ export interface LocalReferenceProvider {
   records: Record<string, ResourceRecord[]>;
 }
 export interface LocalResult {
+  deviceRequests?: LocalDeviceIntent[];
   participants?: Record<string, LocalSnapshot>;
   schemaVersion?: number;
   migrations?: string[];
@@ -411,6 +433,7 @@ export async function executeLocalCall(
     nested?: boolean;
     caller?: { moduleId: string; operation: string };
     service?: (name: string, input: unknown) => Promise<unknown>;
+    device?: (name: string, input: unknown) => Promise<string>;
   } = {},
 ): Promise<LocalResult> {
   const { call } = request;
@@ -617,6 +640,40 @@ export async function executeLocalCall(
     return task;
   };
   let result: unknown;
+  const device = (name: string, input: unknown) => {
+    const task = (async () => {
+      let value: unknown;
+      try {
+        value = structuredClone(input);
+      } catch {
+        fail(
+          "INVALID_INPUT",
+          "Device request input must contain serializable data.",
+        );
+      }
+      await Promise.resolve();
+      if (closed)
+        fail(
+          "LOCAL_TRANSACTION_CLOSED",
+          "This local transaction has finished.",
+        );
+      if (!execution.device)
+        fail(
+          "CAPABILITY_UNAVAILABLE",
+          "This host cannot commit local device requests.",
+        );
+      return execution.device(name, value);
+    })();
+    pending.add(task);
+    void task.then(
+      () => pending.delete(task),
+      (error) => {
+        failure ??= error;
+        pending.delete(task);
+      },
+    );
+    return task;
+  };
   try {
     if (call.action === "operation") {
       if (
@@ -633,6 +690,7 @@ export async function executeLocalCall(
         configuration: request.configuration,
         caller: execution.caller,
         service,
+        device,
         resource,
       });
     } else result = await resource(call);
@@ -684,6 +742,8 @@ export async function executeLocalTransaction(
     [...entries].map(([id, entry]) => [id, structuredClone(entry.snapshot)]),
   );
   const touched = new Set<string>();
+  const deviceRequests: LocalDeviceIntent[] = [];
+  let deviceBytes = 2;
   const activeRequests = new Set<LocalRequest>();
   let failure: unknown,
     calls = 0;
@@ -739,6 +799,36 @@ export async function executeLocalTransaction(
         {
           nested: !!caller,
           caller,
+          async device(capability, input) {
+            const call = {
+              moduleId: id,
+              moduleVersion: entry.module.version,
+              capability,
+              input,
+            };
+            const grant = resolveLocalDeviceGrant(
+              entry.module,
+              request.deviceGrants ?? [],
+              call,
+            );
+            const intent = {
+              id: crypto.randomUUID(),
+              grantId: grant.id,
+              call: structuredClone(call),
+            };
+            deviceBytes +=
+              deviceRequestBytes(intent) + (deviceRequests.length ? 1 : 0);
+            if (
+              deviceRequests.length >= localDeviceLimits.transactionCount ||
+              deviceBytes > localDeviceLimits.transactionBytes
+            )
+              fail(
+                "LOCAL_DEVICE_LIMIT",
+                "This transaction exceeds the local device request limit.",
+              );
+            deviceRequests.push(intent);
+            return intent.id;
+          },
           service(name, input) {
             const task = queue.then(async () => {
               if (failure) throw failure;
@@ -813,6 +903,7 @@ export async function executeLocalTransaction(
   if (failure) throw failure;
   return {
     ...result,
+    ...(deviceRequests.length ? { deviceRequests } : {}),
     ...(touched.size
       ? {
           participants: Object.fromEntries(

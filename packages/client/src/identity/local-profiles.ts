@@ -29,9 +29,17 @@ import { availableLocalModules } from "./local-modules";
 import type { HostCapabilityCall } from "@suite/module-sdk/host-capabilities";
 import {
   createLocalCapabilityAuthority,
+  grantedLocalCapability,
+  localCapabilityAccess,
   type LocalCapabilityGrant,
   type LocalCapabilityGuard,
 } from "./local-capabilities";
+import {
+  appendDeviceRequests,
+  createLocalDeviceProcessor,
+  type LocalDeviceRequest,
+  type LocalDeviceExecutor,
+} from "./local-devices";
 import {
   assertVaultRevision,
   commitVault,
@@ -45,6 +53,7 @@ export interface LocalProfileRuntime {
 }
 export { localReferenceAccess, localServiceAccess } from "./local-access";
 export { localCapabilityAccess } from "./local-capabilities";
+export type { LocalDeviceRequest, LocalDeviceExecutor } from "./local-devices";
 export type {
   LocalCapabilityGrant,
   LocalCapabilityGuard,
@@ -113,6 +122,7 @@ export interface LocalLifecycleEvent {
   modules: { moduleId: string; moduleVersion: string; title: string }[];
 }
 export interface LocalData {
+  deviceRequests?: Record<string, LocalDeviceRequest>;
   capabilityGrants?: LocalCapabilityGrant[];
   referenceGrants?: LocalReferenceGrant[];
   serviceGrants?: (LocalServiceGrant & { grantedAt: number })[];
@@ -139,6 +149,16 @@ export interface LocalInstallOptions {
   referenceGrants?: readonly LocalReferenceSelection[];
 }
 export interface LocalSession {
+  processDeviceRequest(
+    id: string,
+    execute: LocalDeviceExecutor,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<unknown>;
+  dismissDeviceRequest(id: string): Promise<void>;
+  retryDeviceRequest(
+    id: string,
+    options?: { confirmUncertain?: boolean },
+  ): Promise<string>;
   id: string;
   name: string;
   readonly data: LocalData;
@@ -219,6 +239,9 @@ function session(
   let unlocked: CryptoKey | undefined = key;
   let revision = vault.revision ?? 0;
   let tail: Promise<unknown> = Promise.resolve();
+  // A prior process may have performed the effect before losing its receipt.
+  for (const request of Object.values(data.deviceRequests ?? {}))
+    if (request.state === "running") request.state = "uncertain";
   const worker = new LocalWorkerHost(runtime.workerFactory);
   const unlockedOrThrow = () => {
     if (!unlocked)
@@ -605,19 +628,32 @@ function session(
       throw error;
     }
   }
+  const capabilityAuthority = createLocalCapabilityAuthority({
+    catalog: runtime.catalog,
+    profileId: vault.id,
+    data: () => data,
+    revision: () => revision,
+    settled: async () => {
+      await tail;
+    },
+    assertCurrent: assertCurrentProfile,
+    enqueue,
+    save: (grants) => commit({ ...data, capabilityGrants: grants }),
+  });
+  const devices = createLocalDeviceProcessor({
+    data: () => data.deviceRequests ?? {},
+    enqueue,
+    assertCurrent: assertCurrentProfile,
+    prepare: capabilityAuthority.prepareCapability,
+    authorize: (call) => grantedLocalCapability(data, runtime.catalog, call),
+    save: (deviceRequests) => commit({ ...data, deviceRequests }),
+  });
   const current: LocalSession = {
-    ...createLocalCapabilityAuthority({
-      catalog: runtime.catalog,
-      profileId: vault.id,
-      data: () => data,
-      revision: () => revision,
-      settled: async () => {
-        await tail;
-      },
-      assertCurrent: assertCurrentProfile,
-      enqueue,
-      save: (grants) => commit({ ...data, capabilityGrants: grants }),
-    }),
+    ...capabilityAuthority,
+    processDeviceRequest: (id, execute, options = {}) =>
+      devices.process(id, execute, options),
+    dismissDeviceRequest: devices.dismiss,
+    retryDeviceRequest: devices.retry,
     setServiceAccess(consumerId, service, allowed) {
       return enqueue(async () => {
         if (
@@ -1064,6 +1100,23 @@ function session(
                 grants: [],
               };
         Object.assign(referenceArtifacts, services.referenceArtifacts);
+        const deviceGrants: LocalCapabilityGrant[] = [];
+        for (const candidate of [
+          module,
+          ...services.participants.map((p) => p.module),
+        ]) {
+          if (
+            data.capabilityGrants?.some(
+              (grant) => grant.moduleId === candidate.id,
+            )
+          )
+            for (const choice of await localCapabilityAccess(
+              data,
+              runtime.catalog,
+              candidate.id,
+            ))
+              if (choice.grant) deviceGrants.push(choice.grant);
+        }
         const snapshot = {
           records: Object.fromEntries(
             Object.entries(data.records)
@@ -1083,6 +1136,7 @@ function session(
               referenceProviders,
               serviceParticipants: services.participants,
               serviceGrants: services.grants,
+              deviceGrants,
             },
             {
               ...options,
@@ -1105,6 +1159,28 @@ function session(
               "The local operation was cancelled.",
             );
           if (!["get", "list", "references"].includes(call.action)) {
+            for (const intent of result.deviceRequests ?? []) {
+              if (
+                ![
+                  module.id,
+                  ...services.participants.map((p) => p.module.id),
+                ].includes(intent.call.moduleId)
+              )
+                throw new LocalExecutionError(
+                  "LOCAL_SCOPE_DENIED",
+                  "The worker returned a device request outside its transaction scope.",
+                );
+              const grant = await grantedLocalCapability(
+                data,
+                runtime.catalog,
+                intent.call,
+              );
+              if (grant.id !== intent.grantId)
+                throw new LocalExecutionError(
+                  "CAPABILITY_DENIED",
+                  "The device request does not match current consent.",
+                );
+            }
             const serviceRecords: Record<string, ResourceRecord[]> = {};
             for (const [id, snapshot] of Object.entries(
               result.participants ?? {},
@@ -1126,6 +1202,14 @@ function session(
             }
             const next: LocalData = {
               ...data,
+              ...(result.deviceRequests?.length
+                ? {
+                    deviceRequests: appendDeviceRequests(
+                      data.deviceRequests ?? {},
+                      result.deviceRequests,
+                    ),
+                  }
+                : {}),
               ...(attemptId && data.attempts?.[attemptId]
                 ? {
                     attempts: {
@@ -1178,6 +1262,10 @@ function session(
               "LOCAL_SCOPE_DENIED",
               "IDEMPOTENCY_CONFLICT",
               "INVALID_LOCAL_ACTION",
+              "CAPABILITY_DENIED",
+              "CAPABILITY_UNDECLARED",
+              "CAPABILITY_UNAVAILABLE",
+              "LOCAL_DEVICE_LIMIT",
             ].includes(code ?? "");
             // Preserve pending input if storage itself fails. Never conceal the original error.
             await commit({
@@ -1235,6 +1323,7 @@ function session(
     },
     lock() {
       unlocked = undefined;
+      devices.close();
       worker.close();
       data = { records: {} };
     },

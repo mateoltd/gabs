@@ -1,6 +1,6 @@
 import type { ModuleDefinition } from "../index";
 export interface LocalBundle {
-  format: "suite-local-v1";
+  format: "suite-local-v1" | "suite-local-v2";
   javascript: string;
 }
 export function hasLocalOperations(module: ModuleDefinition) {
@@ -32,12 +32,12 @@ export function validateLocalArtifact(
   }
   if (
     !value ||
-    value.format !== "suite-local-v1" ||
+    !["suite-local-v1", "suite-local-v2"].includes(value.format) ||
     typeof value.javascript !== "string" ||
     !value.javascript.trim()
   )
     throw Error(
-      "Local operations require a signed suite-local-v1 executable bundle.",
+      "Local operations require a supported signed suite-local-v1 or suite-local-v2 executable bundle. Update the host for newer formats.",
     );
   if (new TextEncoder().encode(value.javascript).byteLength > 2 * 1024 * 1024)
     throw Error("Local executable exceeds the supported bundle size.");

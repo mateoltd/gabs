@@ -4,21 +4,19 @@ import type { ModuleCatalog } from "@suite/module-sdk/catalog";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
 import {
   resolveHostCapability,
-  type HostCapability,
   type HostCapabilityCall,
 } from "@suite/module-sdk/host-capabilities";
-import { LocalExecutionError } from "@suite/module-sdk/local";
+import type { LocalDeviceGrant } from "@suite/module-sdk/local";
+import {
+  LocalExecutionError,
+  bundledDeviceDigest,
+} from "@suite/module-sdk/local";
 import { canonical } from "@suite/module-sdk/registry";
 import { verifyArtifact } from "@suite/module-sdk/verification";
 import { availableLocalModules } from "./local-modules";
 import type { LocalData, LocalSession } from "./local-profiles";
 
-export interface LocalCapabilityGrant extends HostCapability {
-  id: string;
-  moduleId: string;
-  moduleVersion: string;
-  capability: string;
-  releaseDigest: string;
+export interface LocalCapabilityGrant extends LocalDeviceGrant {
   grantedAt: number;
 }
 
@@ -61,16 +59,7 @@ async function releaseBinding(data: LocalData, module: ModuleDefinition) {
       );
     return release.package.digest;
   }
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(canonical(module)),
-  );
-  return (
-    "bundled:" +
-    Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("")
-  );
+  return bundledDeviceDigest(module);
 }
 
 /** Verified standalone declarations eligible for explicit profile-owner consent. */
