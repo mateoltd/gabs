@@ -12,6 +12,7 @@
     "./server": "./src/server.ts",
     "./simulator": "./src/simulator.ts",
     "./scenarios": "./src/scenarios.ts",
+    "./queries": "./src/resource-query.ts",
     "./forms": "./src/forms.ts",
     "./documentation": "./src/documentation.ts",
     "./ui": "./src/ui.ts",

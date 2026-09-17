@@ -7,7 +7,11 @@ import {
 } from "./references";
 import { ownSchemaValue } from "./schema-value";
 import type { ResourceListOptions } from "./resource-query";
-export type { ResourceListOptions } from "./resource-query";
+export type {
+  ResourceListOptions,
+  ResourceRanges,
+  ResourceRangeBounds,
+} from "./resource-query";
 export type { StoreQuery, StoreFilter, StoreAggregate } from "./store-query";
 import { validateStorageContract, type StorageContract } from "./storage";
 export {

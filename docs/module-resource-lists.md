@@ -27,6 +27,30 @@ async function customers(client: Client, cursor?: string) {
 - `limit` is an integer from 1 through 100, default 50. This bound now also applies to standalone lists (previously up to 200).
 - Pages are ordered by ascending record ID, with an exclusive `nextCursor`. Reset the cursor when changing any filter. Cursors do not provide snapshot isolation: changes to matching records between requests can change the result. Do not treat a paginated read as an authoritative business commitment.
 
+## Typed range filters
+
+Resource lists accept `ranges` alongside equality filters and text search. Each condition combines with AND:
+
+```ts
+client.resource("invoices").list({
+  ranges: { amount: { gte: 0, lt: 1000 }, dueDate: { lte: "2026-09-30" } },
+  where: { approved: true },
+  limit: 25,
+});
+```
+
+This example assumes an authored invoice resource with numeric `amount`, a date-string `dueDate` and boolean `approved`; it does not declare another completed business application. `ResourceRanges<T>` infers supported fields and bound types from that contract. Boolean, object, array and heterogeneous string/number fields have no range operators. Numeric unions and nullable/optional scalar fields retain their underlying scalar kind.
+
+- Up to eight range fields may be combined. Each must have at least one bound: `gt`, `gte`, `lt` or `lte`. Choose at most one lower and one upper operator per field. Reversed or empty intervals fail validation; equal inclusive bounds are valid.
+- Every boundary must satisfy the field schema, including numeric limits, integer restrictions, text patterns and date formats. The HTTP endpoint preserves supplied types and rejects unknown fields; the server validates boundaries against the resource contract after authorization. Field names and values are SQL parameters.
+- Null and missing values never match a range. Empty text can match a valid string range. Numbers compare numerically; text compares in case-sensitive Unicode code-point order, using PostgreSQL's UTF-8 `C` collation and the matching local comparator. ISO dates therefore follow stored date order. This is not locale-aware sorting or timezone normalization.
+- Paging remains ascending UUID order. Reset the cursor when changing ranges. Range queries do not create snapshots or authorize business commitments.
+- Corporate offline pages include the normalized range object in the account/workspace cache key. The same bounds in a different field insertion order reuse a downloaded page; undownloaded combinations remain explicitly unavailable. Empty ranges preserve existing default/equality page keys. Local standalone workspaces evaluate ranges over their encrypted profile records.
+
+`@suite/module-sdk/queries` exposes the shared list validator, local evaluator and scalar range helpers. `TypedResourceRanges` from `@suite/ui-web` provides inferred controls for individual bounds or an inclusive interval, retained invalid input for correction, and removable active ranges with complete accessible descriptions. It composes with `TypedResourceFilters`; both must be outside another HTML form. The generated corporate and standalone views use the same control. Reference/member fields retain equality/picker interactions rather than offering generated character-order ranges.
+
+These controls do not implement sort selection, nested-property range paths, aggregation, locale collation or complete SDK composition. Those broader requirements remain tracked.
+
 ## Host UI composition
 
 `TypedResourceTable` and `TypedResourceFilters` are public `@suite/ui-web` components. Their schema determines the accepted columns, rows, filter values and custom-cell parameter types; callers do not repeat data interfaces. Filters reuse the schema form, including nullable, numeric, enum, boolean and structured fields. Render the filter component outside another HTML form.
@@ -82,4 +106,4 @@ Reference lookups are per distinct target/identifier, not a new batch server pro
 
 The generated corporate host view uses these components with first/previous/next navigation, a page number, page-size selection and removable equality filters. Search, filters, resource changes and page-size changes reset navigation. Downloaded pages are keyed by account/workspace storage scope and the complete list request. Offline browsing only displays matching downloaded pages, with a distinct message for an uncached query. Previously downloaded pages remain readable for the original default-size unfiltered requests. Filtered queries and other page sizes cannot reuse those pages. Drafts and pending operations are unchanged.
 
-[Resource reference fields](module-references.md) now provide recursive CRUD validation and bounded searching in generated forms. Richer sort/range controls, complete SDK-04 composition and resource-client ergonomics remain tracked work. These list improvements do not complete the platform or its UI refinement goal.
+[Resource reference fields](module-references.md) now provide recursive CRUD validation and bounded searching in generated forms. Sort controls, complete SDK-04 composition and resource-client ergonomics remain tracked work. These list improvements do not complete the platform or its UI refinement goal.

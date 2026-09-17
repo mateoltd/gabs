@@ -1,8 +1,10 @@
+import type { ResourceRangeBounds } from "@suite/module-sdk";
 import { useModuleReferences } from "./module-references";
 import { canonical } from "@suite/module-sdk/registry";
 import {
   TypedResourceTable,
   TypedResourceFilters,
+  TypedResourceRanges,
   Select,
   SelectOption,
 } from "@suite/ui-web";
@@ -63,6 +65,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const [previous, setPrevious] = useState<(string | undefined)[]>([]);
   const [limit, setLimit] = useState(50);
   const [where, setWhere] = useState<Record<string, unknown>>({});
+  const [ranges, setRanges] = useState<Record<string, ResourceRangeBounds>>({});
   const resetPage = () => {
     setCursor(undefined);
     setPrevious([]);
@@ -149,6 +152,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     archived,
     limit,
     where,
+    ...(Object.keys(ranges).length ? [ranges] : []),
   ]);
   const draftKey = `${moduleId}/${resource}`;
   const allowed = canUse(bootstrap, moduleId, `${moduleId}.${resource}.read`);
@@ -183,6 +187,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       archived,
       limit,
       where,
+      ranges,
     ],
     enabled: online && allowed && resourceAvailable,
     queryFn: async () => {
@@ -191,7 +196,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         moduleVersion: module.version,
         resource,
         action: "list",
-        input: { search, cursor, archived, limit, where },
+        input: { search, cursor, archived, limit, where, ranges },
       })) as ResourcePage;
       if (props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (s) => {
@@ -244,7 +249,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const page = online
     ? query.data
     : (storage?.pages[pageKey] ??
-      (limit === 50 && Object.keys(where).length === 0
+      (limit === 50 &&
+      Object.keys(where).length === 0 &&
+      Object.keys(ranges).length === 0
         ? storage?.pages[
             `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`
           ]
@@ -378,6 +385,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           resetPage();
           setSearch("");
           setWhere({});
+          setRanges({});
           setArchived(false);
         }}
       />
@@ -423,17 +431,28 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </Button>
           )}
         </div>
-        <TypedResourceFilters
-          key={`${resource}@${module.version}`}
-          schema={definition.schema as TObject}
-          value={where}
-          onChange={(next) => {
-            setWhere(next);
-            resetPage();
-          }}
-          references={refs}
-          loadReferences={loadReferences}
-        />
+        <div className="resource-query-controls">
+          <TypedResourceFilters
+            key={`${resource}@${module.version}`}
+            schema={definition.schema as TObject}
+            value={where}
+            onChange={(next) => {
+              setWhere(next);
+              resetPage();
+            }}
+            references={refs}
+            loadReferences={loadReferences}
+          />
+          <TypedResourceRanges
+            key={`ranges/${resource}@${module.version}`}
+            schema={definition.schema as TObject}
+            value={ranges}
+            onChange={(next) => {
+              setRanges(next);
+              resetPage();
+            }}
+          />
+        </div>
         {!online && (
           <p role="status">
             Offline copy. Changes remain pending until the server accepts them.
@@ -447,7 +466,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             title="No records"
             description={
               online
-                ? search || Object.keys(where).length || archived || cursor
+                ? search ||
+                  Object.keys(where).length ||
+                  Object.keys(ranges).length ||
+                  archived ||
+                  cursor
                   ? "No records match this page. Adjust the filters or return to the first page."
                   : "Create a record to get started."
                 : "No matching records have been downloaded on this device."

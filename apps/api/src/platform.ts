@@ -1,3 +1,5 @@
+import AjvCompiler from "@fastify/ajv-compiler";
+import { resourceListSchema } from "@suite/module-sdk/queries";
 import { listModuleReferences } from "../../../packages/server-core/src/module-references";
 import {
   ReferenceQuerySchema,
@@ -71,6 +73,18 @@ import {
   executeResource,
   type ResourceCommand,
 } from "../../../packages/server-core/src/module-runtime";
+// Resource envelopes carry typed module values. Never coerce numeric/text unions
+// or silently remove unknown fields before the SDK validates the signed contract.
+const resourceValidator = AjvCompiler()(
+  {},
+  {
+    customOptions: {
+      coerceTypes: false,
+      removeAdditional: false,
+      useDefaults: false,
+    },
+  },
+);
 const id = T.String({ format: "uuid" });
 const slug = T.String({ pattern: "^[a-z][a-z0-9-]{0,63}$" });
 const params = T.Object({ workspaceId: id, moduleId: T.Optional(slug) });
@@ -80,11 +94,7 @@ const input = T.Object(
     data: T.Optional(T.Record(T.String(), T.Unknown())),
     baseVersion: T.Optional(T.Integer({ minimum: 1 })),
     baseData: T.Optional(T.Record(T.String(), T.Unknown())),
-    where: T.Optional(T.Record(T.String(), T.Unknown(), { maxProperties: 16 })),
-    search: T.Optional(T.String({ maxLength: 100 })),
-    cursor: T.Optional(id),
-    limit: T.Optional(T.Integer({ minimum: 1, maximum: 100 })),
-    archived: T.Optional(T.Boolean()),
+    ...resourceListSchema.properties,
   },
   { additionalProperties: false },
 );
@@ -678,6 +688,7 @@ export async function registerPlatform(app: FastifyInstance, db: DB) {
   }>(
     "/api/v1/module/:moduleId/workspaces/:workspaceId/records",
     {
+      validatorCompiler: resourceValidator,
       schema: {
         operationId: "moduleRequest",
         headers: moduleHeaders,

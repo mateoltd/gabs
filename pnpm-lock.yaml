@@ -292,6 +292,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: 3.1132.0
         version: 3.1132.0
+      '@fastify/ajv-compiler':
+        specifier: 4.0.6
+        version: 4.0.6
       '@fastify/cookie':
         specifier: 11.1.2
         version: 11.1.2

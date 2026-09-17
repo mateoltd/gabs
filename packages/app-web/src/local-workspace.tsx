@@ -1,13 +1,14 @@
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { LocalActions } from "./local-actions";
 import { LocalModules, type LocalRegistry } from "./local-modules";
-import { TypedResourceTable } from "@suite/ui-web";
-import { listResourceRecords } from "../../module-sdk/src/resource-query";
+import { TypedResourceTable, TypedResourceRanges } from "@suite/ui-web";
+import { listResourceRecords } from "@suite/module-sdk/queries";
 import { useEffect, useState, useMemo } from "react";
 import {
   createModuleClient,
   type ResourceRecord,
   type TObject,
+  type ResourceRangeBounds,
 } from "@suite/module-sdk";
 import {
   availableLocalModules,
@@ -64,22 +65,34 @@ export function LocalWorkspace({
     [form, setForm] = useState<Record<string, unknown>>({}),
     [editing, setEditing] = useState<ResourceRecord | null | undefined>();
   const selected = resources.find((r) => r.key === key) ?? resources[0];
+  const rangeScope = `${session?.id}/${selected?.key}@${selected?.module.version}`;
+  const [rangeState, setRangeState] = useState<{
+    scope: string;
+    value: Record<string, ResourceRangeBounds>;
+  }>();
+  const ranges = useMemo(
+    () => (rangeState?.scope === rangeScope ? rangeState.value : {}),
+    [rangeState, rangeScope],
+  );
+  const setRanges = (value: Record<string, ResourceRangeBounds>) =>
+    setRangeState({ scope: rangeScope, value });
   const [cursor, setCursor] = useState<string>();
   const [previous, setPrevious] = useState<(string | undefined)[]>([]);
   useEffect(() => {
     setCursor(undefined);
     setPrevious([]);
-  }, [selected?.key, session?.id]);
+    setRanges({});
+  }, [rangeScope]);
   const page = useMemo(
     () =>
       selected && session
         ? listResourceRecords(
             selected.resource.schema,
             session.data.records[selected.key] ?? [],
-            { limit: 50, cursor },
+            { limit: 50, cursor, ranges },
           )
         : { items: [], nextCursor: null, total: 0 },
-    [selected, session, revision, cursor],
+    [selected, session, revision, cursor, ranges],
   );
   const referenceLoader = useMemo(() => {
     if (!selected || !session) return undefined;
@@ -292,6 +305,16 @@ export function LocalWorkspace({
           )}
           {selected && (
             <>
+              <TypedResourceRanges
+                key={rangeScope}
+                schema={selected.resource.schema as TObject}
+                value={ranges}
+                onChange={(next) => {
+                  setRanges(next);
+                  setCursor(undefined);
+                  setPrevious([]);
+                }}
+              />
               <TypedResourceTable
                 schema={selected.resource.schema as TObject}
                 columns={selected.resource.columns}
@@ -313,6 +336,16 @@ export function LocalWorkspace({
                       )
                 }
               />
+              {Object.keys(ranges).length > 0 && (
+                <p
+                  role="status"
+                  className={page.items.length ? "sr-only" : "muted"}
+                >
+                  {page.items.length
+                    ? `${page.items.length} matching records on this page.`
+                    : "No records match the current ranges."}
+                </p>
+              )}
               {(previous.length > 0 || page.nextCursor) && (
                 <div className="actions">
                   <Button

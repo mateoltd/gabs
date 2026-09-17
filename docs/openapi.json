@@ -12355,12 +12355,63 @@
                         "type": "object",
                         "additionalProperties": {}
                       },
+                      "ranges": {
+                        "maxProperties": 8,
+                        "type": "object",
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "minProperties": 1,
+                          "type": "object",
+                          "properties": {
+                            "gt": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ]
+                            },
+                            "gte": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ]
+                            },
+                            "lt": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ]
+                            },
+                            "lte": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
                       "search": {
                         "maxLength": 100,
                         "type": "string"
                       },
                       "cursor": {
-                        "format": "uuid",
+                        "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
                         "type": "string"
                       },
                       "limit": {

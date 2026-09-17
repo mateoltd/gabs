@@ -25,10 +25,14 @@ export async function publishExecutableFixture(
       "view.tsx",
       "view.css",
     ]) {
-      let source = await readFile(
-        `${options.sourceDirectory ?? "tests/fixtures/custom-notes"}/${name}`,
-        "utf8",
-      );
+      const sourcePath = `${options.sourceDirectory ?? "tests/fixtures/custom-notes"}/${name}`;
+      // Generated-only fixtures have no custom client view to copy.
+      if (
+        (name === "view.tsx" || name === "view.css") &&
+        !existsSync(sourcePath)
+      )
+        continue;
+      let source = await readFile(sourcePath, "utf8");
       if (name === "module.ts")
         source = source.replace('version: "1.0.0"', `version: "${version}"`);
       source = source

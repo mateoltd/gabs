@@ -5698,8 +5698,15 @@ export interface operations {
                         where?: {
                             [key: string]: unknown;
                         };
+                        ranges?: {
+                            [key: string]: {
+                                gt?: string | number;
+                                gte?: string | number;
+                                lt?: string | number;
+                                lte?: string | number;
+                            };
+                        };
                         search?: string;
-                        /** Format: uuid */
                         cursor?: string;
                         limit?: number;
                         archived?: boolean;

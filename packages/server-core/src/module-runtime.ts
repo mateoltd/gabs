@@ -4,7 +4,11 @@ import {
   type ReferenceValue,
 } from "@suite/module-sdk/references";
 import { authorizeReferenceTarget } from "./module-references";
-import { validateResourceList } from "@suite/module-sdk/server";
+import {
+  validateResourceList,
+  resourceRangeKind,
+  type ResourceRangeBounds,
+} from "@suite/module-sdk/queries";
 import { assertModuleStorage } from "./module-storage";
 import { workspaceModule } from "./module-releases";
 import { randomUUID } from "node:crypto";
@@ -185,6 +189,27 @@ export async function executeResource(
       q = q.where(
         sql<boolean>`data -> ${key} = ${JSON.stringify(value)}::jsonb`,
       );
+    for (const [key, bounds] of Object.entries(command.input.ranges ?? {}) as [
+      string,
+      ResourceRangeBounds,
+    ][]) {
+      const kind = resourceRangeKind(resource.schema.properties[key]);
+      // Guard retained legacy values before casting; neither field names nor values are SQL identifiers.
+      const expression =
+        kind === "number"
+          ? sql`case when jsonb_typeof(data -> ${key}) = 'number' then (data ->> ${key})::numeric end`
+          : sql`(case when jsonb_typeof(data -> ${key}) = 'string' then data ->> ${key} end) collate "C"`;
+      for (const [operator, value] of Object.entries(bounds)) {
+        if (operator === "gt")
+          q = q.where(sql<boolean>`${expression} > ${value}`);
+        if (operator === "gte")
+          q = q.where(sql<boolean>`${expression} >= ${value}`);
+        if (operator === "lt")
+          q = q.where(sql<boolean>`${expression} < ${value}`);
+        if (operator === "lte")
+          q = q.where(sql<boolean>`${expression} <= ${value}`);
+      }
+    }
     if (command.input.search)
       q = q.where(
         sql<boolean>`data::text ilike ${"%" + command.input.search.replace(/[\\%_]/g, "\\$&") + "%"}`,

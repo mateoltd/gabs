@@ -892,3 +892,22 @@ strong {
 .resource-pagination {
   flex-wrap: wrap;
 }
+
+.resource-query-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3, 12px);
+  margin-block: 20px;
+}
+.resource-query-controls > .resource-filters {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+.resource-query-controls > .resource-filters:has(form) {
+  flex-basis: 100%;
+}
+.resource-query-controls .module-toolbar {
+  margin-block: 0;
+}
