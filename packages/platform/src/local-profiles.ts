@@ -408,6 +408,10 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             .map(([key, rows]) => [key.slice(prefix.length), rows]),
         );
         const fromVersion = localSchemaVersion(data, module);
+        const previous = prior?.releases[prior.version];
+        const source = previous
+          ? hydrateModule(moduleContract(previous.package.artifact))
+          : bundledModuleDefinitions.find((m) => m.id === module.id);
         const migrated = await worker.run(
           module,
           {
@@ -425,6 +429,19 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             ...options,
             artifact: { package: pkg, publicKey },
             migrateFrom: fromVersion,
+            migrationSource: source
+              ? {
+                  module: source,
+                  ...(previous
+                    ? {
+                        artifact: {
+                          package: previous.package,
+                          publicKey: previous.publicKey,
+                        },
+                      }
+                    : {}),
+                }
+              : undefined,
           },
         );
         let migratedFrom = fromVersion;

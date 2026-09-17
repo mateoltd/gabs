@@ -17,6 +17,7 @@ export async function publishLocalPackage(
     version?: string;
     prefix?: string;
     maxLength?: number;
+    transform?: (filename: string, source: string) => string;
   } = {},
 ) {
   await mkdir(".local", { recursive: true });
@@ -50,6 +51,14 @@ export default defineModule({id:'${id}',name:${JSON.stringify(options.name ?? "L
       resolve(directory, "module-local.ts"),
       `import {defineLocalModule} from '@suite/module-sdk/local';import module from './module';export default defineLocalModule(module)(${handlers}${migrations});`,
     );
+    if (options.transform)
+      for (const name of ["module.ts", "module-local.ts"]) {
+        const path = resolve(directory, name);
+        await writeFile(
+          path,
+          options.transform(name, await readFile(path, "utf8")),
+        );
+      }
     const dependencyArgs: string[] = [];
     for (const pkg of options.dependencyPackages ?? []) {
       const path = resolve(directory, "dependencies", pkg.module_id);

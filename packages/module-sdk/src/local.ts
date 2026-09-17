@@ -3,6 +3,7 @@ import {
   referenceValues,
   referenceTargetKey,
   type ReferenceTarget,
+  type ReferenceValue,
   pageReferenceOptions,
   resourceReferenceOptions,
   type ReferenceQuery,
@@ -23,7 +24,6 @@ import {
   type ResourceRecord,
   type ResourcePage,
   type Static,
-  type TSchema,
 } from "./index";
 import type { Configuration, OperationError } from "./context";
 import { canonical } from "./registry";
@@ -233,6 +233,58 @@ export interface LocalResult {
   result: unknown;
   snapshot: LocalSnapshot;
 }
+function localReferenceRecords(
+  module: ModuleDefinition,
+  snapshot: LocalSnapshot,
+  target: ReferenceTarget,
+): ResourceRecord[] {
+  if (target.kind === "member")
+    fail(
+      "MEMBERSHIP_UNAVAILABLE",
+      "Standalone profiles have no corporate membership directory.",
+    );
+  if (target.moduleId !== module.id)
+    fail(
+      "LOCAL_SCOPE_DENIED",
+      "Cross-module local reference lookup requires a granted host capability.",
+    );
+  const resource =
+    Object.hasOwn(module.resources, target.resource) &&
+    module.resources[target.resource];
+  if (!resource || !resource.standalone)
+    fail(
+      "LOCAL_ONLY",
+      "The referenced resource is not available in this standalone module.",
+    );
+  return Object.hasOwn(snapshot.records, target.resource)
+    ? snapshot.records[target.resource]
+    : [];
+}
+function validateLocalReferences(
+  module: ModuleDefinition,
+  snapshot: LocalSnapshot,
+  references: readonly ReferenceValue[],
+) {
+  const targets = new Map<string, Set<string>>();
+  for (const reference of references) {
+    const key = referenceTargetKey(reference.target);
+    let ids = targets.get(key);
+    if (!ids) {
+      ids = new Set(
+        localReferenceRecords(module, snapshot, reference.target)
+          .filter((row) => !row.archived)
+          .map((row) => row.id.toLowerCase()),
+      );
+      targets.set(key, ids);
+    }
+    if (!ids.has(reference.value.toLowerCase()))
+      fail(
+        "NOT_FOUND",
+        "A referenced record was not found in this local profile.",
+      );
+  }
+}
+
 /** Pure transaction engine for a dedicated worker. The host commits its result atomically. */
 export async function executeLocalCall(
   module: ModuleDefinition,
@@ -314,49 +366,6 @@ export async function executeLocalCall(
   let closed = false,
     failure: unknown;
   const pending = new Set<Promise<unknown>>();
-  const referenceRecords = (target: ReferenceTarget): ResourceRecord[] => {
-    if (target.kind === "member")
-      fail(
-        "MEMBERSHIP_UNAVAILABLE",
-        "Standalone profiles have no corporate membership directory.",
-      );
-    if (target.moduleId !== module.id)
-      fail(
-        "LOCAL_SCOPE_DENIED",
-        "Cross-module local reference lookup requires a granted host capability.",
-      );
-    const resource =
-      Object.hasOwn(module.resources, target.resource) &&
-      module.resources[target.resource];
-    if (!resource || !resource.standalone)
-      fail(
-        "LOCAL_ONLY",
-        "The referenced resource is not available in this standalone module.",
-      );
-    return Object.hasOwn(snapshot.records, target.resource)
-      ? snapshot.records[target.resource]
-      : [];
-  };
-  const validateResourceReferences = (schema: TSchema, value: unknown) => {
-    const targets = new Map<string, Set<string>>();
-    for (const reference of referenceValues(schema, value)) {
-      const key = referenceTargetKey(reference.target);
-      let ids = targets.get(key);
-      if (!ids) {
-        ids = new Set(
-          referenceRecords(reference.target)
-            .filter((row) => !row.archived)
-            .map((row) => row.id.toLowerCase()),
-        );
-        targets.set(key, ids);
-      }
-      if (!ids.has(reference.value.toLowerCase()))
-        fail(
-          "NOT_FOUND",
-          "A referenced record was not found in this local profile.",
-        );
-    }
-  };
   const resource: ModuleTransport = (command) => {
     const task = Promise.resolve().then(() => {
       if (closed)
@@ -378,7 +387,9 @@ export async function executeLocalCall(
           command.input,
         );
         return pageReferenceOptions(
-          resourceReferenceOptions(referenceRecords(target)),
+          resourceReferenceOptions(
+            localReferenceRecords(module, snapshot, target),
+          ),
           command.input as ReferenceQuery,
         );
       }
@@ -412,7 +423,11 @@ export async function executeLocalCall(
           );
       }
       if (command.action !== "archive")
-        validateResourceReferences(definition.schema, input.data);
+        validateLocalReferences(
+          module,
+          snapshot,
+          referenceValues(definition.schema, input.data),
+        );
       if (command.action === "create") {
         const created: ResourceRecord = {
           id: crypto.randomUUID(),
@@ -506,6 +521,7 @@ export async function migrateLocalSnapshot(
   request: LocalRequest,
   fromVersion: number,
   implementation?: LocalModule,
+  source?: ModuleDefinition,
 ): Promise<LocalResult> {
   if (
     !request.profileId ||
@@ -522,6 +538,45 @@ export async function migrateLocalSnapshot(
   const contract = localStorageContract(module),
     snapshot = structuredClone(request.snapshot),
     migrations: string[] = [];
+  // Only the host-verified installed contract can explain historical annotations.
+  if (source) {
+    const previous = localStorageContract(source);
+    if (
+      source.id !== module.id ||
+      previous.version > fromVersion ||
+      fromVersion < previous.compatible.minimum ||
+      fromVersion > previous.compatible.maximum
+    )
+      fail(
+        "LOCAL_CONTRACT_MISMATCH",
+        "The historical local contract does not match the stored schema.",
+      );
+  }
+  const identity = (reference: ReferenceValue) =>
+    JSON.stringify([
+      reference.path,
+      referenceTargetKey(reference.target),
+      reference.value.toLowerCase(),
+    ]);
+  const original = new Map<string, Map<string, Set<string>>>();
+  if (source)
+    for (const [name, rows] of Object.entries(request.snapshot.records)) {
+      const definition =
+        Object.hasOwn(source.resources, name) && source.resources[name];
+      if (!definition || !definition.standalone) continue;
+      const records = new Map<string, Set<string>>();
+      for (const row of rows) {
+        try {
+          records.set(
+            row.id,
+            new Set(referenceValues(definition.schema, row.data).map(identity)),
+          );
+        } catch {
+          /* Invalid historical data cannot establish a reference exemption. */
+        }
+      }
+      original.set(name, records);
+    }
   let version = fromVersion;
   while (version < contract.version) {
     const step = Object.entries(contract.migrations).find(
@@ -704,7 +759,15 @@ export async function migrateLocalSnapshot(
         "LOCAL_SCHEMA_INCOMPATIBLE",
         "This release cannot read an existing standalone resource.",
       );
-    for (const row of rows) assertSchema(resource.schema, row.data);
+    for (const row of rows) {
+      const historical = original.get(name)?.get(row.id);
+      const references = referenceValues(resource.schema, row.data);
+      validateLocalReferences(
+        module,
+        snapshot,
+        references.filter((reference) => !historical?.has(identity(reference))),
+      );
+    }
   }
   return { result: null, snapshot, schemaVersion: version, migrations };
 }

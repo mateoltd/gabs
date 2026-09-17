@@ -29,6 +29,10 @@ export class LocalWorkerHost {
       artifact?: { package: SignedArtifact; publicKey: string };
       inspect?: boolean;
       migrateFrom?: number;
+      migrationSource?: {
+        module: ModuleDefinition;
+        artifact?: { package: SignedArtifact; publicKey: string };
+      };
     } = {},
   ): Promise<LocalResult> {
     if (this.closed)
@@ -128,6 +132,7 @@ export class LocalWorkerHost {
           artifact: options.artifact,
           inspect: options.inspect,
           migrateFrom: options.migrateFrom,
+          migrationSource: options.migrationSource,
         });
       } catch (error) {
         finish(error);

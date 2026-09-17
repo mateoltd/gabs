@@ -22,6 +22,10 @@ self.addEventListener(
       artifact?: { package: SignedArtifact; publicKey: string };
       inspect?: boolean;
       migrateFrom?: number;
+      migrationSource?: {
+        module: ModuleDefinition;
+        artifact?: { package: SignedArtifact; publicKey: string };
+      };
     }>,
   ) => {
     try {
@@ -70,6 +74,30 @@ self.addEventListener(
         throw Error(
           "The installed local module contract does not match this request.",
         );
+      let source: ModuleDefinition | undefined;
+      if (event.data.migrateFrom !== undefined && event.data.migrationSource) {
+        const historical = event.data.migrationSource;
+        if (historical.artifact) {
+          await verifyArtifact(
+            historical.artifact.package,
+            historical.artifact.publicKey,
+          );
+          source = hydrateModule(
+            moduleContract(historical.artifact.package.artifact),
+          );
+        } else
+          source = bundledModuleDefinitions.find(
+            (m) => m.id === historical.module.id,
+          );
+        if (
+          !source ||
+          canonical(source) !== canonical(historical.module) ||
+          source.id !== module.id
+        )
+          throw Error(
+            "The historical local contract does not match its verified release.",
+          );
+      }
       const value =
         event.data.migrateFrom !== undefined
           ? await migrateLocalSnapshot(
@@ -77,6 +105,7 @@ self.addEventListener(
               event.data.request,
               event.data.migrateFrom,
               implementation,
+              source,
             )
           : event.data.inspect
             ? { result: null, snapshot: event.data.request.snapshot }

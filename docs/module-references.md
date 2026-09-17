@@ -87,6 +87,14 @@ The simulator performs equivalent checks using its current fixtures, permissions
 
 Ordinary edits revalidate all present links, including unchanged ones. If a target has since been archived, remove or replace its link before saving. Archiving a target does not delete historical records that reference it. An exact retry of an already accepted request returns its saved receipt; it does not create a second write or revalidate historical success. Migration reconciliation is a separate contract.
 
+### Standalone migrations
+
+Before committing an installation, the worker validates final reference values in all retained records, including archived rows. Targets created later in the migration are available at this final check; newly referenced targets archived before completion are rejected. The original record, resource, field path, target namespace and UUID identify a historical link. Unchanged links can therefore survive target archival, while copying a link to another record/position, renaming its source resource, changing its annotation or introducing a new link requires a valid final target.
+
+The profile host passes the previous installed release to the worker, which verifies its signed artifact or matches an official bundled contract. The source must match the module and stored schema compatibility. Missing source evidence or source records invalid under that contract provide no historical exemption. Intermediate migration writes cannot establish one. Pure SDK callers of `migrateLocalSnapshot` may pass an already verified source contract as the optional fifth argument; that argument is not itself a signature verifier.
+
+Compatible reinstallations and executable rollbacks also validate final references. Failures preserve the previous installation, records, schema and receipts; the existing installation history and discard/retry controls apply. See [standalone migration acceptance](verification/local-migration-references/README.md).
+
 ## Current limits
 
 - Generated object and homogeneous-array editors use recursive pickers. Tuple and record-map fields retain the structured JSON editor; their references are validated server-side, but per-item picker UI remains open.
@@ -95,5 +103,5 @@ Ordinary edits revalidate all present links, including unchanged ones. If a targ
 - Pagination is not a snapshot. Archiving or revocation after lookup can cause a subsequent write to be rejected.
 - Corporate independent views currently require an online lookup; the generated host's leased label cache is not automatically supplied to arbitrary custom views.
 - Cross-module local lookup and custom standalone view mounting remain open. Same-module standalone generated pickers are covered.
-- Standalone migration reference reconciliation remains open; ordinary resource-write validation does not silently impose new semantics on historical migrations. In-memory simulation does not establish real corporate authorization, SQL isolation or concurrency.
+- In-memory simulation does not establish real corporate authorization, SQL isolation or concurrency. Local migration reconciliation is validated in the worker/profile lifecycle; it does not implement corporate import or cross-module local capabilities.
 - Broader SDK composition, accessibility acceptance and platform parity remain open.
