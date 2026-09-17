@@ -33,6 +33,8 @@ The subsequent range checkpoint `39a9b37` / [CI 35180810161](https://github.com/
 
 Final formatting passed, regenerated OpenAPI/client types had no drift, and all checked local documentation links resolved.
 
+The pushed implementation `d0cb9746f699aefa4a2720d1163611b7aafe1298` / [CI 35182720028](https://github.com/mateoltd/gabs/actions/runs/35182720028) was rejected before any job started. GitHub's check annotation states: “The job was not started because an Actions budget is preventing further use.” This adds an external execution-capacity dependency alongside the existing artifact quota. The code has local acceptance above; remote gates remain unverified. No account budget, billing or acceptance threshold was changed. Continue independent local engineering and rerun when authorized account capacity is available.
+
 ## Limits
 
 Pages reflect current records and do not provide snapshot isolation; concurrent sort-field edits can move records across boundaries. Nested sort paths, locale-aware collation, aggregation, arbitrary schema composition and large-local-dataset performance acceptance remain open. Cross-module standalone capabilities and resource-client ergonomics remain tracked. Scoped Axe and hidden development Electron do not establish whole-product accessibility, signed release readiness or final UI approval. OPS-07 performance and the GitHub artifact quota remain separate open work.
