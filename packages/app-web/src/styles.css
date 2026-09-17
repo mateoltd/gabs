@@ -2801,3 +2801,12 @@ body:has(.local-workspace),
 .local-installations .module-toolbar {
   margin-block: 8px 0;
 }
+
+.local-reference-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.local-reference-choice .checkbox {
+  flex: 0 0 auto;
+}

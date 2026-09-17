@@ -26,6 +26,10 @@ self.addEventListener(
         module: ModuleDefinition;
         artifact?: { package: SignedArtifact; publicKey: string };
       };
+      referenceArtifacts?: Record<
+        string,
+        { package: SignedArtifact; publicKey: string }
+      >;
     }>,
   ) => {
     try {
@@ -74,6 +78,27 @@ self.addEventListener(
         throw Error(
           "The installed local module contract does not match this request.",
         );
+      for (const provider of event.data.request.referenceProviders ?? []) {
+        const artifact = event.data.referenceArtifacts?.[provider.module.id];
+        let verified: ModuleDefinition | undefined;
+        if (artifact) {
+          await verifyArtifact(artifact.package, artifact.publicKey);
+          verified = hydrateModule(moduleContract(artifact.package.artifact));
+        } else
+          verified = bundledModuleDefinitions.find(
+            (candidate) => candidate.id === provider.module.id,
+          );
+        if (
+          !verified ||
+          canonical(verified) !== canonical(provider.module) ||
+          provider.profileId !== event.data.request.profileId ||
+          !satisfies("1.0.0", verified.host) ||
+          !satisfies("1.0.0", verified.backend)
+        )
+          throw Error(
+            "The reference provider does not match its verified local release.",
+          );
+      }
       let source: ModuleDefinition | undefined;
       if (event.data.migrateFrom !== undefined && event.data.migrationSource) {
         const historical = event.data.migrationSource;

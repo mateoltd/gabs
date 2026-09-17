@@ -26,7 +26,7 @@ import {
   type Static,
 } from "./index";
 import type { Configuration, OperationError } from "./context";
-import { canonical } from "./registry";
+import { canonical, satisfies } from "./registry";
 
 export type LocalOperation<M extends ModuleDefinition> = {
   [K in keyof M["operations"]]: M["operations"][K] extends { policy: "local" }
@@ -226,6 +226,14 @@ export interface LocalRequest {
   call: ModuleCall;
   configuration: unknown;
   snapshot: LocalSnapshot;
+  /** Read-only resources selected by the unlocked profile host's explicit grants. */
+  referenceProviders?: LocalReferenceProvider[];
+}
+export interface LocalReferenceProvider {
+  profileId: string;
+  module: ModuleDefinition;
+  resources: string[];
+  records: Record<string, ResourceRecord[]>;
 }
 export interface LocalResult {
   schemaVersion?: number;
@@ -237,17 +245,45 @@ function localReferenceRecords(
   module: ModuleDefinition,
   snapshot: LocalSnapshot,
   target: ReferenceTarget,
+  request?: Pick<LocalRequest, "profileId" | "referenceProviders">,
 ): ResourceRecord[] {
   if (target.kind === "member")
     fail(
       "MEMBERSHIP_UNAVAILABLE",
       "Standalone profiles have no corporate membership directory.",
     );
-  if (target.moduleId !== module.id)
-    fail(
-      "LOCAL_SCOPE_DENIED",
-      "Cross-module local reference lookup requires a granted host capability.",
+  if (target.moduleId !== module.id) {
+    const provider = request?.referenceProviders?.find(
+      (provider) => provider.module.id === target.moduleId,
     );
+    const required = module.dependencies[target.moduleId];
+    if (
+      !provider ||
+      provider.profileId !== request?.profileId ||
+      !required ||
+      !satisfies(provider.module.version, required) ||
+      !provider.resources.includes(target.resource)
+    )
+      fail(
+        "LOCAL_SCOPE_DENIED",
+        "Allow this reference in Local modules before reading another module's records.",
+      );
+    const definition =
+      Object.hasOwn(provider.module.resources, target.resource) &&
+      provider.module.resources[target.resource];
+    if (
+      !definition ||
+      !definition.standalone ||
+      !provider.module.permissions.includes(
+        `${target.moduleId}.${target.resource}.read`,
+      )
+    )
+      fail(
+        "LOCAL_ONLY",
+        "The referenced resource does not allow standalone reads.",
+      );
+    return structuredClone(provider.records[target.resource] ?? []);
+  }
   const resource =
     Object.hasOwn(module.resources, target.resource) &&
     module.resources[target.resource];
@@ -264,6 +300,7 @@ function validateLocalReferences(
   module: ModuleDefinition,
   snapshot: LocalSnapshot,
   references: readonly ReferenceValue[],
+  request?: Pick<LocalRequest, "profileId" | "referenceProviders">,
 ) {
   const targets = new Map<string, Set<string>>();
   for (const reference of references) {
@@ -271,7 +308,7 @@ function validateLocalReferences(
     let ids = targets.get(key);
     if (!ids) {
       ids = new Set(
-        localReferenceRecords(module, snapshot, reference.target)
+        localReferenceRecords(module, snapshot, reference.target, request)
           .filter((row) => !row.archived)
           .map((row) => row.id.toLowerCase()),
       );
@@ -388,7 +425,7 @@ export async function executeLocalCall(
         );
         return pageReferenceOptions(
           resourceReferenceOptions(
-            localReferenceRecords(module, snapshot, target),
+            localReferenceRecords(module, snapshot, target, request),
           ),
           command.input as ReferenceQuery,
         );
@@ -432,6 +469,7 @@ export async function executeLocalCall(
           module,
           snapshot,
           referenceValues(definition.schema, input.data),
+          request,
         );
       if (command.action === "create") {
         const created: ResourceRecord = {
@@ -771,6 +809,7 @@ export async function migrateLocalSnapshot(
         module,
         snapshot,
         references.filter((reference) => !historical?.has(identity(reference))),
+        request,
       );
     }
   }

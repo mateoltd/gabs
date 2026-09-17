@@ -1,6 +1,11 @@
 import { verifyArtifact } from "@suite/module-sdk/verification";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
-import { canonical, resolveReleaseSet } from "@suite/module-sdk/registry";
+import {
+  canonical,
+  resolveReleaseSet,
+  satisfies,
+} from "@suite/module-sdk/registry";
+import { referenceFields } from "@suite/module-sdk/references";
 import {
   hydrateModule,
   assertSchema,
@@ -17,6 +22,7 @@ import type {
 import {
   LocalExecutionError,
   type LocalReceipt,
+  type LocalReferenceProvider,
 } from "@suite/module-sdk/local";
 import { LocalWorkerHost } from "./local-worker";
 interface Vault {
@@ -90,6 +96,7 @@ export interface LocalLifecycleEvent {
   modules: { moduleId: string; moduleVersion: string; title: string }[];
 }
 export interface LocalData {
+  referenceGrants?: LocalReferenceGrant[];
   lifecycle?: LocalLifecycleEvent[];
   downloads?: Record<string, LocalDownload>;
   installationAttempts?: Record<string, LocalInstallationAttempt>;
@@ -97,6 +104,61 @@ export interface LocalData {
   modules?: Record<string, LocalInstallation>;
   records: Record<string, ResourceRecord[]>;
   receipts?: Record<string, Record<string, LocalReceipt>>;
+}
+export interface LocalReferenceGrant {
+  consumerId: string;
+  consumerVersion: string;
+  providerId: string;
+  providerVersion: string;
+  resource: string;
+  grantedAt: number;
+}
+/** Only declared standalone reference targets are eligible for profile-owner consent. */
+export function localReferenceAccess(data: LocalData) {
+  const modules = availableLocalModules(data);
+  return modules.flatMap((consumer) => {
+    const targets = new Map<
+      string,
+      { provider: ModuleDefinition; resource: string }
+    >();
+    for (const definition of Object.values(consumer.resources).filter(
+      (r) => r.standalone,
+    )) {
+      for (const { target } of referenceFields(definition.schema)) {
+        if (target.kind !== "resource" || target.moduleId === consumer.id)
+          continue;
+        const provider = modules.find((m) => m.id === target.moduleId);
+        const range = consumer.dependencies[target.moduleId];
+        if (
+          !provider ||
+          !range ||
+          !satisfies(provider.version, range) ||
+          !provider.resources[target.resource]?.standalone ||
+          !provider.permissions.includes(
+            `${provider.id}.${target.resource}.read`,
+          )
+        )
+          continue;
+        targets.set(`${provider.id}/${target.resource}`, {
+          provider,
+          resource: target.resource,
+        });
+      }
+    }
+    return [...targets.values()].map(({ provider, resource }) => ({
+      consumer,
+      provider,
+      resource,
+      granted: !!data.referenceGrants?.some(
+        (grant) =>
+          grant.consumerId === consumer.id &&
+          grant.consumerVersion === consumer.version &&
+          grant.providerId === provider.id &&
+          grant.providerVersion === provider.version &&
+          grant.resource === resource,
+      ),
+    }));
+  });
 }
 const db = () =>
   openDB("suite-local-profiles", 1, {
@@ -137,6 +199,12 @@ export interface LocalSession {
   id: string;
   name: string;
   readonly data: LocalData;
+  setReferenceAccess(
+    consumerId: string,
+    providerId: string,
+    resource: string,
+    allowed: boolean,
+  ): Promise<void>;
   beginDownload(
     rootModuleId: string,
     source: LocalDownload["source"],
@@ -208,6 +276,17 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     tail = task.catch(() => {});
     return task;
   };
+  async function assertCurrentProfile() {
+    unlockedOrThrow();
+    const stored = (await (await db()).get("vaults", vault.id)) as
+      Vault | undefined;
+    unlockedOrThrow();
+    if (!stored || (stored.revision ?? 0) !== revision)
+      throw new LocalExecutionError(
+        "PROFILE_CHANGED",
+        "This profile changed in another window or was removed. Unlock it again before using module access.",
+      );
+  }
   async function commit(next: LocalData, signal?: AbortSignal) {
     if (!unlocked)
       throw new LocalExecutionError(
@@ -536,6 +615,49 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
     }
   }
   const current: LocalSession = {
+    setReferenceAccess(consumerId, providerId, resource, allowed) {
+      return enqueue(async () => {
+        if (
+          typeof allowed !== "boolean" ||
+          [consumerId, providerId, resource].some(
+            (value) =>
+              typeof value !== "string" ||
+              !/^[a-z][a-z0-9-]{0,63}$/.test(value),
+          )
+        )
+          throw Error(
+            "Choose valid modules, a resource and an explicit access decision.",
+          );
+        const candidate = localReferenceAccess(data).find(
+          (item) =>
+            item.consumer.id === consumerId &&
+            item.provider.id === providerId &&
+            item.resource === resource,
+        );
+        if (allowed && !candidate)
+          throw Error(
+            "Choose a declared reference between installed standalone modules.",
+          );
+        const grants = (data.referenceGrants ?? []).filter(
+          (grant) =>
+            !(
+              grant.consumerId === consumerId &&
+              grant.providerId === providerId &&
+              grant.resource === resource
+            ),
+        );
+        if (allowed && candidate)
+          grants.push({
+            consumerId,
+            consumerVersion: candidate.consumer.version,
+            providerId,
+            providerVersion: candidate.provider.version,
+            resource,
+            grantedAt: Date.now(),
+          });
+        await commit({ ...data, referenceGrants: grants });
+      });
+    },
     id: vault.id,
     name: vault.name,
     get data() {
@@ -752,6 +874,10 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
             },
           ],
           modules: { ...data.modules, [moduleId]: { ...prior, active: false } },
+          referenceGrants: data.referenceGrants?.filter(
+            (grant) =>
+              grant.consumerId !== moduleId && grant.providerId !== moduleId,
+          ),
         });
       });
     },
@@ -767,6 +893,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
       };
       // Each transaction snapshots after the preceding durable commit.
       const task = tail.then(async () => {
+        await assertCurrentProfile();
         if (!unlocked)
           throw new LocalExecutionError(
             "PROFILE_LOCKED",
@@ -843,6 +970,40 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
           );
         }
         const prefix = module.id + "/";
+        const referenceProviders: LocalReferenceProvider[] = [];
+        const referenceArtifacts: Record<
+          string,
+          { package: SignedArtifact; publicKey: string }
+        > = {};
+        for (const access of localReferenceAccess(data).filter(
+          (access) =>
+            access.granted &&
+            access.consumer.id === module.id &&
+            access.consumer.version === module.version,
+        )) {
+          let provider = referenceProviders.find(
+            (entry) => entry.module.id === access.provider.id,
+          );
+          if (!provider) {
+            provider = {
+              profileId: vault.id,
+              module: access.provider,
+              resources: [],
+              records: {},
+            };
+            referenceProviders.push(provider);
+            const installed = data.modules?.[access.provider.id];
+            const providerRelease = installed?.releases[installed.version];
+            if (providerRelease)
+              referenceArtifacts[access.provider.id] = {
+                package: providerRelease.package,
+                publicKey: providerRelease.publicKey,
+              };
+          }
+          provider.resources.push(access.resource);
+          provider.records[access.resource] =
+            data.records[`${access.provider.id}/${access.resource}`] ?? [];
+        }
         const snapshot = {
           records: Object.fromEntries(
             Object.entries(data.records)
@@ -859,9 +1020,11 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
               call,
               configuration,
               snapshot,
+              referenceProviders,
             },
             {
               ...options,
+              referenceArtifacts,
               artifact: release
                 ? { package: release.package, publicKey: release.publicKey }
                 : undefined,
@@ -872,6 +1035,7 @@ function session(vault: Vault, key: CryptoKey, data: LocalData): LocalSession {
               "PROFILE_LOCKED",
               "Unlock the local profile.",
             );
+          await assertCurrentProfile();
           if (options.signal?.aborted)
             throw new LocalExecutionError(
               "LOCAL_CANCELLED",

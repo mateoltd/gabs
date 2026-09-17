@@ -136,7 +136,7 @@ export function LocalWorkspace({
       session.execute(selected.module, call, options),
     ).resource(selected.key.slice(selected.module.id.length + 1))
       .loadReferences;
-  }, [selected?.module, selected?.key, session]);
+  }, [selected?.module, selected?.key, session, revision]);
   useEffect(() => {
     if (selected && selected.key !== key) {
       setKey(selected.key);

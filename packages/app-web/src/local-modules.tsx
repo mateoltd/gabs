@@ -2,6 +2,7 @@ import {
   LocalModuleHistory,
   LocalModuleVersions,
 } from "./local-module-history";
+import { LocalReferenceAccess } from "./local-reference-access";
 import { useEffect, useRef, useState } from "react";
 import {
   hydrateModule,
@@ -44,6 +45,7 @@ export function LocalModules({
   const [open, setOpen] = useState(false),
     [versions, setVersions] = useState<string>(),
     [history, setHistory] = useState(false),
+    [references, setReferences] = useState(false),
     [available, setAvailable] = useState<ModuleDefinition[]>(),
     [selected, setSelected] = useState<{
       downloadId?: string;
@@ -74,7 +76,7 @@ export function LocalModules({
     panel.current
       ?.closest<HTMLElement>('[role="dialog"]')
       ?.scrollTo({ top: 0 });
-  }, [selected?.pkg.digest, versions, history]);
+  }, [selected?.pkg.digest, versions, history, references]);
   useEffect(() => () => controller.current?.abort(), []);
   const retained = Object.entries(session.data.modules ?? {}).filter(
     ([, installation]) => !installation.active,
@@ -164,6 +166,7 @@ export function LocalModules({
             setSelected(undefined);
             setVersions(undefined);
             setHistory(false);
+            setReferences(false);
             setError(undefined);
           }
         }}
@@ -312,6 +315,12 @@ export function LocalModules({
               }}
               back={() => setVersions(undefined)}
             />
+          ) : references ? (
+            <LocalReferenceAccess
+              session={session}
+              changed={changed}
+              back={() => setReferences(false)}
+            />
           ) : history ? (
             <LocalModuleHistory
               data={session.data}
@@ -319,6 +328,11 @@ export function LocalModules({
             />
           ) : (
             <>
+              <div className="module-toolbar">
+                <Button disabled={busy} onClick={() => setReferences(true)}>
+                  Reference access
+                </Button>
+              </div>
               {downloads.length > 0 && (
                 <>
                   <h3>Saved downloads</h3>

@@ -2,11 +2,14 @@ import { publishLocalPackage } from "../local-package-fixture";
 import { test, expect } from "@playwright/test";
 import { build } from "esbuild";
 import { resolve } from "node:path";
+import { generateKeyPairSync } from "node:crypto";
+import { defineModule, field, resource, Type } from "@suite/module-sdk";
+import { signPackage } from "../../packages/module-sdk/node/signing";
 import type { Page } from "@playwright/test";
 async function fixture(page: Page) {
   const source = await build({
     stdin: {
-      contents: `export * from './packages/platform/src/local-profiles';export {resumeLocalDownload} from './packages/app-web/src/local-module-download';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {default as module} from './modules/contacts/module';`,
+      contents: `export * from './packages/platform/src/local-profiles';export {LocalWorkerHost} from './packages/platform/src/local-worker';export {resumeLocalDownload} from './packages/app-web/src/local-module-download';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {default as module} from './modules/contacts/module';export {default as projects} from './modules/projects/module';`,
       resolveDir: process.cwd(),
     },
     write: false,
@@ -117,7 +120,8 @@ test("real web workers persist atomic receipts offline and reject stale or remov
     removed: "PROFILE_CHANGED",
     profiles: [],
   });
-  expect(workers).toBeGreaterThanOrEqual(5);
+  // Stale and removed profiles now fail before any worker receives their data.
+  expect(workers).toBe(3);
 });
 
 test("a reviewed local executable installs, runs offline, upgrades and retains exact historical receipts", async ({
@@ -890,4 +894,334 @@ test("encrypted local download sets reject invalid bytes, foreign sources, cance
     result.retained && result.accepted && result.removed && result.preserved,
   ).toBe(true);
   expect(result.isolatedCount).toBe(0);
+});
+
+test("cross-module reference grants persist and stale, foreign or unverified workers cannot reuse them", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto("/");
+  await page.context().setOffline(true);
+  const result = await page.evaluate(async () => {
+    const path = "/local-profile-proof.mjs";
+    const sdk = (await import(
+      path
+    )) as typeof import("../../packages/platform/src/local-profiles") &
+      typeof import("../../packages/platform/src/local-worker") & {
+        module: typeof import("../../modules/contacts/module").default;
+        projects: typeof import("../../modules/projects/module").default;
+        createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+      };
+    const password = "correct horse battery staple";
+    let owner = await sdk.createLocalProfile("Scoped references", password);
+    const profileId = owner.id;
+    const created = await sdk
+      .createModuleClient(sdk.module, (call) => owner.execute(sdk.module, call))
+      .resource("contacts")
+      .create({
+        name: "Scoped contact",
+        kind: "person",
+        relationship: "customer",
+      });
+    const references = (session: typeof owner) =>
+      sdk
+        .createModuleClient(sdk.projects, (call) =>
+          session.execute(sdk.projects, call),
+        )
+        .resource("projects")
+        .references({ field: "/properties/contactId" });
+    const code = async (action: () => Promise<unknown>) => {
+      try {
+        await action();
+        return "unexpected success";
+      } catch (error) {
+        return (error as { code: string }).code;
+      }
+    };
+    const denied = await code(() => references(owner));
+    await owner.setReferenceAccess("projects", "contacts", "contacts", true);
+    owner.lock();
+    owner = await sdk.unlockLocalProfile(profileId, password);
+    const allowed = await references(owner);
+    const competing = await sdk.unlockLocalProfile(profileId, password);
+    await competing.setReferenceAccess(
+      "projects",
+      "contacts",
+      "contacts",
+      false,
+    );
+    const staleRead = await code(() => references(owner));
+    const staleWrite = await code(() =>
+      sdk
+        .createModuleClient(sdk.projects, (call) =>
+          owner.execute(sdk.projects, call),
+        )
+        .resource("projects")
+        .create({
+          name: "Must not commit",
+          status: "planned",
+          contactId: created.id,
+        }),
+    );
+    competing.lock();
+    owner.lock();
+    owner = await sdk.unlockLocalProfile(profileId, password);
+    const revoked = await code(() => references(owner));
+    const unchanged = owner.data.records["projects/projects"] ?? [];
+    const foreign = await sdk.createLocalProfile("Other scope", password);
+    const foreignDenied = await code(() => references(foreign));
+    await foreign.setReferenceAccess("projects", "contacts", "contacts", true);
+    const foreignRows = await references(foreign);
+    const worker = new sdk.LocalWorkerHost();
+    const unverified = await code(() =>
+      worker.run(sdk.projects, {
+        profileId,
+        configuration: {},
+        snapshot: { records: {}, receipts: {} },
+        call: {
+          moduleId: "projects",
+          moduleVersion: sdk.projects.version,
+          action: "references",
+          resource: "projects",
+          input: { field: "/properties/contactId" },
+        },
+        referenceProviders: [
+          {
+            profileId,
+            module: { ...sdk.module, name: "Forged provider" },
+            resources: ["contacts"],
+            records: { contacts: [created] },
+          },
+        ],
+      }),
+    );
+    worker.close();
+    owner.lock();
+    const locked = await code(() => references(owner));
+    foreign.lock();
+    await sdk.removeLocalProfile(profileId);
+    await sdk.removeLocalProfile(foreign.id);
+    return {
+      denied,
+      allowed: allowed.items,
+      staleRead,
+      staleWrite,
+      revoked,
+      unchanged,
+      foreignDenied,
+      foreignRows: foreignRows.items,
+      unverified,
+      locked,
+    };
+  });
+  expect(result).toMatchObject({
+    denied: "LOCAL_SCOPE_DENIED",
+    allowed: [{ label: "Scoped contact" }],
+    staleRead: "PROFILE_CHANGED",
+    staleWrite: "PROFILE_CHANGED",
+    revoked: "LOCAL_SCOPE_DENIED",
+    unchanged: [],
+    foreignDenied: "LOCAL_SCOPE_DENIED",
+    foreignRows: [],
+    unverified: "LOCAL_OPERATION_FAILED",
+    locked: "PROFILE_LOCKED",
+  });
+});
+
+test("signed local reference providers require renewed consent after updates and uninstall", async ({
+  page,
+}) => {
+  const keys = generateKeyPairSync("ed25519");
+  const privateKey = keys.privateKey
+    .export({ type: "pkcs8", format: "pem" })
+    .toString();
+  const publicKey = keys.publicKey
+    .export({ type: "spki", format: "pem" })
+    .toString();
+  const base = {
+    version: "1.0.0",
+    host: "^1",
+    backend: "^1",
+    publisher: "suite",
+    description: "Reference grant acceptance",
+    configuration: Type.Object({}),
+    operations: {},
+  };
+  const target = defineModule({
+    ...base,
+    id: "grant-target",
+    name: "Grant target",
+    dependencies: {},
+    permissions: ["grant-target.targets.read", "grant-target.targets.write"],
+    resources: {
+      targets: resource(
+        { name: field.text() },
+        { title: "Targets", standalone: true },
+      ),
+    },
+  });
+  const source = defineModule({
+    ...base,
+    id: "grant-source",
+    name: "Grant source",
+    dependencies: { "grant-target": "^1" },
+    permissions: ["grant-source.notes.read", "grant-source.notes.write"],
+    resources: {
+      notes: resource(
+        { name: field.text(), targetId: field.reference(target.id, "targets") },
+        { title: "Notes", standalone: true },
+      ),
+    },
+  });
+  const packages = {
+    target: signPackage(target, privateKey),
+    source: signPackage(source, privateKey),
+    targetNext: signPackage({ ...target, version: "1.1.0" }, privateKey),
+    sourceNext: signPackage({ ...source, version: "1.1.0" }, privateKey),
+  };
+  await fixture(page);
+  await page.goto("/");
+  await page.context().setOffline(true);
+  const result = await page.evaluate(
+    async ({ packages, publicKey }) => {
+      const path = "/local-profile-proof.mjs";
+      const sdk = (await import(
+        path
+      )) as typeof import("../../packages/platform/src/local-profiles") &
+        typeof import("../../packages/platform/src/local-worker") & {
+          createModuleClient: typeof import("@suite/module-sdk").createModuleClient;
+          hydrateModule: typeof import("@suite/module-sdk").hydrateModule;
+        };
+      const session = await sdk.createLocalProfile(
+        "Signed grants",
+        "correct horse battery staple",
+      );
+      const moduleOf = (pkg: typeof packages.source) =>
+        sdk.hydrateModule(
+          pkg.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
+        );
+      const client = (pkg: typeof packages.source) =>
+        sdk.createModuleClient(moduleOf(pkg), (call) =>
+          session.execute(moduleOf(pkg), call),
+        );
+      const references = (pkg: typeof packages.source) =>
+        client(pkg)
+          .resource("notes")
+          .references({ field: "/properties/targetId" });
+      const code = async (action: () => Promise<unknown>) => {
+        try {
+          await action();
+          return "unexpected success";
+        } catch (error) {
+          return (error as { code?: string }).code ?? "rejected";
+        }
+      };
+      await session.installSet(
+        "grant-source",
+        [packages.target, packages.source].map((pkg) => ({
+          package: pkg,
+          publicKey,
+          configuration: {},
+        })),
+      );
+      const target = await client(packages.target)
+        .resource("targets")
+        .create({ name: "Signed target" });
+      const denied = await code(() => references(packages.source));
+      await session.setReferenceAccess(
+        "grant-source",
+        "grant-target",
+        "targets",
+        true,
+      );
+      const first = await references(packages.source);
+      const note = await client(packages.source)
+        .resource("notes")
+        .create({ name: "Retained link", targetId: target.id });
+      await session.install(packages.sourceNext, publicKey);
+      const consumerUpdate = await code(() => references(packages.sourceNext));
+      await session.setReferenceAccess(
+        "grant-source",
+        "grant-target",
+        "targets",
+        true,
+      );
+      await session.install(packages.targetNext, publicKey);
+      const providerUpdate = await code(() => references(packages.sourceNext));
+      await session.setReferenceAccess(
+        "grant-source",
+        "grant-target",
+        "targets",
+        true,
+      );
+      const next = await references(packages.sourceNext);
+      const worker = new sdk.LocalWorkerHost();
+      const corrupt = await code(() =>
+        worker.run(
+          moduleOf(packages.sourceNext),
+          {
+            profileId: session.id,
+            configuration: {},
+            snapshot: { records: {}, receipts: {} },
+            call: {
+              moduleId: "grant-source",
+              moduleVersion: "1.1.0",
+              action: "references",
+              resource: "notes",
+              input: { field: "/properties/targetId" },
+            },
+            referenceProviders: [
+              {
+                profileId: session.id,
+                module: moduleOf(packages.targetNext),
+                resources: ["targets"],
+                records: {
+                  targets: [{ ...target, data: { name: "Signed target" } }],
+                },
+              },
+            ],
+          },
+          {
+            artifact: { package: packages.sourceNext, publicKey },
+            referenceArtifacts: {
+              "grant-target": {
+                package: { ...packages.targetNext, signature: "invalid" },
+                publicKey,
+              },
+            },
+          },
+        ),
+      );
+      worker.close();
+      await session.uninstall("grant-source");
+      await session.install(packages.sourceNext, publicKey);
+      const reinstall = await code(() => references(packages.sourceNext));
+      const retained = session.data.records["grant-source/notes"].map(
+        (row) => row.id,
+      );
+      session.lock();
+      await sdk.removeLocalProfile(session.id);
+      return {
+        denied,
+        first: first.items.map((row) => row.label),
+        consumerUpdate,
+        providerUpdate,
+        next: next.items.map((row) => row.label),
+        corrupt,
+        reinstall,
+        retained: retained.includes(note.id),
+      };
+    },
+    { packages, publicKey },
+  );
+  expect(result).toEqual({
+    denied: "LOCAL_SCOPE_DENIED",
+    first: ["Signed target"],
+    consumerUpdate: "LOCAL_SCOPE_DENIED",
+    providerUpdate: "LOCAL_SCOPE_DENIED",
+    next: ["Signed target"],
+    corrupt: "LOCAL_OPERATION_FAILED",
+    reinstall: "LOCAL_SCOPE_DENIED",
+    retained: true,
+  });
 });

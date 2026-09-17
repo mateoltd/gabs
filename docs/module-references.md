@@ -75,13 +75,13 @@ With offline storage enabled and a valid corporate lease, the host remembers at 
 
 ## Standalone and development lookup
 
-Generated standalone forms use the local worker client. Lookup reads active targets from the same installed module's standalone resources in the current unlocked profile. It never falls back to a corporate database or another profile. Corporate membership has no local directory, and cross-module local lookup explicitly fails until a scoped host broker exists. These reads do not rewrite the encrypted profile or create receipts.
+Generated standalone forms use the local worker client. Lookup reads active targets from the same installed module's standalone resources in the current unlocked profile. It never falls back to a corporate database or another profile. Corporate membership has no local directory. Cross-module lookup requires profile-owner consent through **Manage local modules → Reference access**, scoped to the declared resource and both exact releases. Missing, revoked or version-stale grants fail; provider metadata is verified in the worker. These reads do not rewrite the encrypted profile or create receipts.
 
 The development simulator implements the same paging, selected-item resolution and label rules. Member fixtures must be supplied explicitly. Cross-module lookup requires a loaded compatible dependency, a `readGrants` fixture and current target read permission. The development workspace exposes these grants alongside service grants in **Module grants and provider permissions**. See [reference fixtures](module-scenarios.md#reference-fixtures). Corporate simulation rejects offline lookup rather than placing it in the journal.
 
 ### Write integrity
 
-Standalone resource creates and updates validate every present annotated link against active same-module targets in the current local transaction. Nested arrays, maps and matching union branches use the same schema traversal as corporate writes. A target created earlier in an operation is available to later writes. A failed reference check rejects the operation even if its handler catches the error; no partial records or new receipt are committed.
+Standalone resource creates and updates validate every present annotated link against active same-module targets in the current local transaction. Generated CRUD edits can also validate foreign targets through explicitly granted provider snapshots; custom local service transactions remain separate open work. Nested arrays, maps and matching union branches use the same schema traversal as corporate writes. A target created earlier in an operation is available to later writes. A failed reference check rejects the operation even if its handler catches the error; no partial records or new receipt are committed.
 
 The simulator performs equivalent checks using its current fixtures, permissions, member state and explicit read grants. Offline capture remains provisional: validation happens when the simulated server accepts the queued request, and one rejected reference does not prevent unrelated entries from synchronizing.
 
@@ -102,6 +102,6 @@ Compatible reinstallations and executable rollbacks also validate final referenc
 - Resource CRUD and [recursive migration reconciliation](module-storage-migrations.md) are covered. Migrations compare final records with their original signed contract and validate new links before committing. Operation inputs/private stores do not acquire reference semantics solely from these annotations.
 - Pagination is not a snapshot. Archiving or revocation after lookup can cause a subsequent write to be rejected.
 - Corporate independent views currently require an online lookup; the generated host's leased label cache is not automatically supplied to arbitrary custom views.
-- Cross-module local lookup and custom standalone view mounting remain open. Same-module standalone generated pickers are covered.
-- In-memory simulation does not establish real corporate authorization, SQL isolation or concurrency. Local migration reconciliation is validated in the worker/profile lifecycle; it does not implement corporate import or cross-module local capabilities.
+- [Cross-module standalone reference lookup](verification/local-reference-grants/README.md) now has web/native consent acceptance. Custom standalone view mounting, local services/atomic cross-module writes and prospective migration grant review remain open.
+- In-memory simulation does not establish real corporate authorization, SQL isolation or concurrency. Local migration reconciliation is validated in the worker/profile lifecycle; it does not implement corporate import, local device capabilities or prospective cross-module migration grants.
 - Broader SDK composition, accessibility acceptance and platform parity remain open.
