@@ -156,6 +156,32 @@ function Surface({
           return latest.current.send(call, options);
         },
         {
+          resources: {
+            capture: (call, dependencies) => {
+              if (
+                !latest.current.active ||
+                !latest.current.data.permissions.includes(view.permission)
+              )
+                throw Error("This preview is no longer active or authorized.");
+              if (!latest.current.queue.resources)
+                throw Error(
+                  "Queued resources are unavailable in this preview.",
+                );
+              return latest.current.queue.resources.capture(call, dependencies);
+            },
+            get: (identity) => {
+              if (
+                !latest.current.active ||
+                !latest.current.data.permissions.includes(view.permission)
+              )
+                throw Error("This preview is no longer active or authorized.");
+              if (!latest.current.queue.resources)
+                throw Error(
+                  "Queued resources are unavailable in this preview.",
+                );
+              return latest.current.queue.resources.get(identity);
+            },
+          },
           capture: (call, dependencies) => {
             if (
               !latest.current.active ||

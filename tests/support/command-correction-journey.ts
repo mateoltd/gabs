@@ -22,6 +22,7 @@ export type CommandCorrectionOptions = {
   kind: "web" | "native";
   mode:
     | "cross-module"
+    | "command-resource"
     | "rejected"
     | "uncertain"
     | "late-accepted"
@@ -65,7 +66,7 @@ export type CommandCorrectionOptions = {
 export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
-  if (options.mode === "cross-module")
+  if (options.mode === "cross-module" || options.mode === "command-resource")
     return commandContinuationJourney(options);
   if (
     options.mode === "resource-viewless" ||

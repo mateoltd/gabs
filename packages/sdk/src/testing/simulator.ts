@@ -847,7 +847,11 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     module,
     journal,
     simulationIdentity,
-    (call) => policy(root, call),
+    (call) => {
+      if (options.personal)
+        throw Error("Corporate queued capture requires a company workspace.");
+      return policy(root, call);
+    },
   );
   return {
     queue,

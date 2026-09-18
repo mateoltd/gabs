@@ -139,6 +139,13 @@ function renderState() {
       (await request({ action: "execute", call }, options)).result,
     async (call) => (await request({ action: "host", call })).result,
     {
+      resources: {
+        capture: async (call, dependencies) =>
+          (await request({ action: "queueResource", call, dependencies }))
+            .result,
+        get: async (identity) =>
+          (await request({ action: "queuedResource", identity })).result,
+      },
       capture: async (call, dependencies) =>
         (await request({ action: "queue", call, dependencies })).result,
       get: async (identity) =>

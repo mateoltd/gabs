@@ -8,7 +8,7 @@ import {
   type ContinuationAccess,
 } from "../recovery/continuation";
 import {
-  canAccessCommand,
+  canDispatchQueuedCall,
   canInspectCommand,
 } from "@suite/client/module-dispatch";
 import { CommandCorrection } from "./command-correction";
@@ -29,6 +29,7 @@ import {
   type ModuleStorage,
 } from "@suite/client/module-storage";
 import {
+  responseContractKey,
   responseContract,
   validateModuleResponse,
 } from "@suite/client/module-response";
@@ -41,8 +42,7 @@ import type {
 import type { JournalEntry } from "@suite/module-sdk/sync";
 
 // A missing operation must not invalidate another operation's verified definition.
-const commandContractKey = (call: ModuleCall) =>
-  JSON.stringify([call.moduleId, call.moduleVersion, call.operation]);
+const commandContractKey = (call: ModuleCall) => responseContractKey(call);
 
 type SavedCommand = {
   entry: JournalEntry;
@@ -96,7 +96,11 @@ export function useQueuedCommands(
       return false;
     if (
       call &&
-      !(executable ? canAccessCommand : canInspectCommand)(
+      !(
+        executable || call.action !== "operation"
+          ? canDispatchQueuedCall
+          : canInspectCommand
+      )(
         call,
         module,
         call.moduleVersion === module.version
@@ -229,6 +233,28 @@ export function useQueuedCommands(
       access(call, false, true),
     );
     return {
+      resources: {
+        async get(identity) {
+          if (!access())
+            throw Error(
+              "Current access does not allow reading this saved change.",
+            );
+          await rememberContract(
+            await readModuleStorage(props.platform, props.scope),
+            { ...identity, input: {} },
+          );
+          return adapter.resources!.get(identity);
+        },
+        async capture(call, dependencies) {
+          if (!latest.current.props.offlineEnabled)
+            throw Error(
+              "Enable offline storage in Settings before saving a pending change on this device.",
+            );
+          const receipt = await adapter.resources!.capture(call, dependencies);
+          void synchronize();
+          return receipt;
+        },
+      },
       async get(identity) {
         if (!access())
           throw Error(

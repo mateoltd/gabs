@@ -1,3 +1,7 @@
+import type {
+  ModuleResourceQueue,
+  QueuedResourceIdentity,
+} from "./queued-resource";
 import { Type, type Static } from "@sinclair/typebox";
 import type { ModuleDefinition } from "../authoring/module";
 import { assertSchema, ValidationError } from "../authoring/validation";
@@ -8,7 +12,7 @@ import { canonical } from "../contracts/registry";
 export class QueueCaptureError extends Error {
   readonly code = "QUEUED_CAPTURE_UNCONFIRMED";
   constructor(
-    readonly identity: QueuedOperationIdentity,
+    readonly identity: QueuedOperationIdentity | QueuedResourceIdentity,
     cause: unknown,
   ) {
     super(
@@ -38,7 +42,16 @@ export function isQueueCaptureError(
   )
     return false;
   const identity = value.identity as Record<string, unknown>;
-  return ["moduleId", "moduleVersion", "operation", "key"].every(
+  const fields =
+    typeof identity.operation === "string"
+      ? ["moduleId", "moduleVersion", "operation", "key"]
+      : ["moduleId", "moduleVersion", "resource", "key"];
+  if (
+    typeof identity.operation !== "string" &&
+    !["create", "update", "archive"].includes(String(identity.action))
+  )
+    return false;
+  return fields.every(
     (key) => typeof identity[key] === "string" && identity[key].length > 0,
   );
 }
@@ -63,6 +76,7 @@ export interface QueuedOperationIdentity {
   key: string;
 }
 export interface ModuleQueue {
+  resources?: ModuleResourceQueue;
   capture(call: ModuleCall, dependencies: readonly string[]): Promise<unknown>;
   get(identity: QueuedOperationIdentity): Promise<unknown>;
 }
@@ -77,12 +91,12 @@ export type QueuedOperation<I, O, E = never> = QueuedOperationIdentity & {
         error: { message: string; code?: string; businessError?: E };
       }
   );
-const keySchema = Type.String({
+export const queueKeySchema = Type.String({
   minLength: 8,
   maxLength: 128,
   pattern: "^[^\u0000]*$",
 });
-const dependenciesSchema = Type.Array(keySchema, {
+export const queueDependenciesSchema = Type.Array(queueKeySchema, {
   maxItems: 100,
   uniqueItems: true,
 });
@@ -114,7 +128,7 @@ export function createQueuedOperations<M extends ModuleDefinition>(
       operation: Type.Literal(name),
       key: Type.Literal(key),
       input: op.input,
-      dependencies: dependenciesSchema,
+      dependencies: queueDependenciesSchema,
     };
     assertSchema(
       Type.Union([
@@ -178,8 +192,8 @@ export function createQueuedOperations<M extends ModuleDefinition>(
       const capturedInput = structuredClone(input);
       const key = options.key ?? crypto.randomUUID();
       const dependencies = [...(options.dependencies ?? [])];
-      assertSchema(keySchema, key);
-      assertSchema(dependenciesSchema, dependencies);
+      assertSchema(queueKeySchema, key);
+      assertSchema(queueDependenciesSchema, dependencies);
       if (dependencies.includes(key))
         throw new ValidationError(
           "A queued operation cannot depend on itself.",
@@ -214,7 +228,7 @@ export function createQueuedOperations<M extends ModuleDefinition>(
     },
     async queued<K extends QueuedOperationName<M>>(name: K, key: string) {
       operation(name);
-      assertSchema(keySchema, key);
+      assertSchema(queueKeySchema, key);
       const result = await host().get({
         moduleId: module.id,
         moduleVersion: module.version,

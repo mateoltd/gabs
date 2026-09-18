@@ -47,12 +47,35 @@ try {
   const input = Type.Union([
     Type.Object(
       {
-        action: Type.Literal("queue"),
+        action: Type.Union([
+          Type.Literal("queue"),
+          Type.Literal("queueResource"),
+        ]),
         call,
         dependencies: Type.Array(Type.String(), {
           maxItems: 100,
           uniqueItems: true,
         }),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        action: Type.Literal("queuedResource"),
+        identity: Type.Object(
+          {
+            moduleId: Type.Literal(module.id),
+            moduleVersion: Type.Literal(module.version),
+            resource: Type.String(),
+            action: Type.Union([
+              Type.Literal("create"),
+              Type.Literal("update"),
+              Type.Literal("archive"),
+            ]),
+            key: Type.String(),
+          },
+          { additionalProperties: false },
+        ),
       },
       { additionalProperties: false },
     ),
@@ -251,6 +274,13 @@ try {
           action.call,
           action.dependencies,
         );
+      if (action.action === "queueResource")
+        result = await simulator.queue.resources!.capture(
+          action.call,
+          action.dependencies,
+        );
+      if (action.action === "queuedResource")
+        result = await simulator.queue.resources!.get(action.identity);
       if (action.action === "queued")
         result = await simulator.queue.get(action.identity);
       if (action.action === "sync") result = await simulator.sync();

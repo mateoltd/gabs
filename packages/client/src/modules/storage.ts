@@ -318,7 +318,8 @@ export async function enqueue(
     if (existing) captured = structuredClone(existing);
     if (
       existing &&
-      call.action === "operation" &&
+      (call.action === "operation" ||
+        existing.requestedDependencies !== undefined) &&
       canonical(
         [...(existing.requestedDependencies ?? existing.dependencies)].sort(),
       ) !== canonical([...dependencies].sort())
@@ -395,8 +396,8 @@ export async function enqueue(
           Type.Array(RequestKeySchema, { maxItems: 100, uniqueItems: true }),
           dependencies,
         );
-        entry.requestedDependencies = [...dependencies];
       }
+      entry.requestedDependencies = [...dependencies];
       const schema =
         call.action === "operation"
           ? module.operations[call.operation!].input

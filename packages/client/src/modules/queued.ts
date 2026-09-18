@@ -1,3 +1,4 @@
+import { createModuleResourceQueue } from "./queued-resources";
 import type {
   ModuleCall,
   ModuleQueue,
@@ -77,6 +78,7 @@ export function createModuleQueue(
     return receipt(entry);
   }
   return {
+    resources: createModuleResourceQueue(platform, scope, authorized),
     async capture(raw, dependencies) {
       const call = structuredClone(raw);
       if (

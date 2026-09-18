@@ -288,6 +288,32 @@ The return value is a state union: `pending` has delivery metadata, `accepted` a
 
 See [host acceptance and remaining recovery work](verification/queued-commands/README.md). Server validation, current permission checks and offline leases remain mandatory; supplying a queue adapter does not grant authority.
 
+### Durable custom-resource SDK contract
+
+A resource declared with `policy: "queued"` exposes `client.resource(name).queue`. Known `online` and `local` policies do not expose queued authoring in the inferred type. Runtime checks also enforce the declared policy and append-only restrictions. Existing `create`, `update` and `archive` methods continue to return confirmed server results.
+
+```ts
+const prerequisite = await client.queue("capture", { name: "Prepare contact" });
+const notes = client.resource("notes");
+const captured = await notes.queue.create(
+  { name: "Follow-up" },
+  { dependencies: [prerequisite.key] },
+);
+const receipt = await notes.queue.get("create", captured.key);
+if (receipt?.state === "accepted") {
+  // The original request's result, not a promise that the record has not changed since.
+  const base = await notes.get(receipt.value.id);
+  await notes.queue.update(base.id, { name: "Reviewed" }, base);
+  // To archive instead: notes.queue.archive(base.id, base.version).
+}
+```
+
+The update and archive examples are alternatives using a known server base; do not invent a later version from pending work. Re-read the accepted record before a subsequent versioned action. Receipts distinguish pending, accepted, rejected and conflicting work and narrow their original input by action. Only accepted receipts contain a confirmed `value`. Capture errors retain the resource/action/key through `isQueueCaptureError`; inspect that identity before considering a new request.
+
+Creation assigns a UUID record target before capture. A supplied retry key reuses the existing target; callers may also supply `id`. Retrying a key with different input or originally requested prerequisites fails. The durable journal preserves explicit command dependencies plus inferred reference and same-record ordering. A separately approved continuation may remap active prerequisites; receipts report that current scheduling graph without changing the saved request. Current view/resource permissions, storage consent and corporate leases apply to capture and lookup, and authoritative server validation still governs submission.
+
+`ModuleQueue.resources` is the optional host adapter for these methods. Corporate views and the development simulator provide it; a host without it reports an actionable unsupported-host error. This API does not grant corporate authority to a standalone workspace. Newly built custom views require `client.resources` revision 4; the current host also retains revisions 1–3 for existing signed releases. Revision compatibility does not confer permissions or enable offline storage.
+
 ### Saved command correction
 
 Rejected or conflicting commands can retain a separate review, including partial invalid input, without changing the original request or submitting work. Uncertain requests must resolve their original outcome first. Saving persists the input, current signed release, revision and explicitly selected never-submitted dependents. Stale reviews, changed dependent input and changed authority require another review.

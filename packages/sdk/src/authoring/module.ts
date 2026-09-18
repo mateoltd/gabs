@@ -52,14 +52,20 @@ export const field = {
 export interface Resource<
   S extends TSchema = TSchema,
   Standalone extends boolean = boolean,
+  Policy extends ExecutionPolicy = ExecutionPolicy,
 > {
   schema: S;
   title: string;
   columns: readonly string[];
-  policy: ExecutionPolicy;
+  policy: Policy;
   standalone: Standalone;
   appendOnly: boolean;
 }
+type ResourcePolicy<O> = O extends { policy: infer E extends ExecutionPolicy }
+  ? E
+  : O extends { policy?: infer E extends ExecutionPolicy }
+    ? E | "queued"
+    : "queued";
 export function resource<
   const P extends TProperties,
   const O extends {
@@ -78,13 +84,14 @@ export function resource<
     ? true
     : O extends { standalone?: false }
       ? false
-      : boolean
+      : boolean,
+  ResourcePolicy<O>
 > {
   return {
     schema: Type.Object(properties, { additionalProperties: false }),
     title: options.title,
     columns: options.columns ?? Object.keys(properties),
-    policy: options.policy ?? "queued",
+    policy: (options.policy ?? "queued") as ResourcePolicy<O>,
     standalone: (options.standalone ?? false) as O extends { standalone: true }
       ? true
       : O extends { standalone?: false }

@@ -57,3 +57,13 @@ export {
   type OperationContext,
   type QueryContext,
 } from "./authoring/context";
+
+export { resourceMutationSchema } from "./client/queued-resource";
+export type {
+  ModuleResourceQueue,
+  QueuedResourceIdentity,
+  QueuedResource,
+  QueuedResourceClient,
+  ResourceMutation,
+  ResourceMutationInput,
+} from "./client/queued-resource";

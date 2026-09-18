@@ -106,54 +106,66 @@ for (const workspaceOnly of [false, true])
     },
   );
 
-test("development preview captures provisional commands through the public SDK and rechecks simulated permissions", async ({
-  page,
-}) => {
-  test.setTimeout(90000);
-  const { startModuleDev } =
-    await import("../../tooling/modules/module-dev/server");
-  const { resolve } = await import("node:path");
-  const server = await startModuleDev(
-    resolve("tests/fixtures/queued-notes"),
-    0,
-  );
-  try {
-    await page.goto(server.origin);
-    await expect(page.locator("#build-status")).toHaveText(
-      "Ready. Each source or fixture change starts a fresh simulation.",
-      { timeout: 45000 },
+for (const resourcePreview of [false, true])
+  test(`development preview captures provisional ${resourcePreview ? "resources" : "commands"} through the public SDK and rechecks simulated permissions`, async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    const { startModuleDev } =
+      await import("../../tooling/modules/module-dev/server");
+    const { resolve } = await import("node:path");
+    const server = await startModuleDev(
+      resolve(
+        resourcePreview
+          ? "tests/fixtures/queued-resources"
+          : "tests/fixtures/queued-notes",
+      ),
+      0,
     );
-    const region = page.getByRole("region", {
-      name: "Custom notes workspace",
-      exact: true,
-    });
-    await page.getByLabel("Server online", { exact: true }).uncheck();
-    await region
-      .getByLabel("Note name", { exact: true })
-      .fill("Preview queued note");
-    await region
-      .getByRole("button", { name: "Save pending note", exact: true })
-      .click();
-    await expect(region.getByRole("status")).toContainText(
-      "Saved provisionally:",
-    );
-    await expect(page.locator("#records")).not.toContainText(
-      "Preview queued note",
-    );
-    await page.getByLabel("Server online", { exact: true }).check();
-    await page
-      .getByRole("button", { name: "Synchronize pending work", exact: true })
-      .click();
-    await expect(page.locator("#records")).toContainText("Preview queued note");
-    await page
-      .getByRole("button", { name: "Synchronize pending work", exact: true })
-      .click();
-    await page.getByText("Permission simulator", { exact: true }).click();
-    await page.getByLabel("custom-notes.capture", { exact: true }).uncheck();
-    await expect(
-      region.getByRole("button", { name: "Save pending note", exact: true }),
-    ).toBeDisabled();
-  } finally {
-    await server.close();
-  }
-});
+    try {
+      await page.goto(server.origin);
+      await expect(page.locator("#build-status")).toHaveText(
+        "Ready. Each source or fixture change starts a fresh simulation.",
+        { timeout: 45000 },
+      );
+      const region = page.getByRole("region", {
+        name: "Custom notes workspace",
+        exact: true,
+      });
+      await page.getByLabel("Server online", { exact: true }).uncheck();
+      await region
+        .getByLabel("Note name", { exact: true })
+        .fill("Preview queued note");
+      await region
+        .getByRole("button", { name: "Save pending note", exact: true })
+        .click();
+      await expect(region.getByRole("status")).toContainText(
+        "Saved provisionally:",
+      );
+      await expect(page.locator("#records")).not.toContainText(
+        "Preview queued note",
+      );
+      await page.getByLabel("Server online", { exact: true }).check();
+      await page
+        .getByRole("button", { name: "Synchronize pending work", exact: true })
+        .click();
+      await expect(page.locator("#records")).toContainText(
+        "Preview queued note",
+      );
+      await page
+        .getByRole("button", { name: "Synchronize pending work", exact: true })
+        .click();
+      await page.getByText("Permission simulator", { exact: true }).click();
+      await page
+        .getByLabel(
+          resourcePreview ? "custom-notes.notes.write" : "custom-notes.capture",
+          { exact: true },
+        )
+        .uncheck();
+      await expect(
+        region.getByRole("button", { name: "Save pending note", exact: true }),
+      ).toBeDisabled();
+    } finally {
+      await server.close();
+    }
+  });

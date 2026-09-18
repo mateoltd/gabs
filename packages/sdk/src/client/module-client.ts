@@ -1,3 +1,7 @@
+import {
+  createQueuedResource,
+  type QueuedResourceClient,
+} from "./queued-resource";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import {
   referenceQueryField,
@@ -72,6 +76,13 @@ export interface ResourceClient<Data = JsonRecord> {
     key?: string,
   ): Promise<ResourceRecord<Data>>;
 }
+type ModuleResourceClient<
+  M extends ModuleDefinition,
+  K extends keyof M["resources"],
+> = ResourceClient<Static<M["resources"][K]["schema"]>> &
+  ("queued" extends M["resources"][K]["policy"]
+    ? { queue: QueuedResourceClient<Static<M["resources"][K]["schema"]>> }
+    : {});
 export function createModuleClient<M extends ModuleDefinition>(
   module: M,
   send: ModuleTransport,
@@ -169,11 +180,12 @@ export function createModuleClient<M extends ModuleDefinition>(
     call,
     resource<K extends keyof M["resources"] & string>(
       name: K,
-    ): ResourceClient<Static<M["resources"][K]["schema"]>> {
+    ): ModuleResourceClient<M, K> {
       type Data = Static<M["resources"][K]["schema"]>;
       if (!Object.hasOwn(module.resources, name))
         throw new ValidationError(`Unknown resource: ${name}`);
-      const cached = resources.get(name) as ResourceClient<Data> | undefined;
+      const cached = resources.get(name) as
+        ModuleResourceClient<M, K> | undefined;
       if (cached) return cached;
       const recordSchema = resourceRecordSchema(module.resources[name].schema);
       const pageSchema = resourcePageSchema(module.resources[name].schema);
@@ -250,8 +262,19 @@ export function createModuleClient<M extends ModuleDefinition>(
           key: string = crypto.randomUUID(),
         ) => mutate("archive", { id, baseVersion: version }, key),
       };
-      resources.set(name, client);
-      return client;
+      const result = Object.assign(client, {
+        queue: createQueuedResource(
+          {
+            moduleId: module.id,
+            moduleVersion: module.version,
+            resource: name,
+          },
+          module.resources[name],
+          queue?.resources,
+        ),
+      }) as ModuleResourceClient<M, K>;
+      resources.set(name, result);
+      return result;
     },
   };
 }
