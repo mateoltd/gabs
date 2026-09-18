@@ -7,7 +7,8 @@ import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 import { publishExecutableFixture } from "./executable-fixture";
 import { selectValue } from "../e2e/controls.helpers";
 import module from "../fixtures/queued-notes/module";
-export async function commandCorrectionJourney(options: {
+import { commandRetirementJourney } from "./command-retirement-journey";
+export type CommandCorrectionOptions = {
   page: Page;
   api: APIRequestContext;
   pool: Pool;
@@ -18,7 +19,9 @@ export async function commandCorrectionJourney(options: {
     | "late-accepted"
     | "lease-expired"
     | "permission-revoked"
-    | "upgrade";
+    | "upgrade"
+    | "removed"
+    | "service-only";
   holdSettlement?(): Promise<{
     arrived(): Promise<void>;
     release(): Promise<void>;
@@ -34,16 +37,21 @@ export async function commandCorrectionJourney(options: {
     page: Page,
     scope: { userId: string; workspaceId: string },
   ): Promise<ModuleStorage>;
-}) {
+};
+export async function commandCorrectionJourney(
+  options: CommandCorrectionOptions,
+) {
   let page = options.page;
   const { api, pool, mode } = options;
   const interrupted = mode === "lease-expired" || mode === "permission-revoked";
   const evidence =
-    mode === "upgrade"
-      ? "command-upgrade"
-      : interrupted
-        ? "command-authority"
-        : "command-correction";
+    mode === "removed" || mode === "service-only"
+      ? "command-retirement"
+      : mode === "upgrade"
+        ? "command-upgrade"
+        : interrupted
+          ? "command-authority"
+          : "command-correction";
   const id = `correct-${randomUUID().slice(0, 8)}`;
   const fixtureName = `Correction notes ${id.slice(-8)}`;
   const pkg = await publishExecutableFixture({
@@ -209,6 +217,13 @@ export async function commandCorrectionJourney(options: {
   await options.wide();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
+  if (mode === "removed" || mode === "service-only") {
+    await commandRetirementJourney(
+      { ...options, page },
+      { id, fixtureName, scope, headers, pkg, before },
+    );
+    return;
+  }
   if (mode === "upgrade") {
     const next = await publishExecutableFixture({
       id,

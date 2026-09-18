@@ -40,22 +40,23 @@ export async function settleModuleAttempt(
       ? original.operations[call.operation]
       : undefined;
     found(definition);
+    const active = Object.hasOwn(current.operations, call.operation)
+      ? current.operations[call.operation]
+      : undefined;
+    // Settlement only reads an original receipt or fences its exact retry key.
+    // It never invokes a handler from either the original or installed release.
     requireCondition(
       definition &&
         definition.kind !== "query" &&
         definition.policy !== "local" &&
-        !definition.serviceOnly &&
-        !current.operations[call.operation]?.serviceOnly,
+        !definition.serviceOnly,
       403,
       "INVALID_RECOVERY_TARGET",
       "Only corporate commands can be settled here.",
     );
     requireCondition(
       ctx.permissions.includes(definition.permission) &&
-        (!current.operations[call.operation] ||
-          ctx.permissions.includes(
-            current.operations[call.operation].permission,
-          )),
+        (!active || ctx.permissions.includes(active.permission)),
       403,
       "FORBIDDEN",
       "Your role does not allow this action.",

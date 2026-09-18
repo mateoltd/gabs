@@ -220,3 +220,73 @@ it("does not authorize unknown or changed command kinds through a historical con
     expect(canAccessCommand(call, installed, original, yes)).toBe(false);
   }
 });
+
+it("permits original-input inspection but never dispatch for removed or reclassified commands", async () => {
+  const { canAccessCommand, canInspectCommand } =
+    await import("../../packages/shell/src/features/modules/views/command-permissions");
+  const { default: original } = await import("../fixtures/queued-notes/module");
+  const call = {
+    moduleId: original.id,
+    moduleVersion: original.version,
+    action: "operation" as const,
+    operation: "capture",
+    input: {},
+  };
+  for (const change of [
+    undefined,
+    { policy: "online" as const },
+    { policy: "local" as const },
+    { kind: "query" as const },
+    { serviceOnly: true },
+  ]) {
+    const installed = {
+      ...original,
+      version: "2.0.0",
+      operations: {
+        ...original.operations,
+        capture: {
+          ...original.operations.capture,
+          ...change,
+          permission: "custom-notes.capture-next",
+        },
+      },
+    };
+    if (!change)
+      delete (installed.operations as Record<string, unknown>).capture;
+    const grants = new Set([
+      original.operations.capture.permission,
+      "custom-notes.capture-next",
+    ]);
+    const allowed = (p: string) => grants.has(p);
+    expect(canInspectCommand(call, installed, original, allowed)).toBe(true);
+    expect(canAccessCommand(call, installed, original, allowed)).toBe(false);
+    grants.delete("custom-notes.capture-next");
+    expect(canInspectCommand(call, installed, original, allowed)).toBe(!change);
+    grants.delete(original.operations.capture.permission);
+    expect(canInspectCommand(call, installed, original, allowed)).toBe(false);
+    expect(
+      canInspectCommand(
+        { ...call, moduleVersion: installed.version },
+        installed,
+        original,
+        () => true,
+      ),
+    ).toBe(false);
+    expect(
+      canInspectCommand(
+        { ...call, moduleId: "foreign" },
+        installed,
+        original,
+        () => true,
+      ),
+    ).toBe(false);
+    expect(
+      canInspectCommand(
+        { ...call, resource: "notes" },
+        installed,
+        original,
+        () => true,
+      ),
+    ).toBe(false);
+  }
+});

@@ -1,4 +1,4 @@
-import { canAccessCommand } from "./command-permissions";
+import { canAccessCommand, canInspectCommand } from "./command-permissions";
 import { CommandCorrection } from "./command-correction";
 import {
   commandDependents,
@@ -38,6 +38,7 @@ type SavedCommand = {
   entry: JournalEntry;
   module: ModuleDefinition;
   review?: CommandReview;
+  reviewModule?: ModuleDefinition;
   dependents: { entry: JournalEntry; module: ModuleDefinition }[];
 };
 
@@ -68,7 +69,7 @@ export function useQueuedCommands(
   const [busy, setBusy] = React.useState(false);
   const refreshing = React.useRef(false);
   const synchronizing = React.useRef(false);
-  const access = (call?: ModuleCall, connected = false) => {
+  const access = (call?: ModuleCall, connected = false, executable = false) => {
     const p = latest.current.props;
     if (
       !mounted.current ||
@@ -82,7 +83,7 @@ export function useQueuedCommands(
       return false;
     if (
       call &&
-      !canAccessCommand(
+      !(executable ? canAccessCommand : canInspectCommand)(
         call,
         module,
         call.moduleVersion === module.version
@@ -139,12 +140,13 @@ export function useQueuedCommands(
           if (entry.state === "accepted")
             validateModuleResponse(original, entry.call, entry.result);
           const review = commandReview(state, entry.id);
+          let reviewModule: ModuleDefinition | undefined;
           if (review) {
             const reviewed = {
               ...review.source,
               moduleVersion: review.moduleVersion,
             };
-            await rememberContract(state, reviewed);
+            reviewModule = await rememberContract(state, reviewed);
             if (!access(reviewed)) continue;
           }
           const dependents = [];
@@ -156,14 +158,20 @@ export function useQueuedCommands(
               continue;
             try {
               const original = await rememberContract(state, child.call);
-              if (access(child.call))
+              if (access(child.call, false, true))
                 dependents.push({ entry: child, module: original });
             } catch (error) {
               failures.push(error);
             }
           }
           if (access(entry.call))
-            saved.push({ entry, module: original, review, dependents });
+            saved.push({
+              entry,
+              module: original,
+              review,
+              reviewModule,
+              dependents,
+            });
         } catch (error) {
           failures.push(error);
         }
@@ -213,7 +221,8 @@ export function useQueuedCommands(
         (call) => sendModuleCall(p.client, p.scope, call),
         () => access(undefined, true),
         (call) =>
-          !unavailable.has(commandContractKey(call)) && access(call, true),
+          !unavailable.has(commandContractKey(call)) &&
+          access(call, true, true),
       );
       if (mounted.current && access()) setError(failures[0]);
     } catch (error) {
@@ -229,7 +238,7 @@ export function useQueuedCommands(
   };
   const queue = React.useMemo<ModuleQueue>(() => {
     const adapter = createModuleQueue(props.platform, props.scope, (call) =>
-      access(call),
+      access(call, false, true),
     );
     return {
       async get(identity) {
@@ -299,6 +308,7 @@ export function useQueuedCommands(
             body: request.body,
           }),
         () => access(entry.call, true),
+        "saved-command",
       );
       if (mounted.current && access()) setError(undefined);
     } catch (error) {
@@ -344,7 +354,7 @@ export function useQueuedCommands(
         input,
         revision,
         (call) =>
-          access(call) &&
+          access(call, false, true) &&
           (!previous ||
             access({
               ...previous.source,
@@ -378,7 +388,7 @@ export function useQueuedCommands(
             moduleVersion: request.moduleVersion,
             body: request.body,
           }),
-        (call) => access(call, true),
+        (call) => access(call, true, true),
       );
       void synchronize();
       return result;
@@ -397,8 +407,9 @@ export function useQueuedCommands(
       )
       .map((command) => ({
         ...command,
+        executable: access(command.entry.call, false, true),
         dependents: command.dependents.filter(({ entry }) =>
-          access(entry.call),
+          access(entry.call, false, true),
         ),
       })),
     error: access() ? error : undefined,
@@ -436,88 +447,127 @@ export function SavedCommands({
           disabled={
             !state.online ||
             state.busy ||
-            !state.commands.some(({ entry }) => entry.state === "pending")
+            !state.commands.some(
+              ({ entry, executable }) =>
+                executable && entry.state === "pending",
+            )
           }
           onClick={() => void state.synchronize()}
         >
           Retry pending commands
         </ui.Button>
         <ul>
-          {state.commands.map(({ entry, module, review }) => (
-            <li key={entry.id}>
-              <h3>{module.operations[entry.call.operation!].title}</h3>
-              <p>
-                {entry.state === "pending"
-                  ? entry.delivery === "unsubmitted"
-                    ? "Pending submission"
-                    : "Outcome unknown"
-                  : entry.state === "accepted"
-                    ? "Accepted"
-                    : entry.state === "conflict"
-                      ? "Conflict"
-                      : "Rejected"}
-              </p>
-              <p>
-                Saved{" "}
-                <time dateTime={new Date(entry.createdAt).toISOString()}>
-                  {new Date(entry.createdAt).toLocaleString()}
-                </time>
-              </p>
-              {entry.error && <p>{entry.error}</p>}
-              <details>
-                <summary>Delivery details</summary>
+          {state.commands.map(
+            ({ entry, module, review, reviewModule, executable }) => (
+              <li key={entry.id}>
+                <h3>{module.operations[entry.call.operation!].title}</h3>
                 <p>
-                  Release {entry.call.moduleVersion}. Retry identity:{" "}
-                  <code>{entry.id}</code>
+                  {entry.state === "pending"
+                    ? entry.delivery === "unsubmitted"
+                      ? "Pending submission"
+                      : "Outcome unknown"
+                    : entry.state === "accepted"
+                      ? "Accepted"
+                      : entry.state === "conflict"
+                        ? "Conflict"
+                        : "Rejected"}
                 </p>
-                {!!entry.dependencies.length && (
-                  <p>Prerequisites: {entry.dependencies.join(", ")}</p>
+                <p>
+                  Saved{" "}
+                  <time dateTime={new Date(entry.createdAt).toISOString()}>
+                    {new Date(entry.createdAt).toLocaleString()}
+                  </time>
+                </p>
+                {!executable && (
+                  <p>
+                    This command is no longer available for queued execution in
+                    the installed release. Its original input and saved review
+                    remain available for recovery.
+                  </p>
                 )}
-                {entry.businessError !== undefined && (
-                  <ui.ResourceValue
-                    value={entry.businessError}
-                    schema={module.operations[entry.call.operation!].errors}
-                  />
+                {entry.settlement === "cancelled" ? (
+                  <p>
+                    The server stopped retries of this original request. Its
+                    saved input is preserved.
+                  </p>
+                ) : (
+                  entry.error && <p>{entry.error}</p>
                 )}
-              </details>
-              <details>
-                <summary>View saved input</summary>
-                <ui.ResourceValue
-                  value={entry.call.input}
-                  schema={module.operations[entry.call.operation!].input}
-                />
-              </details>
-              {entry.state === "accepted" && (
                 <details>
-                  <summary>View accepted result</summary>
+                  <summary>Delivery details</summary>
+                  <p>
+                    Release {entry.call.moduleVersion}. Retry identity:{" "}
+                    <code>{entry.id}</code>
+                  </p>
+                  {!!entry.dependencies.length && (
+                    <p>Prerequisites: {entry.dependencies.join(", ")}</p>
+                  )}
+                  {entry.businessError !== undefined && (
+                    <ui.ResourceValue
+                      value={entry.businessError}
+                      schema={module.operations[entry.call.operation!].errors}
+                    />
+                  )}
+                </details>
+                <details>
+                  <summary>View saved input</summary>
                   <ui.ResourceValue
-                    value={entry.result}
-                    schema={module.operations[entry.call.operation!].output}
+                    value={entry.call.input}
+                    schema={module.operations[entry.call.operation!].input}
                   />
                 </details>
-              )}
-              {(["rejected", "conflict"].includes(entry.state) || review) && (
-                <ui.Button
-                  disabled={state.busy}
-                  onClick={() => setReviewId(entry.id)}
-                >
-                  {review ? "Resume command review" : "Review command"}
-                </ui.Button>
-              )}
-              {entry.state === "pending" &&
-                entry.delivery !== "unsubmitted" && (
-                  <ui.Button
-                    disabled={!state.online || state.busy}
-                    onClick={() => setResolving(entry)}
-                  >
-                    Resolve outcome
-                  </ui.Button>
+                {entry.state === "accepted" && (
+                  <details>
+                    <summary>View accepted result</summary>
+                    <ui.ResourceValue
+                      value={entry.result}
+                      schema={module.operations[entry.call.operation!].output}
+                    />
+                  </details>
                 )}
-            </li>
-          ))}
+                {!executable && review && reviewModule && (
+                  <details>
+                    <summary>View saved review</summary>
+                    <p>
+                      Review release {review.moduleVersion}. This input has not
+                      been submitted.
+                    </p>
+                    <ui.ResourceValue
+                      value={review.input}
+                      schema={
+                        reviewModule.operations[entry.call.operation!].input
+                      }
+                    />
+                  </details>
+                )}
+                {executable &&
+                  (["rejected", "conflict"].includes(entry.state) ||
+                    review) && (
+                    <ui.Button
+                      disabled={state.busy}
+                      onClick={() => setReviewId(entry.id)}
+                    >
+                      {review ? "Resume command review" : "Review command"}
+                    </ui.Button>
+                  )}
+                {entry.state !== "accepted" &&
+                  entry.settlement !== "cancelled" &&
+                  (!executable ||
+                    (entry.state === "pending" &&
+                      entry.delivery !== "unsubmitted")) && (
+                    <ui.Button
+                      disabled={!state.online || state.busy}
+                      onClick={() => setResolving(entry)}
+                    >
+                      Resolve outcome
+                    </ui.Button>
+                  )}
+              </li>
+            ),
+          )}
         </ul>
       </ui.Modal>
-      {reviewing && (
+      {reviewing?.executable && (
         <CommandCorrection
           key={reviewing.entry.id}
           entry={reviewing.entry}

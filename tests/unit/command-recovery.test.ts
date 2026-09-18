@@ -668,3 +668,80 @@ it("rechecks uncertain-outcome authority after storage reads and inside the fina
     call: before[0].call,
   });
 });
+
+it("recovers retired unsubmitted, rejected and conflicting commands without replacing input, reviews or prerequisites", async () => {
+  const { settleJournalEntry } =
+    await import("../../packages/client/src/modules/settlement");
+  for (const status of ["pending", "rejected", "conflict"] as const) {
+    for (const outcome of ["accepted", "cancelled"] as const) {
+      const { platform, install, read, id } = await setup();
+      const review = await saveCommandReview(
+        platform,
+        scope,
+        id,
+        module.version,
+        { name: "Separate review" },
+        0,
+        yes,
+        [],
+      );
+      await enqueue(platform, scope, makeCall("child-key"), [id]);
+      await changeModuleStorage(platform, scope, (s) => {
+        Object.assign(s.journal[0], {
+          state: status,
+          delivery: "unsubmitted",
+          businessError: { reason: "rejected" },
+        });
+      });
+      const before = await read();
+      const installed = {
+        ...module,
+        version: "2.0.0",
+        operations: { names: module.operations.names },
+      };
+      await install(installed);
+      const settle = vi.fn(async () =>
+        outcome === "accepted"
+          ? { key: id, outcome, result: { id: "accepted-record" } }
+          : { key: id, outcome },
+      );
+      await expect(
+        settleJournalEntry(platform, scope, id, settle, yes),
+      ).rejects.toThrow("uncertain");
+      expect(settle).not.toHaveBeenCalled();
+      expect(
+        await settleJournalEntry(
+          platform,
+          scope,
+          id,
+          settle,
+          yes,
+          "saved-command",
+        ),
+      ).toBe(outcome);
+      expect(settle).toHaveBeenCalledWith({
+        moduleId: module.id,
+        moduleVersion: module.version,
+        body: {
+          key: id,
+          call: {
+            action: "operation",
+            operation: "capture",
+            input: before.journal[0].call.input,
+          },
+        },
+      });
+      const stored = await read();
+      expect(stored.journal).toHaveLength(2);
+      expect(stored.journal[0].call).toEqual(before.journal[0].call);
+      expect(stored.journal[1]).toEqual(before.journal[1]);
+      expect(commandReview(stored, id)).toEqual(review);
+      expect(stored.journal[0].state).toBe(
+        outcome === "accepted" ? "accepted" : "rejected",
+      );
+      if (outcome === "accepted")
+        expect(stored.journal[0].businessError).toBeUndefined();
+      else expect(stored.journal[0].settlement).toBe("cancelled");
+    }
+  }
+});

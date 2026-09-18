@@ -336,13 +336,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     );
   };
   const eligible = (call: ModuleCall) => {
+    // Custom-view commands require their owning view and both signed contracts.
+    // A generated resource screen must not bypass that host's dispatch checks.
+    if (call.action === "operation") return false;
     const current = recoveryContext.current;
     const definition = current.moduleCatalog.definition(call.moduleId);
     if (!definition) return false;
-    const permission =
-      call.action === "operation"
-        ? definition.operations[call.operation ?? ""]?.permission
-        : `${call.moduleId}.${call.resource}.write`;
+    const permission = `${call.moduleId}.${call.resource}.write`;
     return (
       !!permission &&
       canUse(

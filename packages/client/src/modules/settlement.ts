@@ -181,6 +181,7 @@ export async function settleJournalEntry(
   id: string,
   settle: SettlementTransport,
   authorized: () => boolean,
+  mode: "uncertain" | "saved-command" = "uncertain",
 ) {
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
@@ -196,14 +197,36 @@ export async function settleJournalEntry(
       );
       if (
         !entry ||
-        entry.state !== "pending" ||
         entry.supersededBy ||
-        entry.delivery === "unsubmitted"
+        (mode === "uncertain"
+          ? entry.state !== "pending" || entry.delivery === "unsubmitted"
+          : entry.call.action !== "operation" ||
+            !["pending", "rejected", "conflict"].includes(entry.state))
       )
         throw new JournalConflictError(
-          "Only an uncertain pending change can be resolved.",
+          mode === "uncertain"
+            ? "Only an uncertain pending change can be resolved."
+            : "Only an unresolved saved command can be resolved.",
         );
       const { call } = entry;
+      if (mode === "saved-command") {
+        const { module } = await responseContract(state, call);
+        const operation =
+          call.operation && Object.hasOwn(module.operations, call.operation)
+            ? module.operations[call.operation]
+            : undefined;
+        if (
+          !operation ||
+          operation.policy !== "queued" ||
+          operation.kind === "query" ||
+          operation.serviceOnly ||
+          call.resource ||
+          call.kind
+        )
+          throw new JournalConflictError(
+            "Only an original public queued command can be recovered here.",
+          );
+      }
       if (!authorized())
         throw Error("Current access changed before outcome recovery.");
       const result = await settleModuleCall(
@@ -231,7 +254,7 @@ export async function settleJournalEntry(
         );
         if (
           !current ||
-          current.state !== "pending" ||
+          current.state !== entry.state ||
           current.supersededBy ||
           canonical(current.call) !== canonical(call)
         )
@@ -245,6 +268,7 @@ export async function settleJournalEntry(
           current.result = result.result;
           delete current.error;
           delete current.errorCode;
+          delete current.businessError;
           delete current.settlement;
         } else {
           current.settlement = "cancelled";
