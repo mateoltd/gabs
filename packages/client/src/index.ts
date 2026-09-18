@@ -156,6 +156,7 @@ export interface DesktopBridge {
   ): Promise<unknown>;
   openBilling(url: string): Promise<void>;
   lanStatus(scope: Scope): Promise<LanStatus>;
+  onLanChanged(callback: () => void): () => void;
   setLan(scope: Scope, enabled: boolean): Promise<LanStatus>;
   authStatus(): Promise<{
     mode: "development" | "oidc" | "unconfigured";

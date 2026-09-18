@@ -9,6 +9,7 @@ import {
   type RelayEnvelope,
 } from "./transport";
 interface Host {
+  changed?(): void;
   receiveArtifact?(
     scope: Scope,
     envelope: RelayEnvelope,
@@ -136,8 +137,11 @@ export class ManagedLanSession {
         scope: { ...scope },
         generation,
         expiresAt: this.expires(this.remember(scope, policy)),
-        transport: new LanTransport(config, (envelope) =>
-          this.receive(session, envelope),
+        transport: new LanTransport(
+          config,
+          (envelope) => this.receive(session, envelope),
+          undefined,
+          () => this.host.changed?.(),
         ),
       };
       this.current = session;
@@ -171,6 +175,7 @@ export class ManagedLanSession {
     this.expiry = undefined;
     const previous = this.current;
     this.current = undefined;
+    if (previous) this.host.changed?.();
     // Cancel sockets immediately, even while a prior enable is still awaiting discovery.
     const stopped = previous?.transport.stop() ?? Promise.resolve();
     const task = this.transition.then(async () => {

@@ -51,6 +51,7 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
     },
   );
   let app: ElectronApplication | undefined;
+  let joined: LanTransport | undefined;
   try {
     await publishExecutableFixture({
       id,
@@ -86,6 +87,8 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
       BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
     );
     const page = await app.firstWindow();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page
       .getByRole("button", { name: "Open local workspace", exact: true })
@@ -146,6 +149,10 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
       .getByRole("button", { name: "Inspect local network", exact: true })
       .click();
     await expect(area.getByRole("status")).toHaveText("Local network disabled");
+    const networkStatus = page.getByRole("contentinfo", {
+      name: "Workspace status",
+    });
+    await expect(networkStatus).toHaveCount(0);
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await page
       .getByRole("button", { name: "Enable local network", exact: true })
@@ -169,6 +176,88 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
     expect(enabled.peers.map((p) => p.id)).toEqual([
       fixture.identities.b.fingerprint,
     ]);
+    await expect(networkStatus).toHaveText("Local network: 1 peer connected");
+    await expect(
+      page.getByText("1 peer connected", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("link", { name: "Network notes", exact: true })
+      .click();
+    const statusLink = networkStatus.getByRole("link");
+    await statusLink.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#local-network")).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Disable local network", exact: true }),
+    ).toBeInViewport();
+    await mkdir("docs/verification/lan-status", { recursive: true });
+    await page.screenshot({ path: "docs/verification/lan-status/wide.png" });
+    const switchWorkspace = async (value: string) => {
+      await page
+        .getByRole("button", { name: "Switch workspace", exact: true })
+        .click();
+      await page
+        .getByRole("menuitemradio")
+        .and(page.locator(`[data-value="${value}"]`))
+        .click();
+    };
+    await switchWorkspace(personalScope.workspaceId);
+    await expect(networkStatus).toHaveCount(0);
+    await switchWorkspace(workspaceId);
+    await expect(networkStatus).toHaveText("Local network: 1 peer connected");
+    // A newly authenticated peer updates the indicator without the polling fallback.
+    await statusLink.focus();
+    await foreign.stop();
+    joined = new LanTransport(fixture.config("c"), async () => {});
+    await joined.start();
+    await expect(networkStatus).toHaveText("Local network: 2 peers connected", {
+      timeout: 3000,
+    });
+    await expect(statusLink).toBeFocused();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(390, 844),
+    );
+    await expect(statusLink).toBeInViewport();
+    await statusLink.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#local-network")).toBeFocused();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({ path: "docs/verification/lan-status/narrow.png" });
+    await page.getByRole("combobox", { name: "Theme", exact: true }).click();
+    await page
+      .getByRole("option", { name: "High contrast", exact: true })
+      .click();
+    await expect(statusLink).toBeInViewport();
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .setLegacyMode()
+          .include(".workspace-status")
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+    await page.screenshot({
+      path: "docs/verification/lan-status/contrast.png",
+    });
+    await page.getByRole("combobox", { name: "Theme", exact: true }).click();
+    await page.getByRole("option", { name: "Dark", exact: true }).click();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
+    );
+    await statusLink.focus();
+    await joined.stop();
+    // Exercise the real one-minute heartbeat and its native change event.
+    await expect(networkStatus).toHaveText("Local network: 1 peer connected", {
+      timeout: 70000,
+    });
+    await expect(statusLink).toBeFocused();
+    await hidden(app);
+
     expect(
       await page.evaluate(
         (scope) => window.suiteDesktop!.lanStatus(scope),
@@ -181,10 +270,18 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
         personalScope,
       ),
     ).rejects.toThrow("peer policy must be configured");
-    await page.evaluate(
-      (scope) => window.suiteDesktop!.setLan(scope, true),
-      scope,
-    );
+    expect(
+      await page.evaluate(async (scope) => {
+        let changes = 0;
+        const unsubscribe = window.suiteDesktop!.onLanChanged(() => {
+          changes++;
+        });
+        unsubscribe();
+        unsubscribe();
+        await window.suiteDesktop!.setLan(scope, true);
+        return changes;
+      }, scope),
+    ).toBe(0);
     await page
       .getByRole("link", { name: "Network notes", exact: true })
       .click();
@@ -324,6 +421,7 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
         page.evaluate((scope) => window.suiteDesktop!.lanStatus(scope), scope),
       )
       .toMatchObject({ enabled: false, peers: [] });
+    await expect(networkStatus).toHaveCount(0, { timeout: 3000 });
     await peer.heartbeat();
     expect(peer.status().peers).toEqual([]);
     await expect(
@@ -341,13 +439,16 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
     expect(peer.status().peers.map((p) => p.id)).toEqual([
       fixture.identities.a.fingerprint,
     ]);
+    await expect(networkStatus).toHaveText("Local network: 1 peer connected");
     await page.evaluate(() => window.suiteDesktop!.logout());
+    await expect(networkStatus).toHaveCount(0, { timeout: 3000 });
     await peer.heartbeat();
     expect(peer.status().peers).toEqual([]);
     await hidden(app);
+    expect(pageErrors).toEqual([]);
   } finally {
     await app?.close();
-    await Promise.all([peer.stop(), foreign.stop()]);
+    await Promise.all([peer.stop(), foreign.stop(), joined?.stop()]);
     await pool.end();
     await rm(profile, { recursive: true, force: true });
     await fixture.close();

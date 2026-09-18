@@ -250,6 +250,12 @@ test("received drafts require review and server acceptance, survive restart, and
     await selected
       .getByRole("button", { name: "Archive draft", exact: true })
       .click();
+    await expect(
+      dialog.getByText(
+        "Draft archived. Its original contents and retry identity are retained.",
+        { exact: true },
+      ),
+    ).toBeVisible();
     expect(
       (
         await page.evaluate(

@@ -71,6 +71,13 @@ const bridge: DesktopBridge = {
     return response.result;
   },
   openBilling: (url) => ipcRenderer.invoke("suite:billing-open", url),
+  onLanChanged: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("suite:lan-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("suite:lan-changed", listener);
+    };
+  },
   lanStatus: (scope) => ipcRenderer.invoke("suite:lan-status", scope),
   setLan: (scope, enabled) =>
     ipcRenderer.invoke("suite:lan-set", scope, enabled),

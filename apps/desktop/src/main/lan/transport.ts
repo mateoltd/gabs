@@ -82,6 +82,7 @@ export class LanTransport {
     private config: LanConfig,
     private receive: (envelope: RelayEnvelope) => Promise<void>,
     private report: (message: string) => void = () => {},
+    private changed: () => void = () => {},
   ) {
     this.identity = new X509Certificate(config.cert).fingerprint256;
     this.budget = new ScanBudget([...config.addresses], this.identity);
@@ -166,6 +167,7 @@ export class LanTransport {
             this.report("Local network listener failed."),
           );
           this.server = server;
+          this.changed();
           break;
         } catch (error) {
           await this.closeListener(server);
@@ -409,12 +411,15 @@ export class LanTransport {
     topology?: Topology,
   ) {
     if (!this.permitted({ id, address, port })) return;
+    const previous = this.peers.get(id);
     this.peers.set(id, {
       address,
       port,
       seen: Date.now(),
       coordinated: !!topology,
     });
+    if (!previous || previous.address !== address || previous.port !== port)
+      this.changed();
     this.hints.delete(id);
     if (!topology) return;
     this.budget.merge(topology.budget);
@@ -518,8 +523,7 @@ export class LanTransport {
           return false;
         return this.budget.begin(address);
       } catch {
-        if (this.peers.get(coordinator) === peer)
-          this.peers.delete(coordinator);
+        if (this.peers.get(coordinator) === peer) this.forget(coordinator);
       }
     }
     return false;
@@ -577,7 +581,7 @@ export class LanTransport {
           try {
             await this.control(peer.address, peer.port, this.ping(), id);
           } catch {
-            if (this.peers.get(id) === peer) this.peers.delete(id);
+            if (this.peers.get(id) === peer) this.forget(id);
           }
         }
       };
@@ -594,6 +598,9 @@ export class LanTransport {
       },
     );
     return task;
+  }
+  private forget(id: string) {
+    if (this.peers.delete(id)) this.changed();
   }
   async relay(peerId: string, envelope: RelayEnvelope) {
     validateRelayEnvelope(envelope, this.config.workspaceId);
@@ -630,6 +637,7 @@ export class LanTransport {
       this.hints.set(id, { id, address: peer.address, port: peer.port });
     this.peers.clear();
     this.hintAttempts.clear();
+    this.changed();
     for (const socket of this.sockets) socket.destroy();
     const task = this.lifecycle.then(() => this.close());
     this.lifecycle = task.catch(() => {});

@@ -81,6 +81,10 @@ import { FeatureBoundary } from "./feature-boundary";
 import { MotionRoutes } from "./routes";
 import { client, platform } from "./runtime";
 import { AppUpdate } from "./update";
+import {
+  useLocalNetwork,
+  LocalNetworkStatus,
+} from "../features/administration/local-network-state";
 
 function LegacyModuleRoute({
   features,
@@ -650,6 +654,7 @@ export function Workspace({
         onError: handleError,
       }
     : undefined;
+  const localNetwork = useLocalNetwork(features);
   useEffect(() => {
     if (!features?.online || !catalog.data) return;
     let active = true;
@@ -1199,7 +1204,10 @@ export function Workspace({
                         >
                           <Appearance {...routeFeatures} />
                           <Billing {...routeFeatures} />
-                          <LocalNetwork {...routeFeatures} />
+                          <LocalNetwork
+                            {...routeFeatures}
+                            network={localNetwork}
+                          />
                         </Settings>
                       </>,
                     )}
@@ -1225,6 +1233,10 @@ export function Workspace({
             )}
           </PreservedSurface>
         </main>
+        <LocalNetworkStatus
+          key={`${user.id}/${workspaceId}`}
+          network={localNetwork}
+        />
       </div>
       <Modal
         open={newWorkspace}

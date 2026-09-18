@@ -557,3 +557,9 @@ Verified: 365 unit/PostgreSQL checks before the final busy-state accessibility a
 [OPS-01-MESH acceptance](lan-discovery/README.md) verifies workspace-bound mutual-TLS peer exchange, exact-pin hints, shared scan reservations, coordinator loss, bounded probe concurrency and stop/start without budget reset. Strict checks/four builds, 370 unit/PostgreSQL tests and three hidden native journeys passed. Existing SDK relay, resumable signed-package installation and received-draft recovery retain their actual authority and restart acceptance. A fresh Settings capture was inspected; no product UI changed.
 
 Partition-table convergence is a unit check, not multi-host production partition evidence. The protocol documents startup, clock, process and partition limitations. Persistent shell status, employee/offline authority, deployment certificates/platforms and all other open parity gates remain required.
+
+## Persistent LAN peer status, 18 September 2026
+
+[OPS-01-STATUS acceptance](lan-status/README.md) verifies a compact native workspace indicator, shared Settings status, main-owned lifecycle notifications, scoped stale-result invalidation and keyboard focus retained during peer changes. Strict checks/four builds, 370 unit/PostgreSQL tests, three distinct hidden native journeys with affected reruns and the headless Settings regression pass. Inspected wide/narrow/high-contrast captures and scoped Axe accompany actual TLS peer arrival/removal, one-minute heartbeat, workspace switching, subscription cleanup, lease revocation and logout evidence.
+
+The recovery regression's archive assertion now waits for the visible operation result. Final renderer corrections have fresh strict/native acceptance after the full unit run. SDK-05-LAN-AUTH is next for explicit employee grants and protected offline startup/relay. Full parity and the separately queued UI-refinement goal remain unchanged.

@@ -32,6 +32,9 @@ test("Base UI selects support keyboard selection, dismissal, and mobile layout",
     .click();
   await selectValue(page, "Workspace", company);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("contentinfo", { name: "Workspace status" }),
+  ).toHaveCount(0);
   const theme = page.getByRole("combobox", { name: "Theme", exact: true });
   await theme.click();
   await expect(page.getByRole("listbox", { name: /Theme/ })).toBeVisible();

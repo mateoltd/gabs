@@ -10,7 +10,9 @@ import {
   SelectOption,
 } from "@suite/ui-web";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router";
+import { peerCount, type LocalNetworkState } from "./local-network-state";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./module-lifecycle";
 import { ReceivedDrafts } from "./received-drafts";
@@ -184,30 +186,37 @@ export function Billing(props: FeatureProps) {
     </section>
   );
 }
-export function LocalNetwork(props: FeatureProps) {
+export function LocalNetwork(
+  props: FeatureProps & { network: LocalNetworkState },
+) {
   const native = window.suiteDesktop;
-  const state = useQuery({
-    queryKey: [props.scope.userId, props.scope.workspaceId, "lan"],
-    enabled: !!native,
-    queryFn: () => native!.lanStatus(props.scope),
-    refetchInterval: 15000,
-  });
+  const state = props.network;
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash === "#local-network")
+      document.getElementById("local-network")?.focus();
+  }, [hash]);
   const [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
-  if (!native || !props.bootstrap.permissions.includes("modules.manage"))
-    return null;
+  if (!native || !state.allowed) return null;
   return (
     <section className="panel">
-      <h2>Local network</h2>
+      <h2 id="local-network" tabIndex={-1}>
+        Local network
+      </h2>
       <p>
-        {state.data?.configured
-          ? "Exchange authorized packages and pending changes with managed devices. Business changes still need server acceptance."
-          : "Managed device certificates and a peer policy are required before local networking can be enabled."}
+        {state.isSuccess && !state.data?.configured
+          ? "Managed device certificates and a peer policy are required before local networking can be enabled."
+          : "Exchange authorized packages and pending changes with managed devices. Business changes still need server acceptance."}
       </p>
       <p>
-        {state.data?.enabled
-          ? `${state.data.peers.length} peers connected`
-          : "Disabled"}
+        {state.isPending
+          ? "Checking local network…"
+          : state.isError
+            ? "Local network status unavailable"
+            : state.data?.enabled
+              ? peerCount(state.data.peers.length)
+              : "Disabled"}
       </p>
       <div className="module-toolbar">
         <Button

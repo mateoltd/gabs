@@ -126,7 +126,17 @@ const lanConfigured = (scope?: Scope) =>
     process.env.SUITE_LAN_WORKSPACE &&
     (!scope || scope.workspaceId === process.env.SUITE_LAN_WORKSPACE)
   );
+let lanChangePending = false;
 const lan: ManagedLanSession = new ManagedLanSession({
+  changed: () => {
+    if (lanChangePending) return;
+    lanChangePending = true;
+    queueMicrotask(() => {
+      lanChangePending = false;
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed())
+        win.webContents.send("suite:lan-changed");
+    });
+  },
   retained: async (scope, envelope) => {
     await ensureCache();
     validateScope(scope, userId);
