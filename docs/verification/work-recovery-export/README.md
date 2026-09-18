@@ -33,3 +33,7 @@ The delayed-revocation assertion now accepts either the explicit denial alert or
 ## Limits and next work
 
 Workspace-wide scheduling, remaining source-schema/legacy transitions, cross-module/resource dependents, submitted-child outcomes, custom/archive descendants, full scheduling simulation and OFF-03 profile/sign-out recovery remain required. Unknown legacy source versions remain unavailable rather than inferred. Export alone does not satisfy recovery/import or permanent-revocation journeys. Earlier intermittent native linked-dialog and concurrent Orders draft failures remain tracked; these passing runs do not establish their causes. Provider, signed-release, remote CI and broader parity gates remain separate.
+
+## Reliability follow-up, 19 September 2026
+
+The later [command-continuation regression](../command-continuation/README.md) observed one native `resource-uninstalled` failure while exporting saved work after permission restoration and offline restart: `Reconnect to authorize recovery export.` The unchanged journey passed its focused rerun. This does not establish a fix. OFF-01-EXPORT now tracks deterministic recovery preparation and stale-response/reauthentication analysis; the historical milestone above does not close this follow-up.

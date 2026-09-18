@@ -7,6 +7,7 @@ import { commandCorrectionJourney } from "../support/command-correction-journey"
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 test.use({ actionTimeout: 15000 });
 for (const mode of [
+  "cross-module",
   "rejected",
   "uncertain",
   "late-accepted",

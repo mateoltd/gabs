@@ -20,6 +20,13 @@ import {
 } from "./journal";
 import { settleModuleCall, type SettlementTransport } from "./settlement";
 
+// The dependent identity comes from the journal, including older calls without an embedded key.
+type CommandAuthorization = (
+  call: ModuleCall,
+  state: ModuleStorage,
+  dependentId?: string,
+) => boolean;
+
 export interface CommandContinuation {
   id: string;
   fingerprint: string;
@@ -109,7 +116,7 @@ export async function saveCommandReview(
   moduleVersion: string,
   input: unknown,
   expectedRevision: number,
-  authorized: (call: ModuleCall) => boolean,
+  authorized: CommandAuthorization,
   continuations: readonly CommandContinuation[] = [],
 ): Promise<CommandReview> {
   const snapshot = structuredClone(input);
@@ -119,7 +126,7 @@ export async function saveCommandReview(
     const entry = original(state, scope, id);
     reviewable(entry);
     const call = correction(entry, { moduleVersion, input: snapshot });
-    if (!authorized(entry.call) || !authorized(call))
+    if (!authorized(entry.call, state) || !authorized(call, state))
       throw Error("Current access does not allow reviewing this command.");
     const previous = commandReview(state, id);
     if (
@@ -140,7 +147,7 @@ export async function saveCommandReview(
       const child = eligible.get(choice.id);
       if (
         !child ||
-        !authorized(child.call) ||
+        !authorized(child.call, state, child.id) ||
         commandContinuation(child).fingerprint !== choice.fingerprint
       )
         throw new JournalConflictError(
@@ -149,9 +156,12 @@ export async function saveCommandReview(
     }
     const verified = await contract(state, call);
     if (
-      !authorized(entry.call) ||
-      !authorized(call) ||
-      choices.some((choice) => !authorized(eligible.get(choice.id)!.call))
+      !authorized(entry.call, state) ||
+      !authorized(call, state) ||
+      choices.some(
+        (choice) =>
+          !authorized(eligible.get(choice.id)!.call, state, choice.id),
+      )
     )
       throw Error("Current access changed before the review could be saved.");
     saved = {
@@ -203,7 +213,7 @@ export async function replaceCommand(
   key: string,
   continuations: readonly CommandContinuation[],
   settle: SettlementTransport,
-  authorized: (call: ModuleCall) => boolean,
+  authorized: CommandAuthorization,
 ): Promise<"accepted" | "replaced"> {
   assertSchema(RequestKeySchema, key);
   if (id === key)
@@ -234,7 +244,7 @@ export async function replaceCommand(
           "Save the selected dependent review before submitting.",
         );
       const call = correction(entry, review, key);
-      if (!authorized(entry.call) || !authorized(call))
+      if (!authorized(entry.call, state) || !authorized(call, state))
         throw Error(
           "Reconnect with current command access before submitting a correction.",
         );
@@ -248,7 +258,7 @@ export async function replaceCommand(
         const child = selected.get(choice.id);
         if (
           !child ||
-          !authorized(child.call) ||
+          !authorized(child.call, state, child.id) ||
           commandContinuation(child).fingerprint !== choice.fingerprint
         )
           throw new JournalConflictError(
@@ -260,7 +270,7 @@ export async function replaceCommand(
           dependencies: canonical(child.dependencies),
         };
       });
-      if (!authorized(entry.call) || !authorized(call))
+      if (!authorized(entry.call, state) || !authorized(call, state))
         throw Error("Current access changed before command recovery.");
       const outcome = await settleModuleCall(
         { ...entry.call, key: id },
@@ -270,7 +280,7 @@ export async function replaceCommand(
           validateModuleResponse(originalContract.module, entry.call, result);
         },
       );
-      if (!authorized(entry.call) || !authorized(call))
+      if (!authorized(entry.call, state) || !authorized(call, state))
         throw Error(
           "Current access changed during recovery. The original identity and review are preserved.",
         );
@@ -283,7 +293,7 @@ export async function replaceCommand(
           throw new JournalConflictError(
             "The saved command changed during recovery. Reopen its current outcome.",
           );
-        if (!authorized(current.call))
+        if (!authorized(current.call, stored))
           throw Error("Current access changed during recovery.");
         delete current.delivery;
         delete current.errorCode;
@@ -328,7 +338,7 @@ export async function replaceCommand(
           const child = available.get(approval.id);
           if (
             !child ||
-            !authorized(child.call) ||
+            !authorized(child.call, stored, child.id) ||
             canonical(child.call) !== approval.call ||
             canonical(child.dependencies) !== approval.dependencies
           )
@@ -381,9 +391,11 @@ export async function replaceCommand(
           nextContract.contract;
         assertJournalOrder(stored.journal, scope);
         if (
-          !authorized(current.call) ||
-          !authorized(call) ||
-          approved.some(({ id }) => !authorized(available.get(id)!.call))
+          !authorized(current.call, stored) ||
+          !authorized(call, stored) ||
+          approved.some(
+            ({ id }) => !authorized(available.get(id)!.call, stored, id),
+          )
         )
           throw Error(
             "Current access changed before the correction could be saved.",

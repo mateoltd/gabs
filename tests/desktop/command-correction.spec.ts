@@ -27,6 +27,7 @@ type CaptureState = typeof globalThis & {
 };
 test.use({ actionTimeout: 15000 });
 for (const mode of [
+  "cross-module",
   "rejected",
   "uncertain",
   "late-accepted",

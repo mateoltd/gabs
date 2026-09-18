@@ -56,6 +56,7 @@ export function CommandCorrection({
         commandContinuation(entry).fingerprint === choice.fingerprint,
     ),
   );
+  const unavailable = selected.length - currentSelection.length;
   const [valid, setValid] = React.useState(false);
   const [confirm, setConfirm] = React.useState(false);
   const key = React.useRef(crypto.randomUUID());
@@ -74,8 +75,12 @@ export function CommandCorrection({
     (!saved ||
       saved.moduleVersion !== module.version ||
       canonical(saved.input) !== canonical(input) ||
-      canonical(saved.continuations ?? []) !== canonical(currentSelection));
+      canonical(saved.continuations ?? []) !== canonical(selected));
   const persist = async () => {
+    if (unavailable)
+      throw Error(
+        "Review unavailable selections before saving this correction.",
+      );
     const next = await save(input, revision, currentSelection);
     setSaved(next);
     setRevision(next.revision);
@@ -131,14 +136,16 @@ export function CommandCorrection({
         </fieldset>
         {!!dependents.length && (
           <fieldset disabled={busy || !editable}>
-            <legend>Dependent commands</legend>
+            <legend>Dependent changes</legend>
             <p>
-              Select only commands whose existing input should continue after
-              this correction. Unselected work keeps waiting on the original
+              Select only changes whose existing input should continue after
+              this correction. Their record targets, input and retry identities
+              stay unchanged. Unselected work keeps waiting on the original
               request.
             </p>
             {dependents.map(({ entry: child, module: original }) => (
               <div key={child.id}>
+                <p>{original.name}</p>
                 <label>
                   <input
                     type="checkbox"
@@ -156,15 +163,50 @@ export function CommandCorrection({
                       )
                     }
                   />{" "}
-                  Continue {original.operations[child.call.operation!].title}
+                  Continue{" "}
+                  {child.call.action === "operation"
+                    ? original.operations[child.call.operation!].title
+                    : `${child.call.action === "create" ? "Create" : child.call.action === "update" ? "Update" : "Archive"} ${original.resources[child.call.resource!].title}`}
                 </label>
                 <ui.ResourceValue
                   value={child.call.input}
-                  schema={original.operations[child.call.operation!].input}
+                  schema={
+                    child.call.action === "operation"
+                      ? original.operations[child.call.operation!].input
+                      : Type.Object({
+                          data: original.resources[child.call.resource!].schema,
+                          baseData:
+                            original.resources[child.call.resource!].schema,
+                        })
+                  }
                 />
+                <details>
+                  <summary>Delivery details</summary>
+                  <p>
+                    Release {child.call.moduleVersion}. Retry identity:{" "}
+                    <code>{child.id}</code>
+                  </p>
+                </details>
               </div>
             ))}
           </fieldset>
+        )}
+        {editable && !!unavailable && (
+          <div role="status">
+            <p>
+              {unavailable} selected{" "}
+              {unavailable === 1 ? "change is" : "changes are"} no longer
+              available under current access or have changed. Their saved
+              selection is retained. Restore access or explicitly remove these
+              selections before continuing.
+            </p>
+            <ui.Button
+              disabled={busy || !editable}
+              onClick={() => setSelected(currentSelection)}
+            >
+              Remove unavailable selections
+            </ui.Button>
+          </div>
         )}
         <p role="status">
           {dirty
@@ -173,7 +215,7 @@ export function CommandCorrection({
         </p>
         <div className="actions">
           <ui.Button
-            disabled={busy || !editable || !dirty}
+            disabled={busy || !editable || !dirty || !!unavailable}
             onClick={() => {
               setError(undefined);
               void persist().catch(setError);
@@ -182,7 +224,7 @@ export function CommandCorrection({
             Save review
           </ui.Button>
           <ui.Button
-            disabled={busy || !online || !editable || !valid}
+            disabled={busy || !online || !editable || !valid || !!unavailable}
             onClick={() => setConfirm(true)}
           >
             Prepare corrected command
@@ -197,11 +239,18 @@ export function CommandCorrection({
       >
         <ui.ErrorMessage error={error} />
         <p>
-          {currentSelection.length} dependent commands selected to continue with
-          their existing input.
+          {currentSelection.length} dependent{" "}
+          {currentSelection.length === 1 ? "change" : "changes"} selected to
+          continue with their existing input.
         </p>
+        {!!unavailable && (
+          <p role="status">
+            A selected change became unavailable. Close this dialog to review
+            the saved selections before continuing.
+          </p>
+        )}
         <ui.Button
-          disabled={busy || !online || !valid}
+          disabled={busy || !online || !valid || !!unavailable}
           onClick={() => {
             setError(undefined);
             void (async () => {

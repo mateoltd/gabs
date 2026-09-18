@@ -2,6 +2,12 @@ import { synchronizeWorkspace } from "../synchronization/run";
 import { SavedWorkExport } from "../recovery/export";
 import { canReadSavedWork } from "../recovery/access";
 import {
+  canContinue,
+  continuationKey,
+  prepareContinuation,
+  type ContinuationAccess,
+} from "../recovery/continuation";
+import {
   canAccessCommand,
   canInspectCommand,
 } from "@suite/client/module-dispatch";
@@ -56,6 +62,7 @@ export function useQueuedCommands(
   const latest = React.useRef({ props, executing, module });
   latest.current = { props, executing, module };
   const contracts = React.useRef(new Map<string, ModuleDefinition>());
+  const continuations = React.useRef(new Map<string, ContinuationAccess>());
   const rememberContract = async (state: ModuleStorage, call: ModuleCall) => {
     const key = commandContractKey(call);
     try {
@@ -102,6 +109,18 @@ export function useQueuedCommands(
       return false;
     return canReadSavedWork(p, connected);
   };
+  const continuationAccess = (
+    call: ModuleCall,
+    connected = false,
+    state?: ModuleStorage,
+  ) =>
+    access(undefined, connected, true) &&
+    canContinue(
+      latest.current.props,
+      call,
+      continuations.current.get(continuationKey(call)),
+      state,
+    );
   const refresh = async () => {
     if (refreshing.current) return;
     if (!access()) {
@@ -140,16 +159,18 @@ export function useQueuedCommands(
           }
           const dependents = [];
           for (const child of commandDependents(state, p.scope, entry.id)) {
-            if (
-              child.call.moduleId !== module.id ||
-              child.call.action !== "operation"
-            )
-              continue;
+            const key = continuationKey(child.call);
             try {
-              const original = await rememberContract(state, child.call);
-              if (access(child.call, false, true))
-                dependents.push({ entry: child, module: original });
+              const prepared = await prepareContinuation(p, state, child.call);
+              if (!prepared) {
+                continuations.current.delete(key);
+                continue;
+              }
+              continuations.current.set(key, prepared);
+              if (continuationAccess(child.call, false, state))
+                dependents.push({ entry: child, module: prepared.original });
             } catch (error) {
+              continuations.current.delete(key);
               failures.push(error);
             }
           }
@@ -317,8 +338,10 @@ export function useQueuedCommands(
         module.version,
         input,
         revision,
-        (call) =>
-          access(call, false, true) &&
+        (call, state, dependentId) =>
+          (dependentId
+            ? continuationAccess(call, false, state)
+            : access(call, false, true)) &&
           (!previous ||
             access({
               ...previous.source,
@@ -352,7 +375,10 @@ export function useQueuedCommands(
             moduleVersion: request.moduleVersion,
             body: request.body,
           }),
-        (call) => access(call, true, true),
+        (call, state, dependentId) =>
+          dependentId
+            ? continuationAccess(call, true, state)
+            : access(call, true, true),
       );
       void synchronize();
       return result;
@@ -374,7 +400,7 @@ export function useQueuedCommands(
         ...command,
         executable: access(command.entry.call, false, true),
         dependents: command.dependents.filter(({ entry }) =>
-          access(entry.call, false, true),
+          continuationAccess(entry.call),
         ),
       })),
     recoveryProps:

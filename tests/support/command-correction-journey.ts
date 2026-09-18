@@ -1,3 +1,4 @@
+import { commandContinuationJourney } from "./command-continuation-journey";
 import { resourceHostJourney } from "./resource-host-journey";
 import {
   expect,
@@ -20,6 +21,7 @@ export type CommandCorrectionOptions = {
   pool: Pool;
   kind: "web" | "native";
   mode:
+    | "cross-module"
     | "rejected"
     | "uncertain"
     | "late-accepted"
@@ -58,6 +60,8 @@ export type CommandCorrectionOptions = {
 export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
+  if (options.mode === "cross-module")
+    return commandContinuationJourney(options);
   if (
     options.mode === "resource-viewless" ||
     options.mode === "resource-uninstalled"
@@ -610,6 +614,12 @@ export async function commandCorrectionJourney(
         ?.input,
     ).toEqual({ name: "Corrected parent" });
     await expect(review).toContainText("The original command was accepted");
+    await expect(
+      review.getByRole("button", {
+        name: "Remove unavailable selections",
+        exact: true,
+      }),
+    ).toHaveCount(0);
     await expect(review).toContainText("Review saved on this device.");
     await expect(review).not.toContainText("Review has unsaved changes.");
     await expect(
