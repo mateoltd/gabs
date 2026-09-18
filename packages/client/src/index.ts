@@ -93,6 +93,7 @@ export interface LanReceipt {
   state:
     "received" | "pending" | "accepted" | "rejected" | "conflict" | "invalid";
   moduleId?: string;
+  moduleVersion?: string;
   action?: string;
   target?: string;
   input?: unknown;

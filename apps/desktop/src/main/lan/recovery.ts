@@ -10,7 +10,11 @@ import {
   type ArchivedReceipt,
 } from "./receipts";
 import { createHash } from "node:crypto";
-import { BootstrapSchema, type OperationRequest } from "@suite/contracts";
+import {
+  BootstrapSchema,
+  ReceiptLookupResultSchema,
+  type OperationRequest,
+} from "@suite/contracts";
 import {
   Type,
   assertSchema,
@@ -22,7 +26,7 @@ import {
 import { assertPendingRelay } from "@suite/module-sdk/relay";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
 import { verifyArtifact } from "@suite/module-sdk/verification";
-import type { SignedArtifact } from "@suite/module-sdk/platform";
+import { SignedArtifactSchema } from "@suite/module-sdk/platform";
 import type { Scope, LanReceipt } from "@suite/client";
 import { validateRelayEnvelope, type RelayEnvelope } from "./transport";
 import type { RecoveryAccess } from "./recovery/authority";
@@ -199,6 +203,7 @@ export class LanRecovery {
         items.push({
           ...base,
           moduleId: entry.call.moduleId,
+          moduleVersion: entry.call.moduleVersion,
           action: entry.call.action,
           target: entry.call.resource ?? entry.call.operation ?? "",
           input: entry.call.input,
@@ -434,34 +439,53 @@ export class LanRecovery {
           "This retry identity already belongs to different content.",
         );
       if (previous?.state === "accepted") return;
+      const unresolved: string[] = [];
       for (const dependency of entry.dependencies) {
         if ((await this.outcome(scope, dependency))?.state !== "accepted")
+          unresolved.push(dependency);
+      }
+      if (unresolved.length) {
+        const reply = await this.host.request({
+          operation: "moduleReceipts",
+          params: { workspaceId: scope.workspaceId },
+          body: { keys: unresolved },
+        });
+        this.check(scope, generation);
+        if (reply.status !== 200)
+          throw Error(
+            "The server could not confirm this draft's prerequisites. Reconnect and retry; the draft is preserved.",
+          );
+        assertSchema(ReceiptLookupResultSchema, reply.body);
+        const acknowledged = new Set(reply.body.accepted);
+        if (unresolved.some((key) => !acknowledged.has(key)))
           throw Error(
             "Submit and confirm this draft's dependencies before retrying. Unrelated drafts can still be submitted.",
           );
       }
       const trust = await this.host.request({ operation: "moduleTrust" });
       const release = await this.host.request({
-        operation: "moduleArtifact",
+        operation: "moduleReceiptArtifact",
         params: {
           workspaceId: scope.workspaceId,
           moduleId: entry.call.moduleId,
         },
+        query: { version: entry.call.moduleVersion },
       });
       this.check(scope, generation);
       if (trust.status !== 200 || release.status !== 200)
         throw Error(
-          "Current module access and its signed release are required before submission.",
+          "Current module access and the draft's original signed release are required before submission.",
         );
       assertSchema(Type.Object({ publicKey: Type.String() }), trust.body);
-      const pkg = release.body as SignedArtifact;
+      assertSchema(SignedArtifactSchema, release.body);
+      const pkg = release.body;
       await verifyArtifact(pkg, trust.body.publicKey);
       if (
         pkg.module_id !== entry.call.moduleId ||
         pkg.version !== entry.call.moduleVersion
       )
         throw Error(
-          "The draft's original module release is not active. Restore a compatible authorized release before submitting.",
+          "The signed recovery contract does not match this draft's original module release.",
         );
       const module = hydrateModule(moduleContract(pkg.artifact));
       const call = entry.call;
@@ -561,11 +585,13 @@ export class LanRecovery {
           outcome.state = [409, 412].includes(result.status)
             ? "conflict"
             : "rejected";
-          const body = result.body as { message?: unknown };
+          const body = result.body as { message?: unknown; code?: unknown };
           outcome.message =
-            typeof body?.message === "string"
-              ? body.message.slice(0, 1000)
-              : "The server rejected this draft.";
+            body?.code === "MODULE_UPDATE_REQUIRED"
+              ? `This draft uses ${call.moduleId} ${call.moduleVersion}. An administrator must permit its compatible original release before a new submission can succeed. Keep or export the draft for review; its original retry identity is preserved.`
+              : typeof body?.message === "string"
+                ? body.message.slice(0, 1000)
+                : "The server rejected this draft.";
         }
       } catch {
         // A missing or unverifiable response cannot establish whether the server committed.

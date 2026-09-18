@@ -1,0 +1,17 @@
+import { Type, type Static } from "@sinclair/typebox";
+const key = Type.String({ minLength: 8, maxLength: 128, pattern: "^[\\w-]+$" });
+/** A read-only lookup. Unknown and currently inaccessible keys are indistinguishable. */
+export const ReceiptLookupSchema = Type.Object(
+  {
+    keys: Type.Array(key, { maxItems: 100, uniqueItems: true }),
+  },
+  { additionalProperties: false },
+);
+export const ReceiptLookupResultSchema = Type.Object(
+  {
+    accepted: Type.Array(key, { maxItems: 100, uniqueItems: true }),
+  },
+  { additionalProperties: false },
+);
+export type ReceiptLookup = Static<typeof ReceiptLookupSchema>;
+export type ReceiptLookupResult = Static<typeof ReceiptLookupResultSchema>;

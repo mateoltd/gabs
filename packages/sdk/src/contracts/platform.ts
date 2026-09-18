@@ -34,15 +34,16 @@ export interface PlatformState {
   config: { moduleId: string; config: Record<string, unknown> }[];
   permissionSources: Record<string, { grants: string[]; denies: string[] }>;
 }
-export interface SignedArtifact {
-  module_id: string;
-  version: string;
-  manifest: Record<string, unknown>;
-  digest: string;
-  signature: string;
-  key_id: string;
-  artifact: Record<string, unknown>;
-}
+export const SignedArtifactSchema = Type.Object({
+  module_id: Type.String(),
+  version: Type.String(),
+  manifest: Type.Record(Type.String(), Type.Unknown()),
+  digest: Type.String(),
+  signature: Type.String(),
+  key_id: Type.String(),
+  artifact: Type.Record(Type.String(), Type.Unknown()),
+});
+export type SignedArtifact = Static<typeof SignedArtifactSchema>;
 
 export type ArtifactMetadata = Omit<SignedArtifact, "artifact">;
 

@@ -1,4 +1,10 @@
 import { CapabilityReviewSchema } from "@suite/module-sdk/capability-review";
+import {
+  ReceiptLookupSchema,
+  ReceiptLookupResultSchema,
+  type ReceiptLookup,
+} from "@suite/contracts";
+import { lookupModuleReceipts } from "@suite/server-core/runtime/receipts";
 import { reviewModuleCapabilities } from "@suite/server-core/governance/capability-review";
 import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
 import {
@@ -35,6 +41,7 @@ import {
   InstallationReportSchema,
   type InstallationReport,
   ModuleRolloutSchema,
+  SignedArtifactSchema,
 } from "@suite/module-sdk/platform";
 import {
   clientModule,
@@ -1387,6 +1394,83 @@ export async function registerPlatform(
           },
         );
       }),
+  );
+  app.post<{ Params: { workspaceId: string }; Body: ReceiptLookup }>(
+    "/api/v1/workspaces/:workspaceId/module-receipts",
+    {
+      validatorCompiler: resourceValidator,
+      schema: {
+        operationId: "moduleReceipts",
+        params: T.Object({ workspaceId: id }),
+        body: ReceiptLookupSchema,
+        response: { 200: ReceiptLookupResultSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(
+        db,
+        req.params.workspaceId,
+        async (tx) => {
+          const ctx = await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+          );
+          return lookupModuleReceipts(tx, ctx, req.body.keys);
+        },
+        { readOnly: true, snapshot: true },
+      ),
+  );
+  app.get<{
+    Params: { workspaceId: string; moduleId: string };
+    Querystring: { version: string };
+  }>(
+    "/api/v1/module/:moduleId/workspaces/:workspaceId/receipt-artifact",
+    {
+      schema: {
+        operationId: "moduleReceiptArtifact",
+        params: T.Object({ workspaceId: id, moduleId: slug }),
+        querystring: T.Object(
+          {
+            version: T.String({
+              minLength: 1,
+              maxLength: 40,
+              pattern: "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+            }),
+          },
+          { additionalProperties: false },
+        ),
+        response: { 200: SignedArtifactSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(
+        db,
+        req.params.workspaceId,
+        async (tx) => {
+          await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+            undefined,
+            req.params.moduleId,
+          );
+          const release = found(
+            await tx
+              .selectFrom("suite.module_releases")
+              .selectAll()
+              .where("module_id", "=", req.params.moduleId)
+              .where("version", "=", req.query.version)
+              .executeTakeFirst(),
+          );
+          verifyPackage(release, await publicKey());
+          // A retained signed contract validates historical data. It never authorizes new execution.
+          return release;
+        },
+        { readOnly: true, snapshot: true },
+      ),
   );
   for (const metadataOnly of [false, true])
     app.get<{ Params: { workspaceId: string; moduleId: string } }>(

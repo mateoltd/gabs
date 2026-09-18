@@ -585,3 +585,9 @@ Passed: 385 full unit/PostgreSQL checks, 25 final focused checks, strict checks/
 [SDK-05-LAN-EMP-REC acceptance](lan-employee-recovery/README.md) verifies ordinary employee receipt review, protected offline archive/restoration/file round trips, filtered payloads/counts, expiry, permission rechecks after file dialogs and authoritative duplicate-safe retry. The extended native journey passed twice after correcting a real late-redirect race; a deterministic browser case covers that race separately.
 
 Evidence: 397 unit/PostgreSQL checks, strict environment checks/four builds, three distinct hidden native journeys, nine distinct headless controls/motion cases across affected runs, scoped Axe and inspected wide/narrow/revoked captures. Historical screenshots were restored. Fixture corrections and the route-fix timing relative to the full suite are recorded in the scoped report. SDK-05-LAN-RECON is next; full parity and the later UI refinement remain open.
+
+## Remote prerequisites and original-release recovery, 18 September 2026
+
+[SDK-05-LAN-RECON acceptance](lan-reconciliation/README.md) verifies read-only authoritative prerequisite lookup, exact signed historical contracts, explicit compatible rollout policy and original retry recovery after mandatory update/process restart. Current authority still applies; unknown dependencies and unconfirmed incompatible writes cannot report success.
+
+Passed: 400 unit/PostgreSQL checks across 74 files, strict checks/four builds, three hidden/unfocused native journeys, two headless browser journeys, scoped Axe and inspected wide/narrow captures. Native acceptance exposed a missing recovery-version query allowance in the desktop validator; the narrow correction retains malformed-version rejection and passed the complete final suite. Historical captures were restored. OFF-01 is the next independent engineering item; full SDK-05, platform parity and the later UI-refinement goal remain open.

@@ -9,7 +9,10 @@ import {
 } from "@suite/module-sdk";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
 import { verifyArtifact } from "@suite/module-sdk/verification";
-import type { SignedArtifact } from "@suite/module-sdk/platform";
+import {
+  SignedArtifactSchema as ArtifactSchema,
+  type SignedArtifact,
+} from "@suite/module-sdk/platform";
 import {
   CapabilityLeaseAuthoritySchema,
   type CapabilityLease,
@@ -56,15 +59,6 @@ export function isCapabilityTransportFailure(error: unknown): boolean {
   );
 }
 
-const ArtifactSchema = Type.Object({
-  module_id: Type.String(),
-  version: Type.String(),
-  manifest: Type.Record(Type.String(), Type.Unknown()),
-  digest: Type.String(),
-  signature: Type.String(),
-  key_id: Type.String(),
-  artifact: Type.Record(Type.String(), Type.Unknown()),
-});
 // TypeBox's portable validator has no ambient UUID-format registry.
 const NativeBootstrapSchema = Type.Object({
   ...BootstrapSchema.properties,

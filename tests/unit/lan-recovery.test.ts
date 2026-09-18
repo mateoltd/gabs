@@ -121,8 +121,18 @@ function fixture() {
       }
       if (request.operation === "moduleTrust")
         return { status: 200, body: { publicKey } };
-      if (request.operation === "moduleArtifact")
+      if (
+        request.operation === "moduleArtifact" ||
+        request.operation === "moduleReceiptArtifact"
+      )
         return { status: 200, body: pkg };
+      if (request.operation === "moduleReceipts") {
+        const { keys } = request.body as { keys: string[] };
+        return {
+          status: 200,
+          body: { accepted: keys.filter((key) => records.has(key)) },
+        };
+      }
       sent.push(request);
       if (responseStatus !== 200)
         return {
@@ -796,4 +806,47 @@ it("rechecks employee access after export and import dialogs before effects", as
     }),
   ).rejects.toThrow(/permissions|revoked/);
   expect(await f.host.inbox()).toEqual([]);
+});
+
+it("reconciles prerequisites accepted on another device without replaying their business effects", async () => {
+  const f = fixture(),
+    prerequisite = f.add();
+  await f.recovery().submit(f.scope, prerequisite.id, prerequisite.digest);
+  f.outcomes.clear(); // The receiving device does not possess the originating device's journal.
+  const dependent = f.add({ dependencies: [prerequisite.id] });
+  await f.recovery().submit(f.scope, dependent.id, dependent.digest);
+  expect(f.records.size).toBe(2);
+  expect(f.sent.map((r) => r.idempotencyKey)).toEqual([
+    prerequisite.id,
+    dependent.id,
+  ]);
+  expect(
+    (await f.recovery().list(f.scope)).find((r) => r.id === dependent.id)
+      ?.state,
+  ).toBe("accepted");
+});
+it("leaves unresolved remote dependencies pending and lets unrelated drafts proceed", async () => {
+  const f = fixture(),
+    dependent = f.add({ dependencies: [randomUUID()] }),
+    other = f.add();
+  const recovery = f.recovery();
+  await expect(
+    recovery.submit(f.scope, dependent.id, dependent.digest),
+  ).rejects.toThrow(/dependencies/);
+  expect(f.sent).toHaveLength(0);
+  expect(f.outcomes.size).toBe(0);
+  await recovery.submit(f.scope, other.id, other.digest);
+  expect(f.records.size).toBe(1);
+  const request = f.host.request;
+  f.host.request = async (value) =>
+    value.operation === "moduleReceipts"
+      ? {
+          status: 200,
+          body: { accepted: [dependent.id], unexpected: "untrusted response" },
+        }
+      : request(value);
+  await expect(
+    recovery.submit(f.scope, dependent.id, dependent.digest),
+  ).rejects.toThrow();
+  expect(f.records.size).toBe(1);
 });

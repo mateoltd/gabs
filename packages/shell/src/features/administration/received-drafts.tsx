@@ -302,6 +302,11 @@ export function ReceivedDrafts(props: FeatureProps) {
               </Button>
               <h3>{preview(receipt)}</h3>
               <p className="small">{title(receipt)}</p>
+              {receipt.moduleVersion && (
+                <p className="small">
+                  Original module release: {receipt.moduleVersion}
+                </p>
+              )}
               <p role="status">{receipt.message}</p>
               {receipt.action && (
                 <p>

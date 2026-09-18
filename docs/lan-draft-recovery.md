@@ -36,6 +36,14 @@ Local recovery remains available while the network listener is disabled. It does
 
 Receipt queries are keyed by account, workspace and authorization context. Failed or cancelled revalidation cannot retain a stale preview. Files contain no trusted accepted-state claim. A locally uncertain receipt stays uncertain through archive/file recovery; its original server retry identity resolves the outcome after reauthentication.
 
+## Prerequisites and original releases
+
+Before submission, the host resolves prerequisites from protected local outcomes or a read-only server lookup. The server acknowledges only committed module requests for the same account and workspace under current module assignment, entitlement and operation permissions. Unknown and inaccessible keys produce the same result; responses expose no business payloads. A missing acknowledgement keeps the dependent draft provisional without blocking unrelated work. Remote acknowledgements are not copied into local outcomes as if this device had verified the original contents.
+
+The review shows the draft's original module release. Submission retrieves and verifies that exact signed contract and preserves both the original version and retry key. Merely retrieving a historical contract does not authorize execution. An administrator can allow a compatible original version through the existing optional rollout policy; schema, backend, dependency and permission checks still apply. An incompatible or mandatory update blocks new old-version execution and leaves the draft available for review or export. There is no automatic conversion or substitution of a new retry identity.
+
+If the server already committed the original request, retrying can recover its recorded result even after a mandatory update. Current account, workspace, module and operation authority still apply. A lost reply remains uncertain until this authoritative retry succeeds; it never appears accepted because a peer or recovery file claims success.
+
 ## Remaining scope
 
-Dependencies accepted on another device and inactive authoring-release reconciliation remain separate required gates. Process restart plus reauthentication is supported; explicit sign-out/profile removal still requires the broader OFF-03/identity recovery work and is not covered by this milestone. Production identity providers, deployment certificates and other target platforms retain their own acceptance gates.
+Process restart plus reauthentication is supported; explicit sign-out/profile removal still requires the broader OFF-03/identity recovery work and is not covered by this milestone. Production identity providers, deployment certificates and other target platforms retain their own acceptance gates.

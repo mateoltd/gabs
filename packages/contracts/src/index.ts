@@ -1,4 +1,5 @@
 export * from "./commerce/business-cutover";
+export * from "./workspaces/receipts";
 export * from "./commerce/entities";
 export * from "./identity/permissions";
 import { OrderSchema } from "./commerce/entities";
@@ -245,6 +246,14 @@ export const OPERATIONS = {
   moduleRequest: {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/records",
+  },
+  moduleReceipts: {
+    method: "POST",
+    path: "/api/v1/workspaces/:workspaceId/module-receipts",
+  },
+  moduleReceiptArtifact: {
+    method: "GET",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/receipt-artifact",
   },
   moduleArtifactMetadata: {
     method: "GET",

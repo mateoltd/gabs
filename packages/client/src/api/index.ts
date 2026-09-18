@@ -33,7 +33,7 @@ type Result<K extends OperationId> = K extends "businessCutoverReview"
                   ? PlatformState
                   : K extends "moduleArtifactMetadata"
                     ? import("@suite/module-sdk/platform").ArtifactMetadata
-                    : K extends "moduleArtifact"
+                    : K extends "moduleArtifact" | "moduleReceiptArtifact"
                       ? SignedArtifact
                       : K extends "platformCommand"
                         ? {
@@ -163,6 +163,7 @@ export class SuiteClient {
     const controller = new AbortController();
     if (
       (OPERATIONS[request.operation].method === "GET" ||
+        request.operation === "moduleReceipts" ||
         request.operation === "moduleQuery" ||
         request.operation === "businessCutoverReview") &&
       request.params?.workspaceId
@@ -201,5 +202,7 @@ export class SuiteClient {
   }
 }
 export function isMutation(operation: OperationId) {
-  return OPERATIONS[operation].method !== "GET";
+  return (
+    operation !== "moduleReceipts" && OPERATIONS[operation].method !== "GET"
+  );
 }

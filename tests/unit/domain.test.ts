@@ -147,11 +147,22 @@ describe("offline and native boundaries", () => {
       operation: "moduleCapabilityReview",
       query: { version: "2.1.0" },
     };
-    expect(validateOperation(reviewRequest).query?.version).toBe("2.1.0");
-    for (const version of [123, "", "x".repeat(41), "../2.1.0"])
-      expect(() =>
-        validateOperation({ ...reviewRequest, query: { version } }),
-      ).toThrow();
+    for (const operation of [
+      "moduleCapabilityReview",
+      "moduleReceiptArtifact",
+    ]) {
+      expect(
+        validateOperation({ ...reviewRequest, operation }).query?.version,
+      ).toBe("2.1.0");
+      for (const version of [123, "", "x".repeat(41), "../2.1.0"])
+        expect(() =>
+          validateOperation({
+            ...reviewRequest,
+            operation,
+            query: { version },
+          }),
+        ).toThrow();
+    }
     expect(() =>
       validateOperation({ ...reviewRequest, operation: "platformState" }),
     ).toThrow();

@@ -98,7 +98,11 @@ export function validateOperation(value: unknown): OperationRequest {
           ["field", "selected"].includes(k)
         ) &&
         !(r.operation === "moduleFleet" && k === "offset") &&
-        !(r.operation === "moduleCapabilityReview" && k === "version") &&
+        !(
+          ["moduleCapabilityReview", "moduleReceiptArtifact"].includes(
+            r.operation,
+          ) && k === "version"
+        ) &&
         !(r.operation === "workspacePolicy" && k === "since"),
     )
   )
