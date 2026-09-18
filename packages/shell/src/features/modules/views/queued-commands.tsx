@@ -1,3 +1,12 @@
+import { CommandCorrection } from "./command-correction";
+import {
+  commandDependents,
+  commandReview,
+  saveCommandReview,
+  replaceCommand,
+  type CommandReview,
+  type CommandContinuation,
+} from "@suite/client/command-recovery";
 import * as React from "react";
 import * as ui from "@suite/ui-web";
 import { canReadSnapshot, canUse, type FeatureProps } from "@suite/client";
@@ -19,7 +28,12 @@ import type {
 } from "@suite/module-sdk";
 import type { JournalEntry } from "@suite/module-sdk/sync";
 
-type SavedCommand = { entry: JournalEntry; module: ModuleDefinition };
+type SavedCommand = {
+  entry: JournalEntry;
+  module: ModuleDefinition;
+  review?: CommandReview;
+  dependents: { entry: JournalEntry; module: ModuleDefinition }[];
+};
 
 /** A view owns access, while the journal owns durable input and delivery identities. */
 export function useQueuedCommands(
@@ -100,7 +114,21 @@ export function useQueuedCommands(
         const { module: original } = await responseContract(state, entry.call);
         if (entry.state === "accepted")
           validateModuleResponse(original, entry.call, entry.result);
-        if (access(entry.call)) saved.push({ entry, module: original });
+        if (access(entry.call)) {
+          const dependents = [];
+          for (const child of commandDependents(state, p.scope, entry.id)) {
+            if (!access(child.call)) continue;
+            const verified = await responseContract(state, child.call);
+            if (access(child.call))
+              dependents.push({ entry: child, module: verified.module });
+          }
+          saved.push({
+            entry,
+            module: original,
+            review: commandReview(state, entry.id),
+            dependents,
+          });
+        }
       }
       if (mounted.current)
         setCommands(
@@ -208,7 +236,75 @@ export function useQueuedCommands(
       }
     }
   };
+  const recovery = async <T,>(run: () => Promise<T>): Promise<T> => {
+    if (!mounted.current || busy)
+      throw Error("Wait for the current request to finish.");
+    const activity = latest.current.executing;
+    activity?.(1);
+    setBusy(true);
+    try {
+      return await run();
+    } finally {
+      activity?.(-1);
+      if (mounted.current) {
+        setBusy(false);
+        await refresh();
+      }
+    }
+  };
+  const saveReview = (
+    entry: JournalEntry,
+    input: unknown,
+    revision: number,
+    selected: CommandContinuation[],
+  ) =>
+    recovery(() => {
+      const p = latest.current.props;
+      return saveCommandReview(
+        p.platform,
+        p.scope,
+        entry.id,
+        module.version,
+        input,
+        revision,
+        (call) => access(call),
+        selected,
+      );
+    });
+  const replace = (
+    entry: JournalEntry,
+    review: CommandReview,
+    key: string,
+    selected: CommandContinuation[],
+  ) =>
+    recovery(async () => {
+      const p = latest.current.props;
+      const result = await replaceCommand(
+        p.platform,
+        p.scope,
+        entry.id,
+        review.revision,
+        key,
+        selected,
+        (request) =>
+          p.client.request({
+            operation: "moduleAttemptSettle",
+            params: {
+              workspaceId: p.scope.workspaceId,
+              moduleId: request.moduleId,
+            },
+            moduleVersion: request.moduleVersion,
+            body: request.body,
+          }),
+        (call) => access(call, true),
+      );
+      void synchronize();
+      return result;
+    });
   return {
+    module,
+    saveReview,
+    replace,
     queue,
     commands: commands.filter(({ entry }) => access(entry.call)),
     error: access() ? error : undefined,
@@ -226,6 +322,8 @@ export function SavedCommands({
 }) {
   const [open, setOpen] = React.useState(false);
   const [resolving, setResolving] = React.useState<JournalEntry>();
+  const [reviewId, setReviewId] = React.useState<string>();
+  const reviewing = state.commands.find(({ entry }) => entry.id === reviewId);
   if (!state.commands.length && !state.error) return null;
   return (
     <>
@@ -251,7 +349,7 @@ export function SavedCommands({
           Retry pending commands
         </ui.Button>
         <ul>
-          {state.commands.map(({ entry, module }) => (
+          {state.commands.map(({ entry, module, review }) => (
             <li key={entry.id}>
               <h3>{module.operations[entry.call.operation!].title}</h3>
               <p>
@@ -304,6 +402,14 @@ export function SavedCommands({
                   />
                 </details>
               )}
+              {(["rejected", "conflict"].includes(entry.state) || review) && (
+                <ui.Button
+                  disabled={state.busy}
+                  onClick={() => setReviewId(entry.id)}
+                >
+                  {review ? "Resume command review" : "Review command"}
+                </ui.Button>
+              )}
               {entry.state === "pending" &&
                 entry.delivery !== "unsubmitted" && (
                   <ui.Button
@@ -317,6 +423,25 @@ export function SavedCommands({
           ))}
         </ul>
       </ui.Modal>
+      {reviewing && (
+        <CommandCorrection
+          key={reviewing.entry.id}
+          entry={reviewing.entry}
+          originalModule={reviewing.module}
+          module={state.module}
+          review={reviewing.review}
+          dependents={reviewing.dependents}
+          online={state.online}
+          busy={state.busy}
+          save={(input, revision, selected) =>
+            state.saveReview(reviewing.entry, input, revision, selected)
+          }
+          replace={(review, key, selected) =>
+            state.replace(reviewing.entry, review, key, selected)
+          }
+          close={() => setReviewId(undefined)}
+        />
+      )}
       <ui.Modal
         open={
           !!resolving &&

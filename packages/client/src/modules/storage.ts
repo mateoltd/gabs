@@ -1,3 +1,4 @@
+import type { CommandReview } from "./command-recovery";
 import {
   resourceDraftKey,
   removeResourceDraft,
@@ -54,6 +55,7 @@ export interface InstallationAttempt {
   retry?: { failures: number; nextAttemptAt: number };
 }
 export interface ModuleStorage {
+  commandReviews?: Record<string, CommandReview>;
   responseContracts?: Record<string, ResponseContract>;
   installationReports?: Record<
     string,
@@ -342,12 +344,17 @@ export async function enqueue(
         replaced.call.operation !== call.operation ||
         replaced.call.resource !== call.resource ||
         replaced.call.action !== call.action ||
-        (replaced.recordRecovery?.targetId ??
-          (replaced.call.input as { id?: unknown }).id) !==
-          (call.input as { id?: unknown }).id)
+        (call.action !== "operation" &&
+          (replaced.recordRecovery?.targetId ??
+            (replaced.call.input as { id?: unknown } | null)?.id) !==
+            (call.input as { id?: unknown } | null)?.id))
     )
       throw new JournalConflictError(
         "A reviewed change must preserve its original record target.",
+      );
+    if (replaced && call.action === "operation")
+      throw new JournalConflictError(
+        "Use authoritative command recovery before replacing a saved command.",
       );
     if (
       replaced?.recordRecovery &&

@@ -18,7 +18,8 @@
     "./host": "./src/adapters/host.ts",
     "./input-recovery": "./src/recovery/input.ts",
     "./module-queue": "./src/modules/queued.ts",
-    "./module-transport": "./src/modules/transport.ts"
+    "./module-transport": "./src/modules/transport.ts",
+    "./command-recovery": "./src/modules/command-recovery.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

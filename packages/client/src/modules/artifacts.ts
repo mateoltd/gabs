@@ -155,6 +155,8 @@ export async function persistModuleArtifacts(
         (entry) => `${entry.call.moduleId}@${entry.call.moduleVersion ?? ""}`,
       ),
   );
+  for (const review of Object.values(state.commandReviews ?? {}))
+    retained.add(`${review.source.moduleId}@${review.moduleVersion}`);
   for (const [key, version] of Object.entries(state.draftVersions ?? {}))
     if (state.drafts[key]) retained.add(`${key.split("/")[0]}@${version}`);
   for (const [key, review] of Object.entries(state.draftReviews ?? {})) {

@@ -8,6 +8,28 @@ export default defineView(module, function Notes({ client, hasPermission }) {
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("");
+  const [parent, setParent] = useState<string>();
+  const capture = (dependency?: string) => {
+    setBusy(true);
+    setError(undefined);
+    void client
+      .queue(
+        "capture",
+        { name },
+        { dependencies: dependency ? [dependency] : [] },
+      )
+      .then((receipt) => {
+        setSaved(`Saved provisionally: ${receipt.key}`);
+        if (!dependency) setParent(receipt.key);
+        setName("");
+      })
+      .catch((error) => {
+        setError(error);
+        if (isQueueCaptureError(error))
+          setSaved(`Check saved identity: ${error.identity.key}`);
+      })
+      .finally(() => setBusy(false));
+  };
   return (
     <>
       <PageHeading
@@ -18,20 +40,7 @@ export default defineView(module, function Notes({ client, hasPermission }) {
         className="form-stack"
         onSubmit={(event) => {
           event.preventDefault();
-          setBusy(true);
-          setError(undefined);
-          void client
-            .queue("capture", { name })
-            .then((receipt) => {
-              setSaved(`Saved provisionally: ${receipt.key}`);
-              setName("");
-            })
-            .catch((error) => {
-              setError(error);
-              if (isQueueCaptureError(error))
-                setSaved(`Check saved identity: ${error.identity.key}`);
-            })
-            .finally(() => setBusy(false));
+          capture();
         }}
       >
         <Field label="Note name">
@@ -47,6 +56,14 @@ export default defineView(module, function Notes({ client, hasPermission }) {
           disabled={busy || !hasPermission("custom-notes.capture")}
         >
           Save pending note
+        </Button>
+        <Button
+          disabled={
+            busy || !parent || !name || !hasPermission("custom-notes.capture")
+          }
+          onClick={() => capture(parent)}
+        >
+          Save dependent note
         </Button>
         <ErrorMessage error={error} />
         <p role="status">{saved}</p>

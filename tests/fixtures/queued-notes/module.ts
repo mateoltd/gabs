@@ -19,7 +19,10 @@ export default defineModule({
     "custom-notes.notes.write",
     "custom-notes.capture",
   ],
-  configuration: Type.Object({}, { additionalProperties: false }),
+  configuration: Type.Object(
+    { allowRejected: Type.Optional(Type.Boolean()) },
+    { additionalProperties: false },
+  ),
   operations: {
     names: operation({
       kind: "query",
