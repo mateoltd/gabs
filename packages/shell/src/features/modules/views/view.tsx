@@ -1,3 +1,4 @@
+import { synchronizeWorkspace } from "../synchronization/run";
 import { sendModuleCall } from "@suite/client/module-transport";
 import { exportRecoveryInput } from "@suite/client/browser";
 import { isDefinitiveRejection } from "@suite/module-sdk/sync";
@@ -55,7 +56,6 @@ import {
   removeResourceDraft,
   enqueue,
   readModuleStorage,
-  syncModuleStorage,
   recordDependencies,
   type ModuleStorage,
 } from "@suite/client/module-storage";
@@ -335,23 +335,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           Math.max(current.bootstrap.offlineHours, 1 / 60) * 3600000
     );
   };
-  const eligible = (call: ModuleCall) => {
-    // Custom-view commands require their owning view and both signed contracts.
-    // A generated resource screen must not bypass that host's dispatch checks.
-    if (call.action === "operation") return false;
-    const current = recoveryContext.current;
-    const definition = current.moduleCatalog.definition(call.moduleId);
-    if (!definition) return false;
-    const permission = `${call.moduleId}.${call.resource}.write`;
-    return (
-      !!permission &&
-      canUse(
-        current.bootstrap,
-        call.moduleId,
-        permission,
-        current.moduleCatalog,
-      )
+  const synchronize = async () => {
+    const result = await synchronizeWorkspace(() =>
+      mounted.current ? recoveryContext.current : undefined,
     );
+    if (result.errors.length) throw result.errors[0];
   };
   const transport = (call: ModuleCall) => sendModuleCall(client, scope, call);
   const send = async (call: ModuleCall) => {
@@ -443,35 +431,6 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       active = false;
     };
   }, [scope.userId, scope.workspaceId, pageKey, online, query.dataUpdatedAt]);
-  useEffect(() => {
-    if (!online || !allowed || !resourceAvailable) return;
-    let active = true;
-    const sync = async () => {
-      try {
-        await syncModuleStorage(
-          platform,
-          scope,
-          transport,
-          authorized,
-          eligible,
-        );
-        if (active) {
-          await read();
-          await qc.invalidateQueries({
-            queryKey: [scope.userId, scope.workspaceId, moduleId],
-          });
-        }
-      } catch (e) {
-        if (active) setError(e);
-      }
-    };
-    void sync();
-    const timer = setInterval(sync, 15000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [online, allowed, bootstrap.authorizedAt, moduleId]);
   useEffect(() => {
     if (!separateCreate || !reviewedCreate || !storage) {
       setRecoveryDrafts([]);
@@ -797,7 +756,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setEditing(undefined);
       setReviewSession(undefined);
       setReviewTargetId(undefined);
-      await syncModuleStorage(platform, scope, transport, authorized, eligible);
+      await synchronize();
       await query.refetch();
     } catch (error) {
       setError(error);
@@ -903,7 +862,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         }
       }
       setSettling(undefined);
-      await syncModuleStorage(platform, scope, transport, authorized, eligible);
+      await synchronize();
       await read();
       await query.refetch();
     } catch (error) {
@@ -1019,14 +978,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         setEditing(undefined);
         setReviewSession(undefined);
         setReviewTargetId(undefined);
-        if (online)
-          await syncModuleStorage(
-            platform,
-            scope,
-            transport,
-            authorized,
-            eligible,
-          );
+        if (online) await synchronize();
       }
       if (!durable && props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (stored) => {

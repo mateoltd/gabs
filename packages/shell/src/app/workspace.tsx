@@ -1,3 +1,4 @@
+import { useWorkspaceSynchronization } from "../features/modules/synchronization";
 import {
   canReadSnapshot,
   canUse,
@@ -685,6 +686,7 @@ export function Workspace({
         onError: handleError,
       }
     : undefined;
+  useWorkspaceSynchronization(features);
   const localNetwork = useLocalNetwork(features);
   useEffect(() => {
     if (!features?.online || !catalog.data) return;

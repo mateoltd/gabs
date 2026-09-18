@@ -48,3 +48,7 @@ Eighty-five historical tracked captures were restored after the regression. Thes
 This surface covers corporate saved commands. Host-owned resource/draft recovery after losing their views, command export, general background scheduling, cross-module/resource dependents, submitted-child outcomes, profile/sign-out recovery and the remaining offline workflow map are still required. Offline inspection uses the last downloaded contract within its lease; connected server validation remains authoritative. Hosted trust rotation and signed installed-platform acceptance retain their release gates.
 
 The earlier linked-dialog close and concurrent Orders draft reliability concerns remain open; passing these journeys does not establish their causes.
+
+## Subsequent workspace scheduler
+
+The [workspace synchronization milestone](../workspace-synchronization/README.md) supersedes the earlier zero-dispatch expectation for an independent still-public command after view removal. That command now completes under current installed-release authority even with no view open; retired operations and blocked dependents still do not dispatch. Settings inspection/settlement itself remains read-only with respect to command execution. Historical counts above describe the earlier implementation.

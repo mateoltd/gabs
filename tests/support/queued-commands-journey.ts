@@ -14,6 +14,7 @@ export async function queuedCommandsJourney(options: {
   api: APIRequestContext;
   pool: Pool;
   kind: "web" | "native";
+  workspaceOnly?: boolean;
   offline(value: boolean): Promise<void>;
   restartOffline(): Promise<Page>;
   reconnect(): Promise<void>;
@@ -37,6 +38,15 @@ export async function queuedCommandsJourney(options: {
   expect(pkg.manifest.clientRequirements).toMatchObject({
     home: { "client.queue": 1 },
   });
+  const otherId = options.workspaceOnly
+    ? `queued-other-${randomUUID().slice(0, 8)}`
+    : undefined;
+  if (otherId)
+    await publishExecutableFixture({
+      id: otherId,
+      name: "Other queued notes",
+      sourceDirectory: "tests/fixtures/queued-notes",
+    });
   const me = await (await api.get("/api/v1/me")).json();
   const scope = { userId: me.user.id as string, workspaceId: randomUUID() };
   const created = await api.post("/api/v1/workspaces", {
@@ -53,16 +63,22 @@ export async function queuedCommandsJourney(options: {
   });
   expect(created.ok(), await created.text()).toBe(true);
   await assignHostFixture(pool, scope.workspaceId, id);
+  if (otherId) await assignHostFixture(pool, scope.workspaceId, otherId);
   await pool.query(
     "update suite.roles set permissions=array(select distinct unnest(permissions || $2::text[])) where workspace_id=$1 and protected",
     [
       scope.workspaceId,
-      module.permissions.map((p) => p.replaceAll(module.id, id)),
+      [id, ...(otherId ? [otherId] : [])].flatMap((id) =>
+        module.permissions.map((p) => p.replaceAll(module.id, id)),
+      ),
     ],
   );
   await page.reload();
   await selectValue(page, "Workspace", scope.workspaceId);
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Preferences", exact: true })
+    .getByRole("link", { name: "Settings", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Enable on this device", exact: true })
     .click();
@@ -72,10 +88,32 @@ export async function queuedCommandsJourney(options: {
   const open = async () => {
     await page.getByRole("link", { name: "Queued notes", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Save pending note", exact: true }),
+      page
+        .getByRole("region", { name: "Queued notes workspace", exact: true })
+        .getByRole("button", { name: "Save pending note", exact: true }),
     ).toBeVisible();
   };
   await open();
+  if (otherId) {
+    await page
+      .getByRole("link", { name: "Other queued notes", exact: true })
+      .click();
+    await expect(
+      page
+        .getByRole("region", {
+          name: "Other queued notes workspace",
+          exact: true,
+        })
+        .getByRole("button", { name: "Save pending note", exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await options.storage(page, scope)).installed[otherId]?.version,
+      )
+      .toBeTruthy();
+    await open();
+  }
   if (options.kind === "web")
     await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
@@ -102,6 +140,129 @@ export async function queuedCommandsJourney(options: {
     (await journal()).map((e) => [e.state, e.delivery, e.attempts]),
   ).toEqual(Array(3).fill(["pending", "unsubmitted", 0]));
   const originals = (await journal()).map((e) => ({ id: e.id, call: e.call }));
+  if (options.workspaceOnly) {
+    await page
+      .getByLabel("Note name", { exact: true })
+      .fill("Dependent background note");
+    await page
+      .getByRole("button", { name: "Save dependent note", exact: true })
+      .click();
+    await expect(page.getByLabel("Note name", { exact: true })).toHaveValue("");
+    const before = (await journal()).map((entry) => ({
+      id: entry.id,
+      call: entry.call,
+      dependencies: entry.dependencies,
+    }));
+    expect(before[3].dependencies).toEqual([before[2].id]);
+    await page
+      .getByRole("link", { name: "Other queued notes", exact: true })
+      .click();
+    await expect(
+      page
+        .getByRole("region", {
+          name: "Other queued notes workspace",
+          exact: true,
+        })
+        .getByRole("button", { name: "Save pending note", exact: true }),
+    ).toBeVisible();
+    await capture("Other module pending note");
+    await page
+      .getByRole("navigation", { name: "Preferences", exact: true })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
+    page = await options.restartOffline();
+    // A native cold start opens Overview. Select a host route without mounting a module.
+    await page
+      .getByRole("navigation", { name: "Preferences", exact: true })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Settings", exact: true }),
+    ).toBeVisible();
+    await options.loseReply(originals[0].id);
+    await options.reconnect();
+    await page
+      .getByRole("navigation", { name: "Preferences", exact: true })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Settings", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Save pending note", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(async () => (await journal()).map((entry) => entry.state), {
+        timeout: 60000,
+      })
+      .toEqual(["accepted", "rejected", "accepted", "accepted"]);
+    expect(
+      (await journal()).map((entry) => ({
+        id: entry.id,
+        call: entry.call,
+        dependencies: entry.dependencies,
+      })),
+    ).toEqual(before);
+    expect((await journal())[1].businessError).toEqual({ reason: "rejected" });
+    expect(
+      (await options.dispatched()).filter((key) => key === originals[0].id)
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      (
+        await pool.query(
+          "select data->>'name' name from suite.module_records where workspace_id=$1 and module_id=$2 order by name",
+          [scope.workspaceId, id],
+        )
+      ).rows.map((row) => row.name),
+    ).toEqual([
+      "Dependent background note",
+      "Independent note",
+      "Keep after restart",
+    ]);
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from suite.audit where workspace_id=$1 and action=$2",
+          [scope.workspaceId, `${id}.notes.create`],
+        )
+      ).rows[0].n,
+    ).toBe(3);
+    await expect
+      .poll(async () =>
+        (await options.storage(page, scope)).journal
+          .filter((entry) => entry.call.moduleId === otherId)
+          .map((entry) => entry.state),
+      )
+      .toEqual(["accepted"]);
+    expect(
+      (
+        await pool.query(
+          "select data->>'name' name from suite.module_records where workspace_id=$1 and module_id=$2",
+          [scope.workspaceId, otherId],
+        )
+      ).rows,
+    ).toEqual([{ name: "Other module pending note" }]);
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from suite.audit where workspace_id=$1 and action=$2",
+          [scope.workspaceId, `${otherId}.notes.create`],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    await mkdir("docs/verification/workspace-synchronization", {
+      recursive: true,
+    });
+    await page.screenshot({
+      path: `docs/verification/workspace-synchronization/${options.kind}-settings.png`,
+    });
+    await options.narrow();
+    await page.screenshot({
+      path: `docs/verification/workspace-synchronization/${options.kind}-settings-narrow.png`,
+    });
+    return;
+  }
   page = await options.restartOffline();
   await open();
   await page

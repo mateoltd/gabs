@@ -128,7 +128,7 @@ it("simulates the same provisional capture and exact-key replay API with permiss
 
 it("requires both signed original and installed command permissions across releases", async () => {
   const { canAccessCommand } =
-    await import("../../packages/shell/src/features/modules/views/command-permissions");
+    await import("../../packages/client/src/modules/dispatch");
   const { default: original } = await import("../fixtures/queued-notes/module");
   const installed = {
     ...original,
@@ -170,7 +170,7 @@ it("requires both signed original and installed command permissions across relea
 
 it("does not authorize unknown or changed command kinds through a historical contract", async () => {
   const { canAccessCommand } =
-    await import("../../packages/shell/src/features/modules/views/command-permissions");
+    await import("../../packages/client/src/modules/dispatch");
   const { default: original } = await import("../fixtures/queued-notes/module");
   const call = {
     moduleId: original.id,
@@ -223,7 +223,7 @@ it("does not authorize unknown or changed command kinds through a historical con
 
 it("permits original-input inspection but never dispatch for removed or reclassified commands", async () => {
   const { canAccessCommand, canInspectCommand } =
-    await import("../../packages/shell/src/features/modules/views/command-permissions");
+    await import("../../packages/client/src/modules/dispatch");
   const { default: original } = await import("../fixtures/queued-notes/module");
   const call = {
     moduleId: original.id,

@@ -51,3 +51,34 @@ export function canAccessCommand(
     !active.serviceOnly
   );
 }
+
+/** A captured write may execute only while both release contracts still allow queuing. */
+export function canDispatchQueuedCall(
+  call: ModuleCall,
+  installed: ModuleDefinition,
+  original: ModuleDefinition | undefined,
+  granted: (permission: string) => boolean,
+): boolean {
+  if (call.action === "operation")
+    return canAccessCommand(call, installed, original, granted);
+  if (
+    !original ||
+    original.id !== call.moduleId ||
+    original.version !== call.moduleVersion ||
+    installed.id !== call.moduleId ||
+    !call.resource ||
+    call.operation ||
+    call.kind ||
+    !["create", "update", "archive"].includes(call.action)
+  )
+    return false;
+  const resource = call.resource;
+  return (
+    Object.hasOwn(original.resources, resource) &&
+    Object.hasOwn(installed.resources, resource) &&
+    original.resources[resource].policy === "queued" &&
+    installed.resources[resource].policy === "queued" &&
+    granted(`${call.moduleId}.${resource}.read`) &&
+    granted(`${call.moduleId}.${resource}.write`)
+  );
+}

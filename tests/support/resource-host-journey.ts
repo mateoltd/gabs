@@ -189,7 +189,12 @@ export async function resourceHostJourney(options: CommandCorrectionOptions) {
     },
   );
   expect(rollout.ok(), await rollout.text()).toBe(true);
-  // Leave the generated synchronizer before reconnecting; recovery itself must never dispatch.
+  // Pause authority before reconnecting to update/uninstall. Changing routes no
+  // longer pauses queued work; Settings recovery itself still never dispatches.
+  await pool.query(
+    "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1",
+    [scope.workspaceId, `${id}.notes.write`],
+  );
   await settings();
   await options.reconnect();
   await page.reload();

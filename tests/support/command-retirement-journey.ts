@@ -484,13 +484,16 @@ export default defineView(module, function Notes() { return <PageHeading title="
   );
   expect(final[2].state).toBe("pending");
   expect(final[2].delivery).toBe("unsubmitted");
-  if (recoverySurface === "viewless")
+  if (recoverySurface === "viewless") {
+    // Removing a view does not stop a still-public, authorized queued operation.
+    // The retired operation and its blocked children above remain untouched.
     expect(final[3]).toMatchObject({
-      state: "pending",
-      delivery: "unsubmitted",
-      attempts: 0,
+      state: "accepted",
+      attempts: 1,
       dependencies: [],
     });
+    expect(final[3].delivery).toBeUndefined();
+  }
   if (recoverySurface === "uninstalled")
     expect((await options.storage(page, scope)).installed[id]).toBeUndefined();
   expect(
@@ -501,8 +504,8 @@ export default defineView(module, function Notes() { return <PageHeading title="
   expect((await repeated.json()).outcome).toBe(
     mode === "removed" ? "cancelled" : "accepted",
   );
-  // A generated resource screen can synchronize its own captured edits, but
-  // must not bypass the owning custom view's command authority checks.
+  // Workspace synchronization may submit eligible records and commands, but
+  // must never dispatch retired operations or their blocked dependents.
   await page.keyboard.press("Escape");
   await page
     .getByRole("navigation", { name: "Main navigation", exact: true })
@@ -552,7 +555,7 @@ export default defineView(module, function Notes() { return <PageHeading title="
     [scope.workspaceId, id],
   );
   expect(counts.rows[0]).toEqual({
-    records: mode === "removed" ? 0 : 1,
+    records: recoverySurface === "viewless" ? 1 : mode === "removed" ? 0 : 1,
     cancellations: mode === "removed" ? 2 : 1,
   });
   await entries()

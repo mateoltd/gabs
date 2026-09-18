@@ -1,6 +1,10 @@
+import { synchronizeWorkspace } from "../synchronization/run";
 import { SavedWorkExport } from "../recovery/export";
 import { canReadSavedWork } from "../recovery/access";
-import { canAccessCommand, canInspectCommand } from "./command-permissions";
+import {
+  canAccessCommand,
+  canInspectCommand,
+} from "@suite/client/module-dispatch";
 import { CommandCorrection } from "./command-correction";
 import {
   commandDependents,
@@ -16,7 +20,6 @@ import { canUse, type FeatureProps } from "@suite/client";
 import { createModuleQueue } from "@suite/client/module-queue";
 import {
   readModuleStorage,
-  syncModuleStorage,
   type ModuleStorage,
 } from "@suite/client/module-storage";
 import {
@@ -24,7 +27,6 @@ import {
   validateModuleResponse,
 } from "@suite/client/module-response";
 import { settleJournalEntry } from "@suite/client/module-settlement";
-import { sendModuleCall } from "@suite/client/module-transport";
 import type {
   ModuleCall,
   ModuleDefinition,
@@ -182,41 +184,14 @@ export function useQueuedCommands(
     )
       return;
     synchronizing.current = true;
-    const p = latest.current.props;
     const activity = latest.current.executing;
     activity?.(1);
     if (mounted.current) setBusy(true);
     try {
-      const stored = await readModuleStorage(p.platform, p.scope);
-      const failures: unknown[] = [];
-      const unavailable = new Set<string>();
-      for (const entry of stored.journal) {
-        if (
-          entry.userId !== p.scope.userId ||
-          entry.workspaceId !== p.scope.workspaceId ||
-          entry.call.moduleId !== module.id ||
-          entry.call.action !== "operation" ||
-          entry.state !== "pending" ||
-          entry.supersededBy
-        )
-          continue;
-        try {
-          await rememberContract(stored, entry.call);
-        } catch (error) {
-          unavailable.add(commandContractKey(entry.call));
-          failures.push(error);
-        }
-      }
-      await syncModuleStorage(
-        p.platform,
-        p.scope,
-        (call) => sendModuleCall(p.client, p.scope, call),
-        () => access(undefined, true),
-        (call) =>
-          !unavailable.has(commandContractKey(call)) &&
-          access(call, true, true),
+      const result = await synchronizeWorkspace(() =>
+        access(undefined, true) ? latest.current.props : undefined,
       );
-      if (mounted.current && access()) setError(failures[0]);
+      if (mounted.current && access()) setError(result.errors[0]);
     } catch (error) {
       if (mounted.current && access()) setError(error);
     } finally {
@@ -270,12 +245,9 @@ export function useQueuedCommands(
   }, []);
   React.useEffect(() => {
     void refresh();
-    void synchronize();
     const refreshTimer = setInterval(() => void refresh(), 1500);
-    const syncTimer = setInterval(() => void synchronize(), 15000);
     return () => {
       clearInterval(refreshTimer);
-      clearInterval(syncTimer);
     };
   }, [props.online, props.bootstrap, props.offlineEnabled, module]);
   const resolve = async (entry: JournalEntry) => {
