@@ -129,6 +129,13 @@ export async function buildClientViews(
     const requires = {
       ...(await requiredHostContracts(result.metafile.inputs)),
     };
+    if (
+      Object.values(module.operations).some(
+        (op) =>
+          op.policy === "queued" && op.kind !== "query" && !op.serviceOnly,
+      )
+    )
+      requires["client.queue"] = 1;
     if (moduleSchemaFormats(module).size) requires["client.formats"] = 1;
     if (Object.keys(module.capabilities ?? {}).length)
       requires["client.host"] = Object.values(module.capabilities ?? {}).some(

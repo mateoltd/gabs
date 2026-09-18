@@ -138,6 +138,12 @@ function renderState() {
     async (call, options) =>
       (await request({ action: "execute", call }, options)).result,
     async (call) => (await request({ action: "host", call })).result,
+    {
+      capture: async (call, dependencies) =>
+        (await request({ action: "queue", call, dependencies })).result,
+      get: async (identity) =>
+        (await request({ action: "queued", identity })).result,
+    },
   );
 }
 function hostResult() {

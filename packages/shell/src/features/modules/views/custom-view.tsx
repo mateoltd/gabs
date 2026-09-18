@@ -1,3 +1,5 @@
+import { sendModuleCall } from "@suite/client/module-transport";
+import { SavedCommands, useQueuedCommands } from "./queued-commands";
 import { createModuleHost } from "@suite/module-sdk/host-capabilities";
 import { executeWebHostCapability } from "@suite/client/host";
 import { deviceLeaseAccess, useDeviceLeases } from "./device-leases";
@@ -476,95 +478,68 @@ function CustomModuleView(
       active = false;
     };
   }, [allowed, props.pkg.digest, props.publicKey, viewId]);
+  const queued = useQueuedCommands(
+    props,
+    module,
+    view.permission,
+    props.executing,
+  );
   const client = React.useMemo(
     () =>
-      createModuleClient(module, async (call, options) => {
-        const current = latest.current;
-        options?.signal?.throwIfAborted();
-        if (!mounted.current)
-          throw Error(
-            "This module view is no longer active. Open it again before sending a request.",
-          );
-        if (!current.online || !navigator.onLine)
-          throw Error(
-            "Reconnect before sending this custom-view request. No change has been submitted.",
-          );
-        const permission =
-          call.action === "operation"
-            ? module.operations[call.operation!]?.permission
-            : `${module.id}.${call.resource}.${["list", "get", "references"].includes(call.action) ? "read" : "write"}`;
-        if (
-          !permission ||
-          !canUse(
-            current.bootstrap,
-            module.id,
-            permission,
-            current.moduleCatalog,
+      createModuleClient(
+        module,
+        async (call, options) => {
+          const current = latest.current;
+          options?.signal?.throwIfAborted();
+          if (!mounted.current)
+            throw Error(
+              "This module view is no longer active. Open it again before sending a request.",
+            );
+          if (!current.online || !navigator.onLine)
+            throw Error(
+              "Reconnect before sending this custom-view request. No change has been submitted.",
+            );
+          const permission =
+            call.action === "operation"
+              ? module.operations[call.operation!]?.permission
+              : `${module.id}.${call.resource}.${["list", "get", "references"].includes(call.action) ? "read" : "write"}`;
+          if (
+            !permission ||
+            !canUse(
+              current.bootstrap,
+              module.id,
+              permission,
+              current.moduleCatalog,
+            )
           )
-        )
-          throw Error(
-            "This action is not available with your current permissions.",
-          );
-        if (
-          call.action === "operation" &&
-          module.operations[call.operation!].policy === "local"
-        )
-          throw Error("This operation requires a standalone local workspace.");
-        const mutation =
-          call.kind !== "query" &&
-          !["list", "get", "references"].includes(call.action);
-        if (mutation) current.executing?.(1);
-        try {
-          if (call.action === "references")
-            return await current.client.request(
-              {
-                operation: "moduleReferences",
-                params: {
-                  workspaceId: current.scope.workspaceId,
-                  moduleId: module.id,
-                  resource: call.resource!,
-                },
-                query:
-                  call.input as import("@suite/module-sdk/references").ReferenceQuery,
-                moduleVersion: call.moduleVersion,
-              },
+            throw Error(
+              "This action is not available with your current permissions.",
+            );
+          if (
+            call.action === "operation" &&
+            module.operations[call.operation!].policy === "local"
+          )
+            throw Error(
+              "This operation requires a standalone local workspace.",
+            );
+          const mutation =
+            call.kind !== "query" &&
+            !["list", "get", "references"].includes(call.action);
+          if (mutation) current.executing?.(1);
+          try {
+            return await sendModuleCall(
+              current.client,
+              current.scope,
+              call,
               options,
             );
-          return await (call.action === "operation"
-            ? current.client.request({
-                operation:
-                  call.kind === "query" ? "moduleQuery" : "moduleOperation",
-                params: {
-                  workspaceId: current.scope.workspaceId,
-                  moduleId: module.id,
-                  operationName: call.operation!,
-                },
-                body: call.input,
-                idempotencyKey: call.key,
-                moduleVersion: call.moduleVersion,
-              })
-            : current.client.request(
-                {
-                  operation: "moduleRequest",
-                  params: {
-                    workspaceId: current.scope.workspaceId,
-                    moduleId: module.id,
-                  },
-                  body: {
-                    action: call.action,
-                    resource: call.resource,
-                    input: call.input,
-                  },
-                  idempotencyKey: call.key,
-                  moduleVersion: call.moduleVersion,
-                },
-                options,
-              ));
-        } finally {
-          if (mutation) current.executing?.(-1);
-        }
-      }),
-    [module, props.bootstrap, props.online],
+          } finally {
+            if (mutation) current.executing?.(-1);
+          }
+        },
+        queued.queue,
+      ),
+    [module, props.bootstrap, props.online, queued.queue],
   );
   if (!allowed)
     return (
@@ -585,6 +560,7 @@ function CustomModuleView(
           {deviceLeases.message}
         </p>
       )}
+      <SavedCommands state={queued} />
       <ui.HostCustomSandbox
         label={view.title}
         css={`

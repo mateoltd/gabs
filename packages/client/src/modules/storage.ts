@@ -449,6 +449,7 @@ export async function syncModuleStorage(
   scope: Scope,
   send: (call: ModuleCall) => Promise<unknown>,
   authorized: () => boolean,
+  eligible: (call: ModuleCall) => boolean = () => true,
 ) {
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
@@ -484,6 +485,10 @@ export async function syncModuleStorage(
             });
           let result: unknown;
           try {
+            if (!authorized() || !eligible(call))
+              throw Error(
+                "Current access changed before synchronization. Your change is retained.",
+              );
             result = await send(call);
           } catch (error) {
             validateModuleError(module, call, error);
@@ -493,6 +498,7 @@ export async function syncModuleStorage(
           return result;
         },
         authorized,
+        eligible,
       );
     },
   );

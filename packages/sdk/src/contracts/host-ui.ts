@@ -67,17 +67,21 @@ export const viewHostExports = {
 } as const;
 
 /** Revisions describe supported contracts explicitly; a larger number does not imply compatibility. */
-export function describeViewHost(bindings: {
-  react: object;
-  jsx: object;
-  ui: object;
-}): ViewHostCapabilities {
+export function describeViewHost(
+  bindings: {
+    react: object;
+    jsx: object;
+    ui: object;
+  },
+  options: { queuedCommands?: boolean } = {},
+): ViewHostCapabilities {
   const capabilities: Record<string, readonly number[]> = {
     "view.context": [1],
     "client.resources": [1, 2, 3],
     "client.host": [1, 2],
     "client.formats": [1],
   };
+  if (options.queuedCommands) capabilities["client.queue"] = [1];
   for (const [namespace, names] of Object.entries(viewHostExports))
     for (const name of names)
       if (

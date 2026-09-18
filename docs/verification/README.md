@@ -711,3 +711,8 @@ Final verification passed 487 unit/PostgreSQL tests across 82 files, strict root
 ## Queued-foundation architecture review, 18 September 2026
 
 [Checkpoint and independent review](architecture/README.md#queued-foundation-checkpoint-review-18-september-2026) preserve clean `badb5bb` and confirm the current SDK/client ownership. Sol xhigh and parent review found no further structural correction. Nine fixtures and fresh strict checks passed; four build tasks succeeded from the valid Turbo cache. No product source or UI changed. OFF-01 and full parity remain open.
+
+
+## Custom-view queued commands, 18 September 2026
+
+[Scoped host acceptance](queued-commands/README.md#custom-view-host-acceptance) connects the typed SDK queue to real corporate custom views and the development preview. Passed: 491 unit/PostgreSQL tests, strict checks/four fresh builds, four distinct headless journeys and two hidden/unfocused native journeys. Actual offline reload/process restart, exact-key lost replies, declared rejection, accepted-outcome settlement, revocation, duplicate-free record/audit counts, scoped Axe/keyboard/overflow and four inspected captures support the milestone. The evidence records the disclosure and Electron Axe harness corrections. Eight historical captures were restored; no stylesheet changed. Explicit command correction, broader recovery and full parity remain open.

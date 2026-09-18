@@ -55,6 +55,7 @@ export async function flushJournal(
   store: JournalStore,
   send: (call: ModuleCall) => Promise<unknown>,
   authorized: () => boolean,
+  eligible: (call: ModuleCall) => boolean = () => true,
 ) {
   const entries = await store.list();
   const states = new Map(entries.map((e) => [e.id, e.state]));
@@ -81,6 +82,7 @@ export async function flushJournal(
   // work without retrying an uncertain request twice in this pass.
   for (const entry of ready) {
     if (!authorized()) break;
+    if (!eligible(entry.call)) continue;
     // Old journals did not persist transport failures. Even attempts=0 cannot
     // establish that a legacy request never reached the server.
     const uncertain = entry.delivery !== "unsubmitted";

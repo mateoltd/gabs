@@ -17,7 +17,8 @@
     "./module-response": "./src/modules/response.ts",
     "./host": "./src/adapters/host.ts",
     "./input-recovery": "./src/recovery/input.ts",
-    "./module-queue": "./src/modules/queued.ts"
+    "./module-queue": "./src/modules/queued.ts",
+    "./module-transport": "./src/modules/transport.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

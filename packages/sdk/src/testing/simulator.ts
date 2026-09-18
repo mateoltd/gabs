@@ -1,3 +1,4 @@
+import { simulateQueuedOperations } from "./queued-operations";
 import {
   referenceQueryField,
   referenceValues,
@@ -842,8 +843,15 @@ export function createModuleSimulator<M extends ModuleDefinition>(
       hostSimulator.invalidate();
     permissions.set(id, next);
   };
+  const queue = simulateQueuedOperations(
+    module,
+    journal,
+    simulationIdentity,
+    (call) => policy(root, call),
+  );
   return {
-    client: createModuleClient(module, send),
+    queue,
+    client: createModuleClient(module, send, queue),
     localClient: createLocalModuleClient(module, send),
     host: hostSimulator.host,
     sendHost: hostSimulator.send,

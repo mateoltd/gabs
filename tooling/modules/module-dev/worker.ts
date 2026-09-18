@@ -47,6 +47,32 @@ try {
   const input = Type.Union([
     Type.Object(
       {
+        action: Type.Literal("queue"),
+        call,
+        dependencies: Type.Array(Type.String(), {
+          maxItems: 100,
+          uniqueItems: true,
+        }),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        action: Type.Literal("queued"),
+        identity: Type.Object(
+          {
+            moduleId: Type.Literal(module.id),
+            moduleVersion: Type.Literal(module.version),
+            operation: Type.String(),
+            key: Type.String(),
+          },
+          { additionalProperties: false },
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
         action: Type.Literal("hostLease"),
         capability: Type.String(),
         task: Type.Union([Type.Literal("renew"), Type.Literal("revoke")]),
@@ -220,6 +246,13 @@ try {
       if (action.action === "grants") simulator.setGrants(action.grants);
       if (action.action === "readGrants")
         simulator.setReadGrants(action.grants);
+      if (action.action === "queue")
+        result = await simulator.queue.capture(
+          action.call,
+          action.dependencies,
+        );
+      if (action.action === "queued")
+        result = await simulator.queue.get(action.identity);
       if (action.action === "sync") result = await simulator.sync();
       if (action.action === "submit")
         result = await simulator.submit(action.call);

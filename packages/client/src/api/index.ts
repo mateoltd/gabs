@@ -1,3 +1,4 @@
+import { sendModuleCall } from "../modules/transport";
 import { createModuleClient, type ModuleDefinition } from "@suite/module-sdk";
 import type { PlatformState, SignedArtifact } from "@suite/module-sdk/platform";
 import {
@@ -115,45 +116,7 @@ export class SuiteClient {
   }
   module<const M extends ModuleDefinition>(definition: M, workspaceId: string) {
     return createModuleClient(definition, (call, options) =>
-      call.action === "references"
-        ? this.request(
-            {
-              operation: "moduleReferences",
-              params: {
-                workspaceId,
-                moduleId: definition.id,
-                resource: call.resource!,
-              },
-              query:
-                call.input as import("@suite/module-sdk/references").ReferenceQuery,
-              moduleVersion: call.moduleVersion,
-            },
-            options,
-          )
-        : call.action === "operation"
-          ? this.request({
-              operation:
-                call.kind === "query" ? "moduleQuery" : "moduleOperation",
-              params: {
-                workspaceId,
-                moduleId: definition.id,
-                operationName: call.operation!,
-              },
-              body: call.input,
-              idempotencyKey: call.key,
-              moduleVersion: call.moduleVersion,
-            })
-          : this.request({
-              operation: "moduleRequest",
-              params: { workspaceId, moduleId: definition.id },
-              body: {
-                action: call.action,
-                resource: call.resource,
-                input: call.input,
-              },
-              idempotencyKey: call.key,
-              moduleVersion: call.moduleVersion,
-            }),
+      sendModuleCall(this, { workspaceId }, call, options),
     );
   }
   async request<K extends OperationId>(

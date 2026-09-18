@@ -1,4 +1,8 @@
-import type { ModuleCall, ModuleDefinition } from "@suite/module-sdk";
+import type {
+  ModuleCall,
+  ModuleDefinition,
+  QueuedOperationIdentity,
+} from "@suite/module-sdk";
 import type { ClientBundles } from "@suite/module-sdk/client-artifact";
 import type { HostCapabilityCall } from "@suite/module-sdk/host-capabilities";
 import type {
@@ -39,6 +43,8 @@ export type DevAction =
   | { action: "permissions"; moduleId?: string; permissions: string[] }
   | { action: "grants"; grants: SimulationGrant[] }
   | { action: "readGrants"; grants: SimulationReadGrant[] }
+  | { action: "queue"; call: ModuleCall; dependencies: string[] }
+  | { action: "queued"; identity: QueuedOperationIdentity }
   | { action: "sync" }
   | { action: "submit" | "execute"; call: ModuleCall };
 export type DevState = SimulatorSnapshot & {

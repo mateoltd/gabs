@@ -1,3 +1,4 @@
+import type { ModuleQueue } from "@suite/module-sdk";
 import {
   createModuleHost,
   type HostCapabilityCall,
@@ -62,11 +63,13 @@ function Surface({
   viewId,
   send,
   sendHost,
+  queue,
 }: {
   data: DevState;
   viewId: string;
   send: Transport;
   sendHost: (call: HostCapabilityCall) => Promise<unknown>;
+  queue: ModuleQueue;
 }) {
   const module = React.useMemo(
     () => hydrateModule(data.module),
@@ -76,10 +79,11 @@ function Surface({
   const [loaded, setLoaded] = React.useState<{ View: View; css: string }>();
   const [error, setError] = React.useState<unknown>();
   const [value, setValue] = React.useState<unknown>();
-  const latest = React.useRef({ data, send, sendHost, active: true });
+  const latest = React.useRef({ data, send, sendHost, queue, active: true });
   latest.current.data = data;
   latest.current.send = send;
   latest.current.sendHost = sendHost;
+  latest.current.queue = queue;
   React.useEffect(() => {
     latest.current.active = true;
     return () => {
@@ -98,7 +102,10 @@ function Surface({
         react: React,
         jsx,
         ui,
-        capabilities: describeViewHost({ react: React, jsx, ui }),
+        capabilities: describeViewHost(
+          { react: React, jsx, ui },
+          { queuedCommands: true },
+        ),
       }) as View;
       if (
         typeof View !== "function" &&
@@ -136,16 +143,37 @@ function Surface({
   ]);
   const client = React.useMemo(
     () =>
-      createModuleClient(module, (call, options) => {
-        if (
-          !latest.current.active ||
-          !latest.current.data.permissions.includes(view.permission)
-        )
-          return Promise.reject(
-            Error("This preview is no longer active or authorized."),
-          );
-        return latest.current.send(call, options);
-      }),
+      createModuleClient(
+        module,
+        (call, options) => {
+          if (
+            !latest.current.active ||
+            !latest.current.data.permissions.includes(view.permission)
+          )
+            return Promise.reject(
+              Error("This preview is no longer active or authorized."),
+            );
+          return latest.current.send(call, options);
+        },
+        {
+          capture: (call, dependencies) => {
+            if (
+              !latest.current.active ||
+              !latest.current.data.permissions.includes(view.permission)
+            )
+              throw Error("This preview is no longer active or authorized.");
+            return latest.current.queue.capture(call, dependencies);
+          },
+          get: (identity) => {
+            if (
+              !latest.current.active ||
+              !latest.current.data.permissions.includes(view.permission)
+            )
+              throw Error("This preview is no longer active or authorized.");
+            return latest.current.queue.get(identity);
+          },
+        },
+      ),
     [module, view.permission, authorization],
   );
   const host = React.useMemo(
@@ -203,10 +231,12 @@ function Preview({
   data,
   send,
   sendHost,
+  queue,
 }: {
   data: DevState;
   send: Transport;
   sendHost: (call: HostCapabilityCall) => Promise<unknown>;
+  queue: ModuleQueue;
 }) {
   const selectId = React.useId();
   const names = Object.keys(data.module.views ?? {});
@@ -235,6 +265,7 @@ function Preview({
             viewId={viewId}
             send={send}
             sendHost={sendHost}
+            queue={queue}
           />
         </Boundary>
       ) : (
@@ -248,13 +279,20 @@ export function updatePreview(
   data: DevState,
   send: Transport,
   sendHost: (call: HostCapabilityCall) => Promise<unknown>,
+  queue: ModuleQueue,
 ) {
   const section = document.getElementById("custom-preview")!;
   section.hidden = !Object.keys(data.module.views ?? {}).length;
   if (section.hidden) return;
   root ??= createRoot(document.getElementById("preview-root")!);
   root.render(
-    <Preview key={data.revision} data={data} send={send} sendHost={sendHost} />,
+    <Preview
+      key={data.revision}
+      data={data}
+      send={send}
+      sendHost={sendHost}
+      queue={queue}
+    />,
   );
 }
 export function hidePreview() {

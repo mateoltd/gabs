@@ -1,3 +1,4 @@
+import { sendModuleCall } from "@suite/client/module-transport";
 import { exportRecoveryInput } from "@suite/client/browser";
 import { isDefinitiveRejection } from "@suite/module-sdk/sync";
 import {
@@ -323,19 +324,36 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     `${moduleId}.${archiveAttempt?.resource ?? resource}.write`,
     moduleCatalog,
   );
-  const authorized = () =>
-    navigator.onLine &&
-    Date.now() <
-      new Date(bootstrap.authorizedAt).getTime() +
-        Math.max(bootstrap.offlineHours, 1 / 60) * 3600000;
-  const transport = (call: ModuleCall) =>
-    client.request({
-      operation: "moduleRequest",
-      params: { workspaceId: scope.workspaceId, moduleId: call.moduleId },
-      body: { action: call.action, resource: call.resource, input: call.input },
-      idempotencyKey: call.key,
-      moduleVersion: call.moduleVersion,
-    });
+  const authorized = () => {
+    const current = recoveryContext.current;
+    return (
+      mounted.current &&
+      current.online &&
+      navigator.onLine &&
+      Date.now() <
+        Date.parse(current.bootstrap.authorizedAt) +
+          Math.max(current.bootstrap.offlineHours, 1 / 60) * 3600000
+    );
+  };
+  const eligible = (call: ModuleCall) => {
+    const current = recoveryContext.current;
+    const definition = current.moduleCatalog.definition(call.moduleId);
+    if (!definition) return false;
+    const permission =
+      call.action === "operation"
+        ? definition.operations[call.operation ?? ""]?.permission
+        : `${call.moduleId}.${call.resource}.write`;
+    return (
+      !!permission &&
+      canUse(
+        current.bootstrap,
+        call.moduleId,
+        permission,
+        current.moduleCatalog,
+      )
+    );
+  };
+  const transport = (call: ModuleCall) => sendModuleCall(client, scope, call);
   const send = async (call: ModuleCall) => {
     const contract = responseModules.current.get(
       `${call.moduleId}@${call.moduleVersion}`,
@@ -430,7 +448,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     let active = true;
     const sync = async () => {
       try {
-        await syncModuleStorage(platform, scope, transport, authorized);
+        await syncModuleStorage(
+          platform,
+          scope,
+          transport,
+          authorized,
+          eligible,
+        );
         if (active) {
           await read();
           await qc.invalidateQueries({
@@ -773,7 +797,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setEditing(undefined);
       setReviewSession(undefined);
       setReviewTargetId(undefined);
-      await syncModuleStorage(platform, scope, transport, authorized);
+      await syncModuleStorage(platform, scope, transport, authorized, eligible);
       await query.refetch();
     } catch (error) {
       setError(error);
@@ -879,7 +903,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         }
       }
       setSettling(undefined);
-      await syncModuleStorage(platform, scope, transport, authorized);
+      await syncModuleStorage(platform, scope, transport, authorized, eligible);
       await read();
       await query.refetch();
     } catch (error) {
@@ -996,7 +1020,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         setReviewSession(undefined);
         setReviewTargetId(undefined);
         if (online)
-          await syncModuleStorage(platform, scope, transport, authorized);
+          await syncModuleStorage(
+            platform,
+            scope,
+            transport,
+            authorized,
+            eligible,
+          );
       }
       if (!durable && props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (stored) => {

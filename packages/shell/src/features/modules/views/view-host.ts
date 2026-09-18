@@ -6,5 +6,5 @@ export const viewHost = Object.freeze({
   react,
   jsx,
   ui,
-  capabilities: describeViewHost({ react, jsx, ui }),
+  capabilities: describeViewHost({ react, jsx, ui }, { queuedCommands: true }),
 });
