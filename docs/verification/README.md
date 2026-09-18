@@ -591,3 +591,9 @@ Evidence: 397 unit/PostgreSQL checks, strict environment checks/four builds, thr
 [SDK-05-LAN-RECON acceptance](lan-reconciliation/README.md) verifies read-only authoritative prerequisite lookup, exact signed historical contracts, explicit compatible rollout policy and original retry recovery after mandatory update/process restart. Current authority still applies; unknown dependencies and unconfirmed incompatible writes cannot report success.
 
 Passed: 400 unit/PostgreSQL checks across 74 files, strict checks/four builds, three hidden/unfocused native journeys, two headless browser journeys, scoped Axe and inspected wide/narrow captures. Native acceptance exposed a missing recovery-version query allowance in the desktop validator; the narrow correction retains malformed-version rejection and passed the complete final suite. Historical captures were restored. OFF-01 is the next independent engineering item; full SDK-05, platform parity and the later UI-refinement goal remain open.
+
+## Generated offline dependency capture, 18 September 2026
+
+[Scoped OFF-01 evidence](offline-dependencies/README.md) verifies project/task/comment dependency capture, durable atomic ordering, browser reload and hidden native offline process restart. A lost successful parent reply retries under the original key; the server rejects a revoked comment write while unrelated work succeeds. Both journeys assert exactly three accepted records and audit entries.
+
+Passed: 402 unit/PostgreSQL checks across 74 files, strict checks/four builds, six final headless journeys and one hidden/unfocused native journey, scoped Axe and inspected wide/narrow captures. Historical regression artifacts were restored. Test corrections concern required status selection and different native process-start/reload navigation behavior. OFF-01 remains active for conflict comparison and the remaining [workflow acceptance](../offline-workflows.md); full parity and final UI refinement remain open.

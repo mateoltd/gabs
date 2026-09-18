@@ -11,6 +11,7 @@ import { canUse, type FeatureProps } from "@suite/client";
 import {
   changeModuleStorage,
   readModuleStorage,
+  pendingReferenceOptions,
 } from "@suite/client/module-storage";
 import type { ReferenceLoader } from "@suite/ui-web";
 
@@ -96,7 +97,7 @@ export function useModuleReferences(
                 .replaceAll("~1", "/")
                 .replaceAll("~0", "~")
             : undefined;
-        const options =
+        const downloaded =
           cached[targetKey] ??
           (legacyKey &&
           Object.hasOwn(
@@ -105,6 +106,20 @@ export function useModuleReferences(
           )
             ? stored.referenceOptions![legacyCacheKey][legacyKey]
             : []);
+        // Pending creates are selectable but never added to authoritative pages or label caches.
+        // Target permission and the corporate lease have already been checked above.
+        const options = [
+          ...new Map(
+            [
+              ...(target.kind !== "resource" ||
+              target.moduleId === module.id ||
+              cached[targetKey] !== undefined
+                ? pendingReferenceOptions(stored.journal, scope, target)
+                : []),
+              ...downloaded,
+            ].map((option) => [option.value.toLowerCase(), option]),
+          ).values(),
+        ];
         const rows = [...options]
           .sort((a, b) =>
             a.value.toLowerCase().localeCompare(b.value.toLowerCase()),

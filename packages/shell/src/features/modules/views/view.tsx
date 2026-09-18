@@ -691,7 +691,19 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             {pending.map((entry) => (
               <div className="module-pending" key={entry.id}>
                 <strong>{entry.state}</strong>
-                <span>{entry.error ?? "Waiting for server acceptance"}</span>
+                <span>
+                  {entry.error ??
+                    (entry.dependencies.some(
+                      (id) =>
+                        !storage?.journal.some(
+                          (candidate) =>
+                            candidate.id === id &&
+                            candidate.state === "accepted",
+                        ),
+                    )
+                      ? "Waiting for prerequisite changes to be accepted. Unrelated work can still synchronize."
+                      : "Waiting for server acceptance")}
+                </span>
                 <Button
                   disabled={!online || entry.state === "pending"}
                   onClick={async () => {

@@ -23,6 +23,9 @@ import type {
   ResourceRecord,
 } from "@suite/module-sdk";
 import { flushJournal, type JournalEntry } from "@suite/module-sdk/sync";
+import { assertJournalOrder, referenceDependencies } from "./journal";
+import { canonical } from "@suite/module-sdk/registry";
+export { pendingReferenceOptions } from "./journal";
 export interface InstallationAttempt {
   action: "install" | "uninstall";
   requestId: string;
@@ -148,8 +151,50 @@ export async function enqueue(
     attempts: 0,
   };
   await changeModuleStorage(platform, scope, async (s) => {
+    const existing = s.journal.find((e) => e.id === entry.id);
+    if (
+      existing &&
+      (existing.userId !== scope.userId ||
+        existing.workspaceId !== scope.workspaceId ||
+        canonical(existing.call) !== canonical(call))
+    )
+      throw Error("This retry identity already belongs to different content.");
+    const replaced = recovery?.supersedes
+      ? s.journal.find((e) => e.id === recovery.supersedes)
+      : undefined;
+    if (
+      recovery?.supersedes &&
+      (!replaced ||
+        replaced.userId !== scope.userId ||
+        replaced.workspaceId !== scope.workspaceId ||
+        !["conflict", "rejected"].includes(replaced.state) ||
+        (replaced.supersededBy && replaced.supersededBy !== entry.id))
+    )
+      throw Error(
+        "Only a rejected or conflicting change can be replaced. Retry an uncertain request with its original identity.",
+      );
+    if (
+      replaced &&
+      (replaced.call.moduleId !== call.moduleId ||
+        replaced.call.resource !== call.resource ||
+        replaced.call.action !== call.action ||
+        (replaced.call.input as { id?: unknown }).id !==
+          (call.input as { id?: unknown }).id)
+    )
+      throw Error(
+        "A reviewed change must preserve its original record target.",
+      );
     if (!s.journal.some((e) => e.id === entry.id)) {
-      const { contract } = await responseContract(s, call);
+      const { contract, module } = await responseContract(s, call);
+      const schema = call.resource && module.resources[call.resource]?.schema;
+      if (schema)
+        entry.dependencies = [
+          ...new Set([
+            ...dependencies,
+            ...(replaced?.dependencies ?? []),
+            ...referenceDependencies(schema, call, s.journal, scope),
+          ]),
+        ];
       (s.responseContracts ??= {})[responseContractKey(call)] = contract;
     }
     if (!s.journal.some((e) => e.id === entry.id)) s.journal.push(entry);
@@ -158,16 +203,19 @@ export async function enqueue(
       if (s.draftTargets) delete s.draftTargets[recovery.draftKey];
       if (recovery.supersedes)
         s.journal = s.journal.map((e) =>
-          e.id === recovery.supersedes
-            ? { ...e, supersededBy: entry.id }
-            : {
-                ...e,
-                dependencies: e.dependencies.map((id) =>
-                  id === recovery.supersedes ? entry.id : id,
-                ),
-              },
+          e.userId !== scope.userId || e.workspaceId !== scope.workspaceId
+            ? e
+            : e.id === recovery.supersedes
+              ? { ...e, supersededBy: entry.id }
+              : {
+                  ...e,
+                  dependencies: e.dependencies.map((id) =>
+                    id === recovery.supersedes ? entry.id : id,
+                  ),
+                },
         );
     }
+    assertJournalOrder(s.journal, scope);
   });
   return entry;
 }

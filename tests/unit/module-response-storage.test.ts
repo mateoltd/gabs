@@ -328,3 +328,121 @@ it("rejects unversioned or mismatched resource requests before enqueue without d
   expect((await readModuleStorage(platform, scope)).drafts.draft).toEqual(data);
   expect((await readModuleStorage(platform, scope)).journal).toEqual([]);
 });
+
+it("derives dependent creates atomically and preserves ordering through rejected-parent review and interrupted storage", async () => {
+  const { default: projects } = await import("../../modules/projects/module");
+  const { pendingReferenceOptions } =
+    await import("../../packages/client/src/modules/storage");
+  const { platform, install, interrupt } = storage();
+  await install(signPackage(projects, privateKey));
+  const projectId = crypto.randomUUID(),
+    taskId = crypto.randomUUID();
+  const parent: ModuleCall = {
+    moduleId: "projects",
+    moduleVersion: projects.version,
+    resource: "projects",
+    action: "create",
+    key: "parent",
+    input: {
+      id: projectId,
+      data: { name: "Offline project", status: "planned" },
+    },
+  };
+  const child: ModuleCall = {
+    ...parent,
+    resource: "tasks",
+    key: "child",
+    input: {
+      id: taskId,
+      data: { title: "Dependent task", status: "todo", projectId },
+    },
+  };
+  await enqueue(platform, scope, parent);
+  interrupt();
+  await expect(enqueue(platform, scope, child)).rejects.toThrow(
+    "Interrupted commit",
+  );
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(1);
+  await enqueue(platform, scope, child);
+  let journal = (await readModuleStorage(platform, scope)).journal;
+  expect(journal[1].dependencies).toEqual(["parent"]);
+  expect(
+    pendingReferenceOptions(journal, scope, {
+      kind: "resource",
+      moduleId: "projects",
+      resource: "projects",
+    }),
+  ).toEqual([{ value: projectId, label: "Offline project (pending)" }]);
+  expect(
+    pendingReferenceOptions(
+      journal,
+      { ...scope, userId: "foreign" },
+      { kind: "resource", moduleId: "projects", resource: "projects" },
+    ),
+  ).toEqual([]);
+  const sent: string[] = [];
+  await syncModuleStorage(
+    platform,
+    scope,
+    async (request) => {
+      sent.push(request.key!);
+      throw { status: 403, message: "Permission revoked" };
+    },
+    () => true,
+  );
+  expect(sent).toEqual(["parent"]);
+  expect((await readModuleStorage(platform, scope)).journal[1].state).toBe(
+    "pending",
+  );
+  const corrected = { ...parent, key: "corrected" };
+  await enqueue(platform, scope, corrected, [], {
+    draftKey: "draft",
+    supersedes: "parent",
+  });
+  journal = (await readModuleStorage(platform, scope)).journal;
+  expect(journal[0].supersededBy).toBe("corrected");
+  expect(journal[1].dependencies).toEqual(["corrected"]);
+  const send = async (request: ModuleCall) => {
+    sent.push(request.key!);
+    const input = request.input as {
+      id: string;
+      data: Record<string, unknown>;
+    };
+    return { ...row, id: input.id, data: input.data };
+  };
+  await syncModuleStorage(platform, scope, send, () => true);
+  await syncModuleStorage(platform, scope, send, () => true);
+  expect(sent).toEqual(["parent", "corrected", "child"]);
+  expect(
+    (await readModuleStorage(platform, scope)).journal
+      .filter((e) => !e.supersededBy)
+      .map((e) => e.state),
+  ).toEqual(["accepted", "accepted"]);
+});
+
+it("rejects changed retry identities, uncertain replacement and dependency cycles without deleting drafts", async () => {
+  const { platform, install } = storage();
+  await install();
+  await enqueue(platform, scope, call("first"));
+  await changeModuleStorage(platform, scope, (s) => {
+    s.drafts.draft = data;
+  });
+  await expect(
+    enqueue(platform, scope, {
+      ...call("first"),
+      input: { data: { ...data, name: "Changed" } },
+    }),
+  ).rejects.toThrow("different content");
+  await expect(
+    enqueue(platform, scope, call("replacement"), [], {
+      draftKey: "draft",
+      supersedes: "first",
+    }),
+  ).rejects.toThrow("uncertain request");
+  await expect(
+    enqueue(platform, scope, call("cycle"), ["cycle"], { draftKey: "draft" }),
+  ).rejects.toThrow("circular reference");
+  const stored = await readModuleStorage(platform, scope);
+  expect(stored.journal).toHaveLength(1);
+  expect(stored.drafts.draft).toEqual(data);
+});
