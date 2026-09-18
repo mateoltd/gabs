@@ -68,6 +68,7 @@ function table(rows, label) {
 function renderState() {
   $("online").checked = state.online;
   renderLocal();
+  renderLeases();
   $("records").replaceChildren(
     ...Object.entries(state.records).flatMap(([name, rows]) => [
       text("h3", name),
@@ -96,7 +97,9 @@ function renderState() {
     table(
       state.hostActions.map((action) => ({
         capability: action.capability,
-        state: action.state,
+        state: action.authority
+          ? `${action.state} (${action.authority})`
+          : action.state,
         result: action.result ?? "",
         error: action.error ?? "",
       })),
@@ -138,6 +141,7 @@ function renderState() {
   );
 }
 function hostResult() {
+  renderLeases();
   const [moduleId, capability] = hostSelection();
   $("host-result").value = JSON.stringify(
     (state.local?.hostResults[moduleId] ?? state.hostResults)[capability] ??
@@ -145,6 +149,53 @@ function hostResult() {
     null,
     2,
   );
+}
+function renderLeases() {
+  const [, capability] = hostSelection();
+  const lease = state.hostLeases[capability];
+  $("lease-controls").hidden = !!state.local || !lease;
+  if (!lease) return;
+  const remaining = Math.ceil(lease.remainingMs / 60000);
+  $("lease-status").textContent =
+    `${capability}: ${lease.state}. ${remaining} ${remaining === 1 ? "minute" : "minutes"} remaining. Simulated clock advanced ${state.hostElapsedMs / 60000} minutes.`;
+  $("lease-renew").disabled = !state.online;
+}
+for (const [id, task] of [
+  ["lease-renew", "renew"],
+  ["lease-revoke", "revoke"],
+  ["lease-clock", "clock"],
+]) {
+  $(id).onclick = async () => {
+    try {
+      const [, capability] = hostSelection();
+      const minutes = Number(
+        $(task === "clock" ? "lease-advance" : "lease-minutes").value,
+      );
+      if (
+        task !== "revoke" &&
+        (!Number.isSafeInteger(minutes) ||
+          minutes < 0 ||
+          (task === "renew" && minutes > 1440))
+      )
+        throw Error(
+          "Enter a whole number of minutes; leases may last at most 1440 minutes.",
+        );
+      await request(
+        task === "clock"
+          ? { action: "hostClock", milliseconds: minutes * 60000 }
+          : {
+              action: "hostLease",
+              capability,
+              task,
+              ...(task === "renew" ? { remainingMs: minutes * 60000 } : {}),
+            },
+      );
+      $("lease-feedback").textContent =
+        "Simulated lease state updated. No device action was performed.";
+    } catch (error) {
+      $("lease-feedback").textContent = error.message;
+    }
+  };
 }
 function hostSelection() {
   const value = $("host-capability").value;

@@ -145,6 +145,10 @@ type Names<M extends ModuleDefinition> = HostCapabilityName<M>;
 type Kind<M extends ModuleDefinition, N extends Names<M>> = NonNullable<
   M["capabilities"]
 >[N]["kind"];
+export type HostCapabilityInput<
+  M extends ModuleDefinition,
+  N extends Names<M>,
+> = Static<(typeof hostCapabilitySchemas)[Kind<M, N>]["input"]>;
 export type HostCapabilityResult<
   M extends ModuleDefinition,
   N extends Names<M>,
@@ -155,7 +159,7 @@ export type HostCapabilityResults<M extends ModuleDefinition> = {
 export interface ModuleHost<M extends ModuleDefinition> {
   call<N extends Names<M>>(
     name: N,
-    input: Static<(typeof hostCapabilitySchemas)[Kind<M, N>]["input"]>,
+    input: HostCapabilityInput<M, N>,
   ): Promise<Static<(typeof hostCapabilitySchemas)[Kind<M, N>]["output"]>>;
 }
 export function createModuleHost<M extends ModuleDefinition>(

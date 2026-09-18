@@ -63,6 +63,42 @@
             <button type="submit">Apply simulated result</button>
           </form>
           <p id="host-feedback" role="status"></p>
+          <div id="lease-controls" hidden>
+            <h3>Corporate offline leases</h3>
+            <p>
+              Development allowances only. Select a lease-enabled capability
+              above. Permissions still apply; online business operations still
+              require the server.
+            </p>
+            <p id="lease-status"></p>
+            <label for="lease-minutes">Lease duration (minutes)</label>
+            <input
+              id="lease-minutes"
+              type="number"
+              min="0"
+              max="1440"
+              step="1"
+              value="60"
+            />
+            <button id="lease-renew" type="button">
+              Renew simulated lease
+            </button>
+            <button id="lease-revoke" type="button">
+              Revoke simulated lease
+            </button>
+            <label for="lease-advance">Advance simulated time (minutes)</label>
+            <input
+              id="lease-advance"
+              type="number"
+              min="0"
+              step="1"
+              value="60"
+            />
+            <button id="lease-clock" type="button">
+              Advance simulated time
+            </button>
+            <p id="lease-feedback" role="status"></p>
+          </div>
           <h3>Recent host actions</h3>
           <p>
             The latest 100 results are retained. Export content and relay

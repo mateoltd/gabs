@@ -15,6 +15,11 @@ import {
   type HostCapabilityResults,
 } from "../contracts/host-capabilities";
 
+import {
+  validateHostLeases,
+  type SimulatedHostLeases,
+} from "./simulation-leases";
+
 export type ModuleFixtures<M extends ModuleDefinition> = {
   [K in keyof M["resources"]]?: Array<Static<M["resources"][K]["schema"]>>;
 };
@@ -56,6 +61,8 @@ export interface SimulationModule<
   members?: readonly import("./simulator").SimulationMember[];
   /** Simulated adapter replies; no device effect is performed. */
   hostResults?: HostCapabilityResults<M>;
+  /** Simulated corporate allowances; omitted leases are unavailable. */
+  hostLeases?: SimulatedHostLeases<M>;
 }
 export interface SimulationGrant {
   consumerId: string;
@@ -81,11 +88,7 @@ export type SimulationNamespace<M extends ModuleDefinition> = {
   };
   permissions: string[];
 };
-export const simulationError = (
-  status: number,
-  code: string,
-  message: string,
-) => Object.assign(Error(message), { status, code });
+export { simulationError } from "./simulation-error";
 
 export function validateFixtures(
   module: ModuleDefinition,
@@ -137,6 +140,9 @@ export function defineSimulationModule<const M extends ModuleDefinition>(
     throw Error(
       `The local simulation implementation must match ${module.id}@${module.version} exactly.`,
     );
+  validateHostLeases(module, options.hostLeases ?? {});
+  if (options.personal && Object.keys(options.hostLeases ?? {}).length)
+    throw Error("Corporate lease fixtures require a company simulation.");
   for (const name of options.deviceAccess ?? [])
     if (!Object.hasOwn(module.capabilities ?? {}, name))
       throw Error(`Undeclared local device fixture: ${module.id}.${name}`);

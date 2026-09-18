@@ -128,7 +128,7 @@ export default defineSimulationModule(module, {
 
 Use the aliases declared by your module. Wrong aliases/result types fail compilation, and imported fixtures are also runtime-validated. `simulation.host.call(alias, input)` shares the public client's inferred input/result contract. `simulation.setHostResult(alias, result)` changes a fixture; `undefined` restores its default. Results, snapshots and fixture inputs are cloned so callers cannot mutate the configured state accidentally.
 
-Defaults simulate a browser export being offered, unavailable notifications and disabled LAN status. Relay requires an explicit `{ relayed: true, authoritative: false }` fixture. These are response simulations; no filesystem, notification or network adapter runs. Corporate host calls still reject revoked permissions and offline mode, and never enter the operation journal. Standalone host grants remain unavailable until the corresponding SDK-05 work is implemented.
+Defaults simulate a browser export being offered, unavailable notifications and disabled LAN status. Relay requires an explicit `{ relayed: true, authoritative: false }` fixture. These are response simulations; no filesystem, notification or network adapter runs. Corporate host calls reject revoked permissions. Offline use requires an explicitly lease-enabled declaration and a valid simulated allowance; host calls never enter the operation journal. Standalone handlers use the separate [device request simulator](local-device-simulation.md).
 
 Each scenario begins with fresh host fixtures and observations. `snapshot().hostActions` records up to 100 simulated/rejected results without export content or relay payloads. The independently authored [host scenarios](../tests/fixtures/host-capabilities/module.scenarios.ts) verify changed outcomes, fresh state, permission revocation and offline rejection:
 
@@ -136,6 +136,35 @@ Each scenario begins with fresh host fixtures and observations. `snapshot().host
 pnpm module test tests/fixtures/host-capabilities
 pnpm module dev tests/fixtures/host-capabilities
 ```
+
+## Corporate offline lease scenarios
+
+Only aliases declaring `offline: "lease"` accept `hostLeases` fixtures or `grantHostLease` calls. A fixture describes a development allowance for the exact loaded module; it is not a signed credential. Omitted aliases begin missing, and a zero remaining lifetime begins expired. Durations are integer milliseconds from 0 through 24 hours.
+
+```ts
+export default defineSimulationModule(module, {
+  hostLeases: { export: { remainingMs: 60_000 } },
+});
+```
+
+Use `simulation.setOnline(false)` and the ordinary inferred `simulation.host.call("export", input)` to exercise offline behavior. Online-only declarations still reject disconnected calls. The following controls are available in direct tests and module-owned CLI scenarios:
+
+- `grantHostLease(alias, remainingMs = 86_400_000)` renews an allowance only while the simulated company server is online and current capability/view permissions allow it.
+- `revokeHostLease(alias)` applies a known local revocation. Changing the observed root-module permission set also invalidates existing allowances; restoring a permission alone does not renew a lease.
+- `advanceHostTime(milliseconds)` advances a deterministic clock without wall-clock delays. It affects host allowances only, leaving business dates and operation journals unchanged.
+- `prepareHost(alias, input)` returns an inferred `{ complete() }` action for delayed-effect scenarios. Complete it after advancing time or changing permissions to verify rejection. An offline action cannot silently switch to a replacement lease; completion is single-use.
+- `snapshot().hostLeases` distinguishes missing, valid, expired and revoked allowances with remaining milliseconds. Host action observations identify online versus leased authorization.
+
+An online host call uses current simulated server authorization, even if its old offline allowance expired. A successful online call does not automatically renew that allowance. Setting permissions represents a policy change already observed by the client; the simulator does not pretend disconnected devices instantly learn remote revocations. Corporate lease fixtures are rejected in personal simulations.
+
+Every new scenario or source reload resets the clock, observations and allowances to the declared fixtures. Run the independently authored examples:
+
+```sh
+pnpm module test tests/fixtures/corporate-lease-simulation
+pnpm module dev tests/fixtures/corporate-lease-simulation
+```
+
+These fixtures model author-visible outcomes. Actual signatures, issuer rotation, encrypted persistence, profile recovery, HTTP failure classification and file-dialog effects retain their separate browser/native acceptance.
 
 ## Verification boundary
 

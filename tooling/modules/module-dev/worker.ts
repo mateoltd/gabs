@@ -47,6 +47,27 @@ try {
   const input = Type.Union([
     Type.Object(
       {
+        action: Type.Literal("hostLease"),
+        capability: Type.String(),
+        task: Type.Union([Type.Literal("renew"), Type.Literal("revoke")]),
+        remainingMs: Type.Optional(
+          Type.Integer({ minimum: 0, maximum: 86400000 }),
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        action: Type.Literal("hostClock"),
+        milliseconds: Type.Integer({
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+        }),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
         action: Type.Literal("localAccess"),
         moduleId: Type.String(),
         capability: Type.String(),
@@ -148,6 +169,13 @@ try {
     try {
       assertSchema(input, message.action);
       const action = message.action;
+      if (action.action === "hostClock")
+        simulator.advanceHostTime(action.milliseconds);
+      if (action.action === "hostLease") {
+        if (action.task === "renew")
+          simulator.grantHostLease(action.capability, action.remainingMs);
+        else simulator.revokeHostLease(action.capability);
+      }
       if (action.action === "host")
         result = await simulator.sendHost(action.call);
       if (action.action === "hostResult")

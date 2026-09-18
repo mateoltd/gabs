@@ -505,3 +505,7 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 ## Native corporate offline capabilities, 18 September 2026
 
 [Native authority acceptance](native-capability-leases/README.md) verifies independent main-process acquisition, private protected persistence, configured-issuer binding, process restart, actual offline file export, expiry and revocation after controlled dialogs. Thirty-three focused tests, three browser journeys, five hidden/unfocused native journeys and strict checks/four builds passed. The affected browser/native readiness journeys were rerun after narrowing readiness to verified aliases. Native scoped Axe and screenshot review passed. Network failures and dialogs were controlled; real providers, OS notification presentation and packaged cross-OS recovery remain unverified. SDK-05 and full parity remain active.
+
+### 18 September 2026: SDK-05 corporate lease simulation
+
+Typed declared allowances, deterministic expiry, held-action rechecks and CLI/preview renewal/revocation/source reset now have [scoped acceptance](corporate-lease-simulator/README.md). Verification passed 22 focused tests, two module-owned CLI scenarios, three headless preview journeys and strict checks/four builds. Wide/narrow Axe, keyboard activation and inspected captures pass; no device effects or desktop windows occurred. Next: official module capability adoption and administrator review. Actual authority/profile/LAN/release gates retain their independent evidence and remaining work.

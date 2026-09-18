@@ -62,6 +62,13 @@ export {
   type SimulationNamespace,
 } from "./simulation-fixtures";
 
+export type {
+  LeasedHostCapabilityName,
+  SimulatedHostLeases,
+  SimulatedHostLease,
+} from "./simulation-leases";
+import type { SimulatedHostLease } from "./simulation-leases";
+
 export type SimulatorOptions<M extends ModuleDefinition> = Omit<
   SimulationModule<M>,
   "module"
@@ -99,6 +106,8 @@ interface NamespaceData {
 }
 export interface SimulatorSnapshot extends NamespaceData {
   local?: LocalSimulationSnapshot;
+  hostElapsedMs: number;
+  hostLeases: Record<string, SimulatedHostLease>;
   hostResults: Record<string, unknown>;
   hostActions: SimulatedHostAction[];
   scope: { userId: string; workspaceId: string };
@@ -140,9 +149,13 @@ export function createModuleSimulator<M extends ModuleDefinition>(
     () => ({
       online,
       personal: options.personal ?? false,
+      viewPermission: module.navigation?.view
+        ? module.views?.[module.navigation.view]?.permission
+        : undefined,
       permissions: permissions.get(module.id) ?? [],
     }),
     options.hostResults,
+    options.hostLeases,
   );
   const journal: JournalEntry[] = [],
     events: SimulatorSnapshot["events"] = [],
@@ -814,18 +827,30 @@ export function createModuleSimulator<M extends ModuleDefinition>(
   const setModulePermissions = (id: string, values: readonly string[]) => {
     const scope = modules.get(id);
     if (!scope) throw Error(`Unknown simulated module: ${id}`);
-    permissions.set(
-      id,
-      values.filter((permission) =>
-        scope.module.permissions.includes(permission),
+    const next = [
+      ...new Set(
+        values.filter((permission) =>
+          scope.module.permissions.includes(permission),
+        ),
       ),
-    );
+    ];
+    if (
+      id === module.id &&
+      canonical([...next].sort()) !==
+        canonical([...(permissions.get(id) ?? [])].sort())
+    )
+      hostSimulator.invalidate();
+    permissions.set(id, next);
   };
   return {
     client: createModuleClient(module, send),
     localClient: createLocalModuleClient(module, send),
     host: hostSimulator.host,
     sendHost: hostSimulator.send,
+    prepareHost: hostSimulator.prepare,
+    grantHostLease: hostSimulator.grant,
+    revokeHostLease: hostSimulator.revoke,
+    advanceHostTime: hostSimulator.advance,
     setHostResult<N extends HostCapabilityName<M>>(
       name: N,
       result: HostCapabilityResult<M, N> | undefined,

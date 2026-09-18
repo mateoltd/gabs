@@ -8,6 +8,13 @@ import type {
 } from "@suite/module-sdk/simulator";
 
 export type DevAction =
+  | {
+      action: "hostLease";
+      capability: string;
+      task: "renew" | "revoke";
+      remainingMs?: number;
+    }
+  | { action: "hostClock"; milliseconds: number }
   | { action: "host"; call: HostCapabilityCall }
   | {
       action: "hostResult";
