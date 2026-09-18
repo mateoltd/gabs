@@ -2,6 +2,8 @@
 
 Execution status, priorities and acceptance gates live in the [parity tracker](parity-tracker.md). The [product vision](product-vision.md) preserves the approved scope and architectural decisions. Update this ledger alongside the tracker when implementation or evidence changes.
 
+[Current checkout review](verification/architecture/README.md#current-checkout-audit-18-september-2026) reconfirms the existing architecture with fresh nine-fixture and strict-build acceptance. No requirement status changes; unfinished employee recovery remains outside this acceptance.
+
 The [18 September architecture review](verification/architecture/README.md#follow-up-architecture-review-18-september-2026) strengthens CORE-002 and framework boundary evidence: dormant portable SDK/contract files cannot hide platform runtime imports, and conditional wildcard exports resolve before module-boundary enforcement. Nine focused fixtures and strict checks/four builds passed. No original requirement status, signed module identity, UI, or remaining parity gate changed.
 
 Server runtime acceptance for BACK-001/CORE-002 now includes [verified content reuse](verification/performance/verified-content/README.md): bounded exact-byte/signing-key caches, immutable hydrated contracts and release selection limited to each read-only snapshot. Warm-cache tests preserve revocation, tamper rejection and fresh command pins. This improves local performance evidence without closing OPS-07 or any outstanding requirement.

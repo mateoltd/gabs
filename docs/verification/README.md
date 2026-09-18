@@ -490,6 +490,10 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 
 [Client store acceptance](client-capability-leases/README.md) verifies exact signed grants, live profile/policy checks, durable expiry/clock handling and scoped IndexedDB persistence. Twenty-eight focused checks across eight files and two headless browser tests pass, alongside strict checks and four builds. The browser harness covers real storage/restart/cross-tab/purge behavior with test-signed grants; the second journey preserves live corporate export behavior. API schemas include the independently configured lease issuer. Product acquisition, connected invalidation and actual web/native offline effects remain required under SDK-05. No Electron or foreground browser was launched.
 
+## Current architecture checkpoint review, 18 September 2026
+
+[Fresh Sol xhigh and parent review](architecture/README.md#current-checkout-audit-18-september-2026) found no further structural correction needed. Checkpoint `4160ff0` preserves unfinished feature work separately. Nine boundary fixtures and strict checks/four builds passed again; no UI or application source changed in this audit. Employee recovery and full parity remain unverified.
+
 ## Architecture follow-up review, 18 September 2026
 
 [The Sol xhigh audit and parent review](architecture/README.md#follow-up-architecture-review-18-september-2026) confirmed the reorganized ownership and corrected two checker gaps: dormant portable source coverage and conditional wildcard export resolution. Nine focused boundary fixtures and strict checks/all four builds passed. No product code or UI changed and no browser or desktop was launched. Full parity remains open.

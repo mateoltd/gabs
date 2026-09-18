@@ -52,3 +52,13 @@ The user-requested Sol review ran at xhigh effort against `88f45f7`, preserved b
 Nine architecture fixtures passed. The initial run passed eight and exposed an incorrect new fixture expectation: the forbidden module import produces both a layer violation and a cross-module violation. Parent review corrected the exact expected diagnostics; no checker rule was weakened. `pnpm build` passed strict TypeScript, all four environment checks, dependency/copy checks and all four application builds. The existing web chunk-size warning remains. Logs: `/tmp/gabs-architecture-review-tests-final.log` and `/tmp/gabs-architecture-review-build.log`.
 
 The architecture overview now describes independently distributed executable modules and the still-open hosted trust/fifth-module acceptance accurately. No application, UI, style, public package identity, or signed release changed in this follow-up. No browser or desktop was launched; the earlier visual acceptance above is historical evidence, not a new UI run. SDK-05 and full parity remain open.
+
+## Current checkout audit, 18 September 2026
+
+The latest requested checkpoint preserves all unfinished employee-recovery work at `4160ff07133ab9b589a8499704a7d1a74e0b3082`, on local branch `checkpoint/architecture-current-review-2026-09-18`. It is a recovery snapshot, not a feature-acceptance commit. The working tree and index were preserved when creating it.
+
+A newly delegated `gpt-5.6-sol` subagent at `xhigh` independently reviewed the current ownership, depth, export surfaces and dependency enforcement. Parent review separately checked workspace discovery, environment configurations, CI paths, generated composition and public exports. Both reviews found no concrete additional structural correction: the requested migration is already in `92fd5fb`, with enforcement fixes in `2c306be`. No extra directory moves, public identifier changes or UI edits were made.
+
+Fresh validation on the current checkout passed all nine architecture fixtures and `pnpm build`: strict TypeScript, four environment checks, boundary/copy checks and all four production builds. Logs: `/tmp/gabs-architecture-current-tests.log` and `/tmp/gabs-architecture-current-build.log`. The existing web chunk-size warning remains. No browser or Electron window was launched.
+
+This audit does not accept the unfinished employee receipt-recovery implementation included in the checkpoint. Its observable behavior still requires the SDK-05-LAN-EMP-REC tests and journeys; that item remains active. Full parity and final UI refinement remain open.
