@@ -2,6 +2,7 @@ import { isDefinitiveRejection } from "@suite/module-sdk/sync";
 import {
   settleJournalEntry,
   settleModuleCall,
+  replaceFailedCreate,
   type SettlementTransport,
 } from "@suite/client/module-settlement";
 import {
@@ -63,6 +64,15 @@ import {
 } from "@suite/ui-web";
 import { Plus, Search } from "@suite/ui-web/icons";
 export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
+  const recoveryContext = useRef(props);
+  recoveryContext.current = props;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const { client, scope, bootstrap, online, platform, module, moduleCatalog } =
     props;
   const moduleId = module.id;
@@ -90,6 +100,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     ? unresolvedReviewFields(reviewSession.comparison)
     : [];
   const [reviewTargetId, setReviewTargetId] = useState<string>();
+  const [separateCreate, setSeparateCreate] = useState(false);
   const attempt = useRef<ModuleCall | undefined>(undefined);
   const attemptMode = useRef<"direct" | "journal">("direct");
   const requiresConnection =
@@ -196,6 +207,16 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   ]);
   const ordinaryDraftKey = resourceDraftKey(moduleId, resource);
   const draftKey = resourceDraftKey(moduleId, resource, reviewSession);
+  const reviewedCreate = storage?.journal.find(
+    (entry) =>
+      entry.id === reviewId &&
+      entry.userId === scope.userId &&
+      entry.workspaceId === scope.workspaceId &&
+      entry.call.action === "create" &&
+      !entry.supersededBy &&
+      ["conflict", "rejected"].includes(entry.state),
+  );
+  const identityCollision = reviewedCreate?.errorCode === "RECORD_EXISTS";
   const allowed = canUse(
     bootstrap,
     moduleId,
@@ -442,6 +463,65 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       moduleVersion,
       body,
     });
+  async function createSeparateRecord() {
+    if (!reviewedCreate || !online || !write || !authorized()) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      assertSchema(definition.schema, form);
+      await replaceFailedCreate(
+        platform,
+        scope,
+        reviewedCreate.id,
+        {
+          moduleId,
+          moduleVersion: module.version,
+          resource,
+          action: "create",
+          key: crypto.randomUUID(),
+          input: { id: crypto.randomUUID(), data: form },
+        },
+        settlementTransport,
+        (call) => {
+          const current = recoveryContext.current;
+          return (
+            mounted.current &&
+            current.scope.userId === scope.userId &&
+            current.scope.workspaceId === scope.workspaceId &&
+            current.online &&
+            navigator.onLine &&
+            Date.now() <
+              new Date(current.bootstrap.authorizedAt).getTime() +
+                Math.max(current.bootstrap.offlineHours, 1 / 60) * 3600000 &&
+            !!call.resource &&
+            canUse(
+              current.bootstrap,
+              call.moduleId,
+              `${call.moduleId}.${call.resource}.read`,
+              current.moduleCatalog,
+            ) &&
+            canUse(
+              current.bootstrap,
+              call.moduleId,
+              `${call.moduleId}.${call.resource}.write`,
+              current.moduleCatalog,
+            )
+          );
+        },
+      );
+      setSeparateCreate(false);
+      setEditing(undefined);
+      setReviewSession(undefined);
+      setReviewTargetId(undefined);
+      await syncModuleStorage(platform, scope, transport, authorized);
+      await query.refetch();
+    } catch (error) {
+      setError(error);
+    } finally {
+      await read().catch(setError);
+      setBusy(false);
+    }
+  }
   async function prepareDirectReview(call: ModuleCall) {
     const input = call.input as {
       id: string;
@@ -549,6 +629,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     setError(undefined);
     try {
       if (!attempt.current) {
+        if (identityCollision)
+          throw Error(
+            "This identity already exists. Review the separate-record option to keep your input.",
+          );
         if (unresolved.length)
           throw Error(
             "Choose a value for each conflicting field before saving.",
@@ -1084,7 +1168,37 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         </Button>
       </Modal>
       <Modal
-        open={editing !== undefined && settling?.type !== "edit"}
+        title="Create a separate record"
+        description="Recover a failed create with a new record identity."
+        open={separateCreate}
+        onOpenChange={(open) => {
+          if (!open && !busy) setSeparateCreate(false);
+        }}
+      >
+        <p>
+          The server will check the original request first. If it already
+          committed, its result will be recovered. Otherwise, the server will
+          stop the original request before saving your input as a new pending
+          create.
+        </p>
+        <p>
+          Linked changes that have never been submitted will follow the new
+          record. Existing server records stay unchanged. Work with an uncertain
+          outcome or an ambiguous saved draft must be reviewed first.
+        </p>
+        <ErrorMessage error={error} />
+        <Button
+          variant="primary"
+          disabled={!online || !write || busy}
+          onClick={() => void createSeparateRecord()}
+        >
+          Check and create separate record
+        </Button>
+      </Modal>
+      <Modal
+        open={
+          editing !== undefined && settling?.type !== "edit" && !separateCreate
+        }
         onOpenChange={(open) => {
           if (!open && !attempt.current) {
             setEditing(undefined);
@@ -1107,6 +1221,25 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             void save();
           }}
         >
+          {reviewedCreate && (
+            <section className="form-stack" aria-label="Failed create recovery">
+              <p role="status">
+                {identityCollision
+                  ? "A record with this identity already exists. Your saved input has not replaced it."
+                  : "This create was not accepted. Review your input before retrying or creating a separate record."}
+              </p>
+              <Button
+                type="button"
+                disabled={!online || !write || busy}
+                onClick={() => {
+                  setError(undefined);
+                  setSeparateCreate(true);
+                }}
+              >
+                Create separate record
+              </Button>
+            </section>
+          )}
           {reviewSession?.comparison && editing && (
             <ConflictReview
               review={reviewSession.comparison}
@@ -1252,6 +1385,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               busy ||
               !write ||
               unresolved.length > 0 ||
+              identityCollision ||
               ((!resourceAvailable || !!editing?.archived) && !attempt.current)
             }
           >

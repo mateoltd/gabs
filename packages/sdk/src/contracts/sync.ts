@@ -13,6 +13,9 @@ export interface JournalEntry {
   delivery?: "unsubmitted" | "uncertain";
   supersededBy?: string;
   error?: string;
+  errorCode?: string;
+  /** Recorded only after a verified authoritative cancellation response. */
+  settlement?: "cancelled";
   result?: unknown;
 }
 export interface JournalStore {
@@ -61,6 +64,7 @@ export async function flushJournal(
     // establish that a legacy request never reached the server.
     const uncertain = entry.delivery !== "unsubmitted";
     entry.delivery = "uncertain";
+    delete entry.errorCode;
     entry.attempts++;
     await store.put(structuredClone(entry));
     let stop = false;
@@ -68,6 +72,8 @@ export async function flushJournal(
       entry.result = await send({ ...entry.call, key: entry.id });
       entry.state = "accepted";
       delete entry.error;
+      delete entry.errorCode;
+      delete entry.settlement;
       delete entry.delivery;
     } catch (error) {
       const e = error as { status?: number; message?: string; code?: string };
@@ -97,6 +103,7 @@ export async function flushJournal(
             e.status === 409 || e.status === 412 ? "conflict" : "rejected";
           delete entry.delivery;
           entry.error = e.message ?? "The server rejected this change.";
+          if (typeof e.code === "string") entry.errorCode = e.code;
         }
       }
     }

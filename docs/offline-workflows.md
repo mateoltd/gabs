@@ -10,6 +10,12 @@ Offline reference pickers include same-account/workspace pending creates and mar
 
 Reviewed replacement of a rejected/conflicting request preserves its record target and existing prerequisites. The journal reconnects dependents atomically. Replacing uncertain work, reusing a retry identifier for different content, or introducing circular prerequisites fails without deleting the draft.
 
+## Failed-create collisions
+
+A conflicting create can be reviewed as a separate record after an explicit server outcome check. A confirmed cancellation fences the old request; the parent and eligible unsubmitted resource dependents then receive fresh request keys in one local transaction. The parent receives a fresh record ID and declared links follow it. Existing corporate records, original request bodies, child base snapshots and unrelated work remain intact. Lost settlement replies can be recovered after reload or process restart. An accepted original receipt never creates a second record.
+
+The client preserves input and blocks graph replacement if a child may have been submitted, a dependency is cyclic, a saved draft is ambiguous, or affected permissions are unavailable. Unsent ordinary drafts, same-record edits and custom commands are not silently rewritten. See [scoped collision evidence](verification/create-collisions/README.md); direct online/no-cache collision recovery remains required below.
+
 ## Conflict comparison
 
 Generated updates retain the original values with the queued request. Review compares them with the attempted edit and a freshly fetched server record. Disjoint server changes remain in the proposed result; each overlapping top-level field needs an explicit local/server choice before the form or save action is enabled. Objects and arrays are reviewed as complete fields, matching the server's merge granularity. Older queued updates without original values require explicit choices for all differing fields.
@@ -39,8 +45,8 @@ With offline storage disabled, direct pending input remains in the mounted edito
 ## Remaining OFF-01 work
 
 - Extend direct-attempt acceptance to cancelled-create collisions, archived-input recovery and original-resource permission changes during archive recovery. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
-- Extend conflict acceptance to nested/reference-field decisions and failed-create collisions; current browser/native journeys cover ordinary resource updates and legacy requests without original values.
-- Verify rejected-parent correction and dependent continuation through the real editor, including restart and reauthentication. Storage-level coverage alone does not accept this interface.
+- Extend conflict acceptance to nested/reference-field decisions. Journaled failed-create collisions have scoped browser/native recovery evidence; direct collisions and ambiguous drafts/same-record/custom descendants retain separate required work.
+- Rejected-parent correction and dependent continuation now have browser reload/native restart and reauthentication evidence for ordinary resource chains, including colliding creates. Extend this to nested and cross-module links under current grants rather than treating the simple chain as full acceptance.
 - Verify nested and cross-module dependent capture under explicit grants and revocation in the real interface.
 - Complete same-record pending-edit ordering and clear identification/recovery of individual pending changes.
 - Align retry-key validation across desktop submissions and relay receipt lookups with server-accepted formats; those older paths still use narrower character rules than execution and the new settlement endpoint.

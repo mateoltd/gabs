@@ -1,4 +1,8 @@
-import { settleJournalEntry } from "../../packages/client/src/modules/settlement";
+import { prepareCreateReplacement } from "../../packages/client/src/modules/collisions";
+import {
+  replaceFailedCreate,
+  settleJournalEntry,
+} from "../../packages/client/src/modules/settlement";
 import { afterEach, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { Type, type ModuleCall } from "@suite/module-sdk";
@@ -80,15 +84,14 @@ function storage() {
     },
   });
   const records = new Map<string, unknown>();
-  let failRoot = false;
+  let failRoot = 0;
   const path = (s: Scope, key: string) => `${s.userId}/${s.workspaceId}/${key}`;
   const platform: Platform = {
     kind: "desktop",
     load: async <T>(s: Scope, key: string) =>
       structuredClone(records.get(path(s, key))) as T | undefined,
     save: async (s, key, value) => {
-      if (key === "module-state" && failRoot) {
-        failRoot = false;
+      if (key === "module-state" && failRoot > 0 && --failRoot === 0) {
         throw Error("Interrupted commit");
       }
       records.set(path(s, key), structuredClone(value));
@@ -125,8 +128,8 @@ function storage() {
     records,
     install,
     root,
-    interrupt: () => {
-      failRoot = true;
+    interrupt: (write = 1) => {
+      failRoot = write;
     },
   };
 }
@@ -722,4 +725,399 @@ it("retains independent direct comparisons and promotes legacy input without ove
     collision.drafts[resourceDraftKey("contacts", "contacts", one)].name,
   ).toBe("mine");
   expect(collision.drafts["contacts/contacts"].name).toBe("Legacy alternative");
+});
+
+const collisionId = "00000000-0000-4000-8000-000000000001";
+const separateId = "00000000-0000-4000-8000-000000000002";
+const childId = "00000000-0000-4000-8000-000000000003";
+const collisionReplacement = (): ModuleCall => ({
+  ...call("separate-create"),
+  input: { id: separateId, data: { ...data, name: "Corrected" } },
+});
+async function collisionStorage() {
+  const fixture = storage();
+  await fixture.install();
+  await enqueue(fixture.platform, scope, {
+    ...call("original-create"),
+    input: { id: collisionId, data },
+  });
+  await enqueue(fixture.platform, scope, {
+    ...call("child-note"),
+    resource: "notes",
+    input: {
+      id: childId,
+      data: { contactId: collisionId, text: "Local note" },
+    },
+  });
+  await enqueue(fixture.platform, scope, {
+    ...call("independent-create"),
+    input: { id: crypto.randomUUID(), data },
+  });
+  await changeModuleStorage(fixture.platform, scope, (s) => {
+    s.journal[0].state = "conflict";
+    s.journal[0].errorCode = "RECORD_EXISTS";
+    delete s.journal[0].delivery;
+    s.journal[0].attempts = 1;
+  });
+  await saveResourceDraft(fixture.platform, scope, "contacts", "contacts", {
+    data,
+    target: null,
+    review: { entryId: "original-create" },
+  });
+  return fixture;
+}
+it("fences failed creates and atomically remaps unsubmitted dependencies with fresh retry identities", async () => {
+  const { platform } = await collisionStorage();
+  const before = await readModuleStorage(platform, scope);
+  const settle = vi.fn(async ({ body }) => ({
+    key: body.key,
+    outcome: "cancelled",
+  }));
+  expect(
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      settle,
+      () => true,
+    ),
+  ).toBe("replaced");
+  expect(settle.mock.calls[0][0].body).toEqual({
+    key: "original-create",
+    call: {
+      action: "create",
+      resource: "contacts",
+      input: { id: collisionId, data },
+    },
+  });
+  const state = await readModuleStorage(platform, scope);
+  const parent = state.journal.find((e) => e.id === "separate-create")!;
+  const child = state.journal.find(
+    (e) => e.call.resource === "notes" && !e.supersededBy,
+  )!;
+  expect(parent).toMatchObject({
+    state: "pending",
+    delivery: "unsubmitted",
+    attempts: 0,
+    call: { input: { id: separateId } },
+  });
+  expect(child).toMatchObject({
+    dependencies: [parent.id],
+    state: "pending",
+    delivery: "unsubmitted",
+    attempts: 0,
+    call: {
+      input: {
+        id: childId,
+        data: { contactId: separateId, text: "Local note" },
+      },
+    },
+  });
+  expect(child.id).not.toBe("child-note");
+  expect(child.call.key).toBe(child.id);
+  expect(state.journal[0]).toMatchObject({
+    settlement: "cancelled",
+    supersededBy: parent.id,
+    call: before.journal[0].call,
+  });
+  expect(state.journal[1]).toMatchObject({
+    supersededBy: child.id,
+    call: before.journal[1].call,
+  });
+  expect(state.journal[2]).toEqual(before.journal[2]);
+  expect(Object.keys(state.drafts)).toEqual([]);
+  await expect(
+    replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      settle,
+      () => true,
+    ),
+  ).rejects.toThrow("Only a failed create");
+  expect(settle).toHaveBeenCalledTimes(1);
+});
+it("recovers an already accepted create without making a separate record or rewriting its children", async () => {
+  const { platform } = await collisionStorage();
+  const result = { ...row, id: collisionId };
+  expect(
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "accepted", result }),
+      () => true,
+    ),
+  ).toBe("accepted");
+  const state = await readModuleStorage(platform, scope);
+  expect(state.journal).toHaveLength(3);
+  expect(state.journal[0]).toMatchObject({ state: "accepted", result });
+  expect(state.journal[0].errorCode).toBeUndefined();
+  expect(state.journal[1]).toMatchObject({
+    dependencies: ["original-create"],
+    call: { input: { data: { contactId: collisionId } } },
+  });
+  expect(Object.keys(state.drafts)).toEqual([]);
+});
+it.each([1, 2])(
+  "preserves all input across interrupted recovery write %i and safely retries the same server fence",
+  async (write) => {
+    const { platform, interrupt } = await collisionStorage();
+    const settle = vi.fn(async () => ({
+      key: "original-create",
+      outcome: "cancelled",
+    }));
+    interrupt(write);
+    await expect(
+      replaceFailedCreate(
+        platform,
+        scope,
+        "original-create",
+        collisionReplacement(),
+        settle,
+        () => true,
+      ),
+    ).rejects.toThrow("Interrupted commit");
+    const failed = await readModuleStorage(platform, scope);
+    expect(failed.journal).toHaveLength(3);
+    expect(failed.journal.every((e) => !e.supersededBy)).toBe(true);
+    expect(Object.keys(failed.drafts)).toHaveLength(1);
+    expect(failed.journal[0].settlement).toBe(
+      write === 2 ? "cancelled" : undefined,
+    );
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      settle,
+      () => true,
+    );
+    expect(settle).toHaveBeenCalledTimes(2);
+    expect((await readModuleStorage(platform, scope)).journal).toHaveLength(5);
+  },
+);
+it("rejects malformed settlement and post-response revocation without replacing input", async () => {
+  const { platform } = await collisionStorage();
+  const before = await readModuleStorage(platform, scope);
+  for (const reply of [
+    { key: "wrong-key", outcome: "cancelled" },
+    { key: "original-create", outcome: "accepted", result: { bad: true } },
+  ]) {
+    await expect(
+      replaceFailedCreate(
+        platform,
+        scope,
+        "original-create",
+        collisionReplacement(),
+        async () => reply,
+        () => true,
+      ),
+    ).rejects.toThrow();
+    expect(await readModuleStorage(platform, scope)).toEqual(before);
+  }
+  let allowed = true;
+  await expect(
+    replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => {
+        allowed = false;
+        return { key: "original-create", outcome: "cancelled" };
+      },
+      () => allowed,
+    ),
+  ).rejects.toThrow("Unlock this workspace again");
+  expect(await readModuleStorage(platform, scope)).toEqual(before);
+});
+it.each([
+  "uncertain",
+  "legacy",
+  "accepted",
+  "draft",
+  "permission",
+  "cycle",
+  "same-record",
+  "duplicate-id",
+  "custom",
+])(
+  "preserves blocked collision recovery (%s) and its verified cancellation",
+  async (problem) => {
+    const { platform } = await collisionStorage();
+    await changeModuleStorage(platform, scope, (s) => {
+      const child = s.journal[1];
+      if (problem === "uncertain") child.delivery = "uncertain";
+      if (problem === "legacy") delete child.delivery;
+      if (problem === "accepted") child.state = "accepted";
+      if (problem === "draft")
+        s.drafts["contacts/notes"] = { contactId: collisionId, text: "Unsent" };
+      if (problem === "cycle") s.journal[0].dependencies = [child.id];
+      if (problem === "same-record") {
+        child.call = {
+          ...call(child.id),
+          action: "update",
+          input: { id: collisionId, data, baseVersion: 1 },
+        };
+      }
+      if (problem === "duplicate-id")
+        s.journal[2].call.input = { id: separateId, data };
+      if (problem === "custom")
+        child.call = {
+          moduleId: "contacts",
+          action: "operation",
+          operation: "custom",
+          input: {},
+          key: child.id,
+        };
+    });
+    const before = await readModuleStorage(platform, scope);
+    await expect(
+      replaceFailedCreate(
+        platform,
+        scope,
+        "original-create",
+        collisionReplacement(),
+        async () => ({ key: "original-create", outcome: "cancelled" }),
+        (call) => problem !== "permission" || call.resource !== "notes",
+      ),
+    ).rejects.toThrow();
+    const after = await readModuleStorage(platform, scope);
+    expect(after.journal).toHaveLength(3);
+    expect(after.journal.every((e) => !e.supersededBy)).toBe(true);
+    expect(after.journal[0].settlement).toBe("cancelled");
+    expect(after.journal.slice(1)).toEqual(before.journal.slice(1));
+    expect(after.drafts).toEqual(before.drafts);
+  },
+);
+it("requires a server cancellation and fresh valid identities before preparing a replacement", async () => {
+  const { platform } = await collisionStorage();
+  const state = await readModuleStorage(platform, scope);
+  await expect(
+    prepareCreateReplacement(
+      state,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      () => true,
+    ),
+  ).rejects.toThrow("server must confirm");
+  state.journal[0].settlement = "cancelled";
+  const before = structuredClone(state);
+  for (const replacement of [
+    { ...collisionReplacement(), key: "short" },
+    { ...collisionReplacement(), key: "original-create" },
+    { ...collisionReplacement(), input: { id: collisionId, data } },
+    { ...collisionReplacement(), input: { id: "invalid", data } },
+    { ...collisionReplacement(), resource: "notes" },
+  ])
+    await expect(
+      prepareCreateReplacement(
+        state,
+        scope,
+        "original-create",
+        replacement,
+        () => true,
+      ),
+    ).rejects.toThrow();
+  expect(state).toEqual(before);
+  await expect(
+    prepareCreateReplacement(
+      state,
+      { ...scope, workspaceId: "foreign" },
+      "original-create",
+      collisionReplacement(),
+      () => true,
+    ),
+  ).rejects.toThrow();
+});
+
+it("remaps transitive linked edits while preserving their server base, foreign scope and ordinary draft", async () => {
+  const { platform } = await collisionStorage();
+  const baseData = {
+    contactId: collisionId,
+    kind: "office",
+    street: "Old",
+    city: "Madrid",
+    country: "Spain",
+  };
+  await enqueue(
+    platform,
+    scope,
+    {
+      ...call("linked-address"),
+      resource: "addresses",
+      action: "update",
+      input: {
+        id: crypto.randomUUID(),
+        data: { ...baseData, street: "Local" },
+        baseVersion: 3,
+        baseData,
+      },
+    },
+    ["child-note"],
+  );
+  await changeModuleStorage(platform, scope, (s) => {
+    s.drafts["contacts/contacts"] = { ...data, name: "Another draft" };
+    s.journal.push({
+      ...structuredClone(s.journal[1]),
+      id: "foreign-note",
+      userId: "foreign",
+      workspaceId: "foreign",
+    });
+  });
+  const before = await readModuleStorage(platform, scope);
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+  );
+  const after = await readModuleStorage(platform, scope);
+  const note = after.journal.find(
+    (e) =>
+      e.call.resource === "notes" &&
+      e.userId === scope.userId &&
+      !e.supersededBy,
+  )!;
+  const address = after.journal.find(
+    (e) => e.call.resource === "addresses" && !e.supersededBy,
+  )!;
+  expect(address.call.input).toEqual({
+    ...(before.journal[3].call.input as object),
+    data: { ...baseData, street: "Local", contactId: separateId },
+  });
+  expect(address.dependencies).toEqual([note.id, "separate-create"]);
+  expect(after.journal.find((e) => e.id === "foreign-note")).toEqual(
+    before.journal.find((e) => e.id === "foreign-note"),
+  );
+  expect(after.drafts["contacts/contacts"]).toEqual(
+    before.drafts["contacts/contacts"],
+  );
+});
+
+it("rechecks every linked permission after asynchronous contract verification", async () => {
+  const { platform } = await collisionStorage();
+  let noteChecks = 0;
+  await expect(
+    replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      (call) => call.resource !== "notes" || ++noteChecks === 1,
+    ),
+  ).rejects.toThrow("Current access changed");
+  const state = await readModuleStorage(platform, scope);
+  expect(state.journal).toHaveLength(3);
+  expect(state.journal[0].settlement).toBe("cancelled");
+  expect(state.journal.every((entry) => !entry.supersededBy)).toBe(true);
+  expect(Object.keys(state.drafts)).toHaveLength(1);
 });

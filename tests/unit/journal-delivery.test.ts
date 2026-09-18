@@ -219,3 +219,35 @@ it.each([408, 429, 500, 401])(
     expect(entries()[2].state).toBe("rejected");
   },
 );
+
+it("retains a definitive collision code without treating an uncertain retry as rejected", async () => {
+  const first = fixture();
+  await flushJournal(
+    first.store,
+    async () => {
+      throw { status: 409, code: "RECORD_EXISTS" };
+    },
+    () => true,
+  );
+  expect(first.entries()[0]).toMatchObject({
+    state: "conflict",
+    errorCode: "RECORD_EXISTS",
+  });
+  const uncertain = fixture();
+  await flushJournal(
+    uncertain.store,
+    async () => {
+      throw new TypeError("Lost reply");
+    },
+    () => true,
+  );
+  await flushJournal(
+    uncertain.store,
+    async () => {
+      throw { status: 409, code: "RECORD_EXISTS" };
+    },
+    () => true,
+  );
+  expect(uncertain.entries()[0].state).toBe("pending");
+  expect(uncertain.entries()[0].errorCode).toBeUndefined();
+});

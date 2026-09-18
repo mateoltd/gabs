@@ -629,3 +629,7 @@ Scoped Axe, keyboard resumption and eight wide/narrow web/native captures were i
 ## Architecture checkpoint during collision work, 18 September 2026
 
 [Fresh independent review and parent verification](architecture/README.md#collision-work-checkpoint-audit-18-september-2026) preserve checkpoint `c219fc00`, confirm the existing ownership layout, and pass nine architecture fixtures plus strict checks/four builds. No source or UI changes were justified. Collision behavior, full parity and the later UI-refinement goal remain outside this acceptance.
+
+## Journaled create collisions, 18 September 2026
+
+[OFF-01 collision acceptance](create-collisions/README.md) passed 442 unit/PostgreSQL tests across 79 files, strict checks/four builds, eight headless browser journeys and five hidden native journeys on final source. Real server collision, lost cancellation reply, restart, corrected input, remapped dependent work, unchanged existing records and exact audit counts are covered. Keyboard, scoped Axe and eight wide/narrow captures were inspected. Historical captures were restored; no stylesheet changed. Direct no-cache collisions and the remaining offline/full-parity gates are not accepted by this milestone.

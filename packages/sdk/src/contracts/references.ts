@@ -319,3 +319,65 @@ export function referenceValues(
   visit(root, value, "", "");
   return result;
 }
+
+/** Replace only schema-declared links to one resource record, preserving unrelated UUIDs and input. */
+export function remapResourceReferences<S extends TSchema>(
+  schema: S,
+  data: unknown,
+  from: { moduleId: string; resource: string; id: string },
+  to: string,
+): Static<S> {
+  assertSchema(identifier, from.id);
+  assertSchema(identifier, to);
+  const references = referenceValues(schema, data);
+  const matches = references.filter(
+    (ref) =>
+      ref.target.kind === "resource" &&
+      ref.target.moduleId === from.moduleId &&
+      ref.target.resource === from.resource &&
+      ref.value.toLowerCase() === from.id.toLowerCase(),
+  );
+  let result = structuredClone(data);
+  for (const reference of matches) {
+    if (
+      references.some(
+        (other) =>
+          other.path === reference.path &&
+          referenceTargetKey(other.target) !==
+            referenceTargetKey(reference.target),
+      )
+    )
+      throw new ValidationError(
+        "A reference matches multiple targets. Review its schema before changing the record identity.",
+      );
+    if (!reference.path) {
+      result = to;
+      continue;
+    }
+    const segments = reference.path
+      .slice(1)
+      .split("/")
+      .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
+    let parent = result;
+    for (const segment of segments.slice(0, -1)) {
+      if (
+        !parent ||
+        typeof parent !== "object" ||
+        !Object.hasOwn(parent, segment)
+      )
+        throw new ValidationError("The reference path is no longer present.");
+      parent = (parent as Record<string, unknown>)[segment];
+    }
+    const key = segments.at(-1)!;
+    if (!parent || typeof parent !== "object" || !Object.hasOwn(parent, key))
+      throw new ValidationError("The reference path is no longer present.");
+    Object.defineProperty(parent, key, {
+      value: to,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  assertSchema(schema, result);
+  return result as Static<S>;
+}
