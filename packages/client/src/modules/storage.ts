@@ -155,6 +155,7 @@ export async function enqueue(
     state: "pending",
     createdAt: Date.now(),
     attempts: 0,
+    delivery: "unsubmitted",
   };
   await changeModuleStorage(platform, scope, async (s) => {
     const existing = s.journal.find((e) => e.id === entry.id);

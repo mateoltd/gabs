@@ -961,6 +961,7 @@ export function createModuleSimulator<M extends ModuleDefinition>(
             state: "pending",
             createdAt: Date.now(),
             attempts: 0,
+            delivery: "unsubmitted",
           });
         return { state: "pending", id };
       }

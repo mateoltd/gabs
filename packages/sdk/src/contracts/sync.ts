@@ -9,6 +9,8 @@ export interface JournalEntry {
   state: JournalState;
   createdAt: number;
   attempts: number;
+  /** Missing on legacy entries, whose delivery history is unknown. */
+  delivery?: "unsubmitted" | "uncertain";
   supersededBy?: string;
   error?: string;
   result?: unknown;
@@ -17,7 +19,7 @@ export interface JournalStore {
   list(): Promise<JournalEntry[]>;
   put(entry: JournalEntry): Promise<void>;
 }
-/** Persist each terminal result before proceeding. Transport failures remain pending. */
+/** Persist dispatch before sending. An ambiguous attempt keeps its original retry identity. */
 export async function flushJournal(
   store: JournalStore,
   send: (call: ModuleCall) => Promise<unknown>,
@@ -35,10 +37,18 @@ export async function flushJournal(
       )
     )
       continue;
+    // Old journals did not persist transport failures. Even attempts=0 cannot
+    // establish that a legacy request never reached the server.
+    const uncertain = entry.delivery !== "unsubmitted";
+    entry.delivery = "uncertain";
+    entry.attempts++;
+    await store.put(structuredClone(entry));
+    let stop = false;
     try {
       entry.result = await send({ ...entry.call, key: entry.id });
       entry.state = "accepted";
       delete entry.error;
+      delete entry.delivery;
     } catch (error) {
       const e = error as { status?: number; message?: string; code?: string };
       if (
@@ -49,20 +59,29 @@ export async function flushJournal(
         entry.error =
           e.message ?? "This change is still awaiting a verified response.";
       } else {
-        if (!e.status || e.status >= 500 || e.status === 429) break;
-        if (
+        stop =
+          !e.status ||
+          e.status >= 500 ||
+          e.status === 408 ||
+          e.status === 429 ||
           e.status === 401 ||
           e.code === "MEMBERSHIP_REVOKED" ||
-          e.code === "MFA_REQUIRED"
-        )
-          break;
-        entry.state =
-          e.status === 409 || e.status === 412 ? "conflict" : "rejected";
-        entry.error = e.message ?? "The server rejected this change.";
+          e.code === "MFA_REQUIRED";
+        if (uncertain || stop) {
+          delete entry.result;
+          entry.error =
+            "The outcome of an earlier attempt is unknown. Your original change is retained for retry." +
+            (e.message ? ` ${e.message}` : "");
+        } else {
+          entry.state =
+            e.status === 409 || e.status === 412 ? "conflict" : "rejected";
+          delete entry.delivery;
+          entry.error = e.message ?? "The server rejected this change.";
+        }
       }
     }
-    entry.attempts++;
     await store.put(entry);
     states.set(entry.id, entry.state);
+    if (stop) break;
   }
 }

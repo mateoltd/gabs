@@ -603,3 +603,8 @@ Passed: 402 unit/PostgreSQL checks across 74 files, strict checks/four builds, s
 [Scoped OFF-01 conflict evidence](conflict-review/README.md) verifies deliberate original/local/server choices, preserved disjoint server changes, legacy missing-original input and durable choices/edits through browser reload and hidden native process restart. Another server overlap produces another conflict; the final record retains the newest unrelated server data and the user's additional review edit.
 
 Passed: 405 unit/PostgreSQL checks across 75 files, strict checks/four builds, seven distinct headless journeys with both affected conflict cases rerun after prototype-field hardening, and two final hidden/unfocused native journeys. Scoped Axe and inspected wide/narrow captures pass; historical images were restored. OFF-01 remains active for uncertain-outcome classification, independent review retention and the remaining [workflow map](../offline-workflows.md). Full parity and later UI refinement remain open.
+
+
+## OFF-01 durable delivery through denial, 18 September 2026
+
+[Journal delivery acceptance](journal-delivery/README.md) verifies dispatch persistence before effects, restart-safe uncertainty after a lost reply and later denial, independent work, dependency waiting and exact receipt recovery when authority returns. Full isolated verification passes 413 checks across 76 files, strict checks/four builds, six headless and three hidden native journeys. Current PostgreSQL evidence has exactly one effect/audit per accepted change. Missing-receipt settlement, permanent revocation and other OFF-01 gates remain open; this is scoped progress, not parity completion.

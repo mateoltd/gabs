@@ -292,6 +292,7 @@ describe("Durable journal", () => {
       state: "pending",
       createdAt: i,
       attempts: 0,
+      delivery: "unsubmitted",
     }));
     const sent: string[] = [];
     await flushJournal(
@@ -329,6 +330,7 @@ describe("Durable journal", () => {
             state: "pending",
             createdAt: 0,
             attempts: 0,
+            delivery: "unsubmitted",
           },
         ],
         put: async () => {},
