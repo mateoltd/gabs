@@ -1,6 +1,7 @@
+import { checkRecoveryPolicy, validateRecoveryInput } from "../recovery/input";
 import { assertSchema, Type } from "@suite/module-sdk";
 import { hostCapabilitySchemas } from "@suite/module-sdk/host-capabilities";
-import type { SuiteClient } from "../api";
+import { ApiError, type SuiteClient } from "../api";
 import { openDB } from "idb";
 import type { Platform, Scope, CacheKey, RememberedIdentity } from "../index";
 import { CorporateCapabilityLeases } from "../identity/capability-leases";
@@ -173,4 +174,101 @@ export async function downloadCorporateExport(options: {
     throw Error("The export identity changed while saving.");
   await browserPlatform.saveFile(file.filename, file.content);
   return { status: "offered" as const };
+}
+
+/** Recovery input is scoped to a live view; the native host independently repeats authorization. */
+export async function exportRecoveryInput(options: {
+  client: SuiteClient;
+  input: import("@suite/module-sdk/platform").ModuleInputRecovery;
+  signal: AbortSignal;
+  access(): {
+    policy: import("@suite/contracts").Bootstrap;
+    dependencies: readonly string[];
+    online: boolean;
+    offlineEnabled: boolean;
+  };
+  receivePolicy(
+    policy: import("@suite/contracts").Bootstrap,
+    signal: AbortSignal,
+  ): Promise<import("@suite/contracts").Bootstrap>;
+  onError(error: unknown): void;
+  check(): void;
+}) {
+  const { input, signal } = options;
+  const check = () => {
+    signal.throwIfAborted();
+    options.check();
+  };
+  check();
+  validateRecoveryInput(input, input, input.moduleId);
+  const native = window.suiteDesktop;
+  if (native) {
+    const handle = await native.openModuleHost(
+      { userId: input.userId, workspaceId: input.workspaceId },
+      input.moduleId,
+      input.moduleVersion,
+    );
+    const close = () => {
+      void native.closeModuleHost(handle).catch(() => {});
+    };
+    signal.addEventListener("abort", close, { once: true });
+    try {
+      check();
+      await native.exportInput(handle, input);
+    } finally {
+      signal.removeEventListener("abort", close);
+      await native.closeModuleHost(handle);
+    }
+    return;
+  }
+  let access = options.access();
+  let policy = access.policy;
+  const offline = !access.online || !navigator.onLine;
+  if (!offline) {
+    try {
+      const me = await options.client.request({ operation: "me" }, { signal });
+      check();
+      if (me.user.id !== input.userId)
+        throw new ApiError(
+          401,
+          "PROFILE_CHANGED",
+          "This recovery profile is no longer active.",
+        );
+      policy = await options.client.request(
+        { operation: "bootstrap", params: { workspaceId: input.workspaceId } },
+        { signal },
+      );
+      check();
+      policy = await options.receivePolicy(policy, signal);
+      check();
+    } catch (error) {
+      if (!signal.aborted) options.onError(error);
+      throw error;
+    }
+  }
+  access = options.access();
+  const offlineNow = offline || !access.online || !navigator.onLine;
+  if (offlineNow && !access.offlineEnabled)
+    throw Error("Reconnect to authorize recovery export.");
+  if (offlineNow) {
+    const snapshot = await browserPlatform.load<import("../index").Snapshot>(
+      { userId: input.userId, workspaceId: input.workspaceId },
+      "snapshot",
+    );
+    check();
+    if (
+      !snapshot ||
+      snapshot.expiresAt <= Date.now() ||
+      snapshot.cachedAt > Date.now()
+    )
+      throw Error("Offline recovery access expired. Reconnect to continue.");
+    checkRecoveryPolicy(snapshot.bootstrap, input, access.dependencies, true);
+  }
+  checkRecoveryPolicy(policy, input, access.dependencies, offlineNow);
+  checkRecoveryPolicy(access.policy, input, access.dependencies, offlineNow);
+  check();
+  await browserPlatform.saveFile(
+    `module-input-${crypto.randomUUID()}.json`,
+    JSON.stringify(input, null, 2),
+  );
 }

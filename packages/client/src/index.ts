@@ -150,6 +150,10 @@ export interface DesktopBridge {
   ): Promise<string>;
   executeLocalDevice(handle: string): Promise<unknown>;
   closeLocalDevice(handle: string): Promise<void>;
+  exportInput(
+    handle: string,
+    input: import("@suite/module-sdk/platform").ModuleInputRecovery,
+  ): Promise<void>;
   openModuleHost(
     scope: Scope,
     moduleId: string,

@@ -15,7 +15,8 @@
     "./local-devices": "./src/adapters/local-devices.ts",
     "./capability-leases": "./src/identity/capability-leases.ts",
     "./module-response": "./src/modules/response.ts",
-    "./host": "./src/adapters/host.ts"
+    "./host": "./src/adapters/host.ts",
+    "./input-recovery": "./src/recovery/input.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

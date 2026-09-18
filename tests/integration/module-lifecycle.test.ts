@@ -254,6 +254,7 @@ it("recovers exact device changes across download interruption, uncertain accept
       online: true,
       offlineEnabled: true,
       moduleCatalog,
+      receivePolicy: async (policy) => policy,
       onError: () => {},
     };
     const state = () =>

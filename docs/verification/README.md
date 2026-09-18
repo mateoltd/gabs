@@ -664,3 +664,10 @@ Final verification passed 447 unit/PostgreSQL tests across 80 files, strict chec
 [Archived-input acceptance](archived-input/README.md) verifies queued/direct archived targets, original input/base/version exports, cached offline restart, uncertain-request snapshots, pending-edit archive preflight and original-resource permission recovery across tab changes. Final product source passed 448 unit/PostgreSQL tests, strict checks/four builds, twelve distinct headless browser journeys and seven hidden/minimized native journeys. One stale browser wording assertion was corrected and the case rerun successfully; an earlier transient native reconnect failure did not reproduce with added diagnostics or in final acceptance. Scoped Axe and ten wide/narrow captures were inspected. Existing styles and historical captures are preserved.
 
 The native generic recovery export still lacks independent current authority checks after the save dialog. Renderer guards and valid file bytes do not establish that boundary; host/browser recovery authorization is the next required OFF-01/OFF-03 item. Full parity and final UI refinement remain open.
+
+
+## 18 September 2026: OFF-01 scoped recovery export
+
+[Recovery-export acceptance](recovery-export/README.md) verifies current native scope/read/dependency authority across delayed dialogs, renderer snapshot tampering, protected offline restart, expiry and logout. Browser identity/policy refresh, persisted denial, stale-view cancellation and offline expiry also pass. The former unscoped native bridge rejects file writes; old-schema input remains exportable through the scoped action when authorized.
+
+Final validation passed 457 unit/PostgreSQL tests across 81 files, strict checks/four builds, nine headless browser journeys and nine hidden/minimized native journeys. Existing Orders export and real TLS LAN acceptance passed. Initial wiring/harness failures and non-reproduced setup timeouts are recorded in the detailed evidence. Four recovery captures were inspected for continuity; historical screenshots were restored, with no style/layout changes. OFF-01, OFF-03 and full parity remain open.

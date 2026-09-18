@@ -1,3 +1,5 @@
+import { NativeInputRecovery } from "./input-recovery";
+import { validateRecoveryInput } from "@suite/client/input-recovery";
 import { downloadExport } from "./export-download";
 import { createLocalDeviceHost } from "./local-devices";
 import {
@@ -44,7 +46,6 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import * as oidc from "openid-client";
 import { assertSchema } from "@suite/module-sdk";
-import { ModuleInputRecoverySchema } from "@suite/module-sdk/platform";
 import {
   operationPath,
   type OperationRequest,
@@ -323,7 +324,9 @@ async function readSecure<T>(key: string): Promise<T | undefined> {
     throw Error("Protected storage could not be unlocked. Sign in again.");
   }
 }
-const nativeAuthority = new NativeCapabilityAuthority({
+const authorityHost: ConstructorParameters<
+  typeof NativeCapabilityAuthority
+>[0] = {
   issuer: new URL(config.apiOrigin).origin,
   currentUser: () => userId,
   available: secureAvailable,
@@ -341,7 +344,10 @@ const nativeAuthority = new NativeCapabilityAuthority({
     await ensureCache();
     await cachePurge(prefix);
   },
-});
+};
+const nativeAuthority = new NativeCapabilityAuthority(authorityHost);
+const inputRecovery = new NativeInputRecovery(authorityHost);
+
 function sender(event: IpcMainInvokeEvent) {
   if (
     event.sender !== win?.webContents ||
@@ -396,6 +402,13 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
   const actor = userId;
   const request = validateOperation(raw);
   const op = operationPath(request);
+  const recoveryRevision =
+    actor && request.params?.workspaceId
+      ? inputRecovery.revision({
+          userId: actor,
+          workspaceId: request.params.workspaceId,
+        })
+      : undefined;
   if (request.operation === "connection") {
     const response = await fetch(config.apiOrigin + op.path, {
       signal: AbortSignal.timeout(4000),
@@ -482,11 +495,29 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
         void lan.stop(scope).catch(() => {});
         await nativeAuthority.revoke(scope).catch(() => {});
       }
+      // Recovery metadata failure must not revoke unrelated device or LAN capabilities.
+      try {
+        if (res.ok && request.operation === "bootstrap")
+          await inputRecovery.observe(scope, body);
+        else if (res.ok && request.operation === "workspacePolicy")
+          await inputRecovery.observe(scope, body.bootstrap);
+        else if (
+          res.ok &&
+          request.operation === "moduleArtifact" &&
+          recoveryRevision !== undefined
+        )
+          await inputRecovery.observeArtifact(scope, body, recoveryRevision);
+        else if ([401, 403, 426].includes(res.status))
+          await inputRecovery.revoke(scope);
+      } catch {
+        await inputRecovery.revoke(scope).catch(() => {});
+      }
     }
     if (res.status === 401) {
       void lan.stop().catch(() => {});
       moduleHosts.clear();
       await nativeAuthority.purge({ userId: actor });
+      await inputRecovery.purge({ userId: actor });
     }
   }
   return { status: res.status, body };
@@ -833,6 +864,7 @@ function handlers() {
     sender(event);
     moduleHosts.clear();
     nativeAuthority.clear();
+    inputRecovery.clear();
     localDeviceHosts.clear();
     lanRecovery.invalidate();
     lanPackages.invalidate();
@@ -854,9 +886,13 @@ function handlers() {
     lanRecovery.invalidate();
     lanPackages.invalidate();
     userId = undefined;
-    if (previousUser && secureAvailable())
+    if (previousUser && secureAvailable()) {
       await nativeAuthority.purge({ userId: previousUser });
-    else nativeAuthority.clear();
+      await inputRecovery.purge({ userId: previousUser });
+    } else {
+      nativeAuthority.clear();
+      inputRecovery.clear();
+    }
     await lan.stop();
     accessToken = refreshToken = devCookie = csrfToken = undefined;
     expiresAt = 0;
@@ -893,6 +929,11 @@ function handlers() {
         "Protected storage is unavailable. Use session-only mode on this device.",
       );
     await writeSecure(path, value);
+    if (key === "snapshot")
+      await inputRecovery.setOffline(
+        scope,
+        typeof value?.expiresAt === "number" && value.expiresAt > 0,
+      );
   });
   ipcMain.handle("suite:cache-prune-artifacts", async (event, scope, keep) => {
     sender(event);
@@ -917,6 +958,7 @@ function handlers() {
       : scope.userId;
     if (secureAvailable()) {
       await nativeAuthority.purge(scope);
+      await inputRecovery.purge(scope);
       await ensureCache();
       await cachePurge(path);
     }
@@ -980,36 +1022,34 @@ function handlers() {
       }
     },
   );
-  ipcMain.handle("suite:save-file", async (event, filename, content) => {
+  ipcMain.handle("suite:save-file", (event) => {
     sender(event);
-    if (
-      typeof filename !== "string" ||
-      typeof content !== "string" ||
-      content.length > 20 * 1024 * 1024
-    )
-      throw Error("Invalid export");
-    const recovery =
-      /^module-input-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/i.test(
-        filename,
-      );
-    if (recovery) {
-      const input: unknown = JSON.parse(content);
-      assertSchema(ModuleInputRecoverySchema, input);
-      if (
-        input.status === "unconfirmed" &&
-        (input.pendingRequest.moduleId !== input.moduleId ||
-          input.pendingRequest.resource !== input.resource)
-      )
-        throw Error("Invalid recovery request");
-    } else {
-      throw Error("Invalid export");
-    }
+    throw Error("Use the scoped recovery export action.");
+  });
+  ipcMain.handle("suite:input-export", async (event, handle, value) => {
+    sender(event);
+    const session = moduleHosts.capture(handle);
+    const input = validateRecoveryInput(value, session.scope, session.moduleId);
+    if (input.moduleVersion !== session.moduleVersion)
+      throw Error("The recovery release does not match this session.");
+    const content = JSON.stringify(input, null, 2);
+    if (Buffer.byteLength(content, "utf8") > 20 * 1024 * 1024)
+      throw Error("Recovery export size limit exceeded.");
+    const check = () => {
+      sender(event);
+      session.check();
+    };
+    await inputRecovery.authorize(session.scope, input, check);
+    check();
     const result = await dialog.showSaveDialog(win!, {
-      defaultPath: filename,
+      defaultPath: `module-input-${randomUUID()}.json`,
       filters: [{ name: "Module input recovery", extensions: ["json"] }],
     });
-    if (!result.canceled && result.filePath)
-      await writeFile(result.filePath, content, { mode: 0o600 });
+    check();
+    if (result.canceled || !result.filePath) return;
+    await inputRecovery.authorize(session.scope, input, check);
+    check();
+    await writeFile(result.filePath, content, { mode: 0o600 });
   });
   ipcMain.handle("suite:notify", (event, title, message) => {
     sender(event);

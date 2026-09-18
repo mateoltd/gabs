@@ -11,6 +11,7 @@ export interface FeatureProps {
   snapshot?: Snapshot;
   offlineEnabled: boolean;
   moduleCatalog: ModuleCatalog;
+  receivePolicy(policy: Bootstrap, signal: AbortSignal): Promise<Bootstrap>;
   onError: (error: unknown) => void;
 }
 export function canUse(

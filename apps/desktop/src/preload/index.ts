@@ -55,6 +55,8 @@ const bridge: DesktopBridge = {
       enabled,
     ),
   ...localDeviceBridge,
+  exportInput: (handle, input) =>
+    ipcRenderer.invoke("suite:input-export", handle, input),
   openModuleHost: (scope, moduleId, version) =>
     ipcRenderer.invoke("suite:module-host-open", scope, moduleId, version),
   closeModuleHost: (handle) =>

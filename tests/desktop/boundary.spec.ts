@@ -75,8 +75,8 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
     });
     expect(rejected).toBe(true);
 
-    // Only replace the OS destination picker. Validate the real preload, IPC
-    // boundary and resulting file bytes; the renderer never selects a path.
+    // The retired unscoped bridge must reject even a correctly shaped recovery file.
+    // The scoped action and its actual file bytes are covered by recovery-export.spec.ts.
     const exportPath = resolve(profile, "recovery.json");
     await app.evaluate(({ dialog }, filePath) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath });
@@ -126,13 +126,13 @@ test("native UI keeps tokens and arbitrary capabilities out of its renderer", as
           pendingRequest: { ...recovery.pendingRequest, action: "update" },
         }),
       ]);
-      await window.suiteDesktop!.saveFile(filename, JSON.stringify(recovery));
+      rejected.push(await denied(filename, recovery));
       return { recovery, rejected };
     });
-    expect(exportBoundary.rejected).toEqual(Array(6).fill(true));
-    expect(JSON.parse(await readFile(exportPath, "utf8"))).toEqual(
-      exportBoundary.recovery,
-    );
+    expect(exportBoundary.rejected).toEqual(Array(7).fill(true));
+    await expect(readFile(exportPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
 
     const artifactBoundary = await page.evaluate(async () => {
       const me = (await window.suiteDesktop!.execute({ operation: "me" }))

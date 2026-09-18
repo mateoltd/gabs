@@ -1,3 +1,4 @@
+import { exportRecoveryInput } from "@suite/client/browser";
 import { isDefinitiveRejection } from "@suite/module-sdk/sync";
 import {
   settleJournalEntry,
@@ -70,6 +71,17 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const recoveryContext = useRef(props);
   recoveryContext.current = props;
   const mounted = useRef(true);
+  const recoveryExport = useRef(new AbortController());
+  useEffect(() => {
+    const controller = new AbortController();
+    recoveryExport.current = controller;
+    return () => controller.abort();
+  }, [
+    props.scope.userId,
+    props.scope.workspaceId,
+    props.module.id,
+    props.module.version,
+  ]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -212,10 +224,38 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           : { status: "unsaved" }),
       };
       assertSchema(ModuleInputRecoverySchema, recovery);
-      await platform.saveFile(
-        `module-input-${crypto.randomUUID()}.json`,
-        JSON.stringify(recovery, null, 2),
-      );
+      await exportRecoveryInput({
+        client,
+        input: recovery,
+        receivePolicy: (policy, signal) =>
+          recoveryContext.current.receivePolicy(policy, signal),
+        onError: (error) => recoveryContext.current.onError(error),
+        signal: recoveryExport.current.signal,
+        access: () => {
+          const current = recoveryContext.current;
+          return {
+            policy: current.bootstrap,
+            dependencies: current.moduleCatalog.dependencies(moduleId),
+            online: current.online,
+            offlineEnabled: current.offlineEnabled,
+          };
+        },
+        check: () => {
+          const current = recoveryContext.current;
+          if (
+            !mounted.current ||
+            current.scope.userId !== recovery.userId ||
+            current.scope.workspaceId !== recovery.workspaceId ||
+            !canUse(
+              current.bootstrap,
+              recovery.moduleId,
+              `${recovery.moduleId}.${recovery.resource}.read`,
+              current.moduleCatalog,
+            )
+          )
+            throw Error("Current access does not allow exporting this input.");
+        },
+      });
     } catch (error) {
       setError(error);
     }

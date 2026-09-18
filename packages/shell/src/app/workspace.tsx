@@ -651,6 +651,37 @@ export function Workspace({
         snapshot: canReadSnapshot(cached, now) ? cached : undefined,
         offlineEnabled,
         moduleCatalog,
+        receivePolicy: async (candidate, signal) => {
+          signal.throwIfAborted();
+          const policy = await acceptPolicy(candidate);
+          signal.throwIfAborted();
+          await navigator.locks.request(
+            `suite-snapshot:${scope.userId}:${scope.workspaceId}`,
+            async () => {
+              signal.throwIfAborted();
+              const snapshot = await platform.load<Snapshot>(scope, "snapshot");
+              signal.throwIfAborted();
+              if (snapshot)
+                await platform.save(
+                  scope,
+                  "snapshot",
+                  snapshotWithPolicy(
+                    snapshot,
+                    moduleCatalog,
+                    latestPolicy.current,
+                  ),
+                );
+            },
+          );
+          signal.throwIfAborted();
+          qc.setQueryData([user.id, workspaceId, "bootstrap"], policy);
+          setCached((previous) =>
+            previous
+              ? snapshotWithPolicy(previous, moduleCatalog, policy)
+              : previous,
+          );
+          return latestPolicy.current ?? policy;
+        },
         onError: handleError,
       }
     : undefined;
