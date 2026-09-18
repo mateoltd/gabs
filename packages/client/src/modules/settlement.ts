@@ -1,4 +1,4 @@
-import { assertSchema } from "@suite/module-sdk";
+import { assertSchema, type ModuleCall } from "@suite/module-sdk";
 import { canonical } from "@suite/module-sdk/registry";
 import {
   AttemptSettlementSchema,
@@ -9,15 +9,59 @@ import { changeModuleStorage, readModuleStorage } from "./storage";
 import { responseContract, validateModuleResponse } from "./response";
 import { JournalConflictError } from "./journal";
 
+export type SettlementTransport = (request: {
+  moduleId: string;
+  moduleVersion?: string;
+  body: AttemptSettlementRequest;
+}) => Promise<unknown>;
+
+/** Resolve one exact call. The caller retains it until this verified result is applied. */
+export async function settleModuleCall(
+  call: ModuleCall,
+  settle: SettlementTransport,
+  validate: (result: unknown) => void | Promise<void>,
+) {
+  if (!call.key)
+    throw new JournalConflictError("The original retry identity is required.");
+  let request: AttemptSettlementRequest["call"];
+  if (call.action === "operation" && call.operation)
+    request = {
+      action: "operation",
+      operation: call.operation,
+      input: call.input,
+    };
+  else if (
+    (call.action === "create" ||
+      call.action === "update" ||
+      call.action === "archive") &&
+    call.resource
+  )
+    request = {
+      action: call.action,
+      resource: call.resource,
+      input: call.input,
+    };
+  else
+    throw new JournalConflictError(
+      "This request is not a recoverable command.",
+    );
+  const result = await settle({
+    moduleId: call.moduleId,
+    moduleVersion: call.moduleVersion,
+    body: { key: call.key, call: request },
+  });
+  assertSchema(AttemptSettlementSchema, result);
+  if (result.key !== call.key)
+    throw Error("The server returned an outcome for a different change.");
+  if (result.outcome === "accepted") await validate(result.result);
+  return result;
+}
+
 export async function settleJournalEntry(
   platform: Platform,
   scope: Scope,
   id: string,
-  settle: (request: {
-    moduleId: string;
-    moduleVersion?: string;
-    body: AttemptSettlementRequest;
-  }) => Promise<unknown>,
+  settle: SettlementTransport,
   authorized: () => boolean,
 ) {
   return navigator.locks.request(
@@ -42,40 +86,14 @@ export async function settleJournalEntry(
           "Only an uncertain pending change can be resolved.",
         );
       const { call } = entry;
-      let request: AttemptSettlementRequest["call"];
-      if (call.action === "operation" && call.operation)
-        request = {
-          action: "operation",
-          operation: call.operation,
-          input: call.input,
-        };
-      else if (
-        (call.action === "create" ||
-          call.action === "update" ||
-          call.action === "archive") &&
-        call.resource
-      )
-        request = {
-          action: call.action,
-          resource: call.resource,
-          input: call.input,
-        };
-      else
-        throw new JournalConflictError(
-          "This request is not a recoverable command.",
-        );
-      const result = await settle({
-        moduleId: call.moduleId,
-        moduleVersion: call.moduleVersion,
-        body: { key: entry.id, call: request },
-      });
-      assertSchema(AttemptSettlementSchema, result);
-      if (result.key !== entry.id)
-        throw Error("The server returned an outcome for a different change.");
-      if (result.outcome === "accepted") {
-        const { module } = await responseContract(state, call);
-        validateModuleResponse(module, call, result.result);
-      }
+      const result = await settleModuleCall(
+        { ...call, key: entry.id },
+        settle,
+        async (result) => {
+          const { module } = await responseContract(state, call);
+          validateModuleResponse(module, call, result);
+        },
+      );
       if (!authorized())
         throw Error(
           "Unlock this workspace again to recover its confirmed outcome.",

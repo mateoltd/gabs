@@ -72,7 +72,7 @@ export interface ModuleStorage {
   downloads?: Record<string, SignedArtifact>;
   drafts: Record<string, Record<string, unknown>>;
   draftTargets?: Record<string, ResourceRecord | null>;
-  draftReviews?: Record<string, { entryId: string; comparison?: FieldReview }>;
+  draftReviews?: Record<string, { entryId?: string; comparison?: FieldReview }>;
   referenceOptions?: Record<
     string,
     Record<string, { value: string; label: string }[]>

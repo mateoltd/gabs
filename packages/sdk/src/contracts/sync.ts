@@ -19,6 +19,26 @@ export interface JournalStore {
   list(): Promise<JournalEntry[]>;
   put(entry: JournalEntry): Promise<void>;
 }
+/** A later denial cannot establish the outcome of an earlier ambiguous attempt. */
+export function isDefinitiveRejection(
+  error: unknown,
+  priorUncertainty: boolean,
+): boolean {
+  if (priorUncertainty || !error || typeof error !== "object") return false;
+  const { status, code } = error as { status?: number; code?: string };
+  return (
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500 &&
+    ![401, 408, 429].includes(status) &&
+    ![
+      "MEMBERSHIP_REVOKED",
+      "MFA_REQUIRED",
+      "INVALID_RESOURCE_RESPONSE",
+      "MODULE_RESPONSE_CONTRACT_UNAVAILABLE",
+    ].includes(code ?? "")
+  );
+}
 /** Persist dispatch before sending. An ambiguous attempt keeps its original retry identity. */
 export async function flushJournal(
   store: JournalStore,

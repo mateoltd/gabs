@@ -1,4 +1,9 @@
-import { settleJournalEntry } from "@suite/client/module-settlement";
+import { isDefinitiveRejection } from "@suite/module-sdk/sync";
+import {
+  settleJournalEntry,
+  settleModuleCall,
+  type SettlementTransport,
+} from "@suite/client/module-settlement";
 import {
   validateModuleResponse,
   ResponseContractUnavailable,
@@ -60,8 +65,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const moduleId = module.id;
   const responseModules = useRef(new Map<string, ModuleDefinition>());
   responseModules.current.set(`${module.id}@${module.version}`, module);
-  const [settling, setSettling] = useState<string>();
+  const [settling, setSettling] = useState<
+    { type: "journal"; id: string } | { type: "edit" | "archive" }
+  >();
   const [archiveAttempt, setArchiveAttempt] = useState<ModuleCall>();
+  const [archiveNotice, setArchiveNotice] = useState<string>();
   const qc = useQueryClient();
   const names = Object.keys(module.resources).sort((a, b) =>
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
@@ -80,6 +88,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     : [];
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const attempt = useRef<ModuleCall | undefined>(undefined);
+  const attemptMode = useRef<"direct" | "journal">("direct");
   const [search, setSearch] = useState(""),
     [cursor, setCursor] = useState<string>(),
     [archived, setArchived] = useState(false);
@@ -190,6 +199,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     `${moduleId}.${resource}.write`,
     moduleCatalog,
   );
+  const archiveWrite = canUse(
+    bootstrap,
+    moduleId,
+    `${moduleId}.${archiveAttempt?.resource ?? resource}.write`,
+    moduleCatalog,
+  );
   const authorized = () =>
     navigator.onLine &&
     Date.now() <
@@ -213,7 +228,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     return result;
   };
   const archive = async (call: ModuleCall) => {
+    const retrying = !!archiveAttempt;
+    if (archiveAttempt && archiveAttempt.key !== call.key) return;
     setArchiveAttempt(call);
+    setArchiveNotice(undefined);
     setBusy(true);
     setError(undefined);
     try {
@@ -221,14 +239,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setArchiveAttempt(undefined);
       await query.refetch();
     } catch (error) {
-      const status = (error as { status?: number }).status;
-      if (
-        status &&
-        status >= 400 &&
-        status < 500 &&
-        ![408, 429].includes(status)
-      )
-        setArchiveAttempt(undefined);
+      if (isDefinitiveRejection(error, retrying)) setArchiveAttempt(undefined);
       setError(error);
     } finally {
       setBusy(false);
@@ -364,7 +375,119 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       else if (stored.draftReviews) delete stored.draftReviews[draftKey];
     });
   }
+  const settlementTransport: SettlementTransport = ({
+    moduleId,
+    moduleVersion,
+    body,
+  }) =>
+    client.request({
+      operation: "moduleAttemptSettle",
+      params: { workspaceId: scope.workspaceId, moduleId },
+      moduleVersion,
+      body,
+    });
+  async function prepareDirectReview(call: ModuleCall) {
+    const input = call.input as {
+      id: string;
+      data: Record<string, unknown>;
+      baseData?: Record<string, unknown>;
+    };
+    const current = (await send({
+      moduleId: call.moduleId,
+      moduleVersion: module.version,
+      resource: call.resource,
+      action: "get",
+      input: { id: input.id },
+    })) as ResourceRecord;
+    const comparison = reviewFields(input.baseData, input.data, current.data);
+    const review = { comparison: comparison.review };
+    setEditing(current);
+    setForm(comparison.data);
+    setReviewSession(review);
+    await persistDraft(comparison.data, current, review);
+    if (current.archived)
+      throw Error(
+        "This record has been archived. Export your input before closing the editor.",
+      );
+  }
+  async function resolveOutcome() {
+    if (
+      !settling ||
+      !online ||
+      !(settling.type === "archive" ? archiveWrite : write) ||
+      !authorized()
+    )
+      return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (settling.type === "journal") {
+        await settleJournalEntry(
+          platform,
+          scope,
+          settling.id,
+          settlementTransport,
+          authorized,
+        );
+      } else {
+        const call =
+          settling.type === "edit" ? attempt.current : archiveAttempt;
+        if (!call) throw Error("This change no longer needs outcome recovery.");
+        const result = await settleModuleCall(
+          call,
+          settlementTransport,
+          (result) => {
+            const original = responseModules.current.get(
+              `${call.moduleId}@${call.moduleVersion}`,
+            );
+            if (!original) throw new ResponseContractUnavailable();
+            validateModuleResponse(original, call, result);
+          },
+        );
+        if (!authorized())
+          throw Error(
+            "Unlock this workspace again to recover its confirmed outcome.",
+          );
+        if (settling.type === "archive") {
+          setArchiveAttempt(undefined);
+          setArchiveNotice(
+            result.outcome === "accepted"
+              ? "Archive confirmed."
+              : "The original archive request was stopped. Review the current record before archiving again.",
+          );
+        } else {
+          if (result.outcome === "accepted") {
+            if (props.offlineEnabled && bootstrap.offlineHours > 0)
+              await changeModuleStorage(platform, scope, (stored) => {
+                delete stored.drafts[draftKey];
+                if (stored.draftTargets) delete stored.draftTargets[draftKey];
+                if (stored.draftReviews) delete stored.draftReviews[draftKey];
+              });
+            attempt.current = undefined;
+            setEditing(undefined);
+            setReviewSession(undefined);
+            setReviewTargetId(undefined);
+          } else {
+            attempt.current = undefined;
+            setReviewTargetId((call.input as { id?: string }).id);
+            setSettling(undefined);
+            if (call.action === "update") await prepareDirectReview(call);
+          }
+        }
+      }
+      setSettling(undefined);
+      await syncModuleStorage(platform, scope, transport, authorized);
+      await read();
+      await query.refetch();
+    } catch (error) {
+      setError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function save() {
+    const retrying = !!attempt.current;
+    let confirmed = false;
     setBusy(true);
     setError(undefined);
     try {
@@ -395,17 +518,18 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           : { id: reviewTargetId ?? crypto.randomUUID(), data: form },
         key: crypto.randomUUID(),
       };
-      const durable =
-        !!reviewId ||
-        (definition.policy === "queued" &&
-          props.offlineEnabled &&
-          bootstrap.offlineHours > 0);
+      const durable = attempt.current
+        ? attemptMode.current === "journal"
+        : !!reviewId ||
+          (definition.policy === "queued" &&
+            props.offlineEnabled &&
+            bootstrap.offlineHours > 0);
+      attemptMode.current = durable ? "journal" : "direct";
       if (!durable) {
         if (!online) throw Error("Connect to save this change.");
         attempt.current = call;
         await send(call);
-        attempt.current = undefined;
-        setEditing(undefined);
+        confirmed = true;
       } else {
         if (
           !online &&
@@ -432,18 +556,35 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           if (stored.draftTargets) delete stored.draftTargets[draftKey];
           if (stored.draftReviews) delete stored.draftReviews[draftKey];
         });
+      attempt.current = undefined;
       setReviewSession(undefined);
       setReviewTargetId(undefined);
+      setEditing(undefined);
       await read();
       if (online) await query.refetch();
-      setEditing(undefined);
     } catch (e) {
+      const failed = attempt.current;
       if (
-        (e as { status?: number }).status &&
-        (e as { status: number }).status < 500 &&
-        ![408, 429].includes((e as { status: number }).status)
-      )
+        (!confirmed && isDefinitiveRejection(e, retrying)) ||
+        (e instanceof Error &&
+          "code" in e &&
+          e.code === "JOURNAL_CONFLICT" &&
+          attemptMode.current === "journal")
+      ) {
         attempt.current = undefined;
+        if (
+          failed?.action === "update" &&
+          attemptMode.current === "direct" &&
+          (e as { status?: number }).status === 412
+        ) {
+          try {
+            await prepareDirectReview(failed);
+          } catch (reviewError) {
+            setError(reviewError);
+            return;
+          }
+        }
+      }
       setError(e);
     } finally {
       setBusy(false);
@@ -538,7 +679,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       !item.supersededBy &&
                       ["conflict", "rejected"].includes(item.state),
                   );
-                if (review && !entry) {
+                if (review?.entryId && !entry) {
                   setError(
                     Error(
                       "This review has already been replaced. Refresh pending changes.",
@@ -598,6 +739,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         <ErrorMessage
           error={error ?? responseError ?? (online ? query.error : undefined)}
         />
+        {archiveNotice && <p role="status">{archiveNotice}</p>}
         {archiveAttempt && (
           <div className="module-toolbar">
             <p role="status">
@@ -605,10 +747,19 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               confirm it.
             </p>
             <Button
-              disabled={!online || busy}
+              disabled={!online || !archiveWrite || busy}
               onClick={() => void archive(archiveAttempt)}
             >
               Retry archive
+            </Button>
+            <Button
+              disabled={!online || !archiveWrite || busy}
+              onClick={() => {
+                setError(undefined);
+                setSettling({ type: "archive" });
+              }}
+            >
+              Resolve archive outcome
             </Button>
           </div>
         )}
@@ -759,7 +910,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                     disabled={!online || !write || busy}
                     onClick={() => {
                       setError(undefined);
-                      setSettling(entry.id);
+                      setSettling({ type: "journal", id: entry.id });
                     }}
                   >
                     Resolve outcome
@@ -835,46 +986,23 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         <p>
           The server will check whether this change committed. If it did not,
           the server will stop further retries so you can review a correction.
-          Your saved input is kept.
+          Your input is kept.
         </p>
         <ErrorMessage error={error} />
         <Button
           variant="primary"
-          disabled={!online || !write || busy}
-          onClick={async () => {
-            if (!settling) return;
-            setBusy(true);
-            setError(undefined);
-            try {
-              await settleJournalEntry(
-                platform,
-                scope,
-                settling,
-                ({ moduleId, moduleVersion, body }) =>
-                  client.request({
-                    operation: "moduleAttemptSettle",
-                    params: { workspaceId: scope.workspaceId, moduleId },
-                    moduleVersion,
-                    body,
-                  }),
-                authorized,
-              );
-              setSettling(undefined);
-              await syncModuleStorage(platform, scope, transport, authorized);
-              await read();
-              await query.refetch();
-            } catch (error) {
-              setError(error);
-            } finally {
-              setBusy(false);
-            }
-          }}
+          disabled={
+            !online ||
+            !(settling?.type === "archive" ? archiveWrite : write) ||
+            busy
+          }
+          onClick={() => void resolveOutcome()}
         >
           Check and resolve
         </Button>
       </Modal>
       <Modal
-        open={editing !== undefined}
+        open={editing !== undefined && settling?.type !== "edit"}
         onOpenChange={(open) => {
           if (!open && !attempt.current) {
             setEditing(undefined);
@@ -1000,10 +1128,31 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             />
           </fieldset>
           {attempt.current && (
-            <p role="status">
-              The server response is uncertain. Retry this same change before
-              editing or closing it.
-            </p>
+            <section className="form-stack" aria-label="Unconfirmed change">
+              <p role="status">
+                The server response is uncertain. Retry this same change or
+                resolve its outcome before editing or closing it.
+              </p>
+              {attemptMode.current === "direct" && (
+                <Button
+                  type="button"
+                  disabled={!online || !write || busy}
+                  onClick={() => {
+                    setError(undefined);
+                    setSettling({ type: "edit" });
+                  }}
+                >
+                  Resolve outcome
+                </Button>
+              )}
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => void exportInput()}
+              >
+                Export pending input
+              </Button>
+            </section>
           )}
           <ErrorMessage error={error} />
           <Button
@@ -1013,11 +1162,16 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               busy ||
               !write ||
               unresolved.length > 0 ||
-              (!resourceAvailable && !attempt.current)
+              ((!resourceAvailable || !!editing?.archived) && !attempt.current)
             }
           >
             {online ? "Save" : "Save pending change"}
           </Button>
+          {editing?.archived && !attempt.current && (
+            <Button type="button" onClick={() => void exportInput()}>
+              Export input
+            </Button>
+          )}
         </form>
       </Modal>
     </>

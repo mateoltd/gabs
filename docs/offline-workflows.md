@@ -30,11 +30,15 @@ The client verifies the returned identity and, for acceptance, the original sign
 
 Migration 029 preserves historical accepted receipts and adds explicit outcome metadata. Executable server rollback must retain cancellation-aware receipt handling; a server predating this protocol is not an accepted rollback target once cancellation rows exist. Hosted rollout/rollback acceptance remains part of release readiness.
 
-Permanent revocation, received relay recovery controls, direct online editors/archives and durable arbitrary custom-operation journals retain their separate gates. The server supports settlement of declared corporate commands, but the generated client journey establishes resource-journal recovery only.
+### Direct online attempts
+
+Generated direct editors and archive controls now use the same verified settlement contract. They retain the original key and execution mode through later denial or conflict, recover accepted receipts, and allow correction only after confirmed cancellation. Cancelled updates and definitive first-attempt conflicts show explicit comparison with the current server record. The [direct acceptance journey](verification/direct-recovery/README.md) verifies duplicate-safe creates, update correction and both archive outcomes in headless web and hidden Electron.
+
+With offline storage disabled, direct pending input remains in the mounted editor's memory. This milestone does not silently persist corporate data or establish direct process-exit/sign-out/profile recovery. Permanent revocation, received relay recovery controls and durable arbitrary custom-operation journals retain their separate gates. The server supports settlement of declared corporate commands, but these generated client journeys establish resource recovery only.
 
 ## Remaining OFF-01 work
 
-- Complete direct online editor/archive recovery through later denial using authoritative settlement, retaining original retry identities. Permanently revoked access and received relay recovery controls require their own acceptance; the generated resource-journal workflow does not establish them.
+- Extend direct-attempt acceptance to cancelled-create collisions, archived-input recovery and original-resource permission changes during archive recovery. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
 - Preserve multiple simultaneous review drafts independently. The current editor has one saved draft slot per resource; starting another editor can replace that slot even though each original pending request remains in the journal.
 - Extend conflict acceptance to nested/reference-field decisions and failed-create collisions; current browser/native journeys cover ordinary resource updates and legacy requests without original values.
 - Verify rejected-parent correction and dependent continuation through the real editor, including restart and reauthentication. Storage-level coverage alone does not accept this interface.
