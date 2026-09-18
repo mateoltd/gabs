@@ -38,3 +38,5 @@ Review found no clipped recovery controls, stacked editors or new page overflow.
 ## Remaining boundaries
 
 This milestone covers journaled generated resource creates and eligible resource dependents. Direct online/no-cache cancelled-create collisions still need their own explicit recovery path and acceptance; direct process-exit/sign-out recovery remains OFF-03. Ordinary drafts have no dependency provenance and are not silently remapped. Same-record pending edits and custom-operation descendants require their respective ordering/recovery implementations. Nested and cross-module capture with real grant changes, richer conflict decisions, permanent revocation and relay recovery remain in the [workflow map](../../offline-workflows.md). Nothing here accepts production/provider signing, hosted deployment, full OFF-01 or whole-product parity.
+
+Follow-up: [direct online/no-cache collision recovery](../direct-create-collisions/README.md) now adds its own web/native acceptance. Its state remains in the mounted editor; OFF-03 process/sign-out/profile recovery is still required.

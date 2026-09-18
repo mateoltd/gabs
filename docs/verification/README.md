@@ -633,3 +633,9 @@ Scoped Axe, keyboard resumption and eight wide/narrow web/native captures were i
 ## Journaled create collisions, 18 September 2026
 
 [OFF-01 collision acceptance](create-collisions/README.md) passed 442 unit/PostgreSQL tests across 79 files, strict checks/four builds, eight headless browser journeys and five hidden native journeys on final source. Real server collision, lost cancellation reply, restart, corrected input, remapped dependent work, unchanged existing records and exact audit counts are covered. Keyboard, scoped Axe and eight wide/narrow captures were inspected. Historical captures were restored; no stylesheet changed. Direct no-cache collisions and the remaining offline/full-parity gates are not accepted by this milestone.
+
+## Direct create collisions, 18 September 2026
+
+[OFF-01 direct collision acceptance](direct-create-collisions/README.md) verifies failed and cancelled direct creates without enabling offline storage. Explicit separate-record recovery fences the original key, preserves corrected input through a lost cancellation reply and reconnect, retains an uncertain replacement's own retry identity, and handles repeated definitive collisions. PostgreSQL proves seven intended records, four cancellations, unchanged occupied records and exact audit counts.
+
+Final strict checks/four builds, nine headless browser journeys and six hidden/minimized native journeys passed. The full unit/PostgreSQL suite passed 442 tests before the final presentation-only removal of duplicate errors; runtime files were unchanged. Keyboard, scoped Axe and twelve wide/narrow captures were reviewed, historical screenshots restored and disposable databases removed. The initial test's offline expectation was corrected to match the existing no-cache privacy lock. Direct state remains in memory; OFF-01/OFF-03 and full parity remain open. This is not final UI approval.

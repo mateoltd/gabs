@@ -101,9 +101,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     : [];
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const [separateCreate, setSeparateCreate] = useState(false);
+  const [directCreate, setDirectCreate] = useState<{
+    call: ModuleCall;
+    collision: boolean;
+    cancelled: boolean;
+  }>();
   const attempt = useRef<ModuleCall | undefined>(undefined);
   const attemptMode = useRef<"direct" | "journal">("direct");
   const requiresConnection =
+    !!directCreate ||
     definition.policy === "online" ||
     (!!attempt.current && attemptMode.current === "direct") ||
     !props.offlineEnabled ||
@@ -216,7 +222,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       !entry.supersededBy &&
       ["conflict", "rejected"].includes(entry.state),
   );
-  const identityCollision = reviewedCreate?.errorCode === "RECORD_EXISTS";
+  const identityCollision =
+    reviewedCreate?.errorCode === "RECORD_EXISTS" || !!directCreate?.collision;
   const allowed = canUse(
     bootstrap,
     moduleId,
@@ -463,52 +470,97 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       moduleVersion,
       body,
     });
+  function canRecoverCall(call: ModuleCall) {
+    const current = recoveryContext.current;
+    return (
+      mounted.current &&
+      current.scope.userId === scope.userId &&
+      current.scope.workspaceId === scope.workspaceId &&
+      current.online &&
+      navigator.onLine &&
+      Date.now() <
+        new Date(current.bootstrap.authorizedAt).getTime() +
+          Math.max(current.bootstrap.offlineHours, 1 / 60) * 3600000 &&
+      !!call.resource &&
+      canUse(
+        current.bootstrap,
+        call.moduleId,
+        `${call.moduleId}.${call.resource}.read`,
+        current.moduleCatalog,
+      ) &&
+      canUse(
+        current.bootstrap,
+        call.moduleId,
+        `${call.moduleId}.${call.resource}.write`,
+        current.moduleCatalog,
+      )
+    );
+  }
+  function settleDirectCall(call: ModuleCall) {
+    return settleModuleCall(call, settlementTransport, (result) => {
+      const original = responseModules.current.get(
+        `${call.moduleId}@${call.moduleVersion}`,
+      );
+      if (!original) throw new ResponseContractUnavailable();
+      validateModuleResponse(original, call, result);
+    });
+  }
   async function createSeparateRecord() {
-    if (!reviewedCreate || !online || !write || !authorized()) return;
+    if (
+      (!reviewedCreate && !directCreate) ||
+      !online ||
+      !write ||
+      !authorized()
+    )
+      return;
     setBusy(true);
     setError(undefined);
     try {
+      if (!resourceAvailable)
+        throw Error(
+          "This resource was removed in the current release. Export your input before closing the editor.",
+        );
       assertSchema(definition.schema, form);
-      await replaceFailedCreate(
-        platform,
-        scope,
-        reviewedCreate.id,
-        {
-          moduleId,
-          moduleVersion: module.version,
-          resource,
-          action: "create",
-          key: crypto.randomUUID(),
-          input: { id: crypto.randomUUID(), data: form },
-        },
-        settlementTransport,
-        (call) => {
-          const current = recoveryContext.current;
-          return (
-            mounted.current &&
-            current.scope.userId === scope.userId &&
-            current.scope.workspaceId === scope.workspaceId &&
-            current.online &&
-            navigator.onLine &&
-            Date.now() <
-              new Date(current.bootstrap.authorizedAt).getTime() +
-                Math.max(current.bootstrap.offlineHours, 1 / 60) * 3600000 &&
-            !!call.resource &&
-            canUse(
-              current.bootstrap,
-              call.moduleId,
-              `${call.moduleId}.${call.resource}.read`,
-              current.moduleCatalog,
-            ) &&
-            canUse(
-              current.bootstrap,
-              call.moduleId,
-              `${call.moduleId}.${call.resource}.write`,
-              current.moduleCatalog,
-            )
+      const replacement: ModuleCall = {
+        moduleId,
+        moduleVersion: module.version,
+        resource,
+        action: "create",
+        key: crypto.randomUUID(),
+        input: { id: crypto.randomUUID(), data: structuredClone(form) },
+      };
+      if (directCreate) {
+        const original = directCreate.call;
+        if (!canRecoverCall(original) || !canRecoverCall(replacement))
+          throw Error("Current access does not allow recovery of this create.");
+        const result = await settleDirectCall(original);
+        if (!canRecoverCall(original) || !canRecoverCall(replacement))
+          throw Error(
+            "Current access changed during recovery. Your input is preserved.",
           );
-        },
-      );
+        if (result.outcome === "cancelled") {
+          // The original key is permanently fenced. The replacement has its own
+          // delivery lifecycle; a lost reply must keep its new key uncertain.
+          setSeparateCreate(false);
+          setDirectCreate(undefined);
+          setReviewTargetId((replacement.input as { id: string }).id);
+          return await save(replacement);
+        }
+        if (props.offlineEnabled && bootstrap.offlineHours > 0)
+          await changeModuleStorage(platform, scope, (stored) =>
+            removeResourceDraft(stored, draftKey),
+          );
+        setDirectCreate(undefined);
+      } else {
+        await replaceFailedCreate(
+          platform,
+          scope,
+          reviewedCreate!.id,
+          replacement,
+          settlementTransport,
+          canRecoverCall,
+        );
+      }
       setSeparateCreate(false);
       setEditing(undefined);
       setReviewSession(undefined);
@@ -572,17 +624,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         const call =
           settling.type === "edit" ? attempt.current : archiveAttempt;
         if (!call) throw Error("This change no longer needs outcome recovery.");
-        const result = await settleModuleCall(
-          call,
-          settlementTransport,
-          (result) => {
-            const original = responseModules.current.get(
-              `${call.moduleId}@${call.moduleVersion}`,
-            );
-            if (!original) throw new ResponseContractUnavailable();
-            validateModuleResponse(original, call, result);
-          },
-        );
+        const result = await settleDirectCall(call);
         if (!authorized())
           throw Error(
             "Unlock this workspace again to recover its confirmed outcome.",
@@ -609,6 +651,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             setReviewTargetId((call.input as { id?: string }).id);
             setSettling(undefined);
             if (call.action === "update") await prepareDirectReview(call);
+            else if (call.action === "create")
+              setDirectCreate({ call, collision: false, cancelled: true });
           }
         }
       }
@@ -622,14 +666,14 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setBusy(false);
     }
   }
-  async function save() {
+  async function save(preparedCreate?: ModuleCall) {
     const retrying = !!attempt.current;
     let confirmed = false;
     setBusy(true);
     setError(undefined);
     try {
       if (!attempt.current) {
-        if (identityCollision)
+        if (identityCollision && !preparedCreate)
           throw Error(
             "This identity already exists. Review the separate-record option to keep your input.",
           );
@@ -644,31 +688,36 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           );
         assertSchema(definition.schema, form);
       }
-      const call: ModuleCall = attempt.current ?? {
-        moduleId,
-        moduleVersion: module.version,
-        resource,
-        action: editing ? "update" : "create",
-        input: editing
-          ? {
-              id: editing.id,
-              data: form,
-              baseVersion: editing.version,
-              baseData: structuredClone(editing.data),
-            }
-          : { id: reviewTargetId ?? crypto.randomUUID(), data: form },
-        key: crypto.randomUUID(),
-      };
-      const durable = attempt.current
-        ? attemptMode.current === "journal"
-        : !!reviewId ||
-          (definition.policy === "queued" &&
-            props.offlineEnabled &&
-            bootstrap.offlineHours > 0);
+      const call: ModuleCall = attempt.current ??
+        preparedCreate ?? {
+          moduleId,
+          moduleVersion: module.version,
+          resource,
+          action: editing ? "update" : "create",
+          input: editing
+            ? {
+                id: editing.id,
+                data: form,
+                baseVersion: editing.version,
+                baseData: structuredClone(editing.data),
+              }
+            : { id: reviewTargetId ?? crypto.randomUUID(), data: form },
+          key: crypto.randomUUID(),
+        };
+      const durable =
+        preparedCreate || directCreate
+          ? false
+          : attempt.current
+            ? attemptMode.current === "journal"
+            : !!reviewId ||
+              (definition.policy === "queued" &&
+                props.offlineEnabled &&
+                bootstrap.offlineHours > 0);
       attemptMode.current = durable ? "journal" : "direct";
       if (!durable) {
         if (!online) throw Error("Connect to save this change.");
         attempt.current = call;
+        setDirectCreate(undefined);
         await send(call);
         confirmed = true;
       } else {
@@ -712,6 +761,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       ) {
         attempt.current = undefined;
         if (
+          failed?.action === "create" &&
+          attemptMode.current === "direct" &&
+          (e as { code?: string })?.code === "RECORD_EXISTS"
+        ) {
+          setDirectCreate({ call: failed, collision: true, cancelled: false });
+          setReviewTargetId((failed.input as { id: string }).id);
+          return;
+        }
+        if (
           failed?.action === "update" &&
           attemptMode.current === "direct" &&
           (e as { status?: number }).status === 412
@@ -748,6 +806,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 );
                 setReviewSession(undefined);
                 setReviewTargetId(undefined);
+                setDirectCreate(undefined);
                 setEditing(null);
               }}
             >
@@ -1178,14 +1237,19 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         <p>
           The server will check the original request first. If it already
           committed, its result will be recovered. Otherwise, the server will
-          stop the original request before saving your input as a new pending
-          create.
+          stop the original request before{" "}
+          {directCreate
+            ? "submitting your input with a new identity. Success requires server acceptance."
+            : "saving your input as a new pending create."}
         </p>
-        <p>
-          Linked changes that have never been submitted will follow the new
-          record. Existing server records stay unchanged. Work with an uncertain
-          outcome or an ambiguous saved draft must be reviewed first.
-        </p>
+        {!directCreate && (
+          <p>
+            Linked changes that have never been submitted will follow the new
+            record. Existing server records stay unchanged. Work with an
+            uncertain outcome or an ambiguous saved draft must be reviewed
+            first.
+          </p>
+        )}
         <ErrorMessage error={error} />
         <Button
           variant="primary"
@@ -1204,6 +1268,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             setEditing(undefined);
             setReviewSession(undefined);
             setReviewTargetId(undefined);
+            setDirectCreate(undefined);
             void read();
           }
         }}
@@ -1221,12 +1286,14 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             void save();
           }}
         >
-          {reviewedCreate && (
+          {(reviewedCreate || directCreate) && (
             <section className="form-stack" aria-label="Failed create recovery">
               <p role="status">
                 {identityCollision
-                  ? "A record with this identity already exists. Your saved input has not replaced it."
-                  : "This create was not accepted. Review your input before retrying or creating a separate record."}
+                  ? "A record with this identity already exists. Your input has not replaced it."
+                  : directCreate?.cancelled
+                    ? "The server stopped the original create. Review your input before retrying or creating a separate record."
+                    : "This create was not accepted. Review your input before retrying or creating a separate record."}
               </p>
               <Button
                 type="button"
@@ -1238,6 +1305,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               >
                 Create separate record
               </Button>
+              {directCreate && (
+                <Button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void exportInput()}
+                >
+                  Export input
+                </Button>
+              )}
             </section>
           )}
           {reviewSession?.comparison && editing && (
