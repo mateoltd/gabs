@@ -22,6 +22,8 @@ Generated updates retain the original values with the queued request. Review com
 
 Review choices, the compared server version and subsequent form edits are saved independently for each reviewed request. Queued and direct reviews use distinct slots; submitting one consumes only that review, preserving other reviews and the ordinary draft. Legacy shared slots are promoted without overwriting an existing review. Resume uses that labeled server snapshot; saving always revalidates against current server state. [Independent review acceptance](verification/review-drafts/README.md) covers two queued and two online-only comparisons across browser reload/native restart and offline resumption with caching enabled. A later overlapping server edit creates another visible conflict. The editor permits a new reviewed request for journal entries marked rejected/conflicting, preserves the record target and atomically replaces the prior entry. Denial after earlier uncertainty keeps the original entry pending, as described below.
 
+[Structured comparison acceptance](verification/structured-conflicts/README.md) now verifies whole-field choices for nested objects, arrays, keyed tuples, union branches and removal, including partly completed choices through browser reload/native restart and offline resumption. Comparisons use the same schema-scoped label resolution as tables. Actual target-read revocation hides and removes downloaded labels without losing choices; restored authority reacquires labels. Late disjoint server edits are preserved. Cross-module capture under explicit grants remains separate acceptance.
+
 ## Uncertain delivery
 
 The journal durably records dispatch before invoking transport. Failure to persist dispatch prevents submission; a crash after submission leaves the original identity marked uncertain. Transport errors, timeouts, malformed acknowledgements and later denials cannot turn that uncertainty into a confirmed rejection. Legacy pending entries without delivery metadata also remain conservative: the old attempt counter did not record lost replies, so even zero attempts cannot establish non-delivery.
@@ -47,7 +49,7 @@ With offline storage disabled, direct pending input remains in the mounted edito
 ## Remaining OFF-01 work
 
 - Extend direct-attempt acceptance to archived-input recovery and original-resource permission changes during archive recovery. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
-- Extend conflict acceptance to nested/reference-field decisions. Journaled and direct failed-create collisions have scoped browser/native recovery evidence; ambiguous drafts/same-record/custom descendants retain separate required work.
+- Nested/reference-field comparisons and journaled/direct failed-create collisions now have scoped browser/native recovery evidence. Ambiguous drafts, same-record ordering and custom descendants retain separate required work.
 - Rejected-parent correction and dependent continuation now have browser reload/native restart and reauthentication evidence for ordinary resource chains, including colliding creates. Extend this to nested and cross-module links under current grants rather than treating the simple chain as full acceptance.
 - Verify nested and cross-module dependent capture under explicit grants and revocation in the real interface.
 - Complete same-record pending-edit ordering and clear identification/recovery of individual pending changes.

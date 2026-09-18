@@ -42,6 +42,7 @@ export {
   type TreeNode,
 } from "./layout/data-components";
 export { TypedResourceTable, ResourceValue } from "./tables/resource-table";
+export { useResourceValueReferences } from "./tables/reference-values";
 export { TypedResourceSort } from "./forms/resource-sort";
 export { TypedResourceRanges } from "./forms/resource-ranges";
 export { TypedResourceFilters } from "./forms/resource-filters";

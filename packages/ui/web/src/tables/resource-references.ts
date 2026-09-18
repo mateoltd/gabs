@@ -20,7 +20,7 @@ export interface TableReferencePlan {
 /** Resolve only displayed, schema-validated links; repeated targets share one lookup. */
 export function tableReferencePlan(
   schema: TSchema,
-  rows: readonly ResourceRecord[],
+  rows: readonly Pick<ResourceRecord, "id" | "data">[],
   columns: readonly string[],
 ): TableReferencePlan {
   const requests = new Map<string, Request>();

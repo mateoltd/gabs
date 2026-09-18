@@ -52,6 +52,37 @@ export function useModuleReferences(
   const load = useCallback<ReferenceLoader>(
     async (target, query, signal) => {
       signal.throwIfAborted();
+      const targetKey = referenceTargetKey(target);
+      const forgetTarget = async () => {
+        if (!signal.aborted)
+          setDenied((current) =>
+            current[targetKey] ? current : { ...current, [targetKey]: true },
+          );
+        setReferences((current) => {
+          const next = { ...current };
+          delete next[targetKey];
+          return next;
+        });
+        if (offlineEnabled)
+          await changeModuleStorage(platform, scope, (stored) => {
+            const cached = stored.referenceOptions;
+            if (cached?.[key]) delete cached[key][targetKey];
+            for (const field of declarations) {
+              if (
+                referenceTargetKey(field.target) !== targetKey ||
+                !/^\/properties\/[^/]+$/.test(field.schemaPath)
+              )
+                continue;
+              const legacyField = field.schemaPath
+                .slice(12)
+                .replaceAll("~1", "/")
+                .replaceAll("~0", "~");
+              if (cached?.[legacyCacheKey])
+                delete cached[legacyCacheKey][legacyField];
+            }
+          });
+      };
+
       if (
         !canUse(
           bootstrap,
@@ -59,9 +90,14 @@ export function useModuleReferences(
           `${module.id}.${resource}.read`,
           moduleCatalog,
         )
-      )
-        throw Error("You no longer have access to this resource.");
-      const targetKey = referenceTargetKey(target);
+      ) {
+        await forgetTarget();
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "You no longer have access to this resource.",
+        );
+      }
       const declaration = declarations.find(
         (field) => referenceTargetKey(field.target) === targetKey,
       );
@@ -75,8 +111,14 @@ export function useModuleReferences(
           `${target.moduleId}.${target.resource}.read`,
           moduleCatalog,
         )
-      )
-        throw Error("You no longer have access to the referenced resource.");
+      ) {
+        await forgetTarget();
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "You no longer have access to the referenced resource.",
+        );
+      }
       if (!online) {
         if (
           !offlineEnabled ||
@@ -156,33 +198,7 @@ export function useModuleReferences(
           .references({ ...query, field: declaration.schemaPath }, { signal });
       } catch (error) {
         if (error instanceof ApiError && [403, 404].includes(error.status)) {
-          if (!signal.aborted)
-            setDenied((current) =>
-              current[targetKey] ? current : { ...current, [targetKey]: true },
-            );
-          setReferences((current) => {
-            const next = { ...current };
-            delete next[targetKey];
-            return next;
-          });
-          if (offlineEnabled)
-            await changeModuleStorage(platform, scope, (stored) => {
-              const cached = stored.referenceOptions;
-              if (cached?.[key]) delete cached[key][targetKey];
-              for (const field of declarations) {
-                if (
-                  referenceTargetKey(field.target) !== targetKey ||
-                  !/^\/properties\/[^/]+$/.test(field.schemaPath)
-                )
-                  continue;
-                const legacyField = field.schemaPath
-                  .slice(12)
-                  .replaceAll("~1", "/")
-                  .replaceAll("~0", "~");
-                if (cached?.[legacyCacheKey])
-                  delete cached[legacyCacheKey][legacyField];
-              }
-            });
+          await forgetTarget();
         }
         throw error;
       }

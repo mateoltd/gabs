@@ -7,7 +7,7 @@ import {
   referencePointer,
   type ReferenceLoader,
 } from "@suite/module-sdk/references";
-import { tableReferencePlan, useTableReferences } from "./resource-references";
+import { useResourceValueReferences } from "./reference-values";
 import { Button } from "../controls/actions";
 import type {
   ResourceRecord,
@@ -125,16 +125,16 @@ export function TypedResourceTable<S extends TObject>({
   };
 }) {
   const keys = columns ?? Object.keys(schema.properties);
-  const plan = useMemo(
-    () =>
-      tableReferencePlan(
-        schema,
-        rows,
-        keys.filter((key) => !Object.hasOwn(cells, key)),
-      ),
-    [schema, rows, columns, cells],
+  const referenceFields = useMemo(
+    () => keys.filter((key) => !Object.hasOwn(cells, key)),
+    [schema, columns, cells],
   );
-  const resolved = useTableReferences(plan, loadReferences);
+  const resolved = useResourceValueReferences(
+    schema,
+    rows,
+    referenceFields,
+    loadReferences,
+  );
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label={label}>
       <Table className="module-table resource-table">
@@ -173,26 +173,8 @@ export function TypedResourceTable<S extends TObject>({
                         schema={schema.properties[key]}
                         path={referencePointer("", key)}
                         renderReference={(id, path) => {
-                          const target = plan.rows.get(row.id)?.get(path);
-                          if (loadReferences && target) {
-                            const result = resolved.labels[target];
-                            return (
-                              <span
-                                title={id}
-                                aria-busy={!result && target !== "ambiguous"}
-                              >
-                                {result?.label ??
-                                  (target === "ambiguous"
-                                    ? "Ambiguous reference"
-                                    : !result
-                                      ? "Loading reference…"
-                                      : result.offline
-                                        ? "Label not downloaded"
-                                        : "Reference unavailable")}
-                              </span>
-                            );
-                          }
-                          if (loadReferences) return undefined;
+                          if (loadReferences)
+                            return resolved.renderReference(row.id, id, path);
                           const options = Object.hasOwn(references, path)
                             ? references[path]
                             : path === referencePointer("", key) &&

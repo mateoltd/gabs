@@ -1319,6 +1319,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           {reviewSession?.comparison && editing && (
             <ConflictReview
               review={reviewSession.comparison}
+              loadReferences={loadReferences}
               version={editing.version}
               schema={definition.schema as TObject}
               disabled={busy || !!attempt.current}
