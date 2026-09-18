@@ -32,6 +32,7 @@ import type {
 import { flushJournal, type JournalEntry } from "@suite/module-sdk/sync";
 import {
   assertJournalOrder,
+  recoverRecordOrder,
   referenceDependencies,
   recordDependencies,
   JournalConflictError,
@@ -104,12 +105,19 @@ const lockKey = (scope: Scope) =>
   `suite-modules:${scope.userId}:${scope.workspaceId}`;
 async function readUnlocked(platform: Platform, scope: Scope) {
   const stored = await platform.load<StoredModuleState>(scope, "module-state");
-  return stored
+  const state = stored
     ? promoteReviewDrafts(
         await hydrateModuleArtifacts(platform, scope, stored),
         scope,
       )
     : empty();
+  if (recoverRecordOrder(state.journal, scope))
+    await platform.save(
+      scope,
+      "module-state",
+      await persistModuleArtifacts(platform, scope, state),
+    );
+  return state;
 }
 export async function readModuleStorage(platform: Platform, scope: Scope) {
   return navigator.locks.request(lockKey(scope), () =>
@@ -135,7 +143,9 @@ export async function changeModuleStorage(
       ? await hydrateModuleArtifacts(platform, scope, previous)
       : empty();
     promoteReviewDrafts(state, scope);
+    recoverRecordOrder(state.journal, scope);
     await fn(state);
+    recoverRecordOrder(state.journal, scope);
     const stored = await persistModuleArtifacts(platform, scope, state);
     // This single durable write commits the release set and journal together, after all bytes exist.
     await platform.save(scope, "module-state", stored);

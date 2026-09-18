@@ -75,6 +75,7 @@ export async function replaceFailedCreate(
             "The saved create changed during recovery. Reload its current state.",
           );
         delete current.delivery;
+        delete current.orderingRecovery;
         if (result.outcome === "accepted") {
           current.state = "accepted";
           current.result = result.result;
@@ -215,6 +216,7 @@ export async function settleJournalEntry(
             "The pending change changed during recovery. Reload its current state.",
           );
         delete current.delivery;
+        delete current.orderingRecovery;
         if (result.outcome === "accepted") {
           current.state = "accepted";
           current.result = result.result;

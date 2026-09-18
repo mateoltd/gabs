@@ -1247,3 +1247,64 @@ it("rechecks every linked permission after asynchronous contract verification", 
   expect(state.journal.every((entry) => !entry.supersededBy)).toBe(true);
   expect(Object.keys(state.drafts)).toHaveLength(1);
 });
+
+it("commits legacy ordering gates before dispatch and retains exact uncertain input when a repair write fails", async () => {
+  const { platform, install, root, interrupt } = storage();
+  await install();
+  for (const key of ["legacy-old", "legacy-later", "unrelated"])
+    await enqueue(platform, scope, {
+      ...call(key),
+      action: "update",
+      input: {
+        id: key === "unrelated" ? "different" : row.id,
+        baseVersion: 1,
+        baseData: data,
+        data: { ...data, name: key },
+      },
+    });
+  const legacy = root();
+  legacy.journal.forEach((entry) => {
+    entry.dependencies = [];
+  });
+  delete legacy.journal[0].delivery;
+  await platform.save(scope, "module-state", legacy);
+  const send = vi.fn(async (_call: ModuleCall) => ({ ...row, version: 2 }));
+  interrupt();
+  await expect(
+    syncModuleStorage(platform, scope, send, () => true),
+  ).rejects.toThrow("Interrupted commit");
+  expect(send).not.toHaveBeenCalled();
+  expect(root().journal).toEqual(legacy.journal);
+  await syncModuleStorage(platform, scope, send, () => true);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(send.mock.calls[0]?.[0]).toMatchObject({ key: "unrelated" });
+  expect(
+    root()
+      .journal.slice(0, 2)
+      .map((e) => e.orderingRecovery),
+  ).toEqual(["outcome", "waiting"]);
+  expect(root().journal.map((e) => e.call)).toEqual(
+    legacy.journal.map((e) => e.call),
+  );
+  await settleJournalEntry(
+    platform,
+    scope,
+    "legacy-old",
+    async (request) => ({
+      key: request.body.key,
+      outcome: "cancelled",
+    }),
+    () => true,
+  );
+  await syncModuleStorage(platform, scope, send, () => true);
+  expect(send).toHaveBeenCalledTimes(1); // cancellation needs review, never counts as acceptance
+  expect(root().journal[0]).toMatchObject({
+    state: "rejected",
+    settlement: "cancelled",
+  });
+  expect(root().journal[1]).toMatchObject({
+    state: "pending",
+    dependencies: ["legacy-old"],
+  });
+  expect(root().journal[1].orderingRecovery).toBeUndefined();
+});

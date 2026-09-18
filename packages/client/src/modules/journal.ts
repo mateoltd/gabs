@@ -153,3 +153,132 @@ export function referenceDependencies(
     )
     .map(({ entry }) => entry.id);
 }
+
+/** Repair legacy scheduling without rewriting input or pretending earlier effects were ordered. */
+export function recoverRecordOrder(
+  journal: JournalEntry[],
+  scope: Scope,
+): boolean {
+  const active = journal.filter(
+    (entry) =>
+      entry.userId === scope.userId &&
+      entry.workspaceId === scope.workspaceId &&
+      !entry.supersededBy &&
+      entry.state !== "accepted",
+  );
+  const byId = new Map(active.map((entry) => [entry.id, entry]));
+  const history = new Map(
+    journal
+      .filter(
+        (entry) =>
+          entry.userId === scope.userId &&
+          entry.workspaceId === scope.workspaceId,
+      )
+      .map((entry) => [entry.id, entry]),
+  );
+  const groups = new Map<string, JournalEntry[]>();
+  for (const entry of active) {
+    const id = (entry.call.input as { id?: unknown } | undefined)?.id;
+    if (
+      !entry.call.resource ||
+      !["create", "update", "archive"].includes(entry.call.action) ||
+      typeof id !== "string" ||
+      !id
+    )
+      continue;
+    const key = JSON.stringify([
+      entry.call.moduleId,
+      entry.call.resource,
+      id.toLowerCase(),
+    ]);
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  // Respect existing dependencies even when a reviewed replacement is newer than its child.
+  const ordered: JournalEntry[] = [];
+  const visited = new Set<string>();
+  const pending = [...active].sort((a, b) => a.createdAt - b.createdAt);
+  while (true) {
+    const index = pending.findIndex((entry) =>
+      entry.dependencies.every((id) => !byId.has(id) || visited.has(id)),
+    );
+    if (index < 0) break;
+    const [entry] = pending.splice(index, 1);
+    ordered.push(entry);
+    visited.add(entry.id);
+  }
+  const rank = new Map(ordered.map((entry, index) => [entry.id, index]));
+  const dependsOn = (entry: JournalEntry, target: string) => {
+    const seen = new Set<string>();
+    const queue = [...entry.dependencies];
+    for (let index = 0; index < queue.length; index++) {
+      const id = queue[index];
+      if (id === target) return true;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      queue.push(...(history.get(id)?.dependencies ?? []));
+    }
+    return false;
+  };
+  let changed = false;
+  const setRecovery = (
+    entry: JournalEntry,
+    value: JournalEntry["orderingRecovery"],
+  ) => {
+    if (entry.orderingRecovery === value) return;
+    if (value) entry.orderingRecovery = value;
+    else delete entry.orderingRecovery;
+    changed = true;
+  };
+  for (const group of groups.values()) {
+    // An existing cycle needs its own recovery; never guess a replacement graph.
+    if (group.some((entry) => !rank.has(entry.id))) continue;
+    group.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+    const gaps = group
+      .slice(1)
+      .filter((entry, index) => !dependsOn(entry, group[index].id));
+    if (gaps.length) {
+      for (const entry of group)
+        if (entry.state === "pending" && entry.delivery !== "unsubmitted")
+          setRecovery(entry, "outcome");
+      for (let index = 1; index < group.length; index++) {
+        const entry = group[index];
+        if (!dependsOn(entry, group[index - 1].id)) {
+          entry.dependencies.push(group[index - 1].id);
+          changed = true;
+        }
+      }
+    }
+    // A later effect can already be accepted in an old journal. Recover its
+    // predecessor's outcome instead of blindly executing it after that effect.
+    for (const entry of group) {
+      if (entry.state !== "pending" || entry.delivery === "unsubmitted")
+        continue;
+      const id = (entry.call.input as { id: string }).id.toLowerCase();
+      if (
+        [...history.values()].some(
+          (later) =>
+            later.state === "accepted" &&
+            !later.supersededBy &&
+            later.createdAt >= entry.createdAt &&
+            later.call.moduleId === entry.call.moduleId &&
+            later.call.resource === entry.call.resource &&
+            ["create", "update", "archive"].includes(later.call.action) &&
+            typeof (later.call.input as { id?: unknown })?.id === "string" &&
+            (later.call.input as { id: string }).id.toLowerCase() === id &&
+            !dependsOn(later, entry.id),
+        )
+      )
+        setRecovery(entry, "outcome");
+    }
+    const unknown = group.some(
+      (entry) =>
+        entry.state === "pending" && entry.orderingRecovery === "outcome",
+    );
+    for (const entry of group) {
+      if (entry.state !== "pending") setRecovery(entry, undefined);
+      else if (entry.delivery === "unsubmitted")
+        setRecovery(entry, unknown ? "waiting" : undefined);
+    }
+  }
+  return changed;
+}

@@ -11,6 +11,8 @@ export interface JournalEntry {
   attempts: number;
   /** Missing on legacy entries, whose delivery history is unknown. */
   delivery?: "unsubmitted" | "uncertain";
+  /** Local scheduling repair only; never part of the original server request. */
+  orderingRecovery?: "outcome" | "waiting";
   supersededBy?: string;
   error?: string;
   errorCode?: string;
@@ -54,7 +56,9 @@ export async function flushJournal(
   const remaining = new Map<string, number>();
   const dependents = new Map<string, JournalEntry[]>();
   for (const entry of entries
-    .filter((e) => e.state === "pending" && !e.supersededBy)
+    .filter(
+      (e) => e.state === "pending" && !e.supersededBy && !e.orderingRecovery,
+    )
     .sort((a, b) => a.createdAt - b.createdAt)) {
     const waiting = new Set(
       entry.dependencies.filter((id) => states.get(id) !== "accepted"),

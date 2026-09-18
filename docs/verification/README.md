@@ -671,3 +671,10 @@ The native generic recovery export still lacks independent current authority che
 [Recovery-export acceptance](recovery-export/README.md) verifies current native scope/read/dependency authority across delayed dialogs, renderer snapshot tampering, protected offline restart, expiry and logout. Browser identity/policy refresh, persisted denial, stale-view cancellation and offline expiry also pass. The former unscoped native bridge rejects file writes; old-schema input remains exportable through the scoped action when authorized.
 
 Final validation passed 457 unit/PostgreSQL tests across 81 files, strict checks/four builds, nine headless browser journeys and nine hidden/minimized native journeys. Existing Orders export and real TLS LAN acceptance passed. Initial wiring/harness failures and non-reproduced setup timeouts are recorded in the detailed evidence. Four recovery captures were inspected for continuity; historical screenshots were restored, with no style/layout changes. OFF-01, OFF-03 and full parity remain open.
+
+
+## 18 September 2026: legacy journal ordering recovery
+
+[Acceptance record](legacy-order/README.md): durable same-record scheduling repair, retained exact retry identities, explicit authoritative outcome recovery, unrelated progress, offline browser/native restart and reviewed continuation. An actual previously committed request is recovered without another execution request; PostgreSQL values, versions and duplicate-free audits are asserted.
+
+Final checks: 463 unit/PostgreSQL tests across 81 files, strict checks/four builds, seven headless browser journeys and five hidden/minimized native journeys. Scoped Axe, keyboard disclosure and six inspected captures passed; historical screenshots were restored. Initial unit fixture protocol mistakes were corrected without weakening validation. OFF-01 and full parity remain active; colliding-create same-record descendants, arbitrary commands and broader recovery/release acceptance remain required.

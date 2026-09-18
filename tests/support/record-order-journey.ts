@@ -12,6 +12,12 @@ export async function recordOrderJourney(options: {
   api: APIRequestContext;
   pool: Pool;
   kind: "web" | "native";
+  legacy?: boolean;
+  writeStorage(
+    page: Page,
+    scope: { userId: string; workspaceId: string },
+    state: ModuleStorage,
+  ): Promise<void>;
   offline(value: boolean): Promise<void>;
   restartOffline(): Promise<Page>;
   reconnect(): Promise<void>;
@@ -140,6 +146,12 @@ export async function recordOrderJourney(options: {
       (e) => (e.call.input as { baseVersion: number }).baseVersion === 1,
     ),
   ).toBe(true);
+  if (options.legacy) {
+    const state = await options.storage(page, scope);
+    for (const entry of state.journal) entry.dependencies = [];
+    delete state.journal[0].delivery;
+    await options.writeStorage(page, scope, state);
+  }
   page = await options.restartOffline();
   await nav();
   expect((await journal()).map((e) => e.call)).toEqual(
@@ -158,12 +170,15 @@ export async function recordOrderJourney(options: {
   await expect(group().nth(1)).toContainText("333");
   await expect(group().nth(2)).toContainText("final@example.test");
   await expect(group().nth(1)).toContainText(
-    "Waiting for prerequisite changes",
+    options.legacy
+      ? "Waiting for the outcomes of older edits"
+      : "Waiting for prerequisite changes",
   );
-  await mkdir("docs/verification/record-order", { recursive: true });
+  const evidence = `docs/verification/${options.legacy ? "legacy-order" : "record-order"}`;
+  await mkdir(evidence, { recursive: true });
   await group().nth(1).scrollIntoViewIfNeeded();
   await page.screenshot({
-    path: `docs/verification/record-order/${options.kind}-saved.png`,
+    path: `${evidence}/${options.kind}-saved.png`,
   });
   await options.narrow();
   await group().nth(1).scrollIntoViewIfNeeded();
@@ -182,7 +197,7 @@ export async function recordOrderJourney(options: {
     ),
   ).toBe(true);
   await page.screenshot({
-    path: `docs/verification/record-order/${options.kind}-narrow.png`,
+    path: `${evidence}/${options.kind}-narrow.png`,
   });
   await options.wide();
   // A disjoint corporate edit must survive all queued writes, including explicit review.
@@ -191,13 +206,50 @@ export async function recordOrderJourney(options: {
     baseVersion: original.version,
     data: { ...original.data, address: "Server office" },
   });
-  await options.loseReply(saved[0].id);
+  if (options.legacy) {
+    // The old host sent this exact request but did not retain its reply or delivery evidence.
+    const response = await api.post(
+      `/api/v1/module/contacts/workspaces/${scope.workspaceId}/records`,
+      {
+        headers: {
+          ...headers,
+          "idempotency-key": saved[0].id,
+          "x-module-version": saved[0].call.moduleVersion!,
+        },
+        data: {
+          resource: saved[0].call.resource,
+          action: saved[0].call.action,
+          input: saved[0].call.input,
+        },
+      },
+    );
+    expect(response.ok(), await response.text()).toBe(true);
+    await options.loseReply("never-dispatch-this-key"); // observe every actual renderer request
+  } else await options.loseReply(saved[0].id);
   await options.reconnect();
+  if (options.legacy) {
+    await expect
+      .poll(async () => (await journal()).map((e) => e.state))
+      .toEqual(["pending", "pending", "pending", "accepted"]);
+    expect((await journal())[0].attempts).toBe(0);
+    expect(await options.dispatched()).toEqual([saved[3].id]);
+    await group()
+      .nth(0)
+      .getByRole("button", { name: "Resolve outcome", exact: true })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Resolve pending change", exact: true })
+      .getByRole("button", { name: "Check and resolve", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
   await expect
     .poll(async () => (await journal()).map((e) => e.state), { timeout: 45000 })
     .toEqual(["accepted", "conflict", "pending", "accepted"]);
   const sent = await options.dispatched();
-  expect(sent.filter((id) => id === saved[0].id)).toHaveLength(2);
+  expect(sent.filter((id) => id === saved[0].id)).toHaveLength(
+    options.legacy ? 0 : 2,
+  );
   expect(sent.indexOf(saved[1].id)).toBeGreaterThan(
     sent.lastIndexOf(saved[0].id),
   );
@@ -271,6 +323,6 @@ export async function recordOrderJourney(options: {
     page.getByRole("cell", { name: "final@example.test", exact: true }),
   ).toBeVisible();
   await page.screenshot({
-    path: `docs/verification/record-order/${options.kind}-recovered.png`,
+    path: `${evidence}/${options.kind}-recovered.png`,
   });
 }

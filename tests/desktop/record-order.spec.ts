@@ -21,19 +21,20 @@ type CaptureState = typeof globalThis & {
   dispatched: string[];
 };
 test.use({ actionTimeout: 15000 });
-test("native same-record edits survive offline restart and recover in order", async () => {
-  test.setTimeout(180000);
-  const pool = new Pool({
-    connectionString: process.env.MIGRATION_DATABASE_URL,
-  });
-  const api = await request.newContext({ baseURL: "http://localhost:4310" });
-  const profile = await mkdtemp(resolve(tmpdir(), "suite-record-order-"));
-  let app!: ElectronApplication, page!: Page;
-  const launch = async (offline: boolean) => {
-    const entry = resolve(profile, "capture-entry.cjs");
-    await writeFile(
-      entry,
-      `const original=globalThis.fetch;
+for (const legacy of [false, true])
+  test(`${legacy ? "legacy" : "new"} native same-record edits survive offline restart and recover in order`, async () => {
+    test.setTimeout(180000);
+    const pool = new Pool({
+      connectionString: process.env.MIGRATION_DATABASE_URL,
+    });
+    const api = await request.newContext({ baseURL: "http://localhost:4310" });
+    const profile = await mkdtemp(resolve(tmpdir(), "suite-record-order-"));
+    let app!: ElectronApplication, page!: Page;
+    const launch = async (offline: boolean) => {
+      const entry = resolve(profile, "capture-entry.cjs");
+      await writeFile(
+        entry,
+        `const original=globalThis.fetch;
 globalThis.offlineFlag=${offline};globalThis.dispatched=[];
 globalThis.fetch=async(...args)=>{
  if(globalThis.offlineFlag)throw new TypeError('Offline',{cause:{code:'ECONNREFUSED'}});
@@ -45,107 +46,119 @@ globalThis.fetch=async(...args)=>{
  if(create&&key===globalThis.lossKey&&result.ok){globalThis.lossKey=undefined;throw new TypeError('Lost reply',{cause:{code:'ECONNRESET'}})}
  return result;
 };require(${JSON.stringify(resolve("apps/desktop/dist/main.cjs"))});`,
-    );
-    app = await electron.launch({
-      executablePath: require("electron"),
-      args: [entry, `--user-data-dir=${profile}`],
-      env: {
-        ...process.env,
-        NODE_ENV: "development",
-        SUITE_DESKTOP_DEV_AUTH: "1",
-        SUITE_DESKTOP_TEST_MINIMIZED: "1",
-      },
-    });
-    page = await app.firstWindow();
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
-    );
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    if (!offline) {
-      await page
-        .getByRole("button", { name: "Open local workspace", exact: true })
-        .click();
-      await expect(
-        page.getByRole("button", { name: "Switch workspace", exact: true }),
-      ).toBeVisible();
-    }
-    return page;
-  };
-  const offline = async (value: boolean) => {
-    await app.evaluate((_, value) => {
-      (globalThis as CaptureState).offlineFlag = value;
-    }, value);
-    await page.evaluate((value) => {
-      Object.defineProperty(navigator, "onLine", {
-        configurable: true,
-        get: () => !value,
+      );
+      app = await electron.launch({
+        executablePath: require("electron"),
+        args: [entry, `--user-data-dir=${profile}`],
+        env: {
+          ...process.env,
+          NODE_ENV: "development",
+          SUITE_DESKTOP_DEV_AUTH: "1",
+          SUITE_DESKTOP_TEST_MINIMIZED: "1",
+        },
       });
-      window.dispatchEvent(new Event(value ? "offline" : "online"));
-    }, value);
-  };
-  try {
-    expect(
-      (
-        await api.post("/auth/development", {
-          headers: { origin: "http://localhost:4300" },
-          data: { email: "owner@demo.local" },
-        })
-      ).ok(),
-    ).toBe(true);
-    await launch(false);
-    await recordOrderJourney({
-      page,
-      api,
-      pool,
-      kind: "native",
-      offline,
-      restartOffline: async () => {
-        await app.close();
-        await launch(true);
-        await offline(true);
-        return page;
-      },
-      reconnect: async () => {
-        await offline(false);
-        await page.evaluate(() => window.suiteDesktop!.login());
-        await page.reload();
-      },
-      loseReply: async (key) => {
-        await app.evaluate((_, key) => {
-          (globalThis as CaptureState).lossKey = key;
-        }, key);
-      },
-      dispatched: () =>
-        app.evaluate(() => (globalThis as CaptureState).dispatched),
-      narrow: () =>
-        app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0].setSize(390, 844),
-        ),
-      wide: () =>
-        app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
-        ),
-      storage: (page, scope) =>
-        page.evaluate(
-          async (scope) =>
-            (await window.suiteDesktop!.cacheRead(
-              scope,
-              "module-state",
-            )) as ModuleStorage,
-          scope,
-        ),
-    });
-    expect(
+      page = await app.firstWindow();
       await app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows().every(
-          (w) => !w.isFocused() && (!w.isVisible() || w.isMinimized()),
+        BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
+      );
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      if (!offline) {
+        await page
+          .getByRole("button", { name: "Open local workspace", exact: true })
+          .click();
+        await expect(
+          page.getByRole("button", { name: "Switch workspace", exact: true }),
+        ).toBeVisible();
+      }
+      return page;
+    };
+    const offline = async (value: boolean) => {
+      await app.evaluate((_, value) => {
+        (globalThis as CaptureState).offlineFlag = value;
+      }, value);
+      await page.evaluate((value) => {
+        Object.defineProperty(navigator, "onLine", {
+          configurable: true,
+          get: () => !value,
+        });
+        window.dispatchEvent(new Event(value ? "offline" : "online"));
+      }, value);
+    };
+    try {
+      expect(
+        (
+          await api.post("/auth/development", {
+            headers: { origin: "http://localhost:4300" },
+            data: { email: "owner@demo.local" },
+          })
+        ).ok(),
+      ).toBe(true);
+      await launch(false);
+      await recordOrderJourney({
+        page,
+        api,
+        pool,
+        kind: "native",
+        legacy,
+        writeStorage: (page, scope, state) =>
+          page.evaluate(
+            async ({ scope, state }) => {
+              await window.suiteDesktop!.cacheWrite(
+                scope,
+                "module-state",
+                state,
+              );
+            },
+            { scope, state },
+          ),
+        offline,
+        restartOffline: async () => {
+          await app.close();
+          await launch(true);
+          await offline(true);
+          return page;
+        },
+        reconnect: async () => {
+          await offline(false);
+          await page.evaluate(() => window.suiteDesktop!.login());
+          await page.reload();
+        },
+        loseReply: async (key) => {
+          await app.evaluate((_, key) => {
+            (globalThis as CaptureState).lossKey = key;
+          }, key);
+        },
+        dispatched: () =>
+          app.evaluate(() => (globalThis as CaptureState).dispatched),
+        narrow: () =>
+          app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()[0].setSize(390, 844),
+          ),
+        wide: () =>
+          app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
+          ),
+        storage: (page, scope) =>
+          page.evaluate(
+            async (scope) =>
+              (await window.suiteDesktop!.cacheRead(
+                scope,
+                "module-state",
+              )) as ModuleStorage,
+            scope,
+          ),
+      });
+      expect(
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().every(
+            (w) => !w.isFocused() && (!w.isVisible() || w.isMinimized()),
+          ),
         ),
-      ),
-    ).toBe(true);
-  } finally {
-    await app?.close();
-    await api.dispose();
-    await pool.end();
-    await rm(profile, { recursive: true, force: true });
-  }
-});
+      ).toBe(true);
+    } finally {
+      await app?.close();
+      await api.dispose();
+      await pool.end();
+      await rm(profile, { recursive: true, force: true });
+    }
+  });

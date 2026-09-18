@@ -1206,7 +1206,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 </strong>
                 <span>
                   {fieldLabel(entry.state)}.{" "}
-                  {entry.error ??
+                  {(entry.orderingRecovery === "outcome"
+                    ? "Earlier versions did not record a safe order for these edits. Resolve this change's outcome before continuing."
+                    : entry.orderingRecovery === "waiting"
+                      ? "Waiting for the outcomes of older edits to this record. Unrelated work can still synchronize."
+                      : entry.error) ??
                     (entry.dependencies.some(
                       (id) =>
                         !storage?.journal.some(
