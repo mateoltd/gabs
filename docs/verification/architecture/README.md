@@ -62,3 +62,13 @@ A newly delegated `gpt-5.6-sol` subagent at `xhigh` independently reviewed the c
 Fresh validation on the current checkout passed all nine architecture fixtures and `pnpm build`: strict TypeScript, four environment checks, boundary/copy checks and all four production builds. Logs: `/tmp/gabs-architecture-current-tests.log` and `/tmp/gabs-architecture-current-build.log`. The existing web chunk-size warning remains. No browser or Electron window was launched.
 
 This audit does not accept the unfinished employee receipt-recovery implementation included in the checkpoint. Its observable behavior still requires the SDK-05-LAN-EMP-REC tests and journeys; that item remains active. Full parity and final UI refinement remain open.
+
+## Collision-work checkpoint audit, 18 September 2026
+
+The user-requested checkpoint is `c219fc00a958d62cb67cd84963c3c13d8c7cd4ba` on local branch `checkpoint/architecture-collision-review-2026-09-18`. It preserves five unfinished collision-recovery files without staging them or accepting their behavior. Parent comparison confirmed those files remain byte-identical to the checkpoint.
+
+A fresh `gpt-5.6-sol` subagent at `xhigh` independently audited the current checkout at `063e1ce` plus that work. Parent review checked ownership, public exports, environment configurations, legacy exceptions and the larger orchestration files. The requested structural migration remains implemented by `92fd5fb`, with enforcement fixes in `2c306be`; neither review found a concrete additional architecture correction. No source, UI, signed artifact or public identifier changed in this audit.
+
+The structure is accepted for continued feature work, not declared free of maintainability debt. `local-profiles.ts` retains the session/lifecycle state machine after extraction of vault, access and capability owners. `workspace.tsx` and module `views/view.tsx` remain large orchestration files. The client index retains legacy commerce cache/command contracts. Extract further responsibilities when a behavioral seam or compatibility retirement justifies it; do not add directory layers solely to reduce line counts.
+
+Fresh parent validation passed all nine architecture fixtures and `pnpm build`, including strict root/browser/Node/preload/worker checks, dependency/copy checks and all four production builds. Logs: `/tmp/gabs-architecture-collision-audit-tests.log` and `/tmp/gabs-architecture-collision-audit-build.log`. Existing bundle-size warnings remain. No browser or Electron window was launched. This verifies the architecture and compilation of the checkout, not collision-recovery behavior or full parity. OFF-01 remains active; its collision implementation still needs server/UI integration and observable acceptance.

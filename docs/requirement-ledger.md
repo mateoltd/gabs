@@ -2,6 +2,8 @@
 
 Execution status, priorities and acceptance gates live in the [parity tracker](parity-tracker.md). The [product vision](product-vision.md) preserves the approved scope and architectural decisions. Update this ledger alongside the tracker when implementation or evidence changes.
 
+[Collision-work architecture audit](verification/architecture/README.md#collision-work-checkpoint-audit-18-september-2026) records a fresh Sol xhigh review, parent review, nine architecture fixtures and strict checks/four builds. Existing structural ownership remains accepted; no original requirement status changes and unfinished OFF-01 collision behavior is not accepted by these checks.
+
 [Current checkout review](verification/architecture/README.md#current-checkout-audit-18-september-2026) reconfirms the existing architecture with fresh nine-fixture and strict-build acceptance. No requirement status changes; unfinished employee recovery remains outside this acceptance.
 
 The [18 September architecture review](verification/architecture/README.md#follow-up-architecture-review-18-september-2026) strengthens CORE-002 and framework boundary evidence: dormant portable SDK/contract files cannot hide platform runtime imports, and conditional wildcard exports resolve before module-boundary enforcement. Nine focused fixtures and strict checks/four builds passed. No original requirement status, signed module identity, UI, or remaining parity gate changed.
