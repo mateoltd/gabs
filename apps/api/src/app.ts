@@ -1308,28 +1308,42 @@ export async function createApp(
       return { id, state: "pending", createdAt: new Date().toISOString() };
     },
   });
+  const authorizedExport = async (tx: Tx, ctx: Context, id: string) => {
+    const exportRow = found(
+      await tx
+        .selectFrom("suite.exports")
+        .selectAll()
+        .where("workspace_id", "=", ctx.workspaceId)
+        .where("actor_id", "=", ctx.actor.id)
+        .where("id", "=", id)
+        .executeTakeFirst(),
+    );
+    requireCondition(
+      exportRow.state === "ready" && exportRow.object_key,
+      409,
+      "EXPORT_PENDING",
+      "This export is not ready.",
+    );
+    return exportRow;
+  };
+  route("exportAuthorize", {
+    hostStorageBridge: false,
+    response: T.Object({ filename: T.String() }),
+    permission: "orders.export",
+    module: "orders",
+    handler: async (tx, ctx, req) => {
+      const row = await authorizedExport(tx, ctx, req.params.id);
+      return { filename: `orders-${row.id}.csv` };
+    },
+  });
   route("exportDownload", {
     hostStorageBridge: false,
     response: T.Object({ filename: T.String(), content: T.String() }),
     permission: "orders.export",
     module: "orders",
     handler: async (tx, ctx, req) => {
-      const exportRow = found(
-        await tx
-          .selectFrom("suite.exports")
-          .selectAll()
-          .where("workspace_id", "=", ctx.workspaceId)
-          .where("actor_id", "=", ctx.actor.id)
-          .where("id", "=", req.params.id)
-          .executeTakeFirst(),
-      );
-      requireCondition(
-        exportRow.state === "ready" && exportRow.object_key,
-        409,
-        "EXPORT_PENDING",
-        "This export is not ready.",
-      );
-      const content = await readExport(exportRow.object_key);
+      const exportRow = await authorizedExport(tx, ctx, req.params.id);
+      const content = await readExport(exportRow.object_key!);
       await audit(tx, ctx, "orders.export_downloaded", exportRow.id);
       return { filename: `orders-${exportRow.id}.csv`, content };
     },

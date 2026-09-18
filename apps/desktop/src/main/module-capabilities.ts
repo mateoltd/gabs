@@ -49,6 +49,19 @@ export class ModuleHostSessions {
   clear() {
     this.sessions.clear();
   }
+  capture(handle: string) {
+    const context = this.sessions.get(handle);
+    const check = () => {
+      if (
+        !context ||
+        this.sessions.get(handle) !== context ||
+        context.scope.userId !== this.currentUser()
+      )
+        throw Error("This module host session is no longer active.");
+      return context;
+    };
+    return { ...check(), check };
+  }
   async execute(
     handle: string,
     capability: string,
@@ -67,17 +80,8 @@ export class ModuleHostSessions {
       !/^[a-z][a-z0-9-]{0,63}$/.test(capability)
     )
       throw Error("Invalid host capability name.");
-    const context = this.sessions.get(handle);
-    const check = () => {
-      if (
-        !context ||
-        this.sessions.get(handle) !== context ||
-        context.scope.userId !== this.currentUser()
-      )
-        throw Error("This module host session is no longer active.");
-      return context;
-    };
-    const selected = check();
+    const selected = this.capture(handle);
+    const check = selected.check;
     const call = {
       moduleId: selected.moduleId,
       moduleVersion: selected.moduleVersion,

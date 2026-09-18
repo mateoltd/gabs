@@ -5,6 +5,16 @@ window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.os = process.platform;
 });
 const bridge: DesktopBridge = {
+  downloadExport: async (handle, id) => {
+    const response = await ipcRenderer.invoke(
+      "suite:export-download",
+      handle,
+      id,
+    );
+    if (!response?.ok)
+      throw Error(response?.message ?? "The export could not be saved.");
+    return response.result;
+  },
   prepareModuleOffline: (scope, moduleId, version, enabled) =>
     ipcRenderer.invoke(
       "suite:module-offline",

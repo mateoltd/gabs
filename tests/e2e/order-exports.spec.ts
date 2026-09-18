@@ -1,5 +1,7 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
+import { Pool } from "pg";
+import { exportPermission } from "../support/host-capability-journey";
 import { test, expect } from "@playwright/test";
 import {
   connectDatabase,
@@ -12,6 +14,9 @@ test("orders exports run in the background and download through the existing int
   page,
 }) => {
   const workspace = "11111111-1111-4111-8111-111111111111";
+  const pool = new Pool({
+    connectionString: process.env.MIGRATION_DATABASE_URL,
+  });
   const worker = connectDatabase(
     process.env.DATABASE_URL!.replace("suite_app:", "suite_worker:"),
   );
@@ -62,7 +67,30 @@ test("orders exports run in the background and download through the existing int
     const content = await readFile((await file.path())!, "utf8");
     expect(content).toMatch(/^Order,Customer,Status,Total in minor units\r\n/);
     expect(content.split("\r\n").length).toBeGreaterThan(1);
+    const metadataUrl = new URL(
+      `/api/v1/workspaces/${workspace}/exports/${id}/authorize`,
+      page.url(),
+    ).href;
+    const metadata = await page.request.get(metadataUrl);
+    expect(metadata.status()).toBe(200);
+    expect(await metadata.json()).toEqual({ filename: `orders-${id}.csv` });
+    const extraDownloads: string[] = [];
+    page.on("download", (item) =>
+      extraDownloads.push(item.suggestedFilename()),
+    );
+    await page.route(`**/exports/${id}/authorize`, async (route) => {
+      await exportPermission(pool, workspace, "orders", false);
+      await route.continue();
+    });
+    await dialog
+      .getByRole("button", { name: "Download export" })
+      .first()
+      .click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    expect(extraDownloads).toEqual([]);
   } finally {
+    await exportPermission(pool, workspace, "orders", true);
+    await pool.end();
     await worker.destroy();
   }
 });

@@ -4,7 +4,8 @@ import moduleDefinition from "../releases/1.1.0/module";
 import { useToast, Tooltip } from "@suite/ui-web";
 import { Input, Select, SelectOption, NumberInput } from "@suite/ui-web";
 import { useSearchParams } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { downloadCorporateExport } from "@suite/client/browser";
 import {
   keepPreviousData,
   useQuery,
@@ -93,6 +94,16 @@ export default function Orders(
     onError,
     moduleCatalog,
   } = props;
+  const currentView = useRef(props);
+  currentView.current = props;
+  const downloads = useRef(new Set<AbortController>());
+  useEffect(
+    () => () => {
+      for (const controller of downloads.current) controller.abort();
+      downloads.current.clear();
+    },
+    [scope.userId, scope.workspaceId, props.definition.version],
+  );
   const canUse = (
     current: FeatureProps["bootstrap"],
     moduleId: string,
@@ -1602,15 +1613,42 @@ export default function Orders(
                 <Button
                   aria-label="Download export"
                   onClick={async () => {
+                    const controller = new AbortController();
+                    downloads.current.add(controller);
                     try {
-                      const file = await client.request({
-                        operation: "exportDownload",
-                        params: { ...params, id: e.id },
+                      await downloadCorporateExport({
+                        client,
+                        scope,
+                        moduleVersion: props.definition.version,
+                        id: e.id,
+                        signal: controller.signal,
+                        check: () => {
+                          const current = currentView.current;
+                          if (
+                            !current.online ||
+                            current.scope.userId !== scope.userId ||
+                            current.scope.workspaceId !== scope.workspaceId ||
+                            current.definition.version !==
+                              props.definition.version ||
+                            !canUseWithCatalog(
+                              current.bootstrap,
+                              "orders",
+                              "orders.export",
+                              current.moduleCatalog,
+                            )
+                          )
+                            throw Error(
+                              "Your access changed. Reopen this export to continue.",
+                            );
+                        },
                       });
-                      await platform.saveFile(file.filename, file.content);
                     } catch (e) {
-                      setError(e);
-                      onError(e);
+                      if (!controller.signal.aborted) {
+                        setError(e);
+                        onError(e);
+                      }
+                    } finally {
+                      downloads.current.delete(controller);
                     }
                   }}
                 >

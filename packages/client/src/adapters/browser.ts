@@ -1,3 +1,6 @@
+import { assertSchema, Type } from "@suite/module-sdk";
+import { hostCapabilitySchemas } from "@suite/module-sdk/host-capabilities";
+import type { SuiteClient } from "../api";
 import { openDB } from "idb";
 import type { Platform, Scope, CacheKey, RememberedIdentity } from "../index";
 import { CorporateCapabilityLeases } from "../identity/capability-leases";
@@ -115,4 +118,59 @@ export function getPlatform(): Platform {
     saveFile: (f, c) => native.saveFile(f, c),
     notify: (t, m) => native.notify(t, m),
   };
+}
+
+/** Host-owned export-job delivery, scoped to the mounted official module view. */
+export async function downloadCorporateExport(options: {
+  client: SuiteClient;
+  scope: Scope;
+  moduleVersion: string;
+  id: string;
+  signal: AbortSignal;
+  check(): void;
+}) {
+  const check = () => {
+    options.signal.throwIfAborted();
+    options.check();
+  };
+  check();
+  const native = window.suiteDesktop;
+  if (native) {
+    const handle = await native.openModuleHost(
+      options.scope,
+      "orders",
+      options.moduleVersion,
+    );
+    const close = () => {
+      void native.closeModuleHost(handle).catch(() => {});
+    };
+    options.signal.addEventListener("abort", close, { once: true });
+    try {
+      check();
+      return await native.downloadExport(handle, options.id);
+    } finally {
+      options.signal.removeEventListener("abort", close);
+      await native.closeModuleHost(handle);
+    }
+  }
+  const params = { workspaceId: options.scope.workspaceId, id: options.id };
+  const file = await options.client.request(
+    { operation: "exportDownload", params },
+    { signal: options.signal },
+  );
+  check();
+  assertSchema(hostCapabilitySchemas["files.export"].input, file);
+  const metadata = await options.client.request(
+    { operation: "exportAuthorize", params },
+    { signal: options.signal },
+  );
+  check();
+  assertSchema(
+    Type.Object({ filename: Type.Literal(`orders-${options.id}.csv`) }),
+    metadata,
+  );
+  if (file.filename !== metadata.filename)
+    throw Error("The export identity changed while saving.");
+  await browserPlatform.saveFile(file.filename, file.content);
+  return { status: "offered" as const };
 }

@@ -1,3 +1,4 @@
+import { downloadExport } from "./export-download";
 import { createLocalDeviceHost } from "./local-devices";
 import {
   ModuleHostSessions,
@@ -806,6 +807,43 @@ function handlers() {
       }
     },
   );
+  ipcMain.handle(
+    "suite:export-download",
+    async (event, handle: string, id: string) => {
+      sender(event);
+      try {
+        const session = moduleHosts.capture(handle);
+        if (session.moduleId !== "orders")
+          throw Error("This module does not own Orders exports.");
+        const scope = session.scope;
+        const result = await downloadExport(scope, id, {
+          check: () => {
+            sender(event);
+            validateScope(scope, userId);
+            session.check();
+          },
+          request: execute,
+          choose: async (filename) => {
+            const result = await dialog.showSaveDialog(win!, {
+              defaultPath: filename,
+              filters: [{ name: "CSV export", extensions: ["csv"] }],
+            });
+            return result.canceled ? undefined : result.filePath;
+          },
+          write: (path, content) => writeFile(path, content, { mode: 0o600 }),
+        });
+        return { ok: true, result };
+      } catch (error) {
+        return {
+          ok: false,
+          message:
+            error instanceof Error
+              ? error.message
+              : "The export could not be saved.",
+        };
+      }
+    },
+  );
   ipcMain.handle("suite:save-file", async (event, filename, content) => {
     sender(event);
     if (
@@ -827,16 +865,12 @@ function handlers() {
           input.pendingRequest.resource !== input.resource)
       )
         throw Error("Invalid recovery request");
-    } else if (!/^orders-[0-9a-f-]+\.csv$/i.test(filename)) {
+    } else {
       throw Error("Invalid export");
     }
     const result = await dialog.showSaveDialog(win!, {
       defaultPath: filename,
-      filters: [
-        recovery
-          ? { name: "Module input recovery", extensions: ["json"] }
-          : { name: "CSV export", extensions: ["csv"] },
-      ],
+      filters: [{ name: "Module input recovery", extensions: ["json"] }],
     });
     if (!result.canceled && result.filePath)
       await writeFile(result.filePath, content, { mode: 0o600 });

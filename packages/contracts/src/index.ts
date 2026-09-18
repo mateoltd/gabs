@@ -360,6 +360,10 @@ export const OPERATIONS = {
     method: "POST",
     path: "/api/v1/workspaces/:workspaceId/exports",
   },
+  exportAuthorize: {
+    method: "GET",
+    path: "/api/v1/workspaces/:workspaceId/exports/:id/authorize",
+  },
   exportDownload: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/exports/:id/download",

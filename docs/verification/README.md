@@ -509,3 +509,7 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 ### 18 September 2026: SDK-05 corporate lease simulation
 
 Typed declared allowances, deterministic expiry, held-action rechecks and CLI/preview renewal/revocation/source reset now have [scoped acceptance](corporate-lease-simulator/README.md). Verification passed 22 focused tests, two module-owned CLI scenarios, three headless preview journeys and strict checks/four builds. Wide/narrow Axe, keyboard activation and inspected captures pass; no device effects or desktop windows occurred. Next: official module capability adoption and administrator review. Actual authority/profile/LAN/release gates retain their independent evidence and remaining work.
+
+### 18 September 2026: SDK-05 scoped Orders export delivery
+
+[Scoped acceptance](order-export-delivery/README.md) verifies server-owned file content, non-auditing readiness checks, post-dialog authority, stale-view cancellation and generic CSV denial. Five unit/session tests, five browser journeys, five hidden native journeys and the affected final native rerun pass, with strict builds and regenerated API contracts. Final native error text/Axe and screenshot inspection pass. The [official effect audit](../official-capability-adoption.md) keeps signed capability adoption and administrator review open; this compatibility prerequisite does not close SDK-05 or parity.

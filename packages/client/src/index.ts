@@ -72,6 +72,10 @@ export interface LanStatus {
   port?: number;
 }
 export interface DesktopBridge {
+  downloadExport(
+    handle: string,
+    id: string,
+  ): Promise<{ status: "saved" | "cancelled" }>;
   prepareModuleOffline(
     scope: Scope,
     moduleId: string,
