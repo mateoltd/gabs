@@ -1,3 +1,6 @@
+import { ResourceValue } from "../tables/resource-table";
+import { fieldLabel } from "./labels";
+export { fieldLabel } from "./labels";
 import { ReferencePicker, type ReferenceLoader } from "./reference-picker";
 import { referenceTarget } from "@suite/module-sdk/references";
 import { createPortal } from "react-dom";
@@ -60,12 +63,6 @@ export interface FormSchema {
   uniqueItems?: boolean;
   pattern?: string;
   format?: string;
-}
-export function fieldLabel(key: string) {
-  return key
-    .replace(/[_-]/g, " ")
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (c) => c.toUpperCase());
 }
 const pointer = (path: string, key: string | number) =>
   `${path}/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
@@ -209,6 +206,13 @@ function ObjectFields({
   label?: string;
 }) {
   const values = object(value);
+  // Pattern/map editors already expose unknown keys with explicit rename/remove controls.
+  const unsupported =
+    schema.additionalProperties === false && !schema.patternProperties
+      ? Object.keys(values).filter(
+          (key) => !Object.hasOwn(schema.properties ?? {}, key),
+        )
+      : [];
   return (
     <>
       {Object.entries(schema.properties ?? {})
@@ -243,6 +247,34 @@ function ObjectFields({
             }}
           />
         ))}
+      {!!unsupported.length && (
+        <fieldset>
+          <legend>Unsupported saved fields</legend>
+          <p>
+            These fields are no longer supported. Review their saved values
+            before removing them from this draft.
+          </p>
+          {unsupported.map((key) => (
+            <div key={key}>
+              <dl>
+                <dt>{fieldLabel(key)}</dt>
+                <dd>
+                  <ResourceValue value={values[key]} />
+                </dd>
+              </dl>
+              <Button
+                onClick={() => {
+                  const next = { ...values };
+                  delete next[key];
+                  onChange(next);
+                }}
+              >
+                Remove {fieldLabel(key)} from draft
+              </Button>
+            </div>
+          ))}
+        </fieldset>
+      )}
       {(schema.patternProperties ||
         typeof schema.additionalProperties === "object" ||
         schema.additionalProperties === true) && (

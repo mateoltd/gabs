@@ -15,7 +15,7 @@ import type {
   TObject,
   TSchema,
 } from "@suite/module-sdk";
-import { fieldLabel } from "../forms/schema-form";
+import { fieldLabel } from "../forms/labels";
 import { Table } from "./work-list";
 
 const emptyCells = {};

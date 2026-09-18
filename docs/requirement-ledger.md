@@ -244,3 +244,8 @@ CORE-003 and UI-003 gain [scoped OFF-01-EXPORT evidence](verification/recovery-m
 ## Public queued-resource acceptance, 19 September 2026
 
 CORE-003 and UI-003 gain [scoped OFF-01-RESOURCE evidence](verification/resource-continuation/README.md): inferred resource capture and provisional receipts, stable targets, real update/archive bases, declared dependencies, current-authority checks, compatible host contracts and development simulation. Real web/native journeys prove selected command-to-create continuation and create/update/archive restart/retry without duplicate effects or audits. The evidence distinguishes broad acceptance from subsequent validation-only corrections. Broader descendant reviews, submitted-child outcomes, schema/legacy transitions and profile/release gates remain required; no entire original requirement is newly complete.
+
+
+## Removed-field review recovery, 19 September 2026
+
+CORE-003 and UI-003 gain [scoped OFF-01-SCHEMA evidence](verification/command-schema-review/README.md): a saved review can recover across three signed releases after top-level and nested fields are removed. Values remain visible until explicitly removed from a draft; unsaved changes do not overwrite the complete saved review. Real offline restart, current-schema validation, original/current permissions, authoritative replacement and duplicate-free dependent continuation pass in web/native clients. Final evidence includes 554 unit/PostgreSQL tests, four fresh builds, eight headless browser and three hidden native journeys. This does not close broader schema/legacy, descendant, profile or release requirements.

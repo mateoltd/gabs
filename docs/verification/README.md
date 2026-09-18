@@ -798,3 +798,10 @@ Final source passed 540 unit/PostgreSQL tests across 88 files, strict checks/fou
 [Public queued-resource acceptance](resource-continuation/README.md) verifies typed create/update/archive capture, real bases, exact retries, selected command-to-create continuation, current permission checks and web/native offline restart. The broad run passed 548 unit/PostgreSQL tests, six headless browser and five hidden/unfocused native journeys. All twelve new captures were inspected; existing presentation is preserved without implying final UI approval.
 
 Checkpoint `c43e7de` precedes the requested Sol xhigh [architecture review](architecture/README.md#queued-resource-checkpoint-review-19-september-2026). Parent correction of ambiguous retry identities then passed all 550 unit/PostgreSQL tests. Final schema-ownership corrections passed 41 affected tests including nine architecture fixtures, two headless preview journeys, strict checks and four fresh builds. The linked records distinguish run scopes and the earlier interrupted regression, which supplies no evidence. Broader OFF-01, profile, provider/release and UI-refinement gates remain open.
+
+
+## Three-release saved-review recovery, 19 September 2026
+
+[OFF-01-SCHEMA acceptance](command-schema-review/README.md) closes a reproduced form dead end: obsolete saved fields were retained but hidden, preventing a valid correction. Shared forms now display those fields with explicit draft-only removal, including nested objects. Original requests and unsaved prior reviews remain intact; explicit saves and final corrections survive real browser/native restarts and retain server authority.
+
+Final-source verification passed 554 unit/PostgreSQL tests across 89 files, strict checks/four fresh builds, eight headless browser and three hidden/minimized native journeys. Scoped Axe/overflow checks passed and eight final captures were inspected. The record distinguishes the initial rollout-version harness correction from the failing product baseline. Broader OFF-01, profile/provider/release and final UI gates remain open.

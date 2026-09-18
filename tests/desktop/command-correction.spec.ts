@@ -38,6 +38,7 @@ for (const mode of [
   "lease-expired",
   "permission-revoked",
   "upgrade",
+  "schema-review",
   "removed",
   "service-only",
   "viewless",

@@ -1,3 +1,4 @@
+import { commandSchemaTransition } from "./command-schema-transition";
 import { commandContinuationJourney } from "./command-continuation-journey";
 import { resourceHostJourney } from "./resource-host-journey";
 import {
@@ -29,6 +30,7 @@ export type CommandCorrectionOptions = {
     | "lease-expired"
     | "permission-revoked"
     | "upgrade"
+    | "schema-review"
     | "removed"
     | "service-only"
     | "viewless"
@@ -87,11 +89,13 @@ export async function commandCorrectionJourney(
     ? "command-recovery-host"
     : mode === "removed" || mode === "service-only"
       ? "command-retirement"
-      : mode === "upgrade"
-        ? "command-upgrade"
-        : interrupted
-          ? "command-authority"
-          : "command-correction";
+      : mode === "schema-review"
+        ? "command-schema-review"
+        : mode === "upgrade"
+          ? "command-upgrade"
+          : interrupted
+            ? "command-authority"
+            : "command-correction";
   const id = `correct-${randomUUID().slice(0, 8)}`;
   const fixtureName = `Correction notes ${id.slice(-8)}`;
   const pkg = await publishExecutableFixture({
@@ -269,7 +273,8 @@ export async function commandCorrectionJourney(
     );
     return;
   }
-  if (mode === "upgrade") {
+  let expectedCorrection: unknown = { name: "Corrected parent" };
+  if (mode === "upgrade" || mode === "schema-review") {
     const next = await publishExecutableFixture({
       id,
       name: fixtureName,
@@ -279,12 +284,16 @@ export async function commandCorrectionJourney(
         if (file === "module.ts")
           source = source.replace(
             "{ name: Type.String({ minLength: 1 }) },",
-            '{ name: Type.String({ minLength: 1 }), reason: Type.String({ minLength: 3, title: "Reason" }) },',
+            mode === "schema-review"
+              ? '{ name: Type.String({ minLength: 1 }), reason: Type.String({ minLength: 3, title: "Reason" }), context: Type.Object({ legacy: Type.String({ minLength: 1 }), retained: Type.String({ minLength: 1 }) }, { additionalProperties: false }) },'
+              : '{ name: Type.String({ minLength: 1 }), reason: Type.String({ minLength: 3, title: "Reason" }) },',
           );
         if (file === "view.tsx")
           source = source.replace(
             "{ name },",
-            '{ name, reason: "New capture" },',
+            mode === "schema-review"
+              ? '{ name, reason: "New capture", context: { legacy: "Legacy note", retained: "Retained note" } },'
+              : '{ name, reason: "New capture" },',
           );
         if (file === "module-server.ts")
           source = source.replace(
@@ -411,6 +420,26 @@ export async function commandCorrectionJourney(
     await review
       .getByLabel("Reason", { exact: true })
       .fill("Reviewed after upgrade");
+    if (mode === "schema-review") {
+      await review
+        .getByLabel("Legacy", { exact: true })
+        .fill("Keep until reviewed");
+      await review
+        .getByLabel("Retained", { exact: true })
+        .fill("Keep this field");
+    }
+    expectedCorrection = {
+      name: "Corrected parent",
+      reason: "Reviewed after upgrade",
+      ...(mode === "schema-review"
+        ? {
+            context: {
+              legacy: "Keep until reviewed",
+              retained: "Keep this field",
+            },
+          }
+        : {}),
+    };
     await review
       .getByRole("button", { name: "Save review", exact: true })
       .click();
@@ -430,6 +459,22 @@ export async function commandCorrectionJourney(
     await options.wide();
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
+    if (mode === "schema-review") {
+      const transitioned = await commandSchemaTransition({
+        options,
+        page,
+        id,
+        fixtureName,
+        scope,
+        headers,
+        originalVersion: pkg.version,
+        reviewVersion: next.version,
+        original: before[0],
+        reviewInput: expectedCorrection,
+      });
+      page = transitioned.page;
+      expectedCorrection = transitioned.input;
+    }
   }
   if (mode === "late-accepted") {
     await pool.query(
@@ -676,11 +721,7 @@ export async function commandCorrectionJourney(
   expect(final[1].call).toEqual(before[1].call);
   expect(final[1].dependencies).toEqual([final[3].id]);
   expect(final[2]).toEqual(before[2]);
-  expect(final[3].call.input).toEqual(
-    mode === "upgrade"
-      ? { name: "Corrected parent", reason: "Reviewed after upgrade" }
-      : { name: "Corrected parent" },
-  );
+  expect(final[3].call.input).toEqual(expectedCorrection);
   const repeat = await api.post(
     `/api/v1/module/${id}/workspaces/${scope.workspaceId}/operations/capture`,
     {
