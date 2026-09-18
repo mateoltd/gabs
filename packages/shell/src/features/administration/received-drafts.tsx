@@ -1,10 +1,29 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FeatureProps, LanReceipt } from "@suite/client";
 import { Button, Table, ErrorMessage, Modal, fieldLabel } from "@suite/ui-web";
 
 export function ReceivedDrafts(props: FeatureProps) {
   const native = window.suiteDesktop;
+  const queries = useQueryClient();
+  const authority = JSON.stringify([
+    props.bootstrap.policyRevision,
+    props.bootstrap.permissions,
+    props.bootstrap.modules,
+    props.offlineEnabled,
+  ]);
+  const receiptKey = [
+    props.scope.userId,
+    props.scope.workspaceId,
+    "lan-receipts",
+    authority,
+  ];
+  const archiveKey = [
+    props.scope.userId,
+    props.scope.workspaceId,
+    "lan-archive",
+    authority,
+  ];
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
   const [location, setLocation] = useState<"inbox" | "archive">("inbox");
@@ -19,24 +38,34 @@ export function ReceivedDrafts(props: FeatureProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const receipts = useQuery({
-    queryKey: [props.scope.userId, props.scope.workspaceId, "lan-receipts"],
-    enabled:
-      !!native &&
-      props.online &&
-      props.bootstrap.permissions.includes("modules.manage"),
-    queryFn: () => native!.lanReceipts(props.scope),
+    queryKey: receiptKey,
+    enabled: !!native,
+    queryFn: async ({ signal }) => {
+      const value = await native!.lanReceipts(props.scope);
+      signal.throwIfAborted();
+      return value;
+    },
+    networkMode: "always",
+    retry: false,
+    gcTime: 0,
     refetchInterval: open ? 5000 : 15000,
   });
   const archive = useQuery({
-    queryKey: [props.scope.userId, props.scope.workspaceId, "lan-archive"],
-    enabled:
-      !!native &&
-      props.online &&
-      props.bootstrap.permissions.includes("modules.manage"),
-    queryFn: () => native!.lanArchive(props.scope),
+    queryKey: archiveKey,
+    enabled: !!native,
+    queryFn: async ({ signal }) => {
+      const value = await native!.lanArchive(props.scope);
+      signal.throwIfAborted();
+      return value;
+    },
+    networkMode: "always",
+    retry: false,
+    gcTime: 0,
     refetchInterval: open ? 5000 : 15000,
   });
-  const rows = location === "inbox" ? receipts.data : archive.data?.receipts;
+  const inboxData = receipts.isError ? undefined : receipts.data;
+  const archiveData = archive.isError ? undefined : archive.data;
+  const rows = location === "inbox" ? inboxData : archiveData?.receipts;
   const loading = location === "inbox" ? receipts.isPending : archive.isPending;
   const title = (row: LanReceipt) =>
     row.moduleId
@@ -60,6 +89,16 @@ export function ReceivedDrafts(props: FeatureProps) {
   };
   const identity = (row: LanReceipt) => JSON.stringify([row.id, row.digest]);
   const receipt = rows?.find((row) => identity(row) === selected);
+  async function failedAction(error: unknown) {
+    setError(error);
+    setNotice(undefined);
+    setSelected(undefined);
+    setDeleting(false);
+    await Promise.all([
+      queries.resetQueries({ queryKey: receiptKey, exact: true }),
+      queries.resetQueries({ queryKey: archiveKey, exact: true }),
+    ]);
+  }
   async function act(
     row: LanReceipt,
     action: "submit" | "dismiss" | "archive" | "restore" | "delete" | "export",
@@ -102,7 +141,7 @@ export function ReceivedDrafts(props: FeatureProps) {
         setDeleting(false);
       }
     } catch (error) {
-      setError(error);
+      await failedAction(error);
     } finally {
       setBusy(false);
     }
@@ -125,7 +164,7 @@ export function ReceivedDrafts(props: FeatureProps) {
         setDeleting(false);
       }
     } catch (error) {
-      setError(error);
+      await failedAction(error);
     } finally {
       setBusy(false);
     }
@@ -143,14 +182,13 @@ export function ReceivedDrafts(props: FeatureProps) {
   return (
     <>
       <Button
-        disabled={!props.online}
         onClick={() => {
           setOpen(true);
           setError(undefined);
         }}
       >
         Received drafts
-        {receipts.data?.length ? ` (${receipts.data.length})` : ""}
+        {inboxData?.length ? ` (${inboxData.length})` : ""}
       </Button>
       <Modal
         open={open}
@@ -175,9 +213,8 @@ export function ReceivedDrafts(props: FeatureProps) {
                     setError(undefined);
                   }}
                 >
-                  Inbox (
-                  {archive.data?.inboxCount ?? receipts.data?.length ?? 0}
-                  {archive.data ? ` / ${archive.data.inboxLimit}` : ""})
+                  Inbox ({archiveData?.inboxCount ?? inboxData?.length ?? 0}
+                  {archiveData ? ` / ${archiveData.inboxLimit}` : ""})
                 </Button>
                 <Button
                   disabled={busy}
@@ -188,20 +225,17 @@ export function ReceivedDrafts(props: FeatureProps) {
                     setError(undefined);
                   }}
                 >
-                  Archived drafts ({archive.data?.receipts.length ?? 0})
+                  Archived drafts ({archiveData?.receipts.length ?? 0})
                 </Button>
-                <Button
-                  disabled={busy || !props.online}
-                  onClick={() => void importFile()}
-                >
+                <Button disabled={busy} onClick={() => void importFile()}>
                   Import recovery file
                 </Button>
               </div>
-              {archive.data && (
+              {archiveData && (
                 <p className="small">
                   {location === "inbox"
-                    ? "New receipts pause when the inbox is full. Archive reviewed drafts to make room; pending work is never automatically removed."
-                    : `${archive.data.receipts.length} of ${archive.data.countLimit} archived copies. ${(archive.data.usedBytes / 1048576).toFixed(1)} of ${archive.data.byteLimit / 1048576} MiB used. Copies remain until you restore or explicitly delete them.`}
+                    ? "Counts show drafts available with your current access. The inbox limit is shared. Archive reviewed drafts to make room; pending work is never automatically removed."
+                    : `${archiveData.receipts.length} visible archived copies using ${(archiveData.usedBytes / 1048576).toFixed(1)} MiB. The shared device limit is ${archiveData.countLimit} copies and ${archiveData.byteLimit / 1048576} MiB. Copies remain until you restore or explicitly delete them.`}
                 </p>
               )}
             </>
@@ -250,8 +284,8 @@ export function ReceivedDrafts(props: FeatureProps) {
             ) : (
               <p>
                 {location === "inbox"
-                  ? "No drafts have been received."
-                  : "No drafts are archived."}
+                  ? "No received drafts are available with your current access."
+                  : "No archived drafts are available with your current access."}
               </p>
             ))}
           {receipt && (
@@ -322,7 +356,7 @@ export function ReceivedDrafts(props: FeatureProps) {
                       Keep archived copy
                     </Button>
                     <Button
-                      disabled={busy || !props.online}
+                      disabled={busy}
                       onClick={() => void act(receipt, "delete")}
                     >
                       Delete archived copy
@@ -334,14 +368,14 @@ export function ReceivedDrafts(props: FeatureProps) {
                   <div className="module-toolbar">
                     {location === "archive" ? (
                       <Button
-                        disabled={busy || !props.online}
+                        disabled={busy}
                         onClick={() => void act(receipt, "restore")}
                       >
                         Restore to inbox
                       </Button>
                     ) : receipt.state === "accepted" ? (
                       <Button
-                        disabled={busy || !props.online}
+                        disabled={busy}
                         onClick={() => void act(receipt, "dismiss")}
                       >
                         Dismiss accepted receipt
@@ -362,7 +396,7 @@ export function ReceivedDrafts(props: FeatureProps) {
                     )}
                     {receipt.canExport && (
                       <Button
-                        disabled={busy || !props.online}
+                        disabled={busy}
                         onClick={() => void act(receipt, "export")}
                       >
                         Export recovery file
@@ -370,7 +404,7 @@ export function ReceivedDrafts(props: FeatureProps) {
                     )}
                     {location === "inbox" && receipt.state !== "accepted" && (
                       <Button
-                        disabled={busy || !props.online}
+                        disabled={busy}
                         onClick={() => void act(receipt, "archive")}
                       >
                         Archive draft
@@ -378,7 +412,7 @@ export function ReceivedDrafts(props: FeatureProps) {
                     )}
                     {location === "archive" && (
                       <Button
-                        disabled={busy || !props.online}
+                        disabled={busy}
                         onClick={() => {
                           setDeleting(true);
                           setNotice(undefined);

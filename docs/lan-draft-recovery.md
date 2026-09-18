@@ -1,10 +1,10 @@
 # Received draft recovery
 
-An authorized company administrator can manage same-account receipts in **Settings → Local network → Received drafts**. Reading, exporting, importing or moving a receipt does not submit it. The server accepts business changes only after an explicit submission with current module access and a valid queued-operation contract.
+Company members with an explicit module relay grant and permission to read the draft's resource or queued operation can manage same-account receipts in **Settings → Local network → Received drafts**. Reading, exporting, importing or moving a receipt does not submit it. The server accepts business changes only after an explicit submission with current module access and a valid queued-operation contract.
 
 ## Inbox and archive
 
-The inbox holds ten transport envelopes. At capacity, new deliveries are refused without removing existing work. The sender must retry after space is available. The interface shows the occupied slots.
+The inbox holds ten transport envelopes. At capacity, new deliveries are refused without removing existing work. The sender must retry after space is available. Employees see only authorized receipt counts; the ten-slot capacity is shared by all envelopes in this account/workspace inbox. Inaccessible and foreign-account contents do not appear in their rows, counts or archive byte usage. Connected administrators retain workspace quarantine inspection.
 
 **Archive draft** stores the complete original envelope in the account/workspace's encrypted archive before removing its inbox copy. The archive holds up to 100 copies and 16 MiB of serialized contents; encryption/database overhead is additional. It does not evict pending work. A full archive refuses the move and keeps the inbox draft intact. Capacity and retention are shown in the archive view.
 
@@ -14,7 +14,7 @@ Copies remain until explicitly restored or deleted. There is no automatic age-ba
 
 ## Recovery files
 
-**Export recovery file** uses a native save picker and writes a versioned JSON file containing the original account/workspace-bound envelope. Invalid draft schemas can be exported when their account ownership is recognizable. Foreign-account and unknown-owner payloads remain protected and cannot be exported through this interface. They may be archived or explicitly deleted after review.
+**Export recovery file** uses a native save picker and writes a versioned JSON file containing the original account/workspace-bound envelope. Connected administrators can export invalid draft schemas when account ownership is recognizable. Employees see only valid same-account envelopes with current module read/operation permission and an authorized relay grant. Foreign-account and unknown-owner payloads cannot be exported; connected administrators may archive or explicitly delete those quarantined copies after review.
 
 Recovery files contain draft data. Store them securely. The native host selects the bytes from protected storage, limits file size, and rechecks authorization after the picker. Renderer requests contain receipt identifiers, not filesystem paths or export content.
 
@@ -26,6 +26,16 @@ An archived copy can be deleted only through a separate confirmation. Export it 
 
 Accepted inbox receipts retain their existing **Dismiss accepted receipt** action. Unconfirmed inbox work is moved to the archive instead of silently discarded.
 
+## Employee and offline authorization
+
+The native main process obtains current company policy and verifies the signed module contract. Employees need a `lan.relay` declaration, its permission, assigned/enabled/entitled access to the module and its dependencies, and the module view permission where applicable. Resource receipts additionally require resource read permission; queued custom operations require their declared operation permission. A peer-status grant is insufficient. Submission also requires the authoritative server's current write/operation permission.
+
+Offline review, archive, restoration, file export/import and explicit copy deletion require previously prepared signed relay authority with `offline: "lease"`, device storage consent and an unexpired corporate lease. The main process verifies the protected package, issuer, exact release, permissions and clock history. Neither a renderer connectivity flag nor a file grants authority. Offline administrators use these same scoped grants; cached administrative status alone is insufficient.
+
+Local recovery remains available while the network listener is disabled. It does not send business writes. The submit control stays disabled offline and the native submit method independently rejects the request. Online recovery rechecks policy and grants before returning receipt contents or applying local actions, including after native file dialogs. Known denial, expiry and profile changes prevent recovery; the stored draft and retry identity remain intact.
+
+Receipt queries are keyed by account, workspace and authorization context. Failed or cancelled revalidation cannot retain a stale preview. Files contain no trusted accepted-state claim. A locally uncertain receipt stays uncertain through archive/file recovery; its original server retry identity resolves the outcome after reauthentication.
+
 ## Remaining scope
 
-The recovery flow requires current administrator authorization. Employee/delegated authority, dependencies accepted on another device, inactive authoring-release reconciliation and offline recovery authorization remain separate required gates. Process restart plus reauthentication is supported; explicit sign-out/profile removal still requires the broader OFF-03/identity recovery work and is not covered by this milestone. Production identity providers, deployment certificates and other target platforms retain their own acceptance gates.
+Dependencies accepted on another device and inactive authoring-release reconciliation remain separate required gates. Process restart plus reauthentication is supported; explicit sign-out/profile removal still requires the broader OFF-03/identity recovery work and is not covered by this milestone. Production identity providers, deployment certificates and other target platforms retain their own acceptance gates.

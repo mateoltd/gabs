@@ -41,7 +41,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { NavLink, Navigate, Route, useLocation } from "react-router";
+import { NavLink, Route, useLocation } from "react-router";
 import {
   Audit,
   Modules,
@@ -78,7 +78,7 @@ import {
 } from "../navigation/workspace-breadcrumb";
 import { useShellComposition } from "./composition";
 import { FeatureBoundary } from "./feature-boundary";
-import { MotionRoutes } from "./routes";
+import { MotionRoutes, RouteRedirect } from "./routes";
 import { client, platform } from "./runtime";
 import { AppUpdate } from "./update";
 import {
@@ -1116,7 +1116,7 @@ export function Workspace({
                 <MotionRoutes>
                   <Route
                     path="/"
-                    element={<Navigate to="/overview" replace />}
+                    element={<RouteRedirect to="/overview" replace />}
                   />
                   <Route
                     path="/organization"
@@ -1220,7 +1220,7 @@ export function Workspace({
                       (
                         online ? catalog.isSuccess : installedCatalog.isSuccess
                       ) ? (
-                        <Navigate to="/overview" replace />
+                        <RouteRedirect to="/overview" replace />
                       ) : (catalog.error ?? installedCatalog.error) ? (
                         <ErrorMessage
                           error={catalog.error ?? installedCatalog.error}

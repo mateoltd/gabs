@@ -444,3 +444,120 @@ it("allows connected module startup when offline storage is disabled, but never 
     /Protected storage/,
   );
 });
+
+const recoveryCall = (id: string, version: string) => ({
+  moduleId: id,
+  moduleVersion: version,
+  action: "create" as const,
+  resource: "notes",
+  input: { data: { name: "Retained receipt" } },
+});
+it("requires both a signed relay grant and resource read access for employee recovery", async () => {
+  const f = fixture("lan.relay");
+  const call = recoveryCall(f.module.id, f.module.version);
+  expect(f.policy.permissions).not.toContain("modules.manage");
+  const connected = await f.manager.lanRecoveryAccess(f.scope);
+  expect(connected).toMatchObject({ administrative: false, online: true });
+  expect(await connected.allows(call)).toBe(true);
+  await connected.check();
+  const reads = f.requests.filter(
+    (r) => r.operation === "moduleArtifact",
+  ).length;
+  expect(await connected.allows({ ...call, moduleId: "foreign-module" })).toBe(
+    false,
+  );
+  expect(
+    f.requests.filter((r) => r.operation === "moduleArtifact"),
+  ).toHaveLength(reads);
+  await f.prepare();
+  f.online(false);
+  f.restart();
+  const offline = await f.manager.lanRecoveryAccess(f.scope);
+  expect(offline).toMatchObject({ administrative: false, online: false });
+  expect(await offline.allows(call)).toBe(true);
+  await offline.check();
+  await f.manager.observe(f.scope, {
+    ...f.policy,
+    permissions: f.policy.permissions.filter(
+      (p) => p !== `${f.module.id}.notes.read`,
+    ),
+  });
+  await expect(offline.check()).rejects.toThrow(/permissions/);
+  expect(await (await f.manager.lanRecoveryAccess(f.scope)).allows(call)).toBe(
+    false,
+  );
+});
+it.each(["lan.status", "files.export"] as const)(
+  "does not treat a %s lease as permission to read received drafts",
+  async (kind) => {
+    const f = fixture(kind);
+    await f.prepare();
+    for (const online of [true, false]) {
+      f.online(online);
+      f.restart();
+      const access = await f.manager.lanRecoveryAccess(f.scope);
+      expect(
+        await access.allows(recoveryCall(f.module.id, f.module.version)),
+      ).toBe(false);
+      await access.check();
+    }
+  },
+);
+it.each(["read", "relay", "assignment"] as const)(
+  "rechecks employee %s authority even when a policy revision does not change",
+  async (change) => {
+    const f = fixture("lan.relay");
+    const access = await f.manager.lanRecoveryAccess(f.scope);
+    expect(
+      await access.allows(recoveryCall(f.module.id, f.module.version)),
+    ).toBe(true);
+    if (change === "assignment") f.policy.modules[0].assigned = false;
+    else
+      f.policy.permissions = f.policy.permissions.filter(
+        (p) =>
+          p !== `${f.module.id}.${change === "read" ? "notes.read" : "export"}`,
+      );
+    await expect(access.check()).rejects.toThrow(/permissions/);
+  },
+);
+it("expires a held offline receipt action and denies connected revocation after restart", async () => {
+  const f = fixture("lan.relay");
+  await f.prepare();
+  f.online(false);
+  f.restart();
+  const access = await f.manager.lanRecoveryAccess(f.scope);
+  expect(await access.allows(recoveryCall(f.module.id, f.module.version))).toBe(
+    true,
+  );
+  try {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 65000);
+    await expect(access.check()).rejects.toThrow(/expired|lease/);
+  } finally {
+    vi.useRealTimers();
+  }
+  f.online(true);
+  f.response(403);
+  await expect(f.manager.lanRecoveryAccess(f.scope)).rejects.toThrow(
+    /rejection/,
+  );
+  f.online(false);
+  f.restart();
+  await expect(f.manager.lanRecoveryAccess(f.scope)).rejects.toThrow(
+    /Reconnect/,
+  );
+});
+it("does not give offline administrators blanket receipt access", async () => {
+  const f = fixture("lan.status");
+  f.policy.permissions.push("modules.manage");
+  const online = await f.manager.lanRecoveryAccess(f.scope);
+  expect(online.administrative).toBe(true);
+  await f.prepare();
+  f.online(false);
+  f.restart();
+  const offline = await f.manager.lanRecoveryAccess(f.scope);
+  expect(offline.administrative).toBe(false);
+  expect(
+    await offline.allows(recoveryCall(f.module.id, f.module.version)),
+  ).toBe(false);
+});

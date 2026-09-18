@@ -20,6 +20,10 @@ import {
 } from "@suite/module-sdk/host-capabilities";
 import { CorporateCapabilityLeases } from "@suite/client/capability-leases";
 import type { Scope, LanModuleGrant } from "@suite/client";
+import {
+  createRecoveryAccess,
+  type RecoveryAccess,
+} from "./lan/recovery/authority";
 
 /** Only the main transport may classify a failure as disconnected. HTTP failures never use this path. */
 export class CapabilityTransportUnavailable extends Error {}
@@ -466,6 +470,113 @@ export class NativeCapabilityAuthority {
       this.live(scope, module, selection.capability, stamp),
     );
   }
+  /** Receipt data requires its own read permission as well as an explicit relay grant. */
+  async lanRecoveryAccess(scope: Scope): Promise<RecoveryAccess> {
+    let online = true;
+    let policy: Static<typeof NativeBootstrapSchema>;
+    try {
+      const value = await this.request(scope, {
+        operation: "bootstrap",
+        params: { workspaceId: scope.workspaceId },
+      });
+      assertSchema(NativeBootstrapSchema, value);
+      await this.observe(scope, value);
+      policy = value;
+    } catch (error) {
+      if (!(error instanceof CapabilityTransportUnavailable)) throw error;
+      online = false;
+      const state = await this.state(scope);
+      if (
+        !state.enabled ||
+        state.denied ||
+        !state.bootstrap ||
+        this.blocked.has(prefix(scope))
+      )
+        throw Error("Reconnect to authorize received-draft recovery.");
+      policy = structuredClone(state.bootstrap);
+    }
+    if (
+      policy.workspace.kind !== "company" ||
+      policy.workspace.id !== scope.workspaceId
+    )
+      throw Error("Received drafts belong to an authorized company workspace.");
+    const stamp = this.stamp(scope);
+    const current = () => {
+      if (
+        this.host.currentUser() !== scope.userId ||
+        stamp !== this.stamp(scope)
+      )
+        throw Error(
+          "Received-draft authority changed. Refresh before continuing.",
+        );
+      if (
+        !online &&
+        (policy.offlineHours <= 0 ||
+          Date.parse(policy.authorizedAt) +
+            Math.min(policy.offlineHours, 24) * 3600000 <=
+            Date.now())
+      )
+        throw Error("Offline recovery access expired. Reconnect to continue.");
+    };
+    current();
+    return createRecoveryAccess({
+      online,
+      policy,
+      current,
+      refreshPolicy: async () => {
+        if (online) {
+          const fresh = await this.request(scope, {
+            operation: "bootstrap",
+            params: { workspaceId: scope.workspaceId },
+          });
+          assertSchema(NativeBootstrapSchema, fresh);
+          await this.observe(scope, fresh);
+          policy = fresh;
+        } else {
+          const state = await this.state(scope);
+          if (
+            !state.enabled ||
+            state.denied ||
+            !state.bootstrap ||
+            this.blocked.has(prefix(scope))
+          )
+            throw Error("Reconnect to authorize received-draft recovery.");
+          policy = structuredClone(state.bootstrap);
+        }
+        current();
+        return policy;
+      },
+      loadModule: async (id) => {
+        if (!online) {
+          const retained = (await this.state(scope)).packages[id];
+          if (!retained)
+            throw Error("Reconnect to verify this module's recovery grant.");
+          return this.module(scope, id, retained.pkg.version);
+        }
+        const trust = await this.request(scope, { operation: "moduleTrust" });
+        assertSchema(Type.Object({ publicKey: Type.String() }), trust);
+        const pkg = await this.request(scope, {
+          operation: "moduleArtifact",
+          params: { workspaceId: scope.workspaceId, moduleId: id },
+        });
+        assertSchema(ArtifactSchema, pkg);
+        if (pkg.module_id !== id)
+          throw Error("The recovery contract belongs to another module.");
+        await verifyArtifact(pkg as SignedArtifact, trust.publicKey);
+        current();
+        return hydrateModule(moduleContract(pkg.artifact));
+      },
+      verifyGrant: async (module, grant) => {
+        if (online) await this.authorizeLan(scope, grant);
+        else
+          await this.leases.inspect(scope, module, grant.capability, () =>
+            this.live(scope, module, grant.capability, stamp),
+          );
+        current();
+      },
+    });
+  }
+
   async authorize(
     scope: Scope,
     call: HostCapabilityCall,

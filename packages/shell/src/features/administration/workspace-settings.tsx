@@ -289,7 +289,7 @@ export function LocalNetwork(
             ? "Disable local network"
             : "Enable local network"}
         </Button>
-        {administrator && <ReceivedDrafts {...props} />}
+        <ReceivedDrafts {...props} />
       </div>
       <ErrorMessage error={error} />
     </section>

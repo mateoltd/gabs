@@ -640,3 +640,160 @@ it("rechecks file-dialog authority and ownership, preserves cancelled work, and 
   ).rejects.toThrow("profile");
   expect(written).toBe(false);
 });
+
+function employee(f: ReturnType<typeof fixture>) {
+  let online = true,
+    permitted = true;
+  const recovery = () =>
+    new LanRecovery({
+      ...f.host,
+      access: async () => ({
+        administrative: false,
+        online,
+        allows: async (call) =>
+          permitted && call.moduleId === module.id && call.resource === "notes",
+        check: async () => {
+          if (!permitted) throw Error("Module access revoked");
+        },
+      }),
+    });
+  return {
+    recovery,
+    offline: () => {
+      online = false;
+    },
+    reconnect: () => {
+      online = true;
+    },
+    revoke: () => {
+      permitted = false;
+    },
+  };
+}
+it("filters employee receipts and archive counts without disclosing foreign payloads", async () => {
+  const f = fixture(),
+    staff = employee(f),
+    own = f.add();
+  const foreign = f.add({ userId: randomUUID() });
+  const inaccessible = f.add({
+    call: {
+      moduleId: "private-notes",
+      moduleVersion: "1.0.0",
+      action: "create",
+      resource: "notes",
+      input: { data: { text: "Hidden company information" } },
+    },
+  });
+  for (const entry of [own, inaccessible])
+    await f.recovery().archive(f.scope, {
+      id: entry.id,
+      digest: entry.digest,
+      location: "inbox",
+    });
+  const archived = await staff.recovery().archiveState(f.scope);
+  expect(archived.receipts.map((r) => r.id)).toEqual([own.id]);
+  expect(archived.inboxCount).toBe(0);
+  expect(archived.usedBytes).toBeLessThan(
+    (await f.recovery().archiveState(f.scope)).usedBytes,
+  );
+  expect(JSON.stringify(archived)).not.toContain("Hidden company information");
+  expect(await staff.recovery().list(f.scope)).toEqual([]);
+  await expect(
+    staff.recovery().archive(f.scope, {
+      id: foreign.id,
+      digest: foreign.digest,
+      location: "inbox",
+    }),
+  ).rejects.toThrow(/permissions/);
+  await expect(
+    staff.recovery().remove(
+      f.scope,
+      {
+        id: inaccessible.id,
+        digest: inaccessible.digest,
+        location: "archive",
+      },
+      true,
+    ),
+  ).rejects.toThrow(/permissions/);
+});
+it("retains employee uncertain outcomes through offline archive and file recovery, then retries once", async () => {
+  const f = fixture(),
+    staff = employee(f),
+    entry = f.add();
+  f.lose();
+  await staff.recovery().submit(f.scope, entry.id, entry.digest);
+  expect(f.records.size).toBe(1);
+  staff.offline();
+  const selection = {
+    id: entry.id,
+    digest: entry.digest,
+    location: "inbox" as const,
+  };
+  const offline = staff.recovery();
+  await expect(offline.submit(f.scope, entry.id, entry.digest)).rejects.toThrow(
+    /Connect/,
+  );
+  expect(f.sent).toHaveLength(1);
+  await offline.archive(f.scope, selection);
+  const archived = { ...selection, location: "archive" as const };
+  let file = "";
+  expect(
+    await offline.exportFile(f.scope, archived, {
+      choose: async () => "draft.json",
+      write: async (_path, content) => {
+        file = content;
+      },
+    }),
+  ).toEqual({ status: "saved" });
+  await offline.remove(f.scope, archived, true);
+  await staff.recovery().importFile(f.scope, {
+    choose: async () => "draft.json",
+    read: async () => file,
+  });
+  expect((await staff.recovery().list(f.scope))[0].state).toBe("pending");
+  expect(f.records.size).toBe(1);
+  staff.reconnect();
+  await staff.recovery().submit(f.scope, entry.id, entry.digest);
+  await staff.recovery().submit(f.scope, entry.id, entry.digest);
+  expect(f.sent.map((r) => r.idempotencyKey)).toEqual([entry.id, entry.id]);
+  expect(f.records.size).toBe(1);
+  expect((await staff.recovery().list(f.scope))[0].state).toBe("accepted");
+});
+it("rechecks employee access after export and import dialogs before effects", async () => {
+  const f = fixture(),
+    staff = employee(f),
+    entry = f.add();
+  let writes = 0;
+  await expect(
+    staff.recovery().exportFile(
+      f.scope,
+      { id: entry.id, digest: entry.digest, location: "inbox" },
+      {
+        choose: async () => {
+          staff.revoke();
+          return "draft.json";
+        },
+        write: async () => {
+          writes++;
+        },
+      },
+    ),
+  ).rejects.toThrow(/permissions|revoked/);
+  expect(writes).toBe(0);
+  const restored = employee(f);
+  const { encodeRecoveryFile } =
+    await import("../../apps/desktop/src/main/lan/receipts");
+  const file = encodeRecoveryFile(f.scope, entry);
+  await f.host.dismiss(f.scope, entry.id, entry.digest);
+  await expect(
+    restored.recovery().importFile(f.scope, {
+      choose: async () => "draft.json",
+      read: async () => {
+        restored.revoke();
+        return file;
+      },
+    }),
+  ).rejects.toThrow(/permissions|revoked/);
+  expect(await f.host.inbox()).toEqual([]);
+});

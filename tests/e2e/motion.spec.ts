@@ -278,3 +278,61 @@ test("reduced motion leaves every surface visible and removes animation", async 
     page.getByRole("button", { name: "New order", exact: true }),
   ).toBeFocused();
 });
+
+test("a late catalog redirect cannot replace navigation from a retained unknown route", async ({
+  page,
+}) => {
+  await login(page);
+  let releaseCatalog!: () => void;
+  const catalogGate = new Promise<void>((resolve) => {
+    releaseCatalog = resolve;
+  });
+  await page.route("**/api/v1/workspaces/*/platform", async (route) => {
+    await catalogGate;
+    await route.continue();
+  });
+  await page.addInitScript(() => {
+    const original = document.startViewTransition.bind(document);
+    const gate = new Promise<void>((resolve) => {
+      (
+        window as unknown as { releaseTransition: () => void }
+      ).releaseTransition = resolve;
+    });
+    document.startViewTransition = (update) =>
+      original(async () => {
+        await gate;
+        if (typeof update === "function") await update();
+        else await update?.update?.();
+      });
+  });
+  await page.goto("/not-an-installed-module");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith("/platform") && r.status() === 200,
+  );
+  releaseCatalog();
+  await response;
+  // The retained wildcard route has finished loading; its obsolete redirect renders nothing.
+  await expect(page.locator(".route-stage")).toBeEmpty();
+  await expect(page).toHaveURL(/\/settings$/);
+  await page.evaluate(() =>
+    (
+      window as unknown as { releaseTransition: () => void }
+    ).releaseTransition(),
+  );
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await page.unroute("**/api/v1/workspaces/*/platform");
+  await page.goto("/another-missing-module");
+  await expect(page).toHaveURL(/\/overview$/);
+  await page.evaluate(() =>
+    (
+      window as unknown as { releaseTransition: () => void }
+    ).releaseTransition(),
+  );
+  await expect(
+    page.getByRole("heading", { name: "Overview", exact: true }),
+  ).toBeVisible();
+});

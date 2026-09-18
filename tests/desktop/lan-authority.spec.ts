@@ -186,7 +186,7 @@ test("employee module grants enable LAN after offline process restart and reject
 
     await expect(
       page.getByRole("button", { name: /Received drafts/ }),
-    ).toHaveCount(0);
+    ).toBeVisible();
     await expect(
       page.evaluate(
         ({ userId, workspaceId }) =>

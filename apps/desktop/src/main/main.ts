@@ -200,6 +200,7 @@ const lanStatus = (scope: Scope) => ({
 });
 const lanRecovery = new LanRecovery({
   currentUser: () => userId,
+  access: (scope) => nativeAuthority.lanRecoveryAccess(scope),
   readArchive: async (scope) => {
     await ensureCache();
     validateScope(scope, userId);

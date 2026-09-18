@@ -22,4 +22,4 @@ Settings permits local appearance preferences and authorized LAN control offline
 
 ## Remaining acceptance
 
-Employee receipt review/submission, archive/file recovery and inactive-release/remote-dependency reconciliation remain required follow-up work. The existing recovery interface requires same-account administrator authority; module session access does not grant that permission. Broader explicit-sign-out/profile recovery, production certificates, other target operating systems and deployment-network acceptance retain their tracker gates.
+[Employee receipt recovery](lan-draft-recovery.md) checks module read/operation permission in addition to relay authority and permits local archive/file recovery within a valid offline lease. Module session access alone does not grant receipt access. Inactive-release/remote-dependency reconciliation remains required follow-up work. Broader explicit-sign-out/profile recovery, production certificates, other target operating systems and deployment-network acceptance retain their tracker gates.

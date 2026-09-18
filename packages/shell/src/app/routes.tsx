@@ -1,5 +1,7 @@
 import {
   Suspense,
+  createContext,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -8,7 +10,21 @@ import {
 } from "react";
 import { ContentSkeleton } from "@suite/ui-web";
 import { flushSync } from "react-dom";
-import { Routes, useLocation } from "react-router";
+import {
+  Navigate,
+  Routes,
+  useLocation,
+  type NavigateProps,
+} from "react-router";
+
+const ActiveLocation = createContext<string | undefined>(undefined);
+
+/** A retained page may finish loading during a newer navigation. It cannot redirect it. */
+export function RouteRedirect(props: NavigateProps) {
+  const active = useContext(ActiveLocation);
+  const displayed = useLocation();
+  return active === displayed.key ? <Navigate {...props} /> : null;
+}
 
 /** Snapshot only page content. The shell stays live during navigation. */
 export function MotionRoutes({ children }: { children: ReactNode }) {
@@ -68,7 +84,9 @@ export function MotionRoutes({ children }: { children: ReactNode }) {
       key={visible.pathname}
     >
       <Suspense fallback={<ContentSkeleton label="Loading your tools" />}>
-        <Routes location={visible}>{children}</Routes>
+        <ActiveLocation.Provider value={location.key}>
+          <Routes location={visible}>{children}</Routes>
+        </ActiveLocation.Provider>
       </Suspense>
     </div>
   );

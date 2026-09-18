@@ -483,7 +483,10 @@ test("received drafts require review and server acceptance, survive restart, and
       .getByRole("button", { name: "Delete archived copy", exact: true })
       .click();
     await expect(
-      dialog.getByText("No drafts are archived.", { exact: true }),
+      dialog.getByText(
+        "No archived drafts are available with your current access.",
+        { exact: true },
+      ),
     ).toBeVisible();
     await writeFile(saved, JSON.stringify({ ...file, userId: randomUUID() }));
     await dialog

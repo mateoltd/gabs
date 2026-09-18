@@ -25,6 +25,7 @@ import { verifyArtifact } from "@suite/module-sdk/verification";
 import type { SignedArtifact } from "@suite/module-sdk/platform";
 import type { Scope, LanReceipt } from "@suite/client";
 import { validateRelayEnvelope, type RelayEnvelope } from "./transport";
+import type { RecoveryAccess } from "./recovery/authority";
 const uuid = Type.String({ format: "uuid" });
 const Outcome = Type.Object(
   {
@@ -43,6 +44,7 @@ const Outcome = Type.Object(
 );
 type Outcome = Static<typeof Outcome>;
 interface Host {
+  access?(scope: Scope): Promise<RecoveryAccess>;
   currentUser(): string | undefined;
   request(
     request: OperationRequest,
@@ -93,8 +95,16 @@ export class LanRecovery {
     )
       throw Error("This profile is no longer active.");
   }
-  private async authorize(scope: Scope, generation: number) {
+  private async authorize(
+    scope: Scope,
+    generation: number,
+  ): Promise<RecoveryAccess> {
     this.check(scope, generation);
+    if (this.host.access) {
+      const access = await this.host.access(scope);
+      this.check(scope, generation);
+      return access;
+    }
     const result = await this.host.request({
       operation: "bootstrap",
       params: { workspaceId: scope.workspaceId },
@@ -110,6 +120,41 @@ export class LanRecovery {
       !result.body.permissions.includes("modules.manage")
     )
       throw Error("Current workspace administrator access is required.");
+    return {
+      administrative: true,
+      online: true,
+      allows: async () => true,
+      check: async () => {
+        this.check(scope, generation);
+      },
+    };
+  }
+  private async permitted(
+    scope: Scope,
+    envelope: RelayEnvelope,
+    access: RecoveryAccess,
+  ) {
+    if (access.administrative) return true;
+    let entry;
+    try {
+      entry = transfer(envelope, scope);
+    } catch {
+      return false;
+    }
+    return access.allows(entry.call);
+  }
+  private async receiptAccess(
+    scope: Scope,
+    generation: number,
+    envelope: RelayEnvelope,
+    access: RecoveryAccess,
+  ) {
+    if (!(await this.permitted(scope, envelope, access)))
+      throw Error(
+        "This draft is unavailable with current module permissions. Reconnect to refresh access.",
+      );
+    await access.check();
+    this.check(scope, generation);
   }
   private async outcome(
     scope: Scope,
@@ -122,18 +167,21 @@ export class LanRecovery {
   }
   async list(scope: Scope): Promise<LanReceipt[]> {
     const generation = this.generation;
-    await this.authorize(scope, generation);
+    const access = await this.authorize(scope, generation);
     const inbox = await this.host.inbox(scope);
-    const items = await this.describe(scope, inbox);
+    const items = await this.describe(scope, inbox, access);
+    await access.check();
     this.check(scope, generation);
     return items;
   }
   private async describe(
     scope: Scope,
     inbox: RelayEnvelope[],
+    access: RecoveryAccess,
   ): Promise<LanReceipt[]> {
     const items: LanReceipt[] = [];
     for (const envelope of inbox) {
+      if (!(await this.permitted(scope, envelope, access))) continue;
       const base = {
         id: envelope.id,
         digest: envelope.digest,
@@ -173,20 +221,30 @@ export class LanRecovery {
   }
   async archiveState(scope: Scope) {
     const generation = this.generation;
-    await this.authorize(scope, generation);
+    const access = await this.authorize(scope, generation);
     const archive = readArchive(await this.host.readArchive(scope), scope);
     const receipts = await this.describe(
       scope,
       archive.map((entry) => entry.envelope),
+      access,
     );
     const inbox = await this.host.inbox(scope);
+    const visibleInbox = await this.describe(scope, inbox, access);
+    const visible = new Set(receipts.map((receipt) => receipt.digest));
+    await access.check();
     this.check(scope, generation);
     return {
       receipts,
       countLimit: archiveLimit,
       byteLimit: archiveByteLimit,
-      usedBytes: Buffer.byteLength(JSON.stringify(archive)),
-      inboxCount: inbox.length,
+      usedBytes: Buffer.byteLength(
+        JSON.stringify(
+          access.administrative
+            ? archive
+            : archive.filter((entry) => visible.has(entry.envelope.digest)),
+        ),
+      ),
+      inboxCount: access.administrative ? inbox.length : visibleInbox.length,
       inboxLimit,
     };
   }
@@ -212,8 +270,9 @@ export class LanRecovery {
       throw Error("Select a draft in the inbox.");
     const generation = this.generation;
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
+      const access = await this.authorize(scope, generation);
       const envelope = await this.selected(scope, selection);
+      await this.receiptAccess(scope, generation, envelope, access);
       const entries = readArchive(await this.host.readArchive(scope), scope);
       if (
         !entries.some(
@@ -230,6 +289,7 @@ export class LanRecovery {
         throw Error(
           "The draft archive is full. Export and explicitly delete reviewed archived copies before retrying. The inbox draft is preserved.",
         );
+      await access.check();
       this.check(scope, generation);
       // Persist the entire original envelope before removing its inbox copy. A crash may
       // leave two copies; an exact retry is safe. Submission outcomes stay protected.
@@ -244,8 +304,9 @@ export class LanRecovery {
       throw Error("Select an archived draft.");
     const generation = this.generation;
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
+      const access = await this.authorize(scope, generation);
       const envelope = await this.selected(scope, selection);
+      await this.receiptAccess(scope, generation, envelope, access);
       await this.host.restore(scope, envelope, () =>
         this.check(scope, generation),
       );
@@ -274,10 +335,10 @@ export class LanRecovery {
       );
     const generation = this.generation;
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
-      await this.selected(scope, selection);
+      const access = await this.authorize(scope, generation);
+      const envelope = await this.selected(scope, selection);
       const entries = readArchive(await this.host.readArchive(scope), scope);
-      this.check(scope, generation);
+      await this.receiptAccess(scope, generation, envelope, access);
       await this.host.writeArchive(
         scope,
         entries.filter(
@@ -299,8 +360,10 @@ export class LanRecovery {
   ) {
     assertSchema(ReceiptSelection, selection);
     const generation = this.generation;
-    await this.authorize(scope, generation);
-    encodeRecoveryFile(scope, await this.selected(scope, selection));
+    const access = await this.authorize(scope, generation);
+    const envelope = await this.selected(scope, selection);
+    await this.receiptAccess(scope, generation, envelope, access);
+    encodeRecoveryFile(scope, envelope);
     this.check(scope, generation);
     const path = await file.choose(
       `received-draft-${key(selection.id).slice(0, 16)}.json`,
@@ -308,12 +371,10 @@ export class LanRecovery {
     this.check(scope, generation);
     if (!path) return { status: "cancelled" as const };
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
-      const content = encodeRecoveryFile(
-        scope,
-        await this.selected(scope, selection),
-      );
-      this.check(scope, generation);
+      const access = await this.authorize(scope, generation);
+      const envelope = await this.selected(scope, selection);
+      await this.receiptAccess(scope, generation, envelope, access);
+      const content = encodeRecoveryFile(scope, envelope);
       await file.write(path, content);
       return { status: "saved" as const };
     });
@@ -331,9 +392,9 @@ export class LanRecovery {
     this.check(scope, generation);
     if (!path) return { status: "cancelled" as const };
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
+      const access = await this.authorize(scope, generation);
       const envelope = decodeRecoveryFile(await file.read(path), scope);
-      this.check(scope, generation);
+      await this.receiptAccess(scope, generation, envelope, access);
       // A file carries no accepted-state authority. Only this device's protected
       // exact-content outcome can recognize acceptance; otherwise explicit submission is required.
       await this.host.restore(scope, envelope, () =>
@@ -353,7 +414,11 @@ export class LanRecovery {
   async submit(scope: Scope, id: string, digest: string) {
     const generation = this.generation;
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
+      const access = await this.authorize(scope, generation);
+      if (!access.online)
+        throw Error(
+          "Connect to submit a received draft. Local recovery does not confirm server acceptance.",
+        );
       const envelope = (await this.host.inbox(scope)).find(
         (e) => e.id === id && e.digest === digest,
       );
@@ -362,6 +427,7 @@ export class LanRecovery {
           "The received draft changed or was removed. Refresh the inbox.",
         );
       const entry = transfer(envelope, scope);
+      await this.receiptAccess(scope, generation, envelope, access);
       const previous = await this.outcome(scope, id);
       if (previous && previous.digest !== digest)
         throw Error(
@@ -450,7 +516,7 @@ export class LanRecovery {
         message:
           "Awaiting server confirmation. Retrying preserves the original request identity.",
       };
-      this.check(scope, generation);
+      await this.receiptAccess(scope, generation, envelope, access);
       await this.host.write(scope, key(id), outcome);
       this.check(scope, generation);
       try {
@@ -513,7 +579,12 @@ export class LanRecovery {
   async dismiss(scope: Scope, id: string, digest: string) {
     const generation = this.generation;
     return this.exclusive(async () => {
-      await this.authorize(scope, generation);
+      const access = await this.authorize(scope, generation);
+      const envelope = (await this.host.inbox(scope)).find(
+        (entry) => entry.id === id && entry.digest === digest,
+      );
+      if (!envelope) return;
+      await this.receiptAccess(scope, generation, envelope, access);
       this.check(scope, generation);
       const outcome = await this.outcome(scope, id);
       if (!outcome || outcome.digest !== digest || outcome.state !== "accepted")
