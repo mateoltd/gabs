@@ -7,7 +7,14 @@ import {
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createRequire } from "node:module";
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+  mkdir,
+  readFile,
+  writeFile,
+  stat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -178,14 +185,20 @@ test("received drafts require review and server acceptance, survive restart, and
       exact: true,
     });
     const review = async (index: number) => {
+      await expect(dialog.locator("[aria-busy]").first()).toHaveAttribute(
+        "aria-busy",
+        "false",
+      );
       const back = dialog.getByRole("button", {
         name: "Back to received drafts",
         exact: true,
       });
       if (await back.isVisible()) await back.click();
       await dialog
-        .getByRole("button", { name: /^Review Network notes/ })
-        .nth(index)
+        .getByRole("button", {
+          name: `Review Network notes: Notes: ${index === 2 ? "Conflicting change" : `Received note ${index}`}`,
+          exact: true,
+        })
         .click();
       return dialog.getByRole("region", {
         name: "Received draft review",
@@ -234,6 +247,17 @@ test("received drafts require review and server acceptance, survive restart, and
         )
       ).rows[0].count,
     ).toBe("1");
+    await selected
+      .getByRole("button", { name: "Archive draft", exact: true })
+      .click();
+    expect(
+      (
+        await page.evaluate(
+          (scope) => window.suiteDesktop!.lanArchive(scope),
+          scope,
+        )
+      ).receipts[0].state,
+    ).toBe("pending");
     await app.close();
     app = await launch();
     page = await app.firstWindow();
@@ -251,6 +275,15 @@ test("received drafts require review and server acceptance, survive restart, and
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: /^Received drafts/ }).click();
     dialog = page.getByRole("dialog", { name: "Received drafts", exact: true });
+    await dialog.getByRole("button", { name: /^Archived drafts/ }).click();
+    selected = await review(0);
+    await expect(selected.getByRole("status")).toContainText(
+      "Awaiting server confirmation",
+    );
+    await selected
+      .getByRole("button", { name: "Restore to inbox", exact: true })
+      .click();
+    await dialog.getByRole("button", { name: /^Inbox / }).click();
     selected = await review(0);
     await expect(selected.getByRole("status")).toContainText(
       "Awaiting server confirmation",
@@ -330,7 +363,7 @@ test("received drafts require review and server acceptance, survive restart, and
         )
       ).rows[0].count,
     ).toBe("3");
-    expect(states.map((r) => r.state)).toEqual([
+    expect(ids.map((id) => states.find((r) => r.id === id)?.state)).toEqual([
       "accepted",
       "accepted",
       "conflict",
@@ -346,21 +379,21 @@ test("received drafts require review and server acceptance, survive restart, and
           .analyze()
       ).violations,
     ).toEqual([]);
-    await mkdir("docs/verification/lan-recovery", { recursive: true });
+    await mkdir("docs/verification/lan-life", { recursive: true });
     await page.screenshot({
-      path: "docs/verification/lan-recovery/native.png",
+      path: "docs/verification/lan-life/native.png",
     });
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(800, 800),
     );
     await page.screenshot({
-      path: "docs/verification/lan-recovery/narrow.png",
+      path: "docs/verification/lan-life/narrow.png",
     });
     await dialog
       .getByRole("button", { name: "Back to received drafts", exact: true })
       .click();
     await page.screenshot({
-      path: "docs/verification/lan-recovery/receipts.png",
+      path: "docs/verification/lan-life/receipts.png",
     });
     expect(
       await dialog.evaluate(
@@ -383,6 +416,179 @@ test("received drafts require review and server acceptance, survive restart, and
           ).length,
       )
       .toBe(4);
+    // Recovery files use real main-process I/O, with dialogs controlled to avoid foreground windows.
+    const saved = resolve(profile, "draft-recovery.json");
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+      dialog.showOpenDialog = async () => ({
+        canceled: false,
+        filePaths: [path],
+      });
+    }, saved);
+    selected = await review(4);
+    await selected
+      .getByRole("button", { name: "Export recovery file", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      dialog.getByRole("status").filter({ hasText: "Recovery file saved" }),
+    ).toBeVisible();
+    const content = await readFile(saved, "utf8"),
+      file = JSON.parse(content);
+    expect(file.envelope).toEqual(envelopes[4]);
+    expect(file).not.toHaveProperty("outcome");
+    expect((await stat(saved)).mode & 0o077).toBe(0);
+    await selected
+      .getByRole("button", { name: "Archive draft", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", { name: "Archived drafts (1)", exact: true }),
+    ).toBeVisible();
+    await page.evaluate(
+      (scope) => window.suiteDesktop!.setLan(scope, true),
+      scope,
+    );
+    await peer.discover();
+    await peer.relay(fixture.identities.a.fingerprint, envelopes[4]);
+    expect(
+      (
+        await page.evaluate(
+          (scope) => window.suiteDesktop!.lanReceipts(scope),
+          scope,
+        )
+      ).length,
+    ).toBe(3);
+    await dialog.getByRole("button", { name: /^Archived drafts/ }).click();
+    selected = await review(4);
+    await selected
+      .getByRole("button", { name: "Delete archived copy…", exact: true })
+      .click();
+    await expect(
+      selected.getByRole("region", { name: "Delete archived draft" }),
+    ).toBeVisible();
+    await page.screenshot({ path: "docs/verification/lan-life/delete.png" });
+    await selected
+      .getByRole("button", { name: "Keep archived copy", exact: true })
+      .click();
+    await selected
+      .getByRole("button", { name: "Delete archived copy…", exact: true })
+      .click();
+    await selected
+      .getByRole("button", { name: "Delete archived copy", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("No drafts are archived.", { exact: true }),
+    ).toBeVisible();
+    await writeFile(saved, JSON.stringify({ ...file, userId: randomUUID() }));
+    await dialog
+      .getByRole("button", { name: "Import recovery file", exact: true })
+      .click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    expect(
+      (
+        await page.evaluate(
+          (scope) => window.suiteDesktop!.lanReceipts(scope),
+          scope,
+        )
+      ).length,
+    ).toBe(3);
+    await writeFile(saved, content);
+    await dialog
+      .getByRole("button", { name: "Import recovery file", exact: true })
+      .click();
+    await expect(
+      dialog
+        .getByRole("status")
+        .filter({ hasText: "Draft restored to the inbox" }),
+    ).toBeVisible();
+    selected = await review(4);
+    expect(
+      (
+        await page.evaluate(
+          (scope) => window.suiteDesktop!.lanReceipts(scope),
+          scope,
+        )
+      ).find((r) => r.id === ids[4])?.state,
+    ).toBe("rejected");
+    expect(
+      (
+        await pool.query(
+          "select count(*) from suite.module_records where workspace_id=$1 and module_id=$2",
+          [workspaceId, moduleId],
+        )
+      ).rows[0].count,
+    ).toBe("3");
+    const extras = Array.from({ length: 7 }, (_, index): RelayEnvelope => {
+      const id = randomUUID(),
+        entry = {
+          ...JSON.parse(envelopes[4].payload),
+          id,
+          call: {
+            ...JSON.parse(envelopes[4].payload).call,
+            input: { data: { text: `Capacity note ${index}` } },
+          },
+        };
+      const payload = JSON.stringify(entry);
+      return {
+        ...envelopes[4],
+        id,
+        payload,
+        digest: createHash("sha256").update(payload).digest("hex"),
+      };
+    });
+    for (const envelope of extras.slice(0, 6))
+      await peer.relay(fixture.identities.a.fingerprint, envelope);
+    await expect(
+      peer.relay(fixture.identities.a.fingerprint, extras[6]),
+    ).rejects.toThrow(/refused/);
+    expect(
+      (
+        await page.evaluate(
+          (scope) => window.suiteDesktop!.lanReceipts(scope),
+          scope,
+        )
+      ).length,
+    ).toBe(10);
+    await selected
+      .getByRole("button", { name: "Archive draft", exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await page.evaluate(
+              (scope) => window.suiteDesktop!.lanArchive(scope),
+              scope,
+            )
+          ).inboxCount,
+      )
+      .toBe(9);
+    await peer.relay(fixture.identities.a.fingerprint, extras[6]);
+    await dialog.getByRole("button", { name: /^Archived drafts/ }).click();
+    selected = await review(4);
+    await selected
+      .getByRole("button", { name: "Restore to inbox", exact: true })
+      .click();
+    await expect(dialog.getByRole("alert")).toContainText("inbox is full");
+    await expect(dialog.getByRole("alert")).not.toContainText("suite:");
+    expect(
+      (
+        await page.evaluate(
+          (scope) => window.suiteDesktop!.lanArchive(scope),
+          scope,
+        )
+      ).receipts,
+    ).toHaveLength(1);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .setLegacyMode()
+          .include('[role="dialog"]')
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+    await page.screenshot({ path: "docs/verification/lan-life/full.png" });
     expect(
       await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().every(

@@ -1,3 +1,14 @@
+import {
+  ReceiptSelection,
+  readArchive,
+  ownsReceipt,
+  encodeRecoveryFile,
+  decodeRecoveryFile,
+  archiveLimit,
+  archiveByteLimit,
+  inboxLimit,
+  type ArchivedReceipt,
+} from "./receipts";
 import { createHash } from "node:crypto";
 import { BootstrapSchema, type OperationRequest } from "@suite/contracts";
 import {
@@ -40,6 +51,13 @@ interface Host {
   read(scope: Scope, key: string): Promise<unknown>;
   write(scope: Scope, key: string, value: Outcome): Promise<void>;
   dismiss(scope: Scope, id: string, digest: string): Promise<void>;
+  readArchive(scope: Scope): Promise<unknown>;
+  writeArchive(scope: Scope, entries: ArchivedReceipt[]): Promise<void>;
+  restore(
+    scope: Scope,
+    envelope: RelayEnvelope,
+    check: () => void,
+  ): Promise<void>;
 }
 function transfer(envelope: RelayEnvelope, scope: Scope) {
   validateRelayEnvelope(envelope, scope.workspaceId);
@@ -106,12 +124,21 @@ export class LanRecovery {
     const generation = this.generation;
     await this.authorize(scope, generation);
     const inbox = await this.host.inbox(scope);
+    const items = await this.describe(scope, inbox);
+    this.check(scope, generation);
+    return items;
+  }
+  private async describe(
+    scope: Scope,
+    inbox: RelayEnvelope[],
+  ): Promise<LanReceipt[]> {
     const items: LanReceipt[] = [];
     for (const envelope of inbox) {
       const base = {
         id: envelope.id,
         digest: envelope.digest,
         kind: envelope.kind,
+        canExport: ownsReceipt(envelope, scope),
       };
       if (envelope.kind === "artifact") continue; // Package adoption is separate from draft recovery.
       try {
@@ -142,8 +169,178 @@ export class LanRecovery {
         });
       }
     }
-    this.check(scope, generation);
     return items;
+  }
+  async archiveState(scope: Scope) {
+    const generation = this.generation;
+    await this.authorize(scope, generation);
+    const archive = readArchive(await this.host.readArchive(scope), scope);
+    const receipts = await this.describe(
+      scope,
+      archive.map((entry) => entry.envelope),
+    );
+    const inbox = await this.host.inbox(scope);
+    this.check(scope, generation);
+    return {
+      receipts,
+      countLimit: archiveLimit,
+      byteLimit: archiveByteLimit,
+      usedBytes: Buffer.byteLength(JSON.stringify(archive)),
+      inboxCount: inbox.length,
+      inboxLimit,
+    };
+  }
+  private async selected(scope: Scope, selection: ReceiptSelection) {
+    const entries =
+      selection.location === "inbox"
+        ? await this.host.inbox(scope)
+        : readArchive(await this.host.readArchive(scope), scope).map(
+            (entry) => entry.envelope,
+          );
+    const envelope = entries.find(
+      (entry) => entry.id === selection.id && entry.digest === selection.digest,
+    );
+    if (!envelope || envelope.kind !== "pending")
+      throw Error(
+        "The received draft changed or was removed. Refresh the inbox.",
+      );
+    return envelope;
+  }
+  async archive(scope: Scope, selection: ReceiptSelection) {
+    assertSchema(ReceiptSelection, selection);
+    if (selection.location !== "inbox")
+      throw Error("Select a draft in the inbox.");
+    const generation = this.generation;
+    return this.exclusive(async () => {
+      await this.authorize(scope, generation);
+      const envelope = await this.selected(scope, selection);
+      const entries = readArchive(await this.host.readArchive(scope), scope);
+      if (
+        !entries.some(
+          (entry) =>
+            entry.envelope.id === envelope.id &&
+            entry.envelope.digest === envelope.digest,
+        )
+      )
+        entries.push({ envelope, archivedAt: Date.now() });
+      if (
+        entries.length > archiveLimit ||
+        Buffer.byteLength(JSON.stringify(entries)) > archiveByteLimit
+      )
+        throw Error(
+          "The draft archive is full. Export and explicitly delete reviewed archived copies before retrying. The inbox draft is preserved.",
+        );
+      this.check(scope, generation);
+      // Persist the entire original envelope before removing its inbox copy. A crash may
+      // leave two copies; an exact retry is safe. Submission outcomes stay protected.
+      await this.host.writeArchive(scope, entries);
+      this.check(scope, generation);
+      await this.host.dismiss(scope, envelope.id, envelope.digest);
+    });
+  }
+  async restore(scope: Scope, selection: ReceiptSelection) {
+    assertSchema(ReceiptSelection, selection);
+    if (selection.location !== "archive")
+      throw Error("Select an archived draft.");
+    const generation = this.generation;
+    return this.exclusive(async () => {
+      await this.authorize(scope, generation);
+      const envelope = await this.selected(scope, selection);
+      await this.host.restore(scope, envelope, () =>
+        this.check(scope, generation),
+      );
+      this.check(scope, generation);
+      const entries = readArchive(await this.host.readArchive(scope), scope);
+      this.check(scope, generation);
+      await this.host.writeArchive(
+        scope,
+        entries.filter(
+          (entry) =>
+            entry.envelope.id !== envelope.id ||
+            entry.envelope.digest !== envelope.digest,
+        ),
+      );
+    });
+  }
+  async remove(
+    scope: Scope,
+    selection: ReceiptSelection,
+    confirmation: boolean,
+  ) {
+    assertSchema(ReceiptSelection, selection);
+    if (selection.location !== "archive" || confirmation !== true)
+      throw Error(
+        "Explicit confirmation is required to delete an archived copy.",
+      );
+    const generation = this.generation;
+    return this.exclusive(async () => {
+      await this.authorize(scope, generation);
+      await this.selected(scope, selection);
+      const entries = readArchive(await this.host.readArchive(scope), scope);
+      this.check(scope, generation);
+      await this.host.writeArchive(
+        scope,
+        entries.filter(
+          (entry) =>
+            entry.envelope.id !== selection.id ||
+            entry.envelope.digest !== selection.digest,
+        ),
+      );
+      // Do not erase an uncertain/accepted outcome or dependency acknowledgement.
+    });
+  }
+  async exportFile(
+    scope: Scope,
+    selection: ReceiptSelection,
+    file: {
+      choose(filename: string): Promise<string | undefined>;
+      write(path: string, content: string): Promise<void>;
+    },
+  ) {
+    assertSchema(ReceiptSelection, selection);
+    const generation = this.generation;
+    await this.authorize(scope, generation);
+    encodeRecoveryFile(scope, await this.selected(scope, selection));
+    this.check(scope, generation);
+    const path = await file.choose(
+      `received-draft-${key(selection.id).slice(0, 16)}.json`,
+    );
+    this.check(scope, generation);
+    if (!path) return { status: "cancelled" as const };
+    return this.exclusive(async () => {
+      await this.authorize(scope, generation);
+      const content = encodeRecoveryFile(
+        scope,
+        await this.selected(scope, selection),
+      );
+      this.check(scope, generation);
+      await file.write(path, content);
+      return { status: "saved" as const };
+    });
+  }
+  async importFile(
+    scope: Scope,
+    file: {
+      choose(): Promise<string | undefined>;
+      read(path: string): Promise<string>;
+    },
+  ) {
+    const generation = this.generation;
+    await this.authorize(scope, generation);
+    const path = await file.choose();
+    this.check(scope, generation);
+    if (!path) return { status: "cancelled" as const };
+    return this.exclusive(async () => {
+      await this.authorize(scope, generation);
+      const envelope = decodeRecoveryFile(await file.read(path), scope);
+      this.check(scope, generation);
+      // A file carries no accepted-state authority. Only this device's protected
+      // exact-content outcome can recognize acceptance; otherwise explicit submission is required.
+      await this.host.restore(scope, envelope, () =>
+        this.check(scope, generation),
+      );
+      return { status: "restored" as const };
+    });
   }
   private exclusive<T>(task: () => Promise<T>) {
     const next = this.pending.then(task);

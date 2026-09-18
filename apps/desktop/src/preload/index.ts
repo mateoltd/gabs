@@ -4,16 +4,38 @@ import { localDeviceBridge } from "./local-devices";
 window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.os = process.platform;
 });
+async function recover<Result>(
+  channel: string,
+  ...args: unknown[]
+): Promise<Result> {
+  const response = await ipcRenderer.invoke(channel, ...args);
+  if (!response?.ok)
+    throw Error(
+      response?.message ??
+        "The received draft could not be recovered. Try again.",
+    );
+  return response.result;
+}
 const bridge: DesktopBridge = {
+  lanArchive: (scope) => recover("suite:lan-archive", scope),
+  archiveLanReceipt: (scope, selection) =>
+    recover("suite:lan-receipt-archive", scope, selection),
+  restoreLanReceipt: (scope, selection) =>
+    recover("suite:lan-receipt-restore", scope, selection),
+  deleteLanReceipt: (scope, selection, confirmation) =>
+    recover("suite:lan-receipt-delete", scope, selection, confirmation),
+  exportLanReceipt: (scope, selection) =>
+    recover("suite:lan-receipt-export", scope, selection),
+  importLanReceipt: (scope) => recover("suite:lan-receipt-import", scope),
   receivedPackage: (scope, selection) =>
     ipcRenderer.invoke("suite:lan-package", scope, selection),
   acknowledgePackage: (scope, transferId) =>
     ipcRenderer.invoke("suite:lan-package-ack", scope, transferId),
-  lanReceipts: (scope) => ipcRenderer.invoke("suite:lan-receipts", scope),
+  lanReceipts: (scope) => recover("suite:lan-receipts", scope),
   submitLanReceipt: (scope, id, digest) =>
-    ipcRenderer.invoke("suite:lan-receipt-submit", scope, id, digest),
+    recover("suite:lan-receipt-submit", scope, id, digest),
   dismissLanReceipt: (scope, id, digest) =>
-    ipcRenderer.invoke("suite:lan-receipt-dismiss", scope, id, digest),
+    recover("suite:lan-receipt-dismiss", scope, id, digest),
   downloadExport: async (handle, id) => {
     const response = await ipcRenderer.invoke(
       "suite:export-download",

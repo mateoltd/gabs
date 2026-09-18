@@ -11,6 +11,8 @@ import {
 } from "./capability-authority";
 import { ManagedLanSession } from "./lan/session";
 import { LanPackages } from "./lan/packages";
+import { readArchive as validateArchive } from "./lan/receipts";
+import { registerLanRecovery } from "./lan/ipc";
 import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
@@ -125,6 +127,21 @@ const lanConfigured = (scope?: Scope) =>
     (!scope || scope.workspaceId === process.env.SUITE_LAN_WORKSPACE)
   );
 const lan: ManagedLanSession = new ManagedLanSession({
+  retained: async (scope, envelope) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    const entries = validateArchive(
+      await cacheRead(`${scope.userId}/${scope.workspaceId}/relay-archive`),
+      scope,
+    );
+    const previous = entries.find((entry) => entry.envelope.id === envelope.id);
+    if (!previous) return false;
+    if (previous.envelope.digest !== envelope.digest)
+      throw Error(
+        "This relay identity already belongs to different archived content.",
+      );
+    return true;
+  },
   receiveArtifact: (scope, envelope, check) =>
     lanPackages.receive(scope, envelope, check),
   currentUser: () => userId,
@@ -172,6 +189,20 @@ const lanStatus = (scope: Scope) => ({
 });
 const lanRecovery = new LanRecovery({
   currentUser: () => userId,
+  readArchive: async (scope) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    return cacheRead(`${scope.userId}/${scope.workspaceId}/relay-archive`);
+  },
+  writeArchive: async (scope, entries) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    await cacheWrite(
+      `${scope.userId}/${scope.workspaceId}/relay-archive`,
+      entries,
+    );
+  },
+  restore: (scope, envelope, check) => lan.restore(scope, envelope, check),
   request: (request) => execute(request, 8000),
   inbox: (scope) => lan.inbox(scope),
   dismiss: (scope, id, digest) => lan.dismiss(scope, id, digest),
@@ -735,29 +766,11 @@ function handlers() {
       return lanPackages.acknowledge(scope, transferId);
     },
   );
-  ipcMain.handle("suite:lan-receipts", (event, scope: Scope) => {
-    sender(event);
-    validateScope(scope, userId);
-    return lanRecovery.list(scope);
+  registerLanRecovery(lanRecovery, {
+    sender,
+    validateScope: (scope) => validateScope(scope, userId),
+    window: () => win!,
   });
-  for (const action of ["submit", "dismiss"] as const) {
-    ipcMain.handle(
-      `suite:lan-receipt-${action}`,
-      (event, scope: Scope, id: string, digest: string) => {
-        sender(event);
-        validateScope(scope, userId);
-        if (
-          typeof id !== "string" ||
-          !id.length ||
-          id.length > 128 ||
-          typeof digest !== "string" ||
-          !/^[a-f0-9]{64}$/.test(digest)
-        )
-          throw Error("Invalid receipt selection.");
-        return lanRecovery[action](scope, id, digest);
-      },
-    );
-  }
   ipcMain.handle("suite:lan-status", (event, scope: Scope) => {
     sender(event);
     validateScope(scope, userId);

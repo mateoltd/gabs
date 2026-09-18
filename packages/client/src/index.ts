@@ -66,7 +66,21 @@ export interface LanStatus {
   peers: { id: string; address: string; port: number; seen: number }[];
   port?: number;
 }
+export interface LanReceiptSelection {
+  id: string;
+  digest: string;
+  location: "inbox" | "archive";
+}
+export interface LanArchiveState {
+  receipts: LanReceipt[];
+  countLimit: number;
+  byteLimit: number;
+  usedBytes: number;
+  inboxCount: number;
+  inboxLimit: number;
+}
 export interface LanReceipt {
+  canExport: boolean;
   id: string;
   digest: string;
   kind: "artifact" | "pending";
@@ -80,6 +94,25 @@ export interface LanReceipt {
   message: string;
 }
 export interface DesktopBridge {
+  lanArchive(scope: Scope): Promise<LanArchiveState>;
+  archiveLanReceipt(
+    scope: Scope,
+    selection: LanReceiptSelection,
+  ): Promise<void>;
+  restoreLanReceipt(
+    scope: Scope,
+    selection: LanReceiptSelection,
+  ): Promise<void>;
+  deleteLanReceipt(
+    scope: Scope,
+    selection: LanReceiptSelection,
+    confirmation: boolean,
+  ): Promise<void>;
+  exportLanReceipt(
+    scope: Scope,
+    selection: LanReceiptSelection,
+  ): Promise<{ status: "saved" | "cancelled" }>;
+  importLanReceipt(scope: Scope): Promise<{ status: "restored" | "cancelled" }>;
   receivedPackage(
     scope: Scope,
     selection: import("@suite/module-sdk/platform").InstallationSelection,

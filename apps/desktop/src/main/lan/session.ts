@@ -1,3 +1,4 @@
+import { inboxLimit } from "./receipts";
 import { BootstrapSchema, type Bootstrap } from "@suite/contracts";
 import { assertSchema } from "@suite/module-sdk";
 import type { Scope } from "@suite/client";
@@ -13,6 +14,7 @@ interface Host {
     envelope: RelayEnvelope,
     check: () => void,
   ): Promise<void>;
+  retained?(scope: Scope, envelope: RelayEnvelope): Promise<boolean>;
   currentUser(): string | undefined;
   authorize(scope: Scope): Promise<unknown>;
   configure(scope: Scope): Promise<LanConfig>;
@@ -222,7 +224,7 @@ export class ManagedLanSession {
     const value = await this.host.readInbox(scope);
     this.identity(scope);
     if (value === undefined) return [];
-    if (!Array.isArray(value) || value.length > 10)
+    if (!Array.isArray(value) || value.length > inboxLimit)
       throw Error("The relay quarantine needs recovery.");
     for (const envelope of value)
       validateRelayEnvelope(envelope, scope.workspaceId);
@@ -234,7 +236,7 @@ export class ManagedLanSession {
       const stored = await this.host.readInbox(scope);
       this.identity(scope);
       if (stored === undefined) return;
-      if (!Array.isArray(stored) || stored.length > 10)
+      if (!Array.isArray(stored) || stored.length > inboxLimit)
         throw Error("The relay quarantine needs recovery.");
       for (const envelope of stored)
         validateRelayEnvelope(envelope, scope.workspaceId);
@@ -248,28 +250,46 @@ export class ManagedLanSession {
     this.writes = task.catch(() => {});
     return task;
   }
+  /** Explicit authorized file/archive recovery; receipt never submits a business change. */
+  restore(scope: Scope, envelope: RelayEnvelope, check: () => void) {
+    return this.store(scope, envelope, check, true);
+  }
   private receive(session: Session, envelope: RelayEnvelope): Promise<void> {
+    const check = () => {
+      if (this.active(session.scope) !== session)
+        throw Error("Local network authorization changed.");
+    };
+    return this.store(session.scope, envelope, check);
+  }
+  private store(
+    scope: Scope,
+    envelope: RelayEnvelope,
+    check: () => void,
+    restoring = false,
+  ): Promise<void> {
     const task = this.writes.then(async () => {
-      if (this.active(session.scope) !== session)
-        throw Error("Local network authorization changed.");
-      validateRelayEnvelope(envelope, session.scope.workspaceId);
+      this.identity(scope);
+      check();
+      validateRelayEnvelope(envelope, scope.workspaceId);
       if (envelope.kind === "artifact" && this.host.receiveArtifact) {
-        return this.host.receiveArtifact(session.scope, envelope, () => {
-          if (this.active(session.scope) !== session)
-            throw Error("Local network authorization changed.");
-        });
+        return this.host.receiveArtifact(scope, envelope, check);
       }
-      const stored = await this.host.readInbox(session.scope);
-      if (this.active(session.scope) !== session)
-        throw Error("Local network authorization changed.");
+      if (!restoring && this.host.retained) {
+        const retained = await this.host.retained(scope, envelope);
+        this.identity(scope);
+        check();
+        if (retained) return;
+      }
+      const stored = await this.host.readInbox(scope);
+      this.identity(scope);
+      check();
       if (
         stored !== undefined &&
-        (!Array.isArray(stored) || stored.length > 10)
+        (!Array.isArray(stored) || stored.length > inboxLimit)
       )
         throw Error("The relay quarantine needs recovery.");
       const inbox = (stored ?? []) as RelayEnvelope[];
-      for (const item of inbox)
-        validateRelayEnvelope(item, session.scope.workspaceId);
+      for (const item of inbox) validateRelayEnvelope(item, scope.workspaceId);
       const previous = inbox.find((item) => item.id === envelope.id);
       if (previous) {
         if (
@@ -281,8 +301,13 @@ export class ManagedLanSession {
           );
         return;
       }
-      if (inbox.length >= 10) throw Error("Relay inbox is full.");
-      await this.host.writeInbox(session.scope, [...inbox, envelope]);
+      if (inbox.length >= inboxLimit)
+        throw Error(
+          "The received-draft inbox is full. Archive reviewed drafts in Settings before retrying; no existing work was removed.",
+        );
+      await this.host.writeInbox(scope, [...inbox, envelope]);
+      this.identity(scope);
+      check();
     });
     this.writes = task.catch(() => {});
     return task;

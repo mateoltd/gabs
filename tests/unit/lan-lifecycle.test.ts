@@ -237,6 +237,18 @@ it("scopes session authority, cancels late enables, serializes quarantine and re
     expect(new Set(inbox.map((item) => item.id)).size).toBe(8);
     await peer.relay(recipient.id, packets[0]);
     expect(inbox).toHaveLength(8);
+    for (let index = 0; index < 2; index++)
+      await peer.relay(recipient.id, envelope(scope.workspaceId));
+    const overflow = envelope(scope.workspaceId);
+    await expect(peer.relay(recipient.id, overflow)).rejects.toThrow(/refused/);
+    expect(inbox).toHaveLength(10);
+    await session.dismiss(scope, packets[1].id, packets[1].digest);
+    await session.restore(scope, packets[1], () => {});
+    await session.restore(scope, packets[1], () => {});
+    expect(inbox).toHaveLength(10);
+    await expect(session.restore(scope, overflow, () => {})).rejects.toThrow(
+      /full/,
+    );
     await expect(
       peer.relay(
         recipient.id,
@@ -250,7 +262,7 @@ it("scopes session authority, cancels late enables, serializes quarantine and re
     await expect(
       peer.relay(recipient.id, envelope(scope.workspaceId)),
     ).rejects.toThrow();
-    expect(inbox).toHaveLength(8);
+    expect(inbox).toHaveLength(10);
     await expect(session.enable(scope)).rejects.toThrow(/offline lease/);
     authorize = async () => ({ ...policy, policyRevision: "3" });
     await session.enable(scope);

@@ -63,11 +63,30 @@ function fixture() {
     loseReply = false,
     responseStatus = 200;
   let inbox: RelayEnvelope[] = [];
+  let archive: unknown = [];
   const records = new Map<string, unknown>(),
     outcomes = new Map<string, unknown>(),
     sent: OperationRequest[] = [];
   let pause: (() => Promise<void>) | undefined;
   const host = {
+    readArchive: async () => structuredClone(archive),
+    writeArchive: async (_scope: typeof scope, value: unknown) => {
+      archive = structuredClone(value);
+    },
+    restore: async (
+      _scope: typeof scope,
+      entry: RelayEnvelope,
+      check: () => void,
+    ) => {
+      check();
+      const previous = inbox.find((e) => e.id === entry.id);
+      if (previous) {
+        if (previous.digest !== entry.digest) throw Error("Different content");
+        return;
+      }
+      if (inbox.length >= 10) throw Error("Inbox full");
+      inbox.push(structuredClone(entry));
+    },
     currentUser: () => user,
     inbox: async () => structuredClone(inbox),
     read: async (_scope: typeof scope, key: string) =>
@@ -367,4 +386,257 @@ it("isolates over-nested received data without blocking an unrelated draft", asy
     "accepted",
   ]);
   expect(f.records.size).toBe(1);
+});
+
+it("archives uncertain work durably and restores the original retry after reconstruction", async () => {
+  const f = fixture(),
+    entry = f.add(),
+    selection = {
+      id: entry.id,
+      digest: entry.digest,
+      location: "inbox" as const,
+    };
+  const recovery = f.recovery();
+  f.lose();
+  await recovery.submit(f.scope, entry.id, entry.digest);
+  expect(f.records.size).toBe(1);
+  const dismiss = f.host.dismiss;
+  f.host.dismiss = async () => {
+    throw Error("Interrupted after archive commit");
+  };
+  await expect(recovery.archive(f.scope, selection)).rejects.toThrow(
+    "Interrupted",
+  );
+  expect(await recovery.list(f.scope)).toHaveLength(1);
+  expect((await recovery.archiveState(f.scope)).receipts).toHaveLength(1);
+  f.host.dismiss = dismiss;
+  await recovery.archive(f.scope, selection);
+  expect(await recovery.list(f.scope)).toEqual([]);
+  const restarted = f.recovery();
+  expect((await restarted.archiveState(f.scope)).receipts[0].state).toBe(
+    "pending",
+  );
+  const saveArchive = f.host.writeArchive;
+  f.host.writeArchive = async () => {
+    throw Error("Interrupted after inbox restore");
+  };
+  await expect(
+    restarted.restore(f.scope, { ...selection, location: "archive" }),
+  ).rejects.toThrow("Interrupted");
+  expect(await restarted.list(f.scope)).toHaveLength(1);
+  expect((await restarted.archiveState(f.scope)).receipts).toHaveLength(1);
+  f.host.writeArchive = saveArchive;
+  await restarted.restore(f.scope, { ...selection, location: "archive" });
+  expect((await restarted.archiveState(f.scope)).receipts).toEqual([]);
+  await restarted.submit(f.scope, entry.id, entry.digest);
+  expect(f.records.size).toBe(1);
+  expect(f.sent.map((request) => request.idempotencyKey)).toEqual([
+    entry.id,
+    entry.id,
+  ]);
+});
+it("round trips recovery files without trusting claimed server outcomes and preserves invalid owned drafts", async () => {
+  const f = fixture(),
+    recovery = f.recovery(),
+    entry = f.add({ state: "accepted" });
+  const selection = {
+    id: entry.id,
+    digest: entry.digest,
+    location: "inbox" as const,
+  };
+  let content = "";
+  expect((await recovery.list(f.scope))[0]).toMatchObject({
+    state: "invalid",
+    canExport: true,
+  });
+  await recovery.exportFile(f.scope, selection, {
+    choose: async () => "recovery.json",
+    write: async (_path, value) => {
+      content = value;
+    },
+  });
+  await recovery.archive(f.scope, selection);
+  const archived = { ...selection, location: "archive" as const };
+  await expect(recovery.remove(f.scope, archived, false)).rejects.toThrow(
+    "confirmation",
+  );
+  await recovery.remove(f.scope, archived, true);
+  expect((await recovery.archiveState(f.scope)).receipts).toEqual([]);
+  await recovery.importFile(f.scope, {
+    choose: async () => "recovery.json",
+    read: async () => content,
+  });
+  expect((await recovery.list(f.scope))[0]).toMatchObject({
+    state: "invalid",
+    id: entry.id,
+  });
+  await expect(
+    recovery.submit(f.scope, entry.id, entry.digest),
+  ).rejects.toThrow();
+  const valid = f.add();
+  f.lose();
+  await recovery.submit(f.scope, valid.id, valid.digest);
+  await recovery.exportFile(
+    f.scope,
+    { ...selection, id: valid.id, digest: valid.digest },
+    {
+      choose: async () => "recovery.json",
+      write: async (_path, value) => {
+        content = value;
+      },
+    },
+  );
+  expect(JSON.parse(content)).not.toHaveProperty("outcome");
+  await f.host.dismiss(f.scope, valid.id, valid.digest);
+  // A newly authorized receiving device has no protected outcome. File claims do not grant acceptance.
+  f.outcomes.clear();
+  await recovery.importFile(f.scope, {
+    choose: async () => "recovery.json",
+    read: async () => content,
+  });
+  expect(
+    (await recovery.list(f.scope)).find((row) => row.id === valid.id)?.state,
+  ).toBe("received");
+  await recovery.submit(f.scope, valid.id, valid.digest);
+  expect(f.records.size).toBe(1);
+  expect(
+    (await recovery.list(f.scope)).find((row) => row.id === valid.id)?.state,
+  ).toBe("accepted");
+  const file = JSON.parse(content);
+  for (const corrupted of [
+    { ...file, outcome: "accepted" },
+    { ...file, userId: randomUUID() },
+    { ...file, envelope: { ...file.envelope, digest: "0".repeat(64) } },
+  ])
+    await expect(
+      recovery.importFile(f.scope, {
+        choose: async () => "bad.json",
+        read: async () => JSON.stringify(corrupted),
+      }),
+    ).rejects.toThrow();
+});
+it("bounds archive count/bytes and refuses a full-inbox restore without losing either copy", async () => {
+  const f = fixture(),
+    recovery = f.recovery();
+  const archive = async (entry: RelayEnvelope) =>
+    recovery.archive(f.scope, {
+      id: entry.id,
+      digest: entry.digest,
+      location: "inbox",
+    });
+  const first = f.add();
+  await archive(first);
+  for (let index = 0; index < 10; index++) f.add();
+  await expect(
+    recovery.restore(f.scope, {
+      id: first.id,
+      digest: first.digest,
+      location: "archive",
+    }),
+  ).rejects.toThrow("full");
+  expect((await recovery.archiveState(f.scope)).receipts).toHaveLength(1);
+  expect(await recovery.list(f.scope)).toHaveLength(10);
+  for (let index = 1; index < 100; index++) await archive(f.add());
+  const overflow = f.add();
+  await expect(archive(overflow)).rejects.toThrow("archive is full");
+  expect(
+    (await recovery.list(f.scope)).some((row) => row.id === overflow.id),
+  ).toBe(true);
+  const g = fixture(),
+    other = g.recovery();
+  let rejected = false;
+  for (let index = 0; index < 100; index++) {
+    const entry = g.add({ extra: "x".repeat(190000) });
+    try {
+      await other.archive(g.scope, {
+        id: entry.id,
+        digest: entry.digest,
+        location: "inbox",
+      });
+    } catch (error) {
+      expect(String(error)).toContain("archive is full");
+      rejected = true;
+      break;
+    }
+  }
+  expect(rejected).toBe(true);
+  expect((await other.archiveState(g.scope)).usedBytes).toBeLessThanOrEqual(
+    16 * 1024 * 1024,
+  );
+  expect(await other.list(g.scope)).toHaveLength(1);
+});
+it("rechecks file-dialog authority and ownership, preserves cancelled work, and rejects stale selections", async () => {
+  const f = fixture(),
+    recovery = f.recovery(),
+    entry = f.add();
+  const selection = {
+    id: entry.id,
+    digest: entry.digest,
+    location: "inbox" as const,
+  };
+  let written = false;
+  expect(
+    await recovery.exportFile(f.scope, selection, {
+      choose: async () => undefined,
+      write: async () => {
+        written = true;
+      },
+    }),
+  ).toEqual({ status: "cancelled" });
+  expect(
+    await recovery.importFile(f.scope, {
+      choose: async () => undefined,
+      read: async () => {
+        throw Error("Unexpected read");
+      },
+    }),
+  ).toEqual({ status: "cancelled" });
+  const foreign = f.add({ userId: randomUUID() });
+  expect(
+    (await recovery.list(f.scope)).find((row) => row.id === foreign.id)
+      ?.canExport,
+  ).toBe(false);
+  await expect(
+    recovery.exportFile(
+      f.scope,
+      { ...selection, id: foreign.id, digest: foreign.digest },
+      {
+        choose: async () => "forbidden.json",
+        write: async () => {
+          written = true;
+        },
+      },
+    ),
+  ).rejects.toThrow("belonging");
+  await expect(
+    recovery.exportFile(f.scope, selection, {
+      choose: async () => {
+        f.deny();
+        return "forbidden.json";
+      },
+      write: async () => {
+        written = true;
+      },
+    }),
+  ).rejects.toThrow("administrator");
+  expect(written).toBe(false);
+  const g = fixture(),
+    stale = g.recovery(),
+    e = g.add();
+  await expect(
+    stale.exportFile(
+      g.scope,
+      { ...selection, id: e.id, digest: e.digest },
+      {
+        choose: async () => {
+          stale.invalidate();
+          return "forbidden.json";
+        },
+        write: async () => {
+          written = true;
+        },
+      },
+    ),
+  ).rejects.toThrow("profile");
+  expect(written).toBe(false);
 });

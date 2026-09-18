@@ -31,7 +31,7 @@ The first native run exposed a harness assumption: this development profile requ
 ## Remaining required work
 
 - Received-package reuse was subsequently verified in the [package milestone](../lan-packages/README.md); broader pending-receipt work below remains required.
-- Full receipt lifecycle: safe recovery/export/discard of invalid and unconfirmed work, capacity/retention management, dependencies already accepted on another device, and reconciliation after the active module version changes. Current submission requires the exact authoring version to be active; absent dependency receipts wait explicitly.
+- [Archive/file lifecycle and capacity](../lan-life/README.md) were subsequently verified. Dependencies already accepted on another device and reconciliation after the active module version changes remain required. Current submission requires the exact authoring version to be active; absent dependency receipts wait explicitly.
 - Broader employee/delegated LAN authority. This acceptance covers the currently implemented same-account administrator recovery path.
 - Offline enablement/relay authority, peer-list exchange, distributed scan coordination, partition behavior and supported-platform/deployment certificate acceptance.
 - Sign-out/profile-removal retention and recovery remain OFF-03/ID work. This milestone proves process restart plus reauthentication, not preservation through explicit sign-out, which still purges workspace cache.
