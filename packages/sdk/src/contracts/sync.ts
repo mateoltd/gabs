@@ -6,6 +6,8 @@ export interface JournalEntry {
   workspaceId: string;
   call: ModuleCall;
   dependencies: string[];
+  /** Explicit command prerequisites before schema-derived resource references are added. */
+  requestedDependencies?: string[];
   state: JournalState;
   createdAt: number;
   attempts: number;
@@ -18,6 +20,8 @@ export interface JournalEntry {
   supersededBy?: string;
   error?: string;
   errorCode?: string;
+  /** Validated against the exact original operation's declared error schema. */
+  businessError?: unknown;
   /** Recorded only after a verified authoritative cancellation response. */
   settlement?: "cancelled";
   result?: unknown;
@@ -82,6 +86,7 @@ export async function flushJournal(
     const uncertain = entry.delivery !== "unsubmitted";
     entry.delivery = "uncertain";
     delete entry.errorCode;
+    delete entry.businessError;
     entry.attempts++;
     await store.put(structuredClone(entry));
     let stop = false;
@@ -93,7 +98,12 @@ export async function flushJournal(
       delete entry.settlement;
       delete entry.delivery;
     } catch (error) {
-      const e = error as { status?: number; message?: string; code?: string };
+      const e = error as {
+        status?: number;
+        message?: string;
+        code?: string;
+        detail?: { moduleId?: string; operation?: string; error?: unknown };
+      };
       if (
         e.code === "INVALID_RESOURCE_RESPONSE" ||
         e.code === "MODULE_RESPONSE_CONTRACT_UNAVAILABLE"
@@ -121,6 +131,12 @@ export async function flushJournal(
           delete entry.delivery;
           entry.error = e.message ?? "The server rejected this change.";
           if (typeof e.code === "string") entry.errorCode = e.code;
+          if (
+            e.code === "MODULE_BUSINESS_ERROR" &&
+            e.detail?.moduleId === entry.call.moduleId &&
+            e.detail.operation === entry.call.operation
+          )
+            entry.businessError = structuredClone(e.detail.error);
         }
       }
     }

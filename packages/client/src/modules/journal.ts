@@ -144,9 +144,12 @@ export function referenceDependencies(
   journal: readonly JournalEntry[],
   scope: Scope,
 ): string[] {
-  if (!["create", "update"].includes(call.action)) return [];
+  if (!["create", "update", "operation"].includes(call.action)) return [];
   const input = call.input as { data?: unknown };
-  const references = referenceValues(schema, input.data);
+  const references = referenceValues(
+    schema,
+    call.action === "operation" ? call.input : input.data,
+  );
   return pendingCreates(journal, scope)
     .filter(
       ({ entry, id }) =>

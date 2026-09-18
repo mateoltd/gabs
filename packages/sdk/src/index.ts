@@ -34,6 +34,17 @@ export {
 } from "./authoring/formats";
 export * from "./contracts/resource";
 export * from "./client/module-client";
+export {
+  QueueCaptureError,
+  isQueueCaptureError,
+} from "./client/queued-operation";
+export type {
+  ModuleQueue,
+  QueueOptions,
+  QueuedOperation,
+  QueuedOperationName,
+  QueuedOperationIdentity,
+} from "./client/queued-operation";
 export * from "./client/merge";
 export * from "./contracts/hydration";
 export {

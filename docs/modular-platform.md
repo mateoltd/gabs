@@ -279,3 +279,11 @@ Tests cover a fifth signed declarative module without host edits, type rejection
 - Notifications include inline approval/denial cards with current server request state. Delivery recipients use the same inheritance and explicit-denial evaluator as interactive authorization. Background web push remains open work.
 
 Migration 012 is additive and preserves existing stock data. Release pins do not make arbitrary resource-schema downgrades safe: the migration manager enforces declared stored-schema compatibility. Full client update and rollback acceptance remains a release gate.
+
+### Durable custom-command SDK contract
+
+The SDK/storage foundation provides `client.queue(name, input, { key, dependencies })` and `client.queued(name, key)` for commands declaring `policy: "queued"`. The client needs a host-provided `ModuleQueue` as the third argument to `createModuleClient`. The current custom-view shell has not yet wired this adapter; offline command workflows remain under OFF-01 acceptance.
+
+The return value is a state union: `pending` has delivery metadata, `accepted` alone has typed `value`, and `rejected`/`conflict` carry error details (including typed `businessError` when declared). `call` and `attempt` continue to return authoritative output rather than a provisional value. A stable caller-saved key supports later lookup. Use `isQueueCaptureError(error)` across independently bundled views. If capture throws this error, its `identity.key` must be retained because the durable write may have completed. Inspect or retry that key with identical input before considering a new command. A later module release must not reinterpret a saved result without its original contract.
+
+See [foundation evidence and required host work](verification/queued-commands/README.md). Server validation, current permission checks and offline leases remain mandatory; supplying a queue adapter does not grant authority.

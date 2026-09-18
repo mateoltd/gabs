@@ -10,6 +10,7 @@ import {
 import type { ResourceListOptions } from "./resource-query";
 import { assertSchema, ValidationError } from "../authoring/validation";
 import type { JsonRecord, ModuleDefinition } from "../authoring/module";
+import { createQueuedOperations, type ModuleQueue } from "./queued-operation";
 import {
   resourceRecordSchema,
   resourcePageSchema,
@@ -74,6 +75,7 @@ export interface ResourceClient<Data = JsonRecord> {
 export function createModuleClient<M extends ModuleDefinition>(
   module: M,
   send: ModuleTransport,
+  queue?: ModuleQueue,
 ) {
   const transport: ModuleTransport = (call, options) =>
     send({ ...call, moduleVersion: module.version }, options);
@@ -128,6 +130,7 @@ export function createModuleClient<M extends ModuleDefinition>(
     return result;
   }
   return {
+    ...createQueuedOperations(module, queue),
     async attempt<K extends keyof M["operations"] & string>(
       name: K,
       input: Static<M["operations"][K]["input"]>,

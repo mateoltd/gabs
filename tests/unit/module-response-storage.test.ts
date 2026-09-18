@@ -6,7 +6,16 @@ import {
 } from "../../packages/client/src/modules/settlement";
 import { afterEach, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
-import { Type, type ModuleCall } from "@suite/module-sdk";
+import {
+  Type,
+  createModuleClient,
+  field,
+  operation,
+  QueueCaptureError,
+  isQueueCaptureError,
+  type ModuleCall,
+} from "@suite/module-sdk";
+import { createModuleQueue } from "../../packages/client/src/modules/queued";
 import { signPackage } from "../../packages/sdk/node/signing";
 import contacts from "../../modules/contacts/module";
 import type { Platform, Scope } from "../../packages/client/src";
@@ -1845,4 +1854,533 @@ it("reconnects preserved drafts after a repeated parent collision without rewrit
     ...before.draftReviews![key].collision,
     parentId: replacement.key,
   });
+});
+
+const commandModule = {
+  ...contacts,
+  operations: {
+    capture: operation({
+      title: "Capture note",
+      policy: "queued",
+      permission: "contacts.contacts.write",
+      input: Type.Object(
+        {
+          text: Type.String(),
+          contactId: Type.Optional(field.reference("contacts", "contacts")),
+        },
+        { additionalProperties: false },
+      ),
+      output: Type.Object(
+        { saved: Type.Boolean() },
+        { additionalProperties: false },
+      ),
+      errors: Type.Object(
+        { reason: Type.Literal("closed") },
+        { additionalProperties: false },
+      ),
+    }),
+    commit: operation({
+      title: "Commit",
+      policy: "online",
+      permission: "contacts.contacts.write",
+      input: Type.Object({}),
+      output: Type.Boolean(),
+    }),
+    lookup: operation({
+      title: "Lookup",
+      kind: "query",
+      policy: "online",
+      permission: "contacts.contacts.read",
+      input: Type.Object({}),
+      output: Type.Boolean(),
+    }),
+    internal: operation({
+      title: "Internal",
+      policy: "queued",
+      serviceOnly: true,
+      public: true,
+      permission: "contacts.contacts.write",
+      input: Type.Object({}),
+      output: Type.Boolean(),
+    }),
+  },
+};
+const commandsPackage = signPackage(commandModule, privateKey);
+async function commandStorage(authority: () => boolean = () => true) {
+  const state = storage();
+  await state.install(commandsPackage);
+  const send = vi.fn(async () => {
+    throw Error("Direct transport must not be used for capture");
+  });
+  const provider = createModuleQueue(state.platform, scope, authority);
+  const client = createModuleClient(commandModule, send, provider);
+  return { ...state, client, provider, send };
+}
+
+it("captures typed queued commands durably without returning an accepted output or invoking transport", async () => {
+  const { client, platform, send } = await commandStorage();
+  const result = await client.queue(
+    "capture",
+    { text: "Offline note" },
+    { key: "note:queued/001" },
+  );
+  expect(result).toMatchObject({
+    state: "pending",
+    delivery: "unsubmitted",
+    input: { text: "Offline note" },
+  });
+  expect(result).not.toHaveProperty("value");
+  expect(send).not.toHaveBeenCalled();
+  const restarted = createModuleClient(
+    commandModule,
+    send,
+    createModuleQueue(platform, scope, () => true),
+  );
+  expect(await restarted.queued("capture", result.key)).toEqual(result);
+  expect(
+    await restarted.queue(
+      "capture",
+      { text: "Offline note" },
+      { key: result.key },
+    ),
+  ).toEqual(result);
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(1);
+  if (false) {
+    // @ts-expect-error Online commands cannot be queued.
+    await client.queue("commit", {});
+    // @ts-expect-error Queries cannot be queued.
+    await client.queue("lookup", {});
+    // @ts-expect-error Service-only commands cannot be queued by a client.
+    await client.queue("internal", {});
+    // @ts-expect-error Inputs are inferred from the operation schema.
+    await client.queue("capture", { text: 4 });
+    if (result.state === "pending") {
+      // @ts-expect-error Pending is not an operation output.
+      result.value;
+    }
+  }
+});
+
+it("rejects unsafe capture policies, invalid input, changed identities and changed prerequisites", async () => {
+  const { client, provider, platform } = await commandStorage();
+  for (const name of ["commit", "lookup", "internal", "missing"]) {
+    await expect(
+      provider.capture(
+        {
+          moduleId: "contacts",
+          moduleVersion: commandModule.version,
+          action: "operation",
+          operation: name,
+          input: {},
+          key: "invalid-policy",
+        },
+        [],
+      ),
+    ).rejects.toThrow();
+  }
+  await expect(
+    provider.capture(
+      {
+        moduleId: "contacts",
+        moduleVersion: commandModule.version,
+        action: "operation",
+        operation: "capture",
+        input: { text: 5 },
+        key: "invalid-input",
+      },
+      [],
+    ),
+  ).rejects.toThrow();
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(0);
+  await client.queue(
+    "capture",
+    { text: "First" },
+    { key: "stable-identity", dependencies: ["prerequisite-key"] },
+  );
+  await expect(
+    client.queue(
+      "capture",
+      { text: "Changed" },
+      { key: "stable-identity", dependencies: ["prerequisite-key"] },
+    ),
+  ).rejects.toThrow("different content");
+  await expect(
+    client.queue("capture", { text: "First" }, { key: "stable-identity" }),
+  ).rejects.toThrow("different prerequisites");
+  await expect(
+    client.queue(
+      "capture",
+      { text: "Cycle" },
+      { key: "circular-key", dependencies: ["circular-key"] },
+    ),
+  ).rejects.toThrow("itself");
+});
+
+it("retains original operation contracts after an upgrade and returns accepted results on exact repeated capture", async () => {
+  const { client, platform, install } = await commandStorage();
+  const queued = await client.queue(
+    "capture",
+    { text: "Original release" },
+    { key: "original-command" },
+  );
+  const upgrade = {
+    ...commandModule,
+    version: "9.0.0",
+    operations: {
+      ...commandModule.operations,
+      capture: { ...commandModule.operations.capture, output: Type.String() },
+    },
+  };
+  await install(signPackage(upgrade, privateKey));
+  const sent = vi.fn(async () => ({ saved: true }));
+  await syncModuleStorage(platform, scope, sent, () => true);
+  expect(sent.mock.calls).toHaveLength(1);
+  expect(await client.queued("capture", queued.key)).toMatchObject({
+    state: "accepted",
+    value: { saved: true },
+    moduleVersion: commandModule.version,
+  });
+  expect(
+    await client.queue(
+      "capture",
+      { text: "Original release" },
+      { key: queued.key },
+    ),
+  ).toMatchObject({ state: "accepted", value: { saved: true } });
+  await syncModuleStorage(platform, scope, sent, () => true);
+  expect(sent).toHaveBeenCalledTimes(1);
+  await expect(
+    createModuleClient(
+      upgrade,
+      sent,
+      createModuleQueue(platform, scope, () => true),
+    ).queued("capture", queued.key),
+  ).rejects.toThrow("original contract");
+});
+
+it("orders operation reference dependencies behind captured creates", async () => {
+  const { platform, client } = await commandStorage();
+  const id = crypto.randomUUID();
+  await enqueue(platform, scope, {
+    ...call("parent-create-key"),
+    input: { id, data },
+  });
+  const child = await client.queue(
+    "capture",
+    { text: "Linked", contactId: id },
+    { key: "dependent-command" },
+  );
+  expect(child.dependencies).toEqual(["parent-create-key"]);
+  const keys: string[] = [];
+  await syncModuleStorage(
+    platform,
+    scope,
+    async (call) => {
+      keys.push(call.key!);
+      return call.action === "operation" ? { saved: true } : { ...row, id };
+    },
+    () => true,
+  );
+  expect(keys).toEqual(["parent-create-key", "dependent-command"]);
+  expect(await client.queued("capture", child.key)).toMatchObject({
+    state: "accepted",
+  });
+});
+
+it("retains uncertain command identity across restart and later denial, while definite rejections do not block unrelated work", async () => {
+  const { client, platform, send } = await commandStorage();
+  const failed = await client.queue(
+    "capture",
+    { text: "Closed" },
+    { key: "business-reject" },
+  );
+  const independent = await client.queue(
+    "capture",
+    { text: "Independent" },
+    { key: "independent-key" },
+  );
+  await syncModuleStorage(
+    platform,
+    scope,
+    async (call) => {
+      if (call.key === failed.key)
+        throw {
+          status: 422,
+          code: "MODULE_BUSINESS_ERROR",
+          message: "Closed",
+          detail: {
+            moduleId: "contacts",
+            operation: "capture",
+            error: { reason: "closed" },
+          },
+        };
+      return { saved: true };
+    },
+    () => true,
+  );
+  const rejected = await client.queued("capture", failed.key);
+  expect(rejected).toMatchObject({
+    state: "rejected",
+    error: { businessError: { reason: "closed" } },
+  });
+  if (rejected?.state === "rejected") {
+    const reason: "closed" | undefined = rejected.error.businessError?.reason;
+    expect(reason).toBe("closed");
+  }
+  expect(await client.queued("capture", independent.key)).toMatchObject({
+    state: "accepted",
+  });
+  const uncertain = await client.queue(
+    "capture",
+    { text: "Lost reply" },
+    { key: "uncertain-command" },
+  );
+  await syncModuleStorage(
+    platform,
+    scope,
+    async () => {
+      throw Error("Connection lost");
+    },
+    () => true,
+  );
+  const restarted = createModuleClient(
+    commandModule,
+    send,
+    createModuleQueue(platform, scope, () => true),
+  );
+  expect(await restarted.queued("capture", uncertain.key)).toMatchObject({
+    state: "pending",
+    delivery: "uncertain",
+  });
+  await syncModuleStorage(
+    platform,
+    scope,
+    async () => {
+      throw { status: 403, code: "FORBIDDEN", message: "Revoked" };
+    },
+    () => true,
+  );
+  expect(await restarted.queued("capture", uncertain.key)).toMatchObject({
+    state: "pending",
+    delivery: "uncertain",
+  });
+  expect(
+    (await readModuleStorage(platform, scope)).journal.find(
+      (entry) => entry.id === uncertain.key,
+    )?.call.key,
+  ).toBe(uncertain.key);
+});
+
+it("keeps malformed operation output and declared errors uncertain instead of accepting or rejecting them", async () => {
+  const { platform, client } = await commandStorage();
+  const success = await client.queue(
+    "capture",
+    { text: "Unverified output" },
+    { key: "bad-output-key" },
+  );
+  const failure = await client.queue(
+    "capture",
+    { text: "Unverified error" },
+    { key: "bad-error-key" },
+  );
+  await syncModuleStorage(
+    platform,
+    scope,
+    async (call) => {
+      if (call.key === success.key) return { saved: "not boolean" };
+      throw {
+        status: 422,
+        code: "MODULE_BUSINESS_ERROR",
+        detail: {
+          moduleId: "contacts",
+          operation: "capture",
+          error: { reason: 42 },
+        },
+      };
+    },
+    () => true,
+  );
+  for (const key of [success.key, failure.key])
+    expect(await client.queued("capture", key)).toMatchObject({
+      state: "pending",
+      delivery: "uncertain",
+    });
+});
+
+it("does not report capture on interrupted writes or expired authority, and isolates inspection by account and operation", async () => {
+  let allowed = true;
+  const { platform, client, interrupt, send } = await commandStorage(
+    () => allowed,
+  );
+  interrupt();
+  await expect(
+    client.queue(
+      "capture",
+      { text: "Interrupted" },
+      { key: "interrupted-key" },
+    ),
+  ).rejects.toThrow("Interrupted commit");
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(0);
+  allowed = false;
+  await expect(client.queue("capture", { text: "Denied" })).rejects.toThrow(
+    "Current access",
+  );
+  allowed = true;
+  const saved = await client.queue(
+    "capture",
+    { text: "Scoped" },
+    { key: "scoped-command" },
+  );
+  const foreign = createModuleClient(
+    commandModule,
+    send,
+    createModuleQueue(
+      platform,
+      { ...scope, userId: "someone-else" },
+      () => true,
+    ),
+  );
+  expect(await foreign.queued("capture", saved.key)).toBeUndefined();
+  allowed = false;
+  await expect(client.queued("capture", saved.key)).rejects.toThrow(
+    "Current access",
+  );
+  let checks = 0;
+  const racing = createModuleClient(
+    commandModule,
+    send,
+    createModuleQueue(platform, scope, () => ++checks === 1),
+  );
+  await expect(
+    racing.queue(
+      "capture",
+      { text: "Expired during capture" },
+      { key: "racing-authority" },
+    ),
+  ).rejects.toThrow("Current access changed");
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(1);
+});
+
+it("exposes the generated identity after an unconfirmed capture reply so retry cannot invent another command", async () => {
+  const { platform, provider, send } = await commandStorage();
+  const broken = createModuleClient(commandModule, send, {
+    ...provider,
+    capture: async (call, dependencies) => {
+      await provider.capture(call, dependencies);
+      throw Error("Host reply lost after durable commit");
+    },
+  });
+  let key = "";
+  try {
+    await broken.queue("capture", { text: "Recover capture" });
+    expect.unreachable("The host reply must fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(QueueCaptureError);
+    key = (error as QueueCaptureError).identity.key;
+  }
+  const restored = createModuleClient(commandModule, send, provider);
+  expect(await restored.queued("capture", key)).toMatchObject({
+    state: "pending",
+  });
+  expect(
+    await restored.queue("capture", { text: "Recover capture" }, { key }),
+  ).toMatchObject({ key, state: "pending" });
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(1);
+});
+
+it("retains signed schemas for ordinary drafts even without a pending journal entry", async () => {
+  const { platform, install } = storage();
+  await install();
+  await saveResourceDraft(platform, scope, "contacts", "notes", {
+    data: { contactId: crypto.randomUUID(), text: "Only a draft" },
+    target: null,
+  });
+  await install(upgraded);
+  const state = await readModuleStorage(platform, scope);
+  expect(state.journal).toHaveLength(0);
+  expect(
+    state.responseContracts?.[`contacts@${contacts.version}`]?.signed.digest,
+  ).toBe(original.digest);
+});
+
+it("rejects altered host receipts and preserves caller input while capture is in flight", async () => {
+  const { provider, send } = await commandStorage();
+  for (const corrupt of [
+    (receipt: Record<string, unknown>) => ({
+      ...receipt,
+      key: "different-key",
+    }),
+    (receipt: Record<string, unknown>) => ({
+      ...receipt,
+      value: { saved: true },
+    }),
+    (receipt: Record<string, unknown>) => ({
+      ...receipt,
+      input: { text: "Changed by host" },
+    }),
+    (receipt: Record<string, unknown>) => ({
+      ...receipt,
+      state: "accepted",
+      value: { saved: "invalid" },
+    }),
+  ]) {
+    const client = createModuleClient(commandModule, send, {
+      ...provider,
+      capture: async (call, dependencies) =>
+        corrupt(
+          (await provider.capture(call, dependencies)) as Record<
+            string,
+            unknown
+          >,
+        ),
+    });
+    await expect(
+      client.queue("capture", { text: "Original" }),
+    ).rejects.toBeInstanceOf(QueueCaptureError);
+  }
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const client = createModuleClient(commandModule, send, {
+    ...provider,
+    capture: async (call, dependencies) => {
+      await gate;
+      return provider.capture(call, dependencies);
+    },
+  });
+  const input = { text: "Captured snapshot" };
+  const pending = client.queue("capture", input);
+  input.text = "Later edit";
+  release();
+  expect(await pending).toMatchObject({ input: { text: "Captured snapshot" } });
+});
+
+it("recognizes capture identities across independent SDK copies without relying on instanceof", () => {
+  const identity = {
+    moduleId: "contacts",
+    moduleVersion: commandModule.version,
+    operation: "capture",
+    key: "saved-identity",
+  };
+  const copied: unknown = {
+    code: "QUEUED_CAPTURE_UNCONFIRMED",
+    identity,
+    message: "Reply lost",
+  };
+  expect(copied).not.toBeInstanceOf(QueueCaptureError);
+  expect(isQueueCaptureError(copied)).toBe(true);
+  if (isQueueCaptureError(copied))
+    expect(copied.identity.key).toBe(identity.key);
+  for (const error of [
+    null,
+    {},
+    { code: "QUEUED_CAPTURE_UNCONFIRMED", message: "Missing identity" },
+    {
+      code: "QUEUED_CAPTURE_UNCONFIRMED",
+      identity: { ...identity, key: 12 },
+      message: "Invalid identity",
+    },
+  ])
+    expect(isQueueCaptureError(error)).toBe(false);
 });

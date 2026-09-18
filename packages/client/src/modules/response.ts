@@ -39,12 +39,18 @@ export async function verifyResponseContract(
   try {
     await verifyArtifact(contract.signed, contract.publicKey);
     const module = hydrateModule(moduleContract(contract.signed.artifact));
-    if (
-      !call.resource ||
-      !Object.hasOwn(module.resources, call.resource) ||
-      !["get", "list", "create", "update", "archive"].includes(call.action)
-    )
-      throw new ResponseContractUnavailable();
+    const operation =
+      call.action === "operation" &&
+      call.operation &&
+      !call.resource &&
+      !call.kind &&
+      Object.hasOwn(module.operations, call.operation) &&
+      module.operations[call.operation].kind !== "query";
+    const resource =
+      call.resource &&
+      Object.hasOwn(module.resources, call.resource) &&
+      ["get", "list", "create", "update", "archive"].includes(call.action);
+    if (!operation && !resource) throw new ResponseContractUnavailable();
     return module;
   } catch (cause) {
     throw new ResponseContractUnavailable();
@@ -59,24 +65,35 @@ export function validateModuleResponse(
     call.resource && Object.hasOwn(module.resources, call.resource)
       ? module.resources[call.resource]
       : undefined;
+  const operation =
+    call.action === "operation" &&
+    call.operation &&
+    !call.resource &&
+    !call.kind &&
+    Object.hasOwn(module.operations, call.operation)
+      ? module.operations[call.operation]
+      : undefined;
   if (
     module.id !== call.moduleId ||
     module.version !== call.moduleVersion ||
-    !definition ||
-    !["get", "list", "create", "update", "archive"].includes(call.action)
+    (!(operation && operation.kind !== "query") &&
+      (!definition ||
+        !["get", "list", "create", "update", "archive"].includes(call.action)))
   )
     throw new ResponseContractUnavailable();
   try {
     assertSchema(
-      call.action === "list"
-        ? resourcePageSchema(definition.schema)
-        : resourceRecordSchema(definition.schema),
+      operation
+        ? operation.output
+        : call.action === "list"
+          ? resourcePageSchema(definition!.schema)
+          : resourceRecordSchema(definition!.schema),
       result,
     );
   } catch (cause) {
     throw new ResourceResponseError(
       module.id,
-      call.resource!,
+      call.resource ?? call.operation!,
       call.action,
       call.key,
       cause,
@@ -101,4 +118,39 @@ export async function responseContract(state: ModuleStorage, call: ModuleCall) {
     }
   }
   throw new ResponseContractUnavailable();
+}
+
+/** A malformed declared error is an unverifiable reply, not proof of rejection. */
+export function validateModuleError(
+  module: ModuleDefinition,
+  call: ModuleCall,
+  error: unknown,
+) {
+  const failure = error as {
+    code?: string;
+    detail?: { moduleId?: string; operation?: string; error?: unknown };
+  } | null;
+  if (failure?.code !== "MODULE_BUSINESS_ERROR") return;
+  const operation =
+    call.operation && Object.hasOwn(module.operations, call.operation)
+      ? module.operations[call.operation]
+      : undefined;
+  try {
+    if (
+      call.action !== "operation" ||
+      !operation?.errors ||
+      failure.detail?.moduleId !== module.id ||
+      failure.detail.operation !== call.operation
+    )
+      throw Error("The declared error belongs to a different operation.");
+    assertSchema(operation.errors, failure.detail.error);
+  } catch (cause) {
+    throw new ResourceResponseError(
+      module.id,
+      call.operation ?? "",
+      call.action,
+      call.key,
+      cause,
+    );
+  }
 }

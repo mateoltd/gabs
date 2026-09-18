@@ -146,11 +146,25 @@ export async function persistModuleArtifacts(
     stored.downloadRefs![id] = await save(pkg);
   const retained = new Set(
     state.journal
-      .filter((entry) => entry.state !== "accepted" && !entry.supersededBy)
+      .filter(
+        (entry) =>
+          entry.call.action === "operation" ||
+          (entry.state !== "accepted" && !entry.supersededBy),
+      )
       .map(
         (entry) => `${entry.call.moduleId}@${entry.call.moduleVersion ?? ""}`,
       ),
   );
+  for (const [key, version] of Object.entries(state.draftVersions ?? {}))
+    if (state.drafts[key]) retained.add(`${key.split("/")[0]}@${version}`);
+  for (const [key, review] of Object.entries(state.draftReviews ?? {})) {
+    if (!state.drafts[key]) continue;
+    for (const version of [
+      review.collision?.moduleVersion,
+      review.recoveryInput?.moduleVersion,
+    ])
+      if (version) retained.add(`${key.split("/")[0]}@${version}`);
+  }
   for (const [key, entry] of Object.entries(responseContracts ?? {}))
     if (retained.has(key))
       stored.responseContractRefs![key] = {

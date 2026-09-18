@@ -9,6 +9,7 @@ import {
   responseContract,
   responseContractKey,
   validateModuleResponse,
+  validateModuleError,
   type ResponseContract,
 } from "./response";
 import {
@@ -38,6 +39,8 @@ import {
   JournalConflictError,
 } from "./journal";
 import { canonical } from "@suite/module-sdk/registry";
+import { Type, assertSchema } from "@suite/module-sdk";
+import { RequestKeySchema } from "@suite/contracts";
 export { pendingReferenceOptions, recordDependencies } from "./journal";
 export interface InstallationAttempt {
   action: "install" | "uninstall";
@@ -249,6 +252,7 @@ export async function enqueue(
   call: ModuleCall,
   dependencies: string[] = [],
   recovery?: { draftKey: string; supersedes?: string; generation?: number },
+  authorized: () => boolean = () => true,
 ) {
   const entry: JournalEntry = {
     id: call.key ?? crypto.randomUUID(),
@@ -260,7 +264,10 @@ export async function enqueue(
     attempts: 0,
     delivery: "unsubmitted",
   };
+  let captured = entry;
   await changeModuleStorage(platform, scope, async (s) => {
+    if (!authorized())
+      throw Error("Current access does not allow saving this change.");
     if (
       recovery &&
       !recovery.supersedes &&
@@ -304,6 +311,17 @@ export async function enqueue(
       throw new JournalConflictError(
         "This retry identity already belongs to different content.",
       );
+    if (existing) captured = structuredClone(existing);
+    if (
+      existing &&
+      call.action === "operation" &&
+      canonical(
+        [...(existing.requestedDependencies ?? existing.dependencies)].sort(),
+      ) !== canonical([...dependencies].sort())
+    )
+      throw new JournalConflictError(
+        "This retry identity already has different prerequisites.",
+      );
     const replaced = recovery?.supersedes
       ? s.journal.find((e) => e.id === recovery.supersedes)
       : undefined;
@@ -321,6 +339,7 @@ export async function enqueue(
     if (
       replaced &&
       (replaced.call.moduleId !== call.moduleId ||
+        replaced.call.operation !== call.operation ||
         replaced.call.resource !== call.resource ||
         replaced.call.action !== call.action ||
         (replaced.recordRecovery?.targetId ??
@@ -348,7 +367,31 @@ export async function enqueue(
       );
     if (!s.journal.some((e) => e.id === entry.id)) {
       const { contract, module } = await responseContract(s, call);
-      const schema = call.resource && module.resources[call.resource]?.schema;
+      if (call.action === "operation") {
+        const op = call.operation && module.operations[call.operation];
+        if (
+          !op ||
+          op.policy !== "queued" ||
+          op.kind === "query" ||
+          op.serviceOnly ||
+          call.resource ||
+          call.kind
+        )
+          throw new JournalConflictError(
+            "Only a client queued command can be captured.",
+          );
+        assertSchema(op.input, call.input);
+        assertSchema(RequestKeySchema, entry.id);
+        assertSchema(
+          Type.Array(RequestKeySchema, { maxItems: 100, uniqueItems: true }),
+          dependencies,
+        );
+        entry.requestedDependencies = [...dependencies];
+      }
+      const schema =
+        call.action === "operation"
+          ? module.operations[call.operation!].input
+          : call.resource && module.resources[call.resource]?.schema;
       if (schema)
         entry.dependencies = [
           ...new Set([
@@ -361,6 +404,11 @@ export async function enqueue(
           ]),
         ];
       (s.responseContracts ??= {})[responseContractKey(call)] = contract;
+      if (call.action === "operation")
+        assertSchema(
+          Type.Array(RequestKeySchema, { maxItems: 100, uniqueItems: true }),
+          entry.dependencies,
+        );
     }
     if (!s.journal.some((e) => e.id === entry.id)) s.journal.push(entry);
     if (recovery) {
@@ -391,8 +439,10 @@ export async function enqueue(
         );
     }
     assertJournalOrder(s.journal, scope);
+    if (!authorized())
+      throw Error("Current access changed before this change could be saved.");
   });
-  return entry;
+  return captured;
 }
 export async function syncModuleStorage(
   platform: Platform,
@@ -432,7 +482,13 @@ export async function syncModuleStorage(
               (s.responseContracts ??= {})[responseContractKey(call)] =
                 contract;
             });
-          const result = await send(call);
+          let result: unknown;
+          try {
+            result = await send(call);
+          } catch (error) {
+            validateModuleError(module, call, error);
+            throw error;
+          }
           validateModuleResponse(module, call, result);
           return result;
         },
