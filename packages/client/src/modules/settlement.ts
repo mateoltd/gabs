@@ -8,7 +8,14 @@ import type { Platform, Scope } from "../index";
 import { changeModuleStorage, readModuleStorage } from "./storage";
 import { responseContract, validateModuleResponse } from "./response";
 import { JournalConflictError } from "./journal";
-import { prepareCreateReplacement } from "./collisions";
+import {
+  prepareCreateReplacement,
+  type CreateRecoveryTargets,
+} from "./collisions";
+export {
+  sameRecordCreateDependents,
+  type CreateRecoveryTargets,
+} from "./collisions";
 import { removeResourceDraft } from "./drafts";
 
 /** Fence a failed create before atomically replacing its never-submitted dependency graph. */
@@ -19,6 +26,7 @@ export async function replaceFailedCreate(
   replacement: ModuleCall,
   settle: SettlementTransport,
   authorized: (call: ModuleCall) => boolean,
+  targets: CreateRecoveryTargets = {},
 ): Promise<"accepted" | "replaced"> {
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
@@ -98,6 +106,7 @@ export async function replaceFailedCreate(
           id,
           replacement,
           authorized,
+          targets,
         );
         if (!authorized(call) || !authorized(replacement))
           throw Error(

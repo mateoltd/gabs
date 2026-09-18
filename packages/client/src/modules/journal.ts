@@ -7,6 +7,14 @@ import {
 } from "@suite/module-sdk/references";
 import type { Scope } from "../index";
 
+/** Local review intent does not rewrite the retained original request. */
+export function journalRecordId(entry: JournalEntry): unknown {
+  return (
+    entry.recordRecovery?.targetId ??
+    (entry.call.input as { id?: unknown } | undefined)?.id
+  );
+}
+
 export class JournalConflictError extends Error {
   readonly status = 409;
   readonly code = "JOURNAL_CONFLICT";
@@ -27,7 +35,7 @@ export function recordDependencies(
   )
     return [];
   const predecessors = journal.filter((entry) => {
-    const target = (entry.call.input as { id?: unknown } | undefined)?.id;
+    const target = journalRecordId(entry);
     return (
       entry.userId === scope.userId &&
       entry.workspaceId === scope.workspaceId &&
@@ -178,7 +186,7 @@ export function recoverRecordOrder(
   );
   const groups = new Map<string, JournalEntry[]>();
   for (const entry of active) {
-    const id = (entry.call.input as { id?: unknown } | undefined)?.id;
+    const id = journalRecordId(entry);
     if (
       !entry.call.resource ||
       !["create", "update", "archive"].includes(entry.call.action) ||
@@ -253,7 +261,7 @@ export function recoverRecordOrder(
     for (const entry of group) {
       if (entry.state !== "pending" || entry.delivery === "unsubmitted")
         continue;
-      const id = (entry.call.input as { id: string }).id.toLowerCase();
+      const id = (journalRecordId(entry) as string).toLowerCase();
       if (
         [...history.values()].some(
           (later) =>
@@ -263,8 +271,8 @@ export function recoverRecordOrder(
             later.call.moduleId === entry.call.moduleId &&
             later.call.resource === entry.call.resource &&
             ["create", "update", "archive"].includes(later.call.action) &&
-            typeof (later.call.input as { id?: unknown })?.id === "string" &&
-            (later.call.input as { id: string }).id.toLowerCase() === id &&
+            typeof journalRecordId(later) === "string" &&
+            (journalRecordId(later) as string).toLowerCase() === id &&
             !dependsOn(later, entry.id),
         )
       )

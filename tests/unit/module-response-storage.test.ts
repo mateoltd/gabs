@@ -1308,3 +1308,198 @@ it("commits legacy ordering gates before dispatch and retains exact uncertain in
   });
   expect(root().journal[1].orderingRecovery).toBeUndefined();
 });
+
+it.each(["separate", "existing"] as const)(
+  "keeps a same-record descendant inert for explicit %s-record review, then validates its chosen target and prerequisites",
+  async (destination) => {
+    const { platform } = await collisionStorage();
+    const edit = {
+      ...call("later-record-edit"),
+      action: "update" as const,
+      input: {
+        id: collisionId,
+        baseVersion: 7,
+        baseData: data,
+        data: { ...data, name: "Later edit" },
+      },
+    };
+    await enqueue(platform, scope, edit);
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+      { "later-record-edit": destination },
+    );
+    let state = await readModuleStorage(platform, scope);
+    const prior = state.journal.find((e) => e.id === edit.key)!;
+    const retained = state.journal.find((e) => e.id === prior.supersededBy)!;
+    const targetId = destination === "separate" ? separateId : collisionId;
+    expect(prior.call).toEqual(edit);
+    expect(retained.call.input).toEqual(edit.input);
+    expect(retained).toMatchObject({
+      state: "conflict",
+      delivery: "unsubmitted",
+      attempts: 0,
+      recordRecovery: { targetId, destination },
+    });
+    const send = vi.fn(async (call: ModuleCall) => ({
+      ...row,
+      id: (call.input as { id: string }).id,
+      data: (call.input as { data: unknown }).data,
+    }));
+    const reviewed = {
+      ...edit,
+      key: "reviewed-record-edit",
+      input: { ...edit.input, id: targetId, baseVersion: 1 },
+    };
+    const recovery = {
+      draftKey: resourceDraftKey("contacts", "contacts", {
+        entryId: retained.id,
+      }),
+      supersedes: retained.id,
+    };
+    await expect(
+      enqueue(platform, scope, reviewed, [], recovery),
+    ).rejects.toThrow("prerequisite");
+    await syncModuleStorage(platform, scope, send, () => true);
+    expect(send.mock.calls.every(([call]) => call.action === "create")).toBe(
+      true,
+    );
+    const target = { ...row, id: targetId };
+    await saveResourceDraft(platform, scope, "contacts", "contacts", {
+      data,
+      target,
+      review: { entryId: retained.id },
+    });
+    await expect(
+      enqueue(
+        platform,
+        scope,
+        { ...reviewed, input: { ...reviewed.input, id: crypto.randomUUID() } },
+        [],
+        recovery,
+      ),
+    ).rejects.toThrow("original record target");
+    await enqueue(platform, scope, reviewed, [], recovery);
+    await syncModuleStorage(platform, scope, send, () => true);
+    state = await readModuleStorage(platform, scope);
+    expect(state.journal.find((e) => e.id === reviewed.key)?.state).toBe(
+      "accepted",
+    );
+    expect(
+      send.mock.calls.filter(([call]) => call.action === "update"),
+    ).toEqual([[reviewed]]);
+    expect(state.journal.find((e) => e.id === edit.key)?.call).toEqual(edit);
+  },
+);
+
+it("requires a choice for every affected edit and rejects stale choices without changing the graph", async () => {
+  const { platform } = await collisionStorage();
+  await enqueue(platform, scope, {
+    ...call("later-record-edit"),
+    action: "update",
+    input: { id: collisionId, data, baseVersion: 1 },
+  });
+  const before = await readModuleStorage(platform, scope);
+  for (const targets of [
+    {},
+    { "wrong-edit": "separate" },
+    { "later-record-edit": "separate", "wrong-edit": "existing" },
+  ] as const) {
+    await expect(
+      replaceFailedCreate(
+        platform,
+        scope,
+        "original-create",
+        collisionReplacement(),
+        async () => ({ key: "original-create", outcome: "cancelled" }),
+        () => true,
+        targets,
+      ),
+    ).rejects.toThrow("Choose where");
+    const after = await readModuleStorage(platform, scope);
+    expect(after.journal.map((e) => e.call)).toEqual(
+      before.journal.map((e) => e.call),
+    );
+    expect(after.journal.every((e) => !e.supersededBy)).toBe(true);
+  }
+});
+
+it("requires a fresh target choice if a replacement create collides again, preserving every prior edit body", async () => {
+  const { platform } = await collisionStorage();
+  const edit: ModuleCall = {
+    ...call("later-record-edit"),
+    action: "update",
+    input: {
+      id: collisionId,
+      baseVersion: 1,
+      baseData: data,
+      data: { ...data, name: "Edit" },
+    },
+  };
+  await enqueue(platform, scope, edit);
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+    { "later-record-edit": "separate" },
+  );
+  await changeModuleStorage(platform, scope, (state) => {
+    const parent = state.journal.find((e) => e.id === "separate-create")!;
+    parent.state = "conflict";
+    parent.errorCode = "RECORD_EXISTS";
+    parent.attempts = 1;
+    delete parent.delivery;
+  });
+  const state = await readModuleStorage(platform, scope);
+  const retained = state.journal.find((e) => e.recordRecovery)!;
+  const nextId = crypto.randomUUID();
+  const next = {
+    ...collisionReplacement(),
+    key: "another-separate-create",
+    input: { id: nextId, data },
+  };
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "separate-create",
+    next,
+    async () => ({ key: "separate-create", outcome: "cancelled" }),
+    () => true,
+    { [retained.id]: "separate" },
+  );
+  const latest = await readModuleStorage(platform, scope);
+  const review = latest.journal.find(
+    (e) => e.recordRecovery && !e.supersededBy,
+  )!;
+  expect(review.recordRecovery?.targetId).toBe(nextId);
+  expect(review.call.input).toEqual(edit.input);
+  expect(review.state).toBe("conflict");
+  expect(latest.journal.find((e) => e.id === edit.key)?.call).toEqual(edit);
+  // An archived chosen target keeps original source metadata for recovery export.
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: (edit.input as { data: Record<string, unknown> }).data,
+    target: { ...row, id: nextId, archived: true },
+    review: {
+      entryId: review.id,
+      recoveryInput: {
+        moduleVersion: "1.1.0",
+        baseVersion: 1,
+        recordId: collisionId,
+      },
+    },
+  });
+  const draft = resourceDraftKey("contacts", "contacts", {
+    entryId: review.id,
+  });
+  expect(
+    (await readModuleStorage(platform, scope)).draftReviews?.[draft]
+      ?.recoveryInput,
+  ).toEqual({ moduleVersion: "1.1.0", baseVersion: 1, recordId: collisionId });
+});

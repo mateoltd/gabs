@@ -678,3 +678,10 @@ Final validation passed 457 unit/PostgreSQL tests across 81 files, strict checks
 [Acceptance record](legacy-order/README.md): durable same-record scheduling repair, retained exact retry identities, explicit authoritative outcome recovery, unrelated progress, offline browser/native restart and reviewed continuation. An actual previously committed request is recovered without another execution request; PostgreSQL values, versions and duplicate-free audits are asserted.
 
 Final checks: 463 unit/PostgreSQL tests across 81 files, strict checks/four builds, seven headless browser journeys and five hidden/minimized native journeys. Scoped Axe, keyboard disclosure and six inspected captures passed; historical screenshots were restored. Initial unit fixture protocol mistakes were corrected without weakening validation. OFF-01 and full parity remain active; colliding-create same-record descendants, arbitrary commands and broader recovery/release acceptance remain required.
+
+
+## 18 September 2026: later edits after create collisions
+
+[Acceptance record](collision-edits/README.md): per-edit target selection, durable original-input preservation, explicit review before execution, prerequisite checks, chosen-target archive guards and archived-source export. Browser/native UI journeys verify both target choices after lost replies and restart; server values, versions and audits establish the effects.
+
+Final checks: 468 unit/PostgreSQL tests across 81 files, strict checks/four builds, seven distinct headless browser journeys and six final hidden/minimized native journeys. The browser total includes a corrected dialog-title rerun after six other cases passed. Nine captures, scoped Axe, keyboard and overflow checks were inspected; historical screenshots were restored. OFF-01 remains active, with ambiguous ordinary drafts next and the wider recovery/release gates still required.

@@ -87,7 +87,11 @@ export interface ModuleStorage {
       entryId?: string;
       draftId?: string;
       comparison?: FieldReview;
-      recoveryInput?: { moduleVersion: string; baseVersion?: number };
+      recoveryInput?: {
+        moduleVersion: string;
+        baseVersion?: number;
+        recordId?: string;
+      };
     }
   >;
   referenceOptions?: Record<
@@ -181,7 +185,8 @@ export async function saveResourceDraft(
       if (
         !entry ||
         (entry.call.action === "update" &&
-          (entry.call.input as { id?: string }).id !== target?.id)
+          (entry.recordRecovery?.targetId ??
+            (entry.call.input as { id?: string }).id) !== target?.id)
       )
         throw new JournalConflictError(
           "This review no longer belongs to an editable pending change. Refresh pending changes.",
@@ -241,11 +246,28 @@ export async function enqueue(
       (replaced.call.moduleId !== call.moduleId ||
         replaced.call.resource !== call.resource ||
         replaced.call.action !== call.action ||
-        (replaced.call.input as { id?: unknown }).id !==
+        (replaced.recordRecovery?.targetId ??
+          (replaced.call.input as { id?: unknown }).id) !==
           (call.input as { id?: unknown }).id)
     )
       throw new JournalConflictError(
         "A reviewed change must preserve its original record target.",
+      );
+    if (
+      replaced?.recordRecovery &&
+      replaced.dependencies.some(
+        (id) =>
+          !s.journal.some(
+            (e) =>
+              e.id === id &&
+              e.userId === scope.userId &&
+              e.workspaceId === scope.workspaceId &&
+              e.state === "accepted",
+          ),
+      )
+    )
+      throw new JournalConflictError(
+        "Wait for prerequisite changes before reviewing this saved edit.",
       );
     if (!s.journal.some((e) => e.id === entry.id)) {
       const { contract, module } = await responseContract(s, call);

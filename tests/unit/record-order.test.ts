@@ -207,3 +207,30 @@ it("requires outcome recovery for an older uncertain request when a later unorde
   sequenced[1].dependencies = [sequenced[0].id];
   expect(recoverRecordOrder(sequenced, legacyScope)).toBe(false);
 });
+
+it("guards the chosen recovery target while leaving the retained original call unchanged", () => {
+  const entries = legacyEntries();
+  entries[0].recordRecovery = { targetId: "separate", destination: "separate" };
+  entries[0].state = "conflict";
+  const original = structuredClone(entries[0].call);
+  expect(
+    recordDependencies(
+      {
+        ...original,
+        key: "archive-new",
+        action: "archive",
+        input: { id: "separate" },
+      },
+      entries,
+      legacyScope,
+    ),
+  ).toEqual([entries[0].id]);
+  expect(
+    recordDependencies(
+      { ...original, key: "archive-old", action: "archive" },
+      entries,
+      legacyScope,
+    ),
+  ).toEqual([entries[1].id]);
+  expect(entries[0].call).toEqual(original);
+});

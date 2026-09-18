@@ -4,6 +4,8 @@ import {
   settleJournalEntry,
   settleModuleCall,
   replaceFailedCreate,
+  sameRecordCreateDependents,
+  type CreateRecoveryTargets,
   type SettlementTransport,
 } from "@suite/client/module-settlement";
 import {
@@ -116,6 +118,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     : [];
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const [separateCreate, setSeparateCreate] = useState(false);
+  const [recoveryTargets, setRecoveryTargets] = useState<CreateRecoveryTargets>(
+    {},
+  );
   const [directCreate, setDirectCreate] = useState<{
     call: ModuleCall;
     collision: boolean;
@@ -212,7 +217,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           data: input.data,
           ...(input.record
             ? {
-                id: input.record.id,
+                id: reviewSession?.recoveryInput?.recordId ?? input.record.id,
                 baseVersion:
                   reviewSession?.recoveryInput?.baseVersion ??
                   input.record.version,
@@ -283,6 +288,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       !entry.supersededBy &&
       ["conflict", "rejected"].includes(entry.state),
   );
+  const recoveryEdits =
+    storage && reviewedCreate
+      ? sameRecordCreateDependents(storage, scope, reviewedCreate.id)
+      : [];
   const identityCollision =
     reviewedCreate?.errorCode === "RECORD_EXISTS" || !!directCreate?.collision;
   const allowed = canUse(
@@ -528,7 +537,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setForm(stored.drafts[key]);
       setEditing(stored.draftTargets?.[key] ?? null);
       setReviewSession(review);
-      setReviewTargetId((entry?.call.input as { id?: string } | undefined)?.id);
+      setReviewTargetId(
+        entry?.recordRecovery?.targetId ??
+          (entry?.call.input as { id?: string } | undefined)?.id,
+      );
     } catch (error) {
       setError(error);
     } finally {
@@ -635,6 +647,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           replacement,
           settlementTransport,
           canRecoverCall,
+          recoveryTargets,
         );
       }
       setSeparateCreate(false);
@@ -1090,7 +1103,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       !!archiveAttempt ||
                       pending.some(
                         (entry) =>
-                          (entry.call.input as { id?: string }).id === row.id,
+                          (entry.recordRecovery?.targetId ??
+                            (entry.call.input as { id?: string }).id) ===
+                          row.id,
                       )
                     }
                     onClick={() =>
@@ -1108,7 +1123,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                   </Button>
                   {pending.some(
                     (entry) =>
-                      (entry.call.input as { id?: string }).id === row.id,
+                      (entry.recordRecovery?.targetId ??
+                        (entry.call.input as { id?: string }).id) === row.id,
                   ) && <span>Resolve pending changes before archiving.</span>}
                 </div>
               )
@@ -1244,7 +1260,18 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                         ]) ||
                       !allowed ||
                       busy ||
-                      entry.state === "pending"
+                      entry.state === "pending" ||
+                      !!(
+                        entry.recordRecovery &&
+                        entry.dependencies.some(
+                          (id) =>
+                            !storage?.journal.some(
+                              (candidate) =>
+                                candidate.id === id &&
+                                candidate.state === "accepted",
+                            ),
+                        )
+                      )
                     }
                     onClick={async () => {
                       const key = resourceDraftKey(moduleId, resource, {
@@ -1267,7 +1294,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                                 moduleVersion: module.version,
                                 resource,
                                 action: "get",
-                                input: { id: command.id },
+                                input: {
+                                  id:
+                                    entry.recordRecovery?.targetId ??
+                                    command.id,
+                                },
                               })) as ResourceRecord)
                             : null;
                         const comparison =
@@ -1287,6 +1318,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                                   moduleVersion:
                                     entry.call.moduleVersion ?? module.version,
                                   baseVersion: command.baseVersion,
+                                  ...(entry.recordRecovery
+                                    ? { recordId: command.id }
+                                    : {}),
                                 },
                               }
                             : {}),
@@ -1296,7 +1330,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                         setForm(next);
                         setEditing(current);
                         setReviewSession(session);
-                        setReviewTargetId(command.id);
+                        setReviewTargetId(
+                          entry.recordRecovery?.targetId ?? command.id,
+                        );
                       } catch (e) {
                         setError(e);
                       } finally {
@@ -1369,16 +1405,63 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         </p>
         {!directCreate && (
           <p>
-            Linked changes that have never been submitted will follow the new
-            record. Existing server records stay unchanged. Work with an
+            Other linked records that have never been submitted will follow the
+            new record. Later edits to this record need an explicit target and
+            review. Existing server records stay unchanged. Work with an
             uncertain outcome or an ambiguous saved draft must be reviewed
             first.
           </p>
         )}
+        {!!recoveryEdits.length && (
+          <div className="form-stack">
+            <p>
+              Choose where each later edit belongs. These edits will remain
+              saved for review against the chosen record after prerequisite
+              changes are accepted.
+            </p>
+            {recoveryEdits.map((entry, index) => (
+              <div className="form-stack" key={entry.id}>
+                <Field label={`Record for later edit ${index + 1}`}>
+                  <Select
+                    value={recoveryTargets[entry.id] ?? ""}
+                    disabled={busy}
+                    onValueChange={(value) => {
+                      setRecoveryTargets((current) => {
+                        const next = { ...current };
+                        if (value === "separate" || value === "existing")
+                          next[entry.id] = value;
+                        else delete next[entry.id];
+                        return next;
+                      });
+                    }}
+                  >
+                    <SelectOption value="">Choose a record</SelectOption>
+                    <SelectOption value="separate">
+                      Separate record
+                    </SelectOption>
+                    <SelectOption value="existing">
+                      Existing corporate record
+                    </SelectOption>
+                  </Select>
+                </Field>
+                <SavedChange
+                  entry={entry}
+                  schema={definition.schema as TObject}
+                  loadReferences={loadReferences}
+                />
+              </div>
+            ))}
+          </div>
+        )}
         <ErrorMessage error={error} />
         <Button
           variant="primary"
-          disabled={!online || !write || busy}
+          disabled={
+            !online ||
+            !write ||
+            busy ||
+            recoveryEdits.some((entry) => !recoveryTargets[entry.id])
+          }
           onClick={() => void createSeparateRecord()}
         >
           Check and create separate record
@@ -1433,6 +1516,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 disabled={!online || !write || busy}
                 onClick={() => {
                   setError(undefined);
+                  setRecoveryTargets({});
                   setSeparateCreate(true);
                 }}
               >

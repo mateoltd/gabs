@@ -6,6 +6,7 @@ import type { ModuleStorage } from "./storage";
 import {
   assertJournalOrder,
   JournalConflictError,
+  journalRecordId,
   referenceDependencies,
 } from "./journal";
 import { responseContract, responseContractKey } from "./response";
@@ -28,6 +29,52 @@ function containsId(value: unknown, id: string): boolean {
   );
 }
 
+export type CreateRecoveryTargets = Partial<
+  Record<string, "separate" | "existing">
+>;
+
+function createDependents(
+  journal: readonly JournalEntry[],
+  originalId: string,
+) {
+  const affected = new Set([originalId]);
+  for (let size = -1; size !== affected.size;) {
+    size = affected.size;
+    for (const entry of journal)
+      if (
+        !entry.supersededBy &&
+        entry.dependencies.some((id) => affected.has(id))
+      )
+        affected.add(entry.id);
+  }
+  return journal.filter(
+    (entry) => affected.has(entry.id) && entry.id !== originalId,
+  );
+}
+
+/** Only explicit dependency edges establish that an edit belongs to this recovery. */
+export function sameRecordCreateDependents(
+  state: ModuleStorage,
+  scope: Scope,
+  originalId: string,
+): JournalEntry[] {
+  const scoped = state.journal.filter(
+    (entry) =>
+      entry.userId === scope.userId && entry.workspaceId === scope.workspaceId,
+  );
+  const original = scoped.find((entry) => entry.id === originalId);
+  if (!original) return [];
+  const id = input(original.call).id?.toLowerCase();
+  return createDependents(scoped, originalId).filter(
+    (entry) =>
+      entry.call.action === "update" &&
+      entry.call.moduleId === original.call.moduleId &&
+      entry.call.resource === original.call.resource &&
+      typeof journalRecordId(entry) === "string" &&
+      (journalRecordId(entry) as string).toLowerCase() === id,
+  );
+}
+
 /**
  * Prepare one atomic journal replacement after authoritative cancellation.
  * No existing server record is edited and no submitted child request is rewritten.
@@ -39,6 +86,7 @@ export async function prepareCreateReplacement(
   originalId: string,
   replacement: ModuleCall,
   authorized: (call: ModuleCall) => boolean,
+  targets: CreateRecoveryTargets = {},
 ): Promise<ModuleStorage> {
   const scoped = state.journal.filter(
     (entry) =>
@@ -76,23 +124,12 @@ export async function prepareCreateReplacement(
     throw new JournalConflictError(
       "Choose a new record identity for this separate create.",
     );
-  const affected = new Set([originalId]);
-  for (let size = -1; size !== affected.size;) {
-    size = affected.size;
-    for (const entry of scoped)
-      if (
-        !entry.supersededBy &&
-        entry.dependencies.some((id) => affected.has(id))
-      )
-        affected.add(entry.id);
-  }
-  const children = scoped.filter(
-    (entry) => affected.has(entry.id) && entry.id !== originalId,
-  );
+  const children = createDependents(scoped, originalId);
   if (
     children.some(
       (entry) =>
-        entry.state !== "pending" ||
+        (entry.state !== "pending" &&
+          !(entry.state === "conflict" && entry.recordRecovery)) ||
         entry.delivery !== "unsubmitted" ||
         entry.attempts !== 0,
     )
@@ -127,13 +164,28 @@ export async function prepareCreateReplacement(
   if (
     children.some(
       (entry) =>
+        entry.call.action === "create" &&
         entry.call.moduleId === original.call.moduleId &&
         entry.call.resource === original.call.resource &&
         input(entry.call).id?.toLowerCase() === fromId.toLowerCase(),
     )
   )
     throw new JournalConflictError(
-      "Linked changes to the same record require explicit review before changing its identity.",
+      "A second create uses the same record identity. Review that create separately before recovery.",
+    );
+  const sameRecord = new Set(
+    sameRecordCreateDependents(state, scope, originalId).map(
+      (entry) => entry.id,
+    ),
+  );
+  if (
+    [...sameRecord].some(
+      (id) => !["separate", "existing"].includes(targets[id] ?? ""),
+    ) ||
+    Object.keys(targets).some((id) => !sameRecord.has(id))
+  )
+    throw new JournalConflictError(
+      "Choose where to review each later edit before creating a separate record.",
     );
   if (![replacement, ...children.map((entry) => entry.call)].every(authorized))
     throw new JournalConflictError(
@@ -178,10 +230,11 @@ export async function prepareCreateReplacement(
     const value = input(call);
     const { module, contract } = await responseContract(state, call);
     const schema = module.resources[call.resource!].schema;
-    call.input = {
-      ...value,
-      data: remapResourceReferences(schema, value.data, from, toId),
-    };
+    if (!sameRecord.has(prior.id))
+      call.input = {
+        ...value,
+        data: remapResourceReferences(schema, value.data, from, toId),
+      };
     // A child's original base snapshot describes the server record and must not be rewritten.
     (result.responseContracts ??= {})[responseContractKey(call)] = contract;
     additions.push({
@@ -191,7 +244,16 @@ export async function prepareCreateReplacement(
       dependencies: [
         ...new Set(prior.dependencies.map((id) => keys.get(id) ?? id)),
       ],
-      state: "pending",
+      state: sameRecord.has(prior.id) ? "conflict" : "pending",
+      ...(sameRecord.has(prior.id)
+        ? {
+            recordRecovery: {
+              targetId: targets[prior.id] === "separate" ? toId : fromId,
+              destination: targets[prior.id]!,
+            },
+            error: `Review this saved edit on the ${targets[prior.id] === "separate" ? "separate record" : "existing corporate record"} before submitting it. Its original input is preserved.`,
+          }
+        : {}),
       createdAt: Date.now(),
       attempts: 0,
       delivery: "unsubmitted",
