@@ -21,11 +21,18 @@ interface Context {
   moduleId: string;
   moduleVersion: string;
 }
+export function validateModuleHostIdentity(
+  scope: Scope,
+  moduleId: string,
+  moduleVersion: string,
+) {
+  assertSchema(Identity, { ...scope, moduleId, moduleVersion });
+}
 export class ModuleHostSessions {
   private sessions = new Map<string, Context>();
   constructor(private currentUser: () => string | undefined) {}
   open(scope: Scope, moduleId: string, moduleVersion: string) {
-    assertSchema(Identity, { ...scope, moduleId, moduleVersion });
+    validateModuleHostIdentity(scope, moduleId, moduleVersion);
     if (scope.userId !== this.currentUser())
       throw Error("This profile is no longer active.");
     if (this.sessions.size >= 16)

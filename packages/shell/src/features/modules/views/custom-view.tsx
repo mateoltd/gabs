@@ -1,6 +1,6 @@
 import { createModuleHost } from "@suite/module-sdk/host-capabilities";
 import { executeWebHostCapability } from "./host-capabilities";
-import { deviceLeaseAccess, useBrowserDeviceLeases } from "./device-leases";
+import { deviceLeaseAccess, useDeviceLeases } from "./device-leases";
 import { browserCapabilityLeases } from "@suite/client/browser";
 import { ApiError } from "@suite/client/api";
 import { viewHost } from "./view-host";
@@ -443,7 +443,7 @@ function CustomModuleView(
       mounted.current = false;
     };
   }, []);
-  const deviceLeases = useBrowserDeviceLeases(
+  const deviceLeases = useDeviceLeases(
     props,
     module,
     view.permission,
@@ -625,8 +625,6 @@ function CustomModuleView(
             };
             const current = check();
             if (window.suiteDesktop) {
-              if (!current.online || !navigator.onLine)
-                throw Error("Reconnect before using this host action.");
               nativeHost.current ??= window.suiteDesktop.openModuleHost(
                 current.scope,
                 module.id,

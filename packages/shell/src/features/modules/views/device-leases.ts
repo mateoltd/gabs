@@ -16,7 +16,7 @@ export function deviceLeaseAccess(current: FeatureProps) {
 }
 
 /** Prepare declared read-only device grants when this verified custom view is open online. */
-export function useBrowserDeviceLeases(
+export function useDeviceLeases(
   props: FeatureProps,
   module: ModuleDefinition,
   viewPermission: string,
@@ -28,6 +28,7 @@ export function useBrowserDeviceLeases(
     expiresAt?: number;
     unavailable?: boolean;
     revision?: string;
+    capabilities?: string[];
   }>({});
   const [, refreshTime] = useState(0);
   const keys = useRef(new Map<string, string>());
@@ -35,13 +36,14 @@ export function useBrowserDeviceLeases(
     ([, declaration]) => declaration.offline === "lease",
   );
   useEffect(() => {
-    if (
-      window.suiteDesktop ||
-      !enabled ||
-      !props.offlineEnabled ||
-      !declarations.length
-    )
+    if (!enabled || !declarations.length) return;
+    if (!props.offlineEnabled) {
+      if (window.suiteDesktop)
+        void window.suiteDesktop
+          .prepareModuleOffline(props.scope, module.id, module.version, false)
+          .catch(() => {});
       return;
+    }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
@@ -74,6 +76,30 @@ export function useBrowserDeviceLeases(
       try {
         live();
         const current = latest.current;
+        if (window.suiteDesktop) {
+          const result = await window.suiteDesktop.prepareModuleOffline(
+            current.scope,
+            module.id,
+            module.version,
+            true,
+          );
+          live();
+          setState(
+            result.expiresAt
+              ? {
+                  expiresAt: result.expiresAt,
+                  revision: live().policyRevision,
+                  capabilities: result.capabilities,
+                }
+              : { unavailable: true },
+          );
+          if (result.expiresAt && props.online)
+            next = Math.max(
+              1000,
+              Math.min(300000, (result.expiresAt - Date.now()) / 2),
+            );
+          return;
+        }
         if (!props.online) {
           let expiresAt = Infinity;
           for (const [alias, declaration] of declarations) {
@@ -164,6 +190,7 @@ export function useBrowserDeviceLeases(
         } else setState({ unavailable: true });
       } catch (error) {
         if (
+          !window.suiteDesktop &&
           error instanceof ApiError &&
           error.status >= 400 &&
           error.status < 500
@@ -203,12 +230,7 @@ export function useBrowserDeviceLeases(
     return () => clearTimeout(timer);
   }, [state.expiresAt]);
   let message: string | undefined;
-  if (
-    !window.suiteDesktop &&
-    enabled &&
-    props.offlineEnabled &&
-    declarations.length
-  ) {
+  if (enabled && props.offlineEnabled && declarations.length) {
     if (
       state.expiresAt &&
       state.expiresAt > Date.now() &&
@@ -217,13 +239,15 @@ export function useBrowserDeviceLeases(
       const actions = [
         ...new Set(
           declarations
-            .filter(([, declaration]) =>
-              canUse(
-                props.bootstrap,
-                module.id,
-                declaration.permission,
-                props.moduleCatalog,
-              ),
+            .filter(
+              ([alias, declaration]) =>
+                (!state.capabilities || state.capabilities.includes(alias)) &&
+                canUse(
+                  props.bootstrap,
+                  module.id,
+                  declaration.permission,
+                  props.moduleCatalog,
+                ),
             )
             .map(([, declaration]) =>
               declaration.kind === "files.export"

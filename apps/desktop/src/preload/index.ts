@@ -5,6 +5,14 @@ window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.os = process.platform;
 });
 const bridge: DesktopBridge = {
+  prepareModuleOffline: (scope, moduleId, version, enabled) =>
+    ipcRenderer.invoke(
+      "suite:module-offline",
+      scope,
+      moduleId,
+      version,
+      enabled,
+    ),
   ...localDeviceBridge,
   openModuleHost: (scope, moduleId, version) =>
     ipcRenderer.invoke("suite:module-host-open", scope, moduleId, version),

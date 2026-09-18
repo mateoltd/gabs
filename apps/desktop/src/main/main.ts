@@ -1,5 +1,13 @@
 import { createLocalDeviceHost } from "./local-devices";
-import { ModuleHostSessions } from "./module-capabilities";
+import {
+  ModuleHostSessions,
+  validateModuleHostIdentity,
+} from "./module-capabilities";
+import {
+  NativeCapabilityAuthority,
+  CapabilityTransportUnavailable,
+  isCapabilityTransportFailure,
+} from "./capability-authority";
 import { LanTransport, type RelayEnvelope } from "./lan";
 import {
   openCache,
@@ -167,6 +175,25 @@ async function readSecure<T>(key: string): Promise<T | undefined> {
     throw Error("Protected storage could not be unlocked. Sign in again.");
   }
 }
+const nativeAuthority = new NativeCapabilityAuthority({
+  issuer: new URL(config.apiOrigin).origin,
+  currentUser: () => userId,
+  available: secureAvailable,
+  request: (request) => execute(request, 4000),
+  read: async (key) => {
+    await ensureCache();
+    return cacheRead(key);
+  },
+  write: async (key, value) => {
+    if (!secureAvailable()) throw Error("Protected storage is unavailable.");
+    await ensureCache();
+    await cacheWrite(key, value);
+  },
+  purge: async (prefix) => {
+    await ensureCache();
+    await cachePurge(prefix);
+  },
+});
 function sender(event: IpcMainInvokeEvent) {
   if (
     event.sender !== win?.webContents ||
@@ -223,7 +250,8 @@ async function ensureToken() {
     refreshing = undefined;
   }
 }
-async function execute(raw: OperationRequest) {
+async function execute(raw: OperationRequest, timeoutMs?: number) {
+  const actor = userId;
   const request = validateOperation(raw);
   const op = operationPath(request);
   if (request.operation === "connection") {
@@ -245,7 +273,9 @@ async function execute(raw: OperationRequest) {
     };
   try {
     await ensureToken();
-  } catch {
+  } catch (error) {
+    if (isCapabilityTransportFailure(error))
+      throw new CapabilityTransportUnavailable("The API cannot be reached.");
     return {
       status: 401,
       body: { code: "UNAUTHENTICATED", message: "Sign in to continue." },
@@ -271,9 +301,13 @@ async function execute(raw: OperationRequest) {
     headers,
     body: request.body === undefined ? undefined : JSON.stringify(request.body),
     signal: AbortSignal.timeout(
-      request.operation === "installationReport" ? 2000 : 20000,
+      request.operation === "installationReport" ? 2000 : (timeoutMs ?? 20000),
     ),
     redirect: "error",
+  }).catch((error: unknown) => {
+    if (isCapabilityTransportFailure(error))
+      throw new CapabilityTransportUnavailable("The API cannot be reached.");
+    throw error;
   });
   const body = (await res.json()) as Record<string, unknown>;
   if (res.status === 426) updateRequired = true;
@@ -281,6 +315,26 @@ async function execute(raw: OperationRequest) {
     const user = body.user as { id: string };
     userId = user.id;
     csrfToken = body.csrfToken as string | undefined;
+  }
+  if (actor && actor === userId && secureAvailable()) {
+    const workspaceId = request.params?.workspaceId;
+    if (workspaceId) {
+      const scope = { userId: actor, workspaceId };
+      try {
+        if (res.ok && request.operation === "bootstrap")
+          await nativeAuthority.observe(scope, body);
+        else if (res.ok && request.operation === "workspacePolicy")
+          await nativeAuthority.observe(scope, body.bootstrap);
+        else if ([401, 403, 426].includes(res.status))
+          await nativeAuthority.revoke(scope);
+      } catch {
+        await nativeAuthority.revoke(scope).catch(() => {});
+      }
+    }
+    if (res.status === 401) {
+      moduleHosts.clear();
+      await nativeAuthority.purge({ userId: actor });
+    }
   }
   return { status: res.status, body };
 }
@@ -408,6 +462,23 @@ async function login(options: LoginOptions) {
 function handlers() {
   localDeviceHosts.register(sender);
   ipcMain.handle(
+    "suite:module-offline",
+    async (
+      event,
+      scope: Scope,
+      moduleId: string,
+      version: string,
+      enabled: boolean,
+    ) => {
+      sender(event);
+      validateScope(scope, userId);
+      validateModuleHostIdentity(scope, moduleId, version);
+      if (typeof enabled !== "boolean")
+        throw Error("Invalid offline preference.");
+      return nativeAuthority.prepare(scope, moduleId, version, enabled);
+    },
+  );
+  ipcMain.handle(
     "suite:module-host-open",
     (event, scope: Scope, moduleId: string, version: string) => {
       sender(event);
@@ -423,24 +494,14 @@ function handlers() {
     "suite:module-capability",
     async (event, handle, capability, input) => {
       sender(event);
+      let reauthorize: (() => Promise<unknown>) | undefined;
       return moduleHosts
         .execute(handle, capability, input, {
           authorize: async (scope, call) => {
-            const result = await execute({
-              operation: "moduleCapabilityAuthorize",
-              params: {
-                workspaceId: scope.workspaceId,
-                moduleId: call.moduleId,
-              },
-              moduleVersion: call.moduleVersion,
-              body: { capability: call.capability },
-            });
-            if (result.status !== 200)
-              throw Error(
-                (result.body as { message?: string }).message ??
-                  "This host action is not authorized.",
-              );
-            return result.body;
+            if (reauthorize) return reauthorize();
+            const prepared = await nativeAuthority.authorize(scope, call);
+            reauthorize = prepared.recheck;
+            return prepared.authorization;
           },
           invoke: async (authorization, input, recheck) => {
             if (authorization.kind === "files.export") {
@@ -463,6 +524,7 @@ function handlers() {
             if (authorization.kind === "notifications.show") {
               const value = input as { title: string; message: string };
               if (!Notification.isSupported()) return { requested: false };
+              await recheck();
               new Notification({
                 title: value.title,
                 body: value.message,
@@ -636,6 +698,7 @@ function handlers() {
   ipcMain.handle("suite:login", async (event, value) => {
     sender(event);
     moduleHosts.clear();
+    nativeAuthority.clear();
     localDeviceHosts.clear();
     const options = validateLogin(value);
     loginPromise ??= login(options);
@@ -650,17 +713,22 @@ function handlers() {
     moduleHosts.clear();
     localDeviceHosts.clear();
     const token = refreshToken;
+    const previousUser = userId;
+    userId = undefined;
+    if (previousUser && secureAvailable())
+      await nativeAuthority.purge({ userId: previousUser });
+    else nativeAuthority.clear();
     if (lan) await lan.stop();
     lan = undefined;
     lanScope = undefined;
     accessToken = refreshToken = devCookie = csrfToken = undefined;
     expiresAt = 0;
-    if (userId) {
+    if (previousUser) {
       if (secureAvailable()) {
         await ensureCache();
-        await cachePurge(userId);
+        await cachePurge(previousUser);
       }
-      await rm(resolve(root(), userId), { recursive: true, force: true });
+      await rm(resolve(root(), previousUser), { recursive: true, force: true });
     }
     await rm(resolve(root(), "credentials.bin"), { force: true });
     await rm(resolve(root(), "identity.bin"), { force: true });
@@ -711,6 +779,7 @@ function handlers() {
       ? `${scope.userId}/${scope.workspaceId}`
       : scope.userId;
     if (secureAvailable()) {
+      await nativeAuthority.purge(scope);
       await ensureCache();
       await cachePurge(path);
     }
@@ -879,8 +948,12 @@ async function start() {
         }
       },
     );
-    win.webContents.on("render-process-gone", () => localDeviceHosts.clear());
-    win.webContents.on("destroyed", () => localDeviceHosts.clear());
+    const closeViewSessions = () => {
+      moduleHosts.clear();
+      localDeviceHosts.clear();
+    };
+    win.webContents.on("render-process-gone", closeViewSessions);
+    win.webContents.on("destroyed", closeViewSessions);
     win.webContents.on("will-navigate", (event) => event.preventDefault());
     win.webContents.session.setPermissionRequestHandler(
       (_wc, _permission, callback) => callback(false),

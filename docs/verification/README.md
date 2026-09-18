@@ -501,3 +501,7 @@ SDK-05 remains active: consent UI, worker message brokering, desktop effect inte
 ## Shared issuer capability trust, 18 September 2026
 
 [Issuer trust acceptance](issuer-capability-trust/README.md) verifies cross-account/workspace replacement, restart, retired-key rejection, delayed observations/renewals, failed persistence and legacy-cache renewal. Twenty-two focused tests, two headless browser journeys and strict checks/four builds passed. The real product export journey retained its scoped Axe/overflow checks, and wide/narrow captures were inspected. Public trust survives account removal; no desktop was launched. Native offline authority and remaining SDK-05/OPS acceptance stay open.
+
+## Native corporate offline capabilities, 18 September 2026
+
+[Native authority acceptance](native-capability-leases/README.md) verifies independent main-process acquisition, private protected persistence, configured-issuer binding, process restart, actual offline file export, expiry and revocation after controlled dialogs. Thirty-three focused tests, three browser journeys, five hidden/unfocused native journeys and strict checks/four builds passed. The affected browser/native readiness journeys were rerun after narrowing readiness to verified aliases. Native scoped Axe and screenshot review passed. Network failures and dialogs were controlled; real providers, OS notification presentation and packaged cross-OS recovery remain unverified. SDK-05 and full parity remain active.

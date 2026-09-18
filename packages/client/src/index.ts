@@ -72,6 +72,12 @@ export interface LanStatus {
   port?: number;
 }
 export interface DesktopBridge {
+  prepareModuleOffline(
+    scope: Scope,
+    moduleId: string,
+    moduleVersion: string,
+    enabled: boolean,
+  ): Promise<{ expiresAt?: number; capabilities?: string[] }>;
   openLocalDevice(
     request: LocalDesktopDeviceRequest,
     recheck: () => Promise<void>,
