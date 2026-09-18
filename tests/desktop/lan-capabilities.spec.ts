@@ -237,6 +237,16 @@ test("hidden desktop SDK relays only scoped drafts to managed TLS peers and revo
       .status()
       .peers.find((p) => p.id === fixture.identities.a.fingerprint)!;
     expect(nativePeer).toBeDefined();
+    expect(peer.status().discovery.coordinatedPeers).toBe(1);
+    expect(peer.status().discovery.coordinator).toBe(
+      [
+        fixture.identities.a.fingerprint,
+        fixture.identities.b.fingerprint,
+      ].sort()[0],
+    );
+    const scanAttempts = peer.status().discovery.attempts;
+    await peer.discover();
+    expect(peer.status().discovery.attempts).toBe(scanAttempts);
     const incoming = Array.from({ length: 6 }, (_, index): RelayEnvelope => {
       const payload = JSON.stringify({
         ...scope,
