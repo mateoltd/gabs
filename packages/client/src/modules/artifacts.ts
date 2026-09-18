@@ -157,6 +157,13 @@ export async function persistModuleArtifacts(
   );
   for (const review of Object.values(state.commandReviews ?? {}))
     retained.add(`${review.source.moduleId}@${review.moduleVersion}`);
+  for (const [id, version] of Object.entries(state.recoveryVersions ?? {}))
+    if (
+      state.journal.some(
+        (entry) => entry.call.moduleId === id && !entry.supersededBy,
+      )
+    )
+      retained.add(`${id}@${version}`);
   for (const [key, version] of Object.entries(state.draftVersions ?? {}))
     if (state.drafts[key]) retained.add(`${key.split("/")[0]}@${version}`);
   for (const [key, review] of Object.entries(state.draftReviews ?? {})) {

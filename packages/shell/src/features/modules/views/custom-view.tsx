@@ -481,7 +481,7 @@ function CustomModuleView(
   const queued = useQueuedCommands(
     props,
     module,
-    view.permission,
+    { kind: "view", permission: view.permission },
     props.executing,
   );
   const client = React.useMemo(

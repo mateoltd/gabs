@@ -42,11 +42,11 @@ type SavedCommand = {
   dependents: { entry: JournalEntry; module: ModuleDefinition }[];
 };
 
-/** A view owns access, while the journal owns durable input and delivery identities. */
+/** Recovery can inspect and settle saved work, but cannot capture or dispatch commands. */
 export function useQueuedCommands(
   props: FeatureProps,
   module: ModuleDefinition,
-  viewPermission: string,
+  owner: { kind: "view"; permission: string } | { kind: "recovery" },
   executing?: (change: 1 | -1) => void,
 ) {
   const latest = React.useRef({ props, executing, module });
@@ -78,7 +78,9 @@ export function useQueuedCommands(
       !p.offlineEnabled ||
       p.scope.userId !== props.scope.userId ||
       p.scope.workspaceId !== props.scope.workspaceId ||
-      !canUse(p.bootstrap, module.id, viewPermission, p.moduleCatalog)
+      (owner.kind === "view" &&
+        !canUse(p.bootstrap, module.id, owner.permission, p.moduleCatalog)) ||
+      (owner.kind === "recovery" && executable)
     )
       return false;
     if (
@@ -188,7 +190,12 @@ export function useQueuedCommands(
     }
   };
   const synchronize = async () => {
-    if (synchronizing.current || !access(undefined, true)) return;
+    if (
+      owner.kind === "recovery" ||
+      synchronizing.current ||
+      !access(undefined, true)
+    )
+      return;
     synchronizing.current = true;
     const p = latest.current.props;
     const activity = latest.current.executing;
@@ -395,6 +402,7 @@ export function useQueuedCommands(
     });
   return {
     module,
+    recoveryOnly: owner.kind === "recovery",
     saveReview,
     replace,
     queue,
@@ -480,9 +488,9 @@ export function SavedCommands({
                 </p>
                 {!executable && (
                   <p>
-                    This command is no longer available for queued execution in
-                    the installed release. Its original input and saved review
-                    remain available for recovery.
+                    {state.recoveryOnly
+                      ? "This recovery screen preserves saved input and reviews. Resolving an outcome never submits a new command."
+                      : "This command is no longer available for queued execution in the installed release. Its original input and saved review remain available for recovery."}
                   </p>
                 )}
                 {entry.settlement === "cancelled" ? (

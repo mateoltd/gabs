@@ -30,6 +30,7 @@ import {
 } from "../../packages/client/src/modules/storage";
 import type { StoredModuleState } from "../../packages/client/src/modules/artifacts";
 import { verifyResponseContract } from "../../packages/client/src/modules/response";
+import { offlineRecoveryContracts } from "../../packages/shell/src/features/modules/recovery/contracts";
 const pair = generateKeyPairSync("ed25519");
 const privateKey = pair.privateKey
   .export({ type: "pkcs8", format: "pem" })
@@ -144,6 +145,41 @@ function storage() {
   };
 }
 afterEach(() => vi.unstubAllGlobals());
+it("retains the last device recovery contract separately from original input and rejects altered contracts after uninstall", async () => {
+  const { platform, install, root } = storage();
+  await install();
+  await enqueue(platform, scope, call("retained-original"));
+  await install(upgraded);
+  await changeModuleStorage(platform, scope, (state) => {
+    state.recoveryVersions = { contacts: upgraded.version };
+    state.responseContracts![`contacts@${upgraded.version}`] = {
+      signed: upgraded,
+      publicKey,
+    };
+    delete state.installed.contacts;
+  });
+  expect(Object.keys(root().responseContractRefs!).sort()).toEqual([
+    "contacts@1.1.0",
+    "contacts@2.0.0",
+  ]);
+  const state = await readModuleStorage(platform, scope);
+  expect(state.journal[0].call).toEqual(call("retained-original"));
+  expect(
+    (await offlineRecoveryContracts(state)).modules.map((m) => m.version),
+  ).toEqual(["2.0.0"]);
+  state.responseContracts!["contacts@2.0.0"].signed.artifact.name = "Altered";
+  expect(await offlineRecoveryContracts(state)).toMatchObject({
+    modules: [],
+    failures: [expect.any(Error)],
+  });
+  // An unverifiable latest contract must not fall back to the original input schema.
+  state.recoveryVersions = { contacts: "3.0.0" };
+  expect((await offlineRecoveryContracts(state)).modules).toEqual([]);
+  await changeModuleStorage(platform, scope, (stored) => {
+    stored.journal = [];
+  });
+  expect(root().responseContractRefs).toEqual({});
+});
 it("preserves archived review input and original release/base metadata atomically without accepting the rejected request", async () => {
   const { platform, install, interrupt } = storage();
   await install();

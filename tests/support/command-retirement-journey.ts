@@ -20,7 +20,11 @@ export async function commandRetirementJourney(
   },
 ) {
   let page = options.page;
-  const { api, pool, mode } = options;
+  const { api, pool, mode, recoverySurface } = options;
+  const evidence = recoverySurface
+    ? "command-recovery-host"
+    : "command-retirement";
+  const label = recoverySurface ?? mode;
   const { id, fixtureName, scope, headers, pkg, before } = saved;
   const journal = async () =>
     (await options.storage(page, scope)).journal.filter(
@@ -71,6 +75,8 @@ export async function commandRetirementJourney(
     name: fixtureName,
     sourceDirectory: "tests/fixtures/queued-notes",
     transform: (file, source) => {
+      if (file === "module.ts" && recoverySurface === "viewless")
+        source = source.replace(/  views: \{[\s\S]*\n\}\);/, "});");
       if (file === "module.ts")
         source = source.replace(
           "permissions: [",
@@ -81,6 +87,7 @@ export async function commandRetirementJourney(
 import { PageHeading } from "@suite/ui-web";
 import module from "./module";
 export default defineView(module, function Notes() { return <PageHeading title="Retired capture workspace" description="Previously saved commands remain available through the host." />; });`;
+      if (recoverySurface === "viewless") return source;
       if (mode === "removed") {
         if (file === "module.ts")
           return source
@@ -116,6 +123,11 @@ export default defineView(module, function Notes() { return <PageHeading title="
     },
   );
   expect(rollout.ok(), await rollout.text()).toBe(true);
+  if (recoverySurface === "viewless")
+    await page
+      .getByRole("navigation", { name: "Preferences", exact: true })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
   await options.reconnect();
   await page.reload();
   await page.getByRole("link", { name: "Modules", exact: true }).click();
@@ -126,7 +138,34 @@ export default defineView(module, function Notes() { return <PageHeading title="
   const update = card.getByRole("button", { name: "Update", exact: true });
   if (await update.isVisible()) await update.click();
   await expect(card).toContainText(`Installed ${next.version}`);
+  if (recoverySurface === "uninstalled") {
+    await card.getByRole("button", { name: "Uninstall", exact: true }).click();
+    await expect(
+      card.getByText("Not installed on this device", { exact: true }),
+    ).toBeVisible();
+    expect((await options.storage(page, scope)).installed[id]).toBeUndefined();
+    expect((await options.storage(page, scope)).recoveryVersions?.[id]).toBe(
+      next.version,
+    );
+  }
   const open = async () => {
+    if (recoverySurface) {
+      await page
+        .getByRole("navigation", { name: "Preferences", exact: true })
+        .getByRole("link", { name: "Settings", exact: true })
+        .click();
+      await expect(
+        page.getByRole("heading", {
+          name: "Saved command recovery",
+          exact: true,
+        }),
+      ).toBeVisible();
+      if (recoverySurface === "viewless")
+        await expect(
+          page.getByRole("link", { name: fixtureName, exact: true }),
+        ).toHaveCount(0);
+      return;
+    }
     await page.getByRole("link", { name: fixtureName, exact: true }).click();
     await expect(
       page.getByRole("heading", {
@@ -175,16 +214,24 @@ export default defineView(module, function Notes() { return <PageHeading title="
     [scope.workspaceId, `${id}.capture`, `${id}.capture-next`],
   );
   await page.reload();
-  await historicalPermissionJourney(
-    { ...options, page },
-    {
-      id,
-      scope,
-      headers,
-      version: pkg.version,
-      denied: () => settle(before[0]),
-    },
-  );
+  if (recoverySurface === "viewless") {
+    // This release still declares the command; historical role editing is covered by the other cases.
+    await pool.query(
+      "update suite.roles set permissions=array_append(permissions,$2) where workspace_id=$1 and protected",
+      [scope.workspaceId, `${id}.capture`],
+    );
+  } else {
+    await historicalPermissionJourney(
+      { ...options, page },
+      {
+        id,
+        scope,
+        headers,
+        version: pkg.version,
+        denied: () => settle(before[0]),
+      },
+    );
+  }
   if (mode === "service-only") {
     // Recovery of an old public receipt does not expose today's service-only handler.
     const currentSettle = await api.post(
@@ -216,13 +263,43 @@ export default defineView(module, function Notes() { return <PageHeading title="
     );
     expect(currentExecute.status()).toBe(403);
   }
+  if (recoverySurface) {
+    // Recovery belongs to the operation, not to the removed view's read permission.
+    await pool.query(
+      "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1",
+      [scope.workspaceId, `${id}.notes.read`],
+    );
+    await pool.query(
+      "update suite.module_activations set state='suspended' where workspace_id=$1 and module_id=$2",
+      [scope.workspaceId, id],
+    );
+    await page.reload();
+    await open();
+    await expect(
+      page.getByRole("button", { name: /^Saved commands/ }),
+    ).toHaveCount(0);
+    expect((await settle(before[0])).status()).toBe(403);
+    await pool.query(
+      "update suite.module_activations set state='enabled' where workspace_id=$1 and module_id=$2",
+      [scope.workspaceId, id],
+    );
+  }
   await page.reload();
+  if (recoverySurface) {
+    await open();
+    await expect(
+      page.getByRole("button", { name: /^Saved commands/ }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: `docs/verification/${evidence}/${options.kind}-${label}-settings.png`,
+    });
+  }
   let dialog = await inbox();
   const entries = () =>
     dialog.locator("li").filter({
       has: page.getByRole("heading", { name: "Save note", exact: true }),
     });
-  await expect(entries()).toHaveCount(3);
+  await expect(entries()).toHaveCount(before.length);
   await expect(
     dialog.getByRole("button", { name: "Retry pending commands", exact: true }),
   ).toBeDisabled();
@@ -235,7 +312,7 @@ export default defineView(module, function Notes() { return <PageHeading title="
   await options.offline(true);
   page = await options.restartOffline();
   dialog = await inbox();
-  await expect(entries()).toHaveCount(3);
+  await expect(entries()).toHaveCount(before.length);
   await entries()
     .first()
     .getByText("View saved input", { exact: true })
@@ -278,7 +355,7 @@ export default defineView(module, function Notes() { return <PageHeading title="
     ).violations,
   ).toEqual([]);
   await page.screenshot({
-    path: `docs/verification/command-retirement/${options.kind}-${mode}-readonly-narrow.png`,
+    path: `docs/verification/${evidence}/${options.kind}-${label}-readonly-narrow.png`,
   });
   await options.wide();
   await page.keyboard.press("Escape");
@@ -347,6 +424,15 @@ export default defineView(module, function Notes() { return <PageHeading title="
   );
   expect(final[2].state).toBe("pending");
   expect(final[2].delivery).toBe("unsubmitted");
+  if (recoverySurface === "viewless")
+    expect(final[3]).toMatchObject({
+      state: "pending",
+      delivery: "unsubmitted",
+      attempts: 0,
+      dependencies: [],
+    });
+  if (recoverySurface === "uninstalled")
+    expect((await options.storage(page, scope)).installed[id]).toBeUndefined();
   expect(
     (await options.storage(page, scope)).commandReviews?.[before[0].id],
   ).toEqual(originalReview);
@@ -412,6 +498,6 @@ export default defineView(module, function Notes() { return <PageHeading title="
     .click();
   await options.narrow();
   await page.screenshot({
-    path: `docs/verification/command-retirement/${options.kind}-${mode}-recovered-narrow.png`,
+    path: `docs/verification/${evidence}/${options.kind}-${label}-recovered-narrow.png`,
   });
 }

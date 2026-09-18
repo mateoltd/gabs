@@ -14,6 +14,8 @@ for (const mode of [
   "upgrade",
   "removed",
   "service-only",
+  "viewless",
+  "uninstalled",
 ] as const)
   test(`command correction preserves review and dependencies after ${mode} original`, async ({
     page,

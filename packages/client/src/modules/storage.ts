@@ -55,6 +55,8 @@ export interface InstallationAttempt {
   retry?: { failures: number; nextAttemptAt: number };
 }
 export interface ModuleStorage {
+  /** Last device contract retained for leased inspection after uninstall, never execution. */
+  recoveryVersions?: Record<string, string>;
   commandReviews?: Record<string, CommandReview>;
   responseContracts?: Record<string, ResponseContract>;
   installationReports?: Record<

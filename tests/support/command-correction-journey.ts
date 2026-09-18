@@ -21,7 +21,10 @@ export type CommandCorrectionOptions = {
     | "permission-revoked"
     | "upgrade"
     | "removed"
-    | "service-only";
+    | "service-only"
+    | "viewless"
+    | "uninstalled";
+  recoverySurface?: "viewless" | "uninstalled";
   holdSettlement?(): Promise<{
     arrived(): Promise<void>;
     release(): Promise<void>;
@@ -41,11 +44,18 @@ export type CommandCorrectionOptions = {
 export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
+  if (options.mode === "viewless" || options.mode === "uninstalled")
+    options = {
+      ...options,
+      recoverySurface: options.mode,
+      mode: options.mode === "viewless" ? "removed" : "service-only",
+    };
   let page = options.page;
   const { api, pool, mode } = options;
   const interrupted = mode === "lease-expired" || mode === "permission-revoked";
-  const evidence =
-    mode === "removed" || mode === "service-only"
+  const evidence = options.recoverySurface
+    ? "command-recovery-host"
+    : mode === "removed" || mode === "service-only"
       ? "command-retirement"
       : mode === "upgrade"
         ? "command-upgrade"
@@ -218,6 +228,11 @@ export async function commandCorrectionJourney(
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   if (mode === "removed" || mode === "service-only") {
+    if (options.recoverySurface === "viewless") {
+      await capture("Independent saved command");
+      before.push((await journal()).at(-1)!);
+      expect(before.at(-1)!.dependencies).toEqual([]);
+    }
     await commandRetirementJourney(
       { ...options, page },
       { id, fixtureName, scope, headers, pkg, before },

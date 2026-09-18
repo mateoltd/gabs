@@ -35,6 +35,8 @@ for (const mode of [
   "upgrade",
   "removed",
   "service-only",
+  "viewless",
+  "uninstalled",
 ] as const)
   test(`native command correction preserves review after ${mode} original`, async () => {
     test.setTimeout(180000);

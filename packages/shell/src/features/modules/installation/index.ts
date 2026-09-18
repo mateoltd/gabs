@@ -476,6 +476,14 @@ export async function uninstallModule(
       const receipt = await acknowledge(props, id, current);
       failureCode = "storage";
       await changeModuleStorage(props.platform, props.scope, (s) => {
+        const installed = s.installed[id];
+        if (installed?.signed && installed.publicKey) {
+          (s.recoveryVersions ??= {})[id] = installed.version;
+          (s.responseContracts ??= {})[`${id}@${installed.version}`] = {
+            signed: installed.signed,
+            publicKey: installed.publicKey,
+          };
+        }
         delete s.installed[id];
         for (const key of Object.keys(s.downloads ?? {}))
           if (key.startsWith(`${id}@`)) delete s.downloads![key];
