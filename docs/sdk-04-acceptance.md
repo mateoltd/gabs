@@ -1,6 +1,6 @@
 # SDK-04 acceptance map
 
-Audit of the approved typed authoring, generated documentation/UI and composition requirements, 17 September 2026. SDK-04 is locally verified within the scope below. Evidence here does not establish whole-platform parity or final UI approval.
+Audit of the approved typed authoring, generated documentation/UI and composition requirements, 17 September 2026. SDK-04 was locally verified within the scope below and is now reopened on 18 September for SDK-04-FMT. Evidence here does not establish whole-platform parity or final UI approval.
 
 | Requirement                                                  | Current evidence                                                                                                                                                                                                                                                                                                         | Remaining acceptance                                                                                                                                                                                           |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -24,3 +24,9 @@ SDK-04 is locally verified. This does not close SDK-05 host/standalone capabilit
 ## Next primary SDK work: SDK-05
 
 Audit the public view/worker contexts and privileged host methods, then implement typed manifest-declared capability requests and module-scoped grants with current account/workspace checks. Include desktop/LAN interfaces and cross-module standalone access. Verify denied, undeclared, revoked and stale-context calls at the host boundary; existing React/UI compatibility revisions are not authority grants.
+
+## Reopened standard-format validation, 18 September 2026
+
+The administrator-review integration exposed that portable `assertSchema(Type.String({ format: "uuid" }), validUuid)` rejects a valid value with `Unknown format`. Direct checks also reproduce the same error for valid email, URI and date values; log `/tmp/gabs-sdk-format-reproduction.log`. Generated editors already recognize these formats, so the current authoring and validation behavior is inconsistent. An explicit-pattern correction fixes organization policy IDs, not the general SDK contract.
+
+**SDK-04-FMT remains ready, unimplemented and required.** Define a documented supported-format contract shared by portable runtime validation, authoritative requests, local workers, simulator and generated forms. Prove valid and invalid standard-format values across those environments, preserve the declared schema in generated references/packages, and reject unsupported formats with actionable authoring diagnostics rather than silently ignoring them. Preserve strict schema and mutation/receipt behavior. Existing acceptance above remains valid only for its tested scope; SDK-04 is not complete until this gate passes.

@@ -692,6 +692,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspaceId}/modules/{moduleId}/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["moduleCapabilityReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspaceId}/platform": {
         parameters: {
             query?: never;
@@ -5794,6 +5810,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    moduleCapabilityReview: {
+        parameters: {
+            query?: {
+                version?: string;
+            };
+            header?: never;
+            path: {
+                workspaceId: string;
+                moduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        moduleId: string;
+                        version: string;
+                        digest: string;
+                        reviewedAt: string;
+                        offlineHours: number;
+                        canReviewRoles: boolean;
+                        capabilities: {
+                            name: string;
+                            kind: "files.export" | "notifications.show" | "lan.status" | "lan.relay";
+                            permission: string;
+                            offline: boolean;
+                        }[];
+                        roles: {
+                            id: string;
+                            name: string;
+                            protected: boolean;
+                            decisions: {
+                                [key: string]: {
+                                    allowed: boolean;
+                                    grants: string[];
+                                    denies: string[];
+                                };
+                            };
+                        }[];
+                    };
+                };
             };
         };
     };

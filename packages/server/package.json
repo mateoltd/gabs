@@ -16,7 +16,8 @@
     "./registry/module-rollout": "./src/registry/module-rollout.ts",
     "./runtime/references": "./src/runtime/references.ts",
     "./runtime/resources": "./src/runtime/resources.ts",
-    "./runtime/services": "./src/runtime/services.ts"
+    "./runtime/services": "./src/runtime/services.ts",
+    "./governance/capability-review": "./src/governance/capability-review.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

@@ -1,3 +1,5 @@
+import { CapabilityReviewSchema } from "@suite/module-sdk/capability-review";
+import { reviewModuleCapabilities } from "@suite/server-core/governance/capability-review";
 import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
 import {
   CapabilityLeaseSchema,
@@ -128,15 +130,21 @@ const strings = T.Array(T.String({ maxLength: 200 }), {
   maxItems: 500,
   uniqueItems: true,
 });
+// This schema is validated by both AJV and the portable SDK validator.
+// Use an explicit UUID pattern because the latter has no implicit format registry.
+const policyId = T.String({
+  pattern:
+    "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
+});
 const OrganizationSchema = T.Object(
   {
-    rootId: id,
+    rootId: policyId,
     ranks: T.Array(
       T.Object(
         {
-          id,
+          id: policyId,
           name: T.String({ minLength: 1, maxLength: 100 }),
-          parents: T.Array(id, { maxItems: 100, uniqueItems: true }),
+          parents: T.Array(policyId, { maxItems: 100, uniqueItems: true }),
           inherit: T.Boolean(),
           denies: strings,
           x: T.Number(),
@@ -149,9 +157,9 @@ const OrganizationSchema = T.Object(
     groups: T.Array(
       T.Object(
         {
-          id,
+          id: policyId,
           name: T.String({ minLength: 1, maxLength: 100 }),
-          rankIds: T.Array(id, { maxItems: 500, uniqueItems: true }),
+          rankIds: T.Array(policyId, { maxItems: 500, uniqueItems: true }),
           tags: strings,
           grants: strings,
           denies: strings,
@@ -595,6 +603,46 @@ export async function registerPlatform(
     "/api/v1/module-trust",
     { schema: { operationId: "moduleTrust" } },
     async () => ({ publicKey: await publicKey() }),
+  );
+  app.get<{
+    Params: { workspaceId: string; moduleId: string };
+    Querystring: { version?: string };
+  }>(
+    "/api/v1/workspaces/:workspaceId/modules/:moduleId/capabilities",
+    {
+      schema: {
+        operationId: "moduleCapabilityReview",
+        params: T.Object({ workspaceId: id, moduleId: slug }),
+        querystring: T.Object({
+          version: T.Optional(
+            T.String({ pattern: "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$" }),
+          ),
+        }),
+        response: { 200: CapabilityReviewSchema },
+      },
+    },
+    async (req, reply) => {
+      reply.header("cache-control", "no-store");
+      return inWorkspace(
+        db,
+        req.params.workspaceId,
+        async (tx) => {
+          const ctx = await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+          );
+          return reviewModuleCapabilities(
+            tx,
+            ctx,
+            req.params.moduleId,
+            req.query.version,
+          );
+        },
+        { readOnly: true },
+      );
+    },
   );
   app.get<{ Params: { workspaceId: string } }>(
     "/api/v1/workspaces/:workspaceId/platform",

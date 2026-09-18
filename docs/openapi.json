@@ -12373,6 +12373,190 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/modules/{moduleId}/capabilities": {
+      "get": {
+        "operationId": "moduleCapabilityReview",
+        "parameters": [
+          {
+            "schema": {
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "version",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "moduleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "moduleId",
+                    "version",
+                    "digest",
+                    "reviewedAt",
+                    "offlineHours",
+                    "canReviewRoles",
+                    "capabilities",
+                    "roles"
+                  ],
+                  "properties": {
+                    "moduleId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "reviewedAt": {
+                      "type": "string"
+                    },
+                    "offlineHours": {
+                      "minimum": 0,
+                      "maximum": 24,
+                      "type": "number"
+                    },
+                    "canReviewRoles": {
+                      "type": "boolean"
+                    },
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "kind",
+                          "permission",
+                          "offline"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "files.export"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "notifications.show"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "lan.status"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "lan.relay"
+                                ]
+                              }
+                            ]
+                          },
+                          "permission": {
+                            "type": "string"
+                          },
+                          "offline": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "protected",
+                          "decisions"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "protected": {
+                            "type": "boolean"
+                          },
+                          "decisions": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "allowed",
+                                "grants",
+                                "denies"
+                              ],
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean"
+                                },
+                                "grants": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "denies": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/platform": {
       "get": {
         "operationId": "platformState",

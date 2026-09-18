@@ -201,6 +201,10 @@ export const OPERATIONS = {
     method: "POST",
     path: "/api/v1/workspaces/:workspaceId/installation-reports",
   },
+  moduleCapabilityReview: {
+    method: "GET",
+    path: "/api/v1/workspaces/:workspaceId/modules/:moduleId/capabilities",
+  },
   moduleFleet: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/modules/:moduleId/devices",

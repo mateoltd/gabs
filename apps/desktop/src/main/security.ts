@@ -98,10 +98,17 @@ export function validateOperation(value: unknown): OperationRequest {
           ["field", "selected"].includes(k)
         ) &&
         !(r.operation === "moduleFleet" && k === "offset") &&
+        !(r.operation === "moduleCapabilityReview" && k === "version") &&
         !(r.operation === "workspacePolicy" && k === "since"),
     )
   )
     throw Error("Invalid query");
+  if (
+    r.query?.version !== undefined &&
+    (typeof r.query.version !== "string" ||
+      !/^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/.test(r.query.version))
+  )
+    throw Error("Invalid review release");
   if (
     r.query?.offset !== undefined &&
     (!Number.isSafeInteger(r.query.offset) ||

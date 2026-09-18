@@ -517,3 +517,7 @@ Typed declared allowances, deterministic expiry, held-action rechecks and CLI/pr
 ## 18 September 2026: official Orders capability release
 
 [Orders 2.1.0 acceptance](orders-capability-release/README.md) verifies the signed public export capability, shared browser/native host bridge and protected pinned 2.0.0 behavior. Strict builds, 315 unit/PostgreSQL tests, four distinct headless and four hidden native journeys passed. The missing pin-fixture idempotency key was corrected before the affected browser pair passed. Scoped native Axe and four inspected captures pass. SDK-05 administrator review and all broader parity gates remain open; no production release or final UI approval is claimed.
+
+## 18 September 2026: administrator capability review
+
+[Scoped acceptance](capability-review/README.md) verifies signed release inspection, saved grant/denial explanations, matrix edits, offline limits and native IPC. Passed 316 full unit/PostgreSQL tests, seven final guard checks, strict builds/API generation, 13 distinct headless journeys with affected reruns and three hidden native journeys. Scoped Axe and six inspected captures pass. The policy UUID validation defect is fixed locally; the broader standard-format defect is reproduced and reopens SDK-04 as SDK-04-FMT. Full parity remains unachieved.

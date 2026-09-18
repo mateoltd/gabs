@@ -1,3 +1,4 @@
+import { CapabilityReviewDialog } from "./capability-review";
 import { type FeatureProps } from "@suite/client";
 import { readModuleStorage } from "@suite/client/module-storage";
 import { storageContract } from "@suite/module-sdk";
@@ -59,6 +60,7 @@ export function ModuleLifecycle(
   const state = usePlatformState(props),
     qc = useQueryClient();
   const [fleetModule, setFleetModule] = useState("");
+  const [reviewing, setReviewing] = useState("");
   const [error, setError] = useState<unknown>(),
     [errorModule, setErrorModule] = useState(""),
     [busy, setBusy] = useState(""),
@@ -110,6 +112,7 @@ export function ModuleLifecycle(
     installModule(props, state.data!, id, repair);
   if (state.isPending) return <Loading />;
   const selectedModule = state.data?.modules.find((m) => m.id === selected);
+  const reviewModule = state.data?.modules.find((m) => m.id === reviewing);
   const migrationReleases = (state.data?.releases ?? [])
     .filter((r) => r.module_id === selected)
     .sort((a, b) => compareVersions(b.version, a.version));
@@ -314,6 +317,15 @@ export function ModuleLifecycle(
                     Configure
                   </Button>
                 )}
+                {(admin ||
+                  props.bootstrap.permissions.includes("roles.manage")) && (
+                  <Button
+                    disabled={!props.online}
+                    onClick={() => setReviewing(module.id)}
+                  >
+                    Review device access
+                  </Button>
+                )}
                 {admin && (
                   <Button onClick={() => setFleetModule(module.id)}>
                     View devices
@@ -332,6 +344,18 @@ export function ModuleLifecycle(
           );
         })}
       </div>
+      {reviewModule && (
+        <CapabilityReviewDialog
+          key={`${props.scope.workspaceId}:${reviewModule.id}`}
+          {...props}
+          module={reviewModule}
+          versions={(state.data?.releases ?? [])
+            .filter((r) => r.module_id === reviewModule.id)
+            .map((r) => r.version)
+            .sort((a, b) => compareVersions(b, a))}
+          onClose={() => setReviewing("")}
+        />
+      )}
       <Modal
         open={!!selected}
         onOpenChange={(v) => {

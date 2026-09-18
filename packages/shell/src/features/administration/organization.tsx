@@ -1,3 +1,4 @@
+import { PermissionDecision } from "./permission-decision";
 import { type FeatureProps } from "@suite/client";
 import {
   effectivePermissions,
@@ -507,20 +508,27 @@ export function Organization(props: FeatureProps) {
                             }
                           }}
                         />
-                        <small>
-                          {source?.denies.length
-                            ? "Denied by " + source.denies.join(", ")
-                            : result?.permissions.includes(permission)
-                              ? "Allowed by " +
-                                (source?.grants
-                                  .map(
-                                    (id) =>
-                                      policy.ranks.find((r) => r.id === id)
-                                        ?.name ?? id,
-                                  )
-                                  .join(", ") ?? "policy")
-                              : "No access"}
-                        </small>
+                        <PermissionDecision
+                          decision={
+                            result && {
+                              allowed: result.permissions.includes(permission),
+                              grants: (source?.grants ?? []).map(
+                                (id) =>
+                                  policy.ranks.find((r) => r.id === id)?.name ??
+                                  state.data.roles.find((r) => r.id === id)
+                                    ?.name ??
+                                  id,
+                              ),
+                              denies: (source?.denies ?? []).map(
+                                (id) =>
+                                  policy.ranks.find((r) => r.id === id)?.name ??
+                                  state.data.roles.find((r) => r.id === id)
+                                    ?.name ??
+                                  id,
+                              ),
+                            }
+                          }
+                        />
                       </td>
                     );
                   })}

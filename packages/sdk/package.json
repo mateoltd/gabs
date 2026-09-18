@@ -31,7 +31,8 @@
     "./node/build-client": "./node/build-client.ts",
     "./node/build-local": "./node/build-local.ts",
     "./node/build-server": "./node/build-server.ts",
-    "./node/service-contracts": "./node/service-contracts.ts"
+    "./node/service-contracts": "./node/service-contracts.ts",
+    "./capability-review": "./src/contracts/capability-review.ts"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",
