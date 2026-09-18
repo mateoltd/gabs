@@ -10,9 +10,17 @@ Offline reference pickers include same-account/workspace pending creates and mar
 
 Reviewed replacement of a rejected/conflicting request preserves its record target and existing prerequisites. The journal reconnects dependents atomically. Replacing uncertain work, reusing a retry identifier for different content, or introducing circular prerequisites fails without deleting the draft.
 
+## Conflict comparison
+
+Generated updates retain the original values with the queued request. Review compares them with the attempted edit and a freshly fetched server record. Disjoint server changes remain in the proposed result; each overlapping top-level field needs an explicit local/server choice before the form or save action is enabled. Objects and arrays are reviewed as complete fields, matching the server's merge granularity. Older queued updates without original values require explicit choices for all differing fields.
+
+Review choices, the compared server version and subsequent form edits are saved with the draft. Resume uses that labeled server snapshot; saving always revalidates against current server state. A later overlapping server edit creates another visible conflict. The editor permits a new reviewed request for journal entries marked rejected/conflicting, preserves the record target and atomically replaces the prior entry. Denial after earlier uncertainty still needs the separate audit below. Existing uncertain requests keep their identity.
+
 ## Remaining OFF-01 work
 
-- Finish explicit conflict comparison between original input, the attempted edit and current server data. Preserve disjoint server changes and require deliberate choices for overlapping fields; never silently overwrite them.
+- Audit denial after a previously uncertain request: a later permission failure does not by itself prove that the original attempt never committed. Keep original retry identity until authoritative reconciliation establishes the prior outcome.
+- Preserve multiple simultaneous review drafts independently. The current editor has one saved draft slot per resource; starting another editor can replace that slot even though each original pending request remains in the journal.
+- Extend conflict acceptance to nested/reference-field decisions and failed-create collisions; current browser/native journeys cover ordinary resource updates and legacy requests without original values.
 - Verify rejected-parent correction and dependent continuation through the real editor, including restart and reauthentication. Storage-level coverage alone does not accept this interface.
 - Verify nested and cross-module dependent capture under explicit grants and revocation in the real interface.
 - Complete same-record pending-edit ordering and clear identification/recovery of individual pending changes.

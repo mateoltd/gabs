@@ -4,6 +4,7 @@ import {
 } from "@suite/client/module-response";
 import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
 import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
+import { ConflictReview } from "./conflict-review";
 import { useModuleReferences } from "./references";
 import { canonical } from "@suite/module-sdk/registry";
 import {
@@ -19,6 +20,9 @@ import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   assertSchema,
+  reviewFields,
+  chooseReviewField,
+  unresolvedReviewFields,
   type ResourceRecord,
   type ResourcePage,
   type ModuleCall,
@@ -66,7 +70,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const definition =
     module.resources[resource] ?? retainedDefinitions.current[resource];
   const resourceAvailable = !!module.resources[resource];
-  const [reviewId, setReviewId] = useState<string>();
+  const [reviewSession, setReviewSession] =
+    useState<NonNullable<ModuleStorage["draftReviews"]>[string]>();
+  const reviewId = reviewSession?.entryId;
+  const unresolved = reviewSession?.comparison
+    ? unresolvedReviewFields(reviewSession.comparison)
+    : [];
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const attempt = useRef<ModuleCall | undefined>(undefined);
   const [search, setSearch] = useState(""),
@@ -340,11 +349,29 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         e.state !== "accepted" &&
         !e.supersededBy,
     ) ?? [];
+  async function persistDraft(
+    data: Record<string, unknown>,
+    record: ResourceRecord | null,
+    review = reviewSession,
+  ) {
+    if (!props.offlineEnabled || !bootstrap.offlineHours) return;
+    await changeModuleStorage(platform, scope, (stored) => {
+      stored.drafts[draftKey] = data;
+      (stored.draftTargets ??= {})[draftKey] = record;
+      if (review) (stored.draftReviews ??= {})[draftKey] = review;
+      else if (stored.draftReviews) delete stored.draftReviews[draftKey];
+    });
+  }
   async function save() {
     setBusy(true);
     setError(undefined);
     try {
       if (!attempt.current) {
+        if (unresolved.length)
+          throw Error(
+            "Choose a value for each conflicting field before saving.",
+          );
+        if (!write) throw Error("Your role no longer allows this change.");
         if (!resourceAvailable)
           throw Error(
             "This resource was removed in the current release. Export your input before closing the editor.",
@@ -357,25 +384,34 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         resource,
         action: editing ? "update" : "create",
         input: editing
-          ? { id: editing.id, data: form, baseVersion: editing.version }
+          ? {
+              id: editing.id,
+              data: form,
+              baseVersion: editing.version,
+              baseData: structuredClone(editing.data),
+            }
           : { id: reviewTargetId ?? crypto.randomUUID(), data: form },
         key: crypto.randomUUID(),
       };
-      if (
-        definition.policy === "online" ||
-        !props.offlineEnabled ||
-        !bootstrap.offlineHours
-      ) {
+      const durable =
+        !!reviewId ||
+        (definition.policy === "queued" &&
+          props.offlineEnabled &&
+          bootstrap.offlineHours > 0);
+      if (!durable) {
         if (!online) throw Error("Connect to save this change.");
         attempt.current = call;
         await send(call);
         attempt.current = undefined;
         setEditing(undefined);
       } else {
-        if (!online && !props.offlineEnabled)
-          throw Error(
-            "Enable offline storage while connected before saving offline.",
-          );
+        if (
+          !online &&
+          (definition.policy === "online" ||
+            !props.offlineEnabled ||
+            !bootstrap.offlineHours)
+        )
+          throw Error("Connect to submit this reviewed change.");
         attempt.current = call;
         await enqueue(platform, scope, call, [], {
           draftKey,
@@ -383,29 +419,18 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         });
         attempt.current = undefined;
         setEditing(undefined);
-        setReviewId(undefined);
+        setReviewSession(undefined);
         setReviewTargetId(undefined);
         if (online)
           await syncModuleStorage(platform, scope, transport, authorized);
       }
-      if (props.offlineEnabled && bootstrap.offlineHours > 0)
-        await changeModuleStorage(platform, scope, (s) => {
-          delete s.drafts[draftKey];
-          if (s.draftTargets) delete s.draftTargets[draftKey];
-          if (reviewId) {
-            s.journal = s.journal.map((e) =>
-              e.id === reviewId
-                ? { ...e, supersededBy: call.key }
-                : {
-                    ...e,
-                    dependencies: e.dependencies.map((id) =>
-                      id === reviewId ? call.key! : id,
-                    ),
-                  },
-            );
-          }
+      if (!durable && props.offlineEnabled && bootstrap.offlineHours > 0)
+        await changeModuleStorage(platform, scope, (stored) => {
+          delete stored.drafts[draftKey];
+          if (stored.draftTargets) delete stored.draftTargets[draftKey];
+          if (stored.draftReviews) delete stored.draftReviews[draftKey];
         });
-      setReviewId(undefined);
+      setReviewSession(undefined);
       setReviewTargetId(undefined);
       await read();
       if (online) await query.refetch();
@@ -439,7 +464,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                     unknown
                   >,
                 );
-                setReviewId(undefined);
+                setReviewSession(undefined);
                 setReviewTargetId(undefined);
                 setEditing(null);
               }}
@@ -500,10 +525,32 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           {write && storage?.drafts[draftKey] && (
             <Button
               onClick={() => {
+                const review = storage.draftReviews?.[draftKey];
+                const entry =
+                  review &&
+                  storage.journal.find(
+                    (item) =>
+                      item.id === review.entryId &&
+                      item.userId === scope.userId &&
+                      item.workspaceId === scope.workspaceId &&
+                      !item.supersededBy &&
+                      ["conflict", "rejected"].includes(item.state),
+                  );
+                if (review && !entry) {
+                  setError(
+                    Error(
+                      "This review has already been replaced. Refresh pending changes.",
+                    ),
+                  );
+                  return;
+                }
                 setForm(storage.drafts[draftKey]);
                 setEditing(storage.draftTargets?.[draftKey] ?? null);
-                setReviewId(undefined);
-                setReviewTargetId(undefined);
+                setReviewSession(review);
+                setReviewTargetId(
+                  (entry?.call.input as { id?: string } | undefined)?.id,
+                );
+                setError(undefined);
               }}
             >
               Resume saved draft
@@ -705,12 +752,17 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       : "Waiting for server acceptance")}
                 </span>
                 <Button
-                  disabled={!online || entry.state === "pending"}
+                  disabled={
+                    !online || !write || busy || entry.state === "pending"
+                  }
                   onClick={async () => {
                     const command = entry.call.input as {
                       id?: string;
                       data?: Record<string, unknown>;
+                      baseData?: Record<string, unknown>;
                     };
+                    setBusy(true);
+                    setError(undefined);
                     try {
                       const current =
                         entry.call.action === "update"
@@ -726,12 +778,27 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                         throw Error(
                           "This record has been archived. Export the pending change to recover its contents.",
                         );
-                      setForm(command.data ?? {});
+                      const comparison = current
+                        ? reviewFields(
+                            command.baseData,
+                            command.data ?? {},
+                            current.data,
+                          )
+                        : undefined;
+                      const session = {
+                        entryId: entry.id,
+                        comparison: comparison?.review,
+                      };
+                      const next = comparison?.data ?? command.data ?? {};
+                      await persistDraft(next, current, session);
+                      setForm(next);
                       setEditing(current);
-                      setReviewId(entry.id);
+                      setReviewSession(session);
                       setReviewTargetId(command.id);
                     } catch (e) {
                       setError(e);
+                    } finally {
+                      setBusy(false);
                     }
                   }}
                 >
@@ -747,7 +814,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         onOpenChange={(open) => {
           if (!open && !attempt.current) {
             setEditing(undefined);
-            setReviewId(undefined);
+            setReviewSession(undefined);
             setReviewTargetId(undefined);
             void read();
           }
@@ -766,6 +833,33 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             void save();
           }}
         >
+          {reviewSession?.comparison && editing && (
+            <ConflictReview
+              review={reviewSession.comparison}
+              version={editing.version}
+              schema={definition.schema as TObject}
+              disabled={busy || !!attempt.current}
+              onChoose={(field, source) => {
+                const next = chooseReviewField(
+                  reviewSession.comparison!,
+                  form,
+                  field,
+                  source,
+                );
+                const review = { ...reviewSession, comparison: next.review };
+                setForm(next.data);
+                setReviewSession(review);
+                void persistDraft(next.data, editing, review).catch(setError);
+              }}
+            />
+          )}
+          {unresolved.length > 0 && (
+            <p role="status">
+              Choose values for {unresolved.length} conflicting{" "}
+              {unresolved.length === 1 ? "field" : "fields"} before editing or
+              saving.
+            </p>
+          )}
           {carriedInput && (
             <section className="form-stack" aria-label="Preserved input">
               <p role="status">
@@ -820,7 +914,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </section>
           )}
           <fieldset
-            disabled={!!attempt.current}
+            disabled={busy || !!attempt.current || unresolved.length > 0}
             className="module-form-fields form-stack"
           >
             <SchemaForm
@@ -837,11 +931,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               loadReferences={loadReferences}
               onChange={(v) => {
                 setForm(v);
-                if (props.offlineEnabled && bootstrap.offlineHours)
-                  void changeModuleStorage(platform, scope, (s) => {
-                    s.drafts[draftKey] = v;
-                    (s.draftTargets ??= {})[draftKey] = editing ?? null;
-                  }).catch(setError);
+                void persistDraft(v, editing ?? null).catch(setError);
               }}
             />
           </fieldset>
@@ -855,7 +945,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           <Button
             type="submit"
             variant="primary"
-            disabled={busy || (!resourceAvailable && !attempt.current)}
+            disabled={
+              busy ||
+              !write ||
+              unresolved.length > 0 ||
+              (!resourceAvailable && !attempt.current)
+            }
           >
             {online ? "Save" : "Save pending change"}
           </Button>

@@ -7,6 +7,11 @@ import {
 } from "@suite/module-sdk/references";
 import type { Scope } from "../index";
 
+export class JournalConflictError extends Error {
+  readonly status = 409;
+  readonly code = "JOURNAL_CONFLICT";
+}
+
 export function assertJournalOrder(
   journal: readonly JournalEntry[],
   scope: Scope,
@@ -39,7 +44,7 @@ export function assertJournalOrder(
       if (!count) ready.push(id);
     }
   if (ready.length !== active.length)
-    throw Error(
+    throw new JournalConflictError(
       "These changes depend on each other. Remove the circular reference before saving; your draft is preserved.",
     );
 }

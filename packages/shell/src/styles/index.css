@@ -2660,6 +2660,25 @@ body:has(.local-workspace),
   margin: 0;
   min-width: 0;
 }
+.module-conflict-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.module-conflict-values dt {
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.module-conflict-values dd {
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .module-conflict-values {
+    grid-template-columns: 1fr;
+  }
+}
 
 .local-profile-header {
   display: flex;

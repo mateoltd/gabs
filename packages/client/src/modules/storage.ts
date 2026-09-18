@@ -21,9 +21,14 @@ import type {
   ModuleCall,
   ResourcePage,
   ResourceRecord,
+  FieldReview,
 } from "@suite/module-sdk";
 import { flushJournal, type JournalEntry } from "@suite/module-sdk/sync";
-import { assertJournalOrder, referenceDependencies } from "./journal";
+import {
+  assertJournalOrder,
+  referenceDependencies,
+  JournalConflictError,
+} from "./journal";
 import { canonical } from "@suite/module-sdk/registry";
 export { pendingReferenceOptions } from "./journal";
 export interface InstallationAttempt {
@@ -68,6 +73,7 @@ export interface ModuleStorage {
   downloads?: Record<string, SignedArtifact>;
   drafts: Record<string, Record<string, unknown>>;
   draftTargets?: Record<string, ResourceRecord | null>;
+  draftReviews?: Record<string, { entryId: string; comparison?: FieldReview }>;
   referenceOptions?: Record<
     string,
     Record<string, { value: string; label: string }[]>
@@ -158,7 +164,9 @@ export async function enqueue(
         existing.workspaceId !== scope.workspaceId ||
         canonical(existing.call) !== canonical(call))
     )
-      throw Error("This retry identity already belongs to different content.");
+      throw new JournalConflictError(
+        "This retry identity already belongs to different content.",
+      );
     const replaced = recovery?.supersedes
       ? s.journal.find((e) => e.id === recovery.supersedes)
       : undefined;
@@ -170,7 +178,7 @@ export async function enqueue(
         !["conflict", "rejected"].includes(replaced.state) ||
         (replaced.supersededBy && replaced.supersededBy !== entry.id))
     )
-      throw Error(
+      throw new JournalConflictError(
         "Only a rejected or conflicting change can be replaced. Retry an uncertain request with its original identity.",
       );
     if (
@@ -181,7 +189,7 @@ export async function enqueue(
         (replaced.call.input as { id?: unknown }).id !==
           (call.input as { id?: unknown }).id)
     )
-      throw Error(
+      throw new JournalConflictError(
         "A reviewed change must preserve its original record target.",
       );
     if (!s.journal.some((e) => e.id === entry.id)) {
@@ -201,6 +209,7 @@ export async function enqueue(
     if (recovery) {
       delete s.drafts[recovery.draftKey];
       if (s.draftTargets) delete s.draftTargets[recovery.draftKey];
+      if (s.draftReviews) delete s.draftReviews[recovery.draftKey];
       if (recovery.supersedes)
         s.journal = s.journal.map((e) =>
           e.userId !== scope.userId || e.workspaceId !== scope.workspaceId
