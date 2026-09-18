@@ -1,4 +1,4 @@
-import type { FeatureProps } from "@suite/client";
+import { canUse, type FeatureProps } from "@suite/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -16,11 +16,41 @@ export function useLocalNetwork(features: FeatureProps | undefined) {
     () => [userId, workspaceId, "lan"],
     [userId, workspaceId],
   );
+  const grants =
+    features?.moduleCatalog.modules.flatMap((module) =>
+      Object.entries(module.capabilities ?? {}).flatMap(
+        ([capability, declaration]) => {
+          const view = module.navigation?.view
+            ? module.views?.[module.navigation.view]
+            : undefined;
+          return declaration.kind === "lan.relay" &&
+            canUse(
+              features.bootstrap,
+              module.id,
+              declaration.permission,
+              features.moduleCatalog,
+            ) &&
+            (!view || features.bootstrap.permissions.includes(view.permission))
+            ? [
+                {
+                  moduleId: module.id,
+                  moduleVersion: module.version,
+                  capability,
+                  name: module.name,
+                  offline: declaration.offline === "lease",
+                  key: `${module.id}/${module.version}/${capability}`,
+                },
+              ]
+            : [];
+        },
+      ),
+    ) ?? [];
   const enabled =
     !!native &&
     !!features &&
     features.bootstrap.workspace.kind === "company" &&
-    features.bootstrap.permissions.includes("modules.manage");
+    (features.bootstrap.permissions.includes("modules.manage") ||
+      grants.length > 0);
   const state = useQuery({
     queryKey: key,
     enabled,
@@ -51,6 +81,7 @@ export function useLocalNetwork(features: FeatureProps | undefined) {
   return {
     ...state,
     allowed: enabled,
+    grants,
     data: enabled && !state.isError ? state.data : undefined,
   };
 }

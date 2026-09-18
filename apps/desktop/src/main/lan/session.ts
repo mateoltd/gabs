@@ -1,7 +1,7 @@
 import { inboxLimit } from "./receipts";
 import { BootstrapSchema, type Bootstrap } from "@suite/contracts";
 import { assertSchema } from "@suite/module-sdk";
-import type { Scope } from "@suite/client";
+import type { Scope, LanModuleGrant } from "@suite/client";
 import {
   LanTransport,
   validateRelayEnvelope,
@@ -18,6 +18,7 @@ interface Host {
   retained?(scope: Scope, envelope: RelayEnvelope): Promise<boolean>;
   currentUser(): string | undefined;
   authorize(scope: Scope): Promise<unknown>;
+  authorizeModule?(scope: Scope, grant: LanModuleGrant): Promise<number>;
   configure(scope: Scope): Promise<LanConfig>;
   readInbox(scope: Scope): Promise<unknown>;
   writeInbox(scope: Scope, inbox: RelayEnvelope[]): Promise<void>;
@@ -29,15 +30,19 @@ interface Session {
   generation: number;
   transport: LanTransport;
   expiresAt: number;
+  grant?: LanModuleGrant;
+  refreshing?: Promise<void>;
 }
 /** Main-owned workspace lifecycle and quarantine. A receipt never accepts a business change. */
 export class ManagedLanSession {
   private current?: Session;
   private target?: Scope;
+  private targetGrant?: LanModuleGrant;
   private generation = 0;
   private transition = Promise.resolve();
   private writes = Promise.resolve();
   private expiry?: ReturnType<typeof setTimeout>;
+  private renewal?: ReturnType<typeof setTimeout>;
   private policies = new Map<string, Bootstrap>();
   private key(scope: Scope) {
     return JSON.stringify([scope.userId, scope.workspaceId]);
@@ -107,6 +112,10 @@ export class ManagedLanSession {
     if (!same(this.target, scope) && !this.policies.has(key)) return;
     const policy = this.remember(scope, this.lease(scope, value));
     if (!same(this.target, scope)) return;
+    if (this.targetGrant) {
+      if (this.current) void this.refresh(scope).catch(() => {});
+      return;
+    }
     try {
       const expiry = this.expires(policy);
       if (this.current) {
@@ -117,26 +126,38 @@ export class ManagedLanSession {
       void this.stop(scope).catch(() => {});
     }
   }
-  async enable(scope: Scope) {
+  async enable(scope: Scope, grant?: LanModuleGrant) {
     this.identity(scope);
+    grant = grant && structuredClone(grant);
     const stopped = this.stop();
     const generation = this.generation;
     this.target = { ...scope };
+    this.targetGrant = grant;
     const task = this.transition.then(async () => {
       await stopped;
       this.check(scope, generation);
-      const received = this.lease(scope, await this.host.authorize(scope));
+      const received = grant
+        ? undefined
+        : this.lease(scope, await this.host.authorize(scope));
       this.check(scope, generation);
-      const policy = this.remember(scope, received);
-      this.expires(policy);
+      const policy = received && this.remember(scope, received);
+      const expiresAt = grant
+        ? await this.moduleExpiry(scope, grant)
+        : this.expires(policy!);
+      this.check(scope, generation);
       const config = await this.host.configure(scope);
       this.check(scope, generation);
       if (config.workspaceId !== scope.workspaceId)
         throw Error("The peer configuration belongs to another workspace.");
+      if (expiresAt <= Date.now())
+        throw Error(
+          "Local network authorization expired during configuration.",
+        );
       const session: Session = {
         scope: { ...scope },
         generation,
-        expiresAt: this.expires(this.remember(scope, policy)),
+        expiresAt,
+        grant,
         transport: new LanTransport(
           config,
           (envelope) => this.receive(session, envelope),
@@ -151,13 +172,18 @@ export class ManagedLanSession {
         await session.transport.start();
         this.check(scope, generation);
         // Discovery may overlap a newer authenticated policy observation.
-        session.expiresAt = this.expires(this.remember(scope, policy));
-        this.expireAt(session);
+        if (grant) await this.refresh(scope);
+        else {
+          session.expiresAt = this.expires(this.remember(scope, policy!));
+          this.expireAt(session);
+        }
       } catch (error) {
         if (this.current === session) {
           this.current = undefined;
           clearTimeout(this.expiry);
           this.expiry = undefined;
+          clearTimeout(this.renewal);
+          this.renewal = undefined;
         }
         await session.transport.stop();
         throw error;
@@ -171,7 +197,10 @@ export class ManagedLanSession {
     if (scope && !same(this.target, scope)) return Promise.resolve();
     this.generation++;
     this.target = undefined;
+    this.targetGrant = undefined;
     clearTimeout(this.expiry);
+    clearTimeout(this.renewal);
+    this.renewal = undefined;
     this.expiry = undefined;
     const previous = this.current;
     this.current = undefined;
@@ -184,6 +213,55 @@ export class ManagedLanSession {
     });
     this.transition = task.catch(() => {});
     return task;
+  }
+  private async moduleExpiry(scope: Scope, grant: LanModuleGrant) {
+    if (!this.host.authorizeModule)
+      throw Error("Module network authorization is unavailable.");
+    const expiresAt = await this.host.authorizeModule(scope, grant);
+    if (
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= Date.now() ||
+      expiresAt > Date.now() + 24 * 3600000
+    )
+      throw Error("Local network authorization expired or is invalid.");
+    return expiresAt;
+  }
+  /** Main-owned checks cover idle sessions, incoming receipts and outgoing transfers. */
+  async refresh(scope: Scope) {
+    const session = this.current;
+    if (!session?.grant || !same(session.scope, scope)) return;
+    if (session.refreshing) return session.refreshing;
+    session.refreshing = (async () => {
+      try {
+        const expiresAt = await this.moduleExpiry(scope, session.grant!);
+        this.check(scope, session.generation);
+        if (this.current !== session)
+          throw Error("Local network authorization changed.");
+        session.expiresAt = expiresAt;
+        this.expireAt(session);
+        clearTimeout(this.renewal);
+        this.renewal = setTimeout(
+          () => void this.refresh(scope).catch(() => {}),
+          15000,
+        );
+      } catch (error) {
+        if (this.current === session) void this.stop(scope).catch(() => {});
+        throw error;
+      } finally {
+        session.refreshing = undefined;
+      }
+    })();
+    return session.refreshing;
+  }
+  private moduleEnvelope(session: Session, envelope: RelayEnvelope) {
+    if (!session.grant) return;
+    const payload = JSON.parse(envelope.payload);
+    const moduleId =
+      envelope.kind === "artifact" ? payload.module_id : payload.call?.moduleId;
+    if (moduleId !== session.grant.moduleId)
+      throw Error(
+        "This local network session only permits its selected module.",
+      );
   }
   private active(scope: Scope) {
     const session = this.current;
@@ -216,8 +294,10 @@ export class ManagedLanSession {
     envelope: RelayEnvelope,
     recheck: () => Promise<void>,
   ) {
+    await this.refresh(scope);
     const session = this.active(scope);
     validateRelayEnvelope(envelope, scope.workspaceId);
+    this.moduleEnvelope(session, envelope);
     await recheck();
     if (this.active(scope) !== session)
       throw Error("Local network authorization changed.");
@@ -259,7 +339,12 @@ export class ManagedLanSession {
   restore(scope: Scope, envelope: RelayEnvelope, check: () => void) {
     return this.store(scope, envelope, check, true);
   }
-  private receive(session: Session, envelope: RelayEnvelope): Promise<void> {
+  private async receive(
+    session: Session,
+    envelope: RelayEnvelope,
+  ): Promise<void> {
+    await this.refresh(session.scope);
+    this.moduleEnvelope(session, envelope);
     const check = () => {
       if (this.active(session.scope) !== session)
         throw Error("Local network authorization changed.");

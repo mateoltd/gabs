@@ -155,6 +155,7 @@ const lan: ManagedLanSession = new ManagedLanSession({
   receiveArtifact: (scope, envelope, check) =>
     lanPackages.receive(scope, envelope, check),
   currentUser: () => userId,
+  authorizeModule: (scope, grant) => nativeAuthority.authorizeLan(scope, grant),
   authorize: async (scope) => {
     const result = await execute(
       {
@@ -781,18 +782,38 @@ function handlers() {
     validateScope: (scope) => validateScope(scope, userId),
     window: () => win!,
   });
-  ipcMain.handle("suite:lan-status", (event, scope: Scope) => {
+  ipcMain.handle("suite:lan-status", async (event, scope: Scope) => {
     sender(event);
     validateScope(scope, userId);
+    await lan.refresh(scope);
     return lanStatus(scope);
   });
   ipcMain.handle(
     "suite:lan-set",
-    async (event, scope: Scope, enabled: boolean) => {
+    async (
+      event,
+      scope: Scope,
+      enabled: boolean,
+      grant?: import("@suite/client").LanModuleGrant,
+    ) => {
       sender(event);
       validateScope(scope, userId);
       if (typeof enabled !== "boolean") throw Error("Invalid network setting.");
-      if (enabled) await lan.enable(scope);
+      if (
+        grant !== undefined &&
+        (!grant ||
+          typeof grant !== "object" ||
+          Array.isArray(grant) ||
+          Object.keys(grant).some(
+            (key) => !["moduleId", "moduleVersion", "capability"].includes(key),
+          ) ||
+          [grant.moduleId, grant.moduleVersion, grant.capability].some(
+            (value) =>
+              typeof value !== "string" || !value.length || value.length > 128,
+          ))
+      )
+        throw Error("Invalid module network grant.");
+      if (enabled) await lan.enable(scope, grant);
       else await lan.stop(scope);
       return lanStatus(scope);
     },

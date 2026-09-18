@@ -198,6 +198,18 @@ export function LocalNetwork(
   }, [hash]);
   const [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<string>();
+  const administrator = props.bootstrap.permissions.includes("modules.manage");
+  const selection =
+    selected &&
+    (selected === "workspace"
+      ? administrator
+      : state.grants.some((grant) => grant.key === selected))
+      ? selected
+      : administrator
+        ? "workspace"
+        : state.grants[0]?.key;
+  const grant = state.grants.find((entry) => entry.key === selection);
   if (!native || !state.allowed) return null;
   return (
     <section className="panel">
@@ -219,12 +231,52 @@ export function LocalNetwork(
               : "Disabled"}
       </p>
       <div className="module-toolbar">
+        {!state.data?.enabled && state.grants.length > 0 && (
+          <Field label="Network access">
+            <Select
+              value={selection ?? ""}
+              onValueChange={setSelected}
+              disabled={busy}
+            >
+              {administrator && (
+                <SelectOption value="workspace">
+                  Workspace administration
+                </SelectOption>
+              )}
+              {state.grants.map((entry) => (
+                <SelectOption key={entry.key} value={entry.key}>
+                  {entry.name}: {fieldLabel(entry.capability)}
+                </SelectOption>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Button
-          disabled={busy || !state.data?.configured}
+          disabled={busy || !state.data?.configured || !selection}
           onClick={async () => {
             setBusy(true);
+            setError(undefined);
             try {
-              await native.setLan(props.scope, !state.data?.enabled);
+              if (
+                !state.data?.enabled &&
+                grant?.offline &&
+                props.offlineEnabled
+              )
+                await native.prepareModuleOffline(
+                  props.scope,
+                  grant.moduleId,
+                  grant.moduleVersion,
+                  true,
+                );
+              await native.setLan(
+                props.scope,
+                !state.data?.enabled,
+                grant && {
+                  moduleId: grant.moduleId,
+                  moduleVersion: grant.moduleVersion,
+                  capability: grant.capability,
+                },
+              );
               await state.refetch();
             } catch (e) {
               setError(e);
@@ -237,7 +289,7 @@ export function LocalNetwork(
             ? "Disable local network"
             : "Enable local network"}
         </Button>
-        <ReceivedDrafts {...props} />
+        {administrator && <ReceivedDrafts {...props} />}
       </div>
       <ErrorMessage error={error} />
     </section>

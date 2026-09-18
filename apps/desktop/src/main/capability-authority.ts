@@ -14,9 +14,12 @@ import {
   CapabilityLeaseAuthoritySchema,
   type CapabilityLease,
 } from "@suite/module-sdk/capability-leases";
-import type { HostCapabilityCall } from "@suite/module-sdk/host-capabilities";
+import {
+  HostAuthorizationSchema,
+  type HostCapabilityCall,
+} from "@suite/module-sdk/host-capabilities";
 import { CorporateCapabilityLeases } from "@suite/client/capability-leases";
-import type { Scope } from "@suite/client";
+import type { Scope, LanModuleGrant } from "@suite/client";
 
 /** Only the main transport may classify a failure as disconnected. HTTP failures never use this path. */
 export class CapabilityTransportUnavailable extends Error {}
@@ -418,6 +421,50 @@ export class NativeCapabilityAuthority {
       capabilities.push(alias);
     }
     return Number.isFinite(expiresAt) ? { expiresAt, capabilities } : {};
+  }
+  /** Session startup is a relay privilege, never a peer-status privilege. */
+  async authorizeLan(scope: Scope, selection: LanModuleGrant): Promise<number> {
+    const stamp = this.stamp(scope);
+    try {
+      const authorization = await this.request(scope, {
+        operation: "moduleCapabilityAuthorize",
+        params: {
+          workspaceId: scope.workspaceId,
+          moduleId: selection.moduleId,
+        },
+        moduleVersion: selection.moduleVersion,
+        body: { capability: selection.capability },
+      });
+      assertSchema(HostAuthorizationSchema, authorization);
+      if (
+        stamp !== this.stamp(scope) ||
+        authorization.userId !== scope.userId ||
+        authorization.workspaceId !== scope.workspaceId ||
+        authorization.moduleId !== selection.moduleId ||
+        authorization.moduleVersion !== selection.moduleVersion ||
+        authorization.capability !== selection.capability ||
+        authorization.kind !== "lan.relay"
+      )
+        throw Error(
+          "A current module relay grant is required to enable local networking.",
+        );
+      // Connected-only sessions renew frequently. An API outage requires a signed lease.
+      return Date.now() + 60000;
+    } catch (error) {
+      if (!(error instanceof CapabilityTransportUnavailable)) throw error;
+    }
+    const module = await this.module(
+      scope,
+      selection.moduleId,
+      selection.moduleVersion,
+    );
+    if (module.capabilities?.[selection.capability]?.kind !== "lan.relay")
+      throw Error(
+        "A module relay grant is required to enable local networking.",
+      );
+    return this.leases.inspect(scope, module, selection.capability, () =>
+      this.live(scope, module, selection.capability, stamp),
+    );
   }
   async authorize(
     scope: Scope,

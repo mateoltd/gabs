@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { defineModule, hydrateModule } from "@suite/module-sdk";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
@@ -28,7 +28,16 @@ const call = {
   capability: "export",
   input: { filename: "notes.txt", content: "Retained work" },
 };
-function fixture() {
+function fixture(
+  kind: "files.export" | "lan.status" | "lan.relay" = "files.export",
+) {
+  const module = defineModule({
+    ...base,
+    capabilities: {
+      ...base.capabilities,
+      export: { ...base.capabilities.export, kind, offline: "lease" },
+    },
+  });
   const scope = { userId: randomUUID(), workspaceId: randomUUID() };
   const keys = generateKeyPairSync("ed25519");
   const publicKey = keys.publicKey
@@ -108,7 +117,7 @@ function fixture() {
             moduleId: module.id,
             moduleVersion: module.version,
             capability: "export",
-            kind: "files.export",
+            kind,
           },
         };
       if (request.operation !== "moduleCapabilityLease")
@@ -122,7 +131,7 @@ function fixture() {
         moduleId: module.id,
         moduleVersion: module.version,
         capability: "export",
-        kind: "files.export",
+        kind,
         permission: module.capabilities!.export.permission,
         contractDigest: await capabilityContractDigest(
           hydrateModule(moduleContract(pkg.artifact)),
@@ -148,6 +157,7 @@ function fixture() {
   let manager = new NativeCapabilityAuthority(host);
   return {
     scope,
+    module,
     policy,
     values,
     requests,
@@ -318,4 +328,119 @@ it("does not reuse a previous API server's native authority after a configuratio
   await expect(f.prepare()).rejects.toThrow(/configured API server/);
   f.online(false);
   await expect(f.authorize()).rejects.toThrow(/permissions/);
+});
+
+it("starts module LAN authority online and from protected signed state after restart without administrator permission", async () => {
+  const f = fixture("lan.relay");
+  const selection = {
+    moduleId: f.module.id,
+    moduleVersion: f.module.version,
+    capability: "export",
+  };
+  expect(f.policy.permissions).not.toContain("modules.manage");
+  expect(await f.manager.authorizeLan(f.scope, selection)).toBeGreaterThan(
+    Date.now(),
+  );
+  await f.prepare();
+  f.online(false);
+  f.restart();
+  expect(await f.manager.authorizeLan(f.scope, selection)).toBeGreaterThan(
+    Date.now(),
+  );
+  await expect(
+    f.manager.authorizeLan(
+      { ...f.scope, workspaceId: randomUUID() },
+      selection,
+    ),
+  ).rejects.toThrow();
+  await expect(
+    f.manager.authorizeLan(f.scope, { ...selection, moduleVersion: "9.0.0" }),
+  ).rejects.toThrow();
+  await expect(
+    f.manager.authorizeLan(f.scope, { ...selection, capability: "missing" }),
+  ).rejects.toThrow();
+  f.online(true);
+  f.response(403);
+  await expect(f.manager.authorizeLan(f.scope, selection)).rejects.toThrow(
+    /rejection/,
+  );
+  f.online(false);
+  f.restart();
+  await expect(f.manager.authorizeLan(f.scope, selection)).rejects.toThrow(
+    /permissions|revoked|lease/,
+  );
+});
+it.each(["files.export", "lan.status"] as const)(
+  "rejects %s as session startup authority, including a valid signed offline grant",
+  async (kind) => {
+    const f = fixture(kind);
+    const selection = {
+      moduleId: f.module.id,
+      moduleVersion: f.module.version,
+      capability: "export",
+    };
+    await expect(f.manager.authorizeLan(f.scope, selection)).rejects.toThrow(
+      /relay grant/,
+    );
+    await f.prepare();
+    f.online(false);
+    f.restart();
+    await expect(f.manager.authorizeLan(f.scope, selection)).rejects.toThrow(
+      /relay grant/,
+    );
+  },
+);
+
+it.each([
+  "expired",
+  "clock rollback",
+  "opt out",
+  "revoked permission",
+  "different profile",
+] as const)("rejects offline LAN startup after %s", async (change) => {
+  const f = fixture("lan.relay");
+  const selection = {
+    moduleId: f.module.id,
+    moduleVersion: f.module.version,
+    capability: "export",
+  };
+  await f.prepare();
+  f.online(false);
+  f.restart();
+  try {
+    if (change === "expired" || change === "clock rollback") {
+      const now = Date.now();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now + (change === "expired" ? 65000 : -300000));
+    }
+    if (change === "opt out")
+      await f.manager.prepare(f.scope, f.module.id, f.module.version, false);
+    if (change === "revoked permission")
+      await f.manager.observe(f.scope, {
+        ...f.policy,
+        permissions: [],
+        policyRevision: "4",
+      });
+    if (change === "different profile") f.user(randomUUID());
+    await expect(f.manager.authorizeLan(f.scope, selection)).rejects.toThrow();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("allows connected module startup when offline storage is disabled, but never falls back without a lease", async () => {
+  const f = fixture("lan.relay");
+  f.policy.offlineHours = 0;
+  f.storage(false);
+  const selection = {
+    moduleId: f.module.id,
+    moduleVersion: f.module.version,
+    capability: "export",
+  };
+  expect(await f.manager.authorizeLan(f.scope, selection)).toBeGreaterThan(
+    Date.now(),
+  );
+  f.online(false);
+  await expect(f.manager.authorizeLan(f.scope, selection)).rejects.toThrow(
+    /Protected storage/,
+  );
 });

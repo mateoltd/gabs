@@ -66,6 +66,12 @@ export interface LanStatus {
   peers: { id: string; address: string; port: number; seen: number }[];
   port?: number;
 }
+/** Identifies a declared relay grant; the native host independently verifies authority. */
+export interface LanModuleGrant {
+  moduleId: string;
+  moduleVersion: string;
+  capability: string;
+}
 export interface LanReceiptSelection {
   id: string;
   digest: string;
@@ -157,7 +163,11 @@ export interface DesktopBridge {
   openBilling(url: string): Promise<void>;
   lanStatus(scope: Scope): Promise<LanStatus>;
   onLanChanged(callback: () => void): () => void;
-  setLan(scope: Scope, enabled: boolean): Promise<LanStatus>;
+  setLan(
+    scope: Scope,
+    enabled: boolean,
+    grant?: LanModuleGrant,
+  ): Promise<LanStatus>;
   authStatus(): Promise<{
     mode: "development" | "oidc" | "unconfigured";
   }>;

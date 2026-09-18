@@ -1194,23 +1194,25 @@ export function Workspace({
                   />
                   <Route
                     path="/settings"
-                    element={onlineOnly(
-                      <>
-                        <Settings
+                    element={
+                      <Settings
+                        {...routeFeatures}
+                        toggleOffline={toggleOffline}
+                        theme={theme}
+                        setTheme={setTheme}
+                      >
+                        {routeFeatures.online && (
+                          <>
+                            <Appearance {...routeFeatures} />
+                            <Billing {...routeFeatures} />
+                          </>
+                        )}
+                        <LocalNetwork
                           {...routeFeatures}
-                          toggleOffline={toggleOffline}
-                          theme={theme}
-                          setTheme={setTheme}
-                        >
-                          <Appearance {...routeFeatures} />
-                          <Billing {...routeFeatures} />
-                          <LocalNetwork
-                            {...routeFeatures}
-                            network={localNetwork}
-                          />
-                        </Settings>
-                      </>,
-                    )}
+                          network={localNetwork}
+                        />
+                      </Settings>
+                    }
                   />
                   <Route
                     path="*"

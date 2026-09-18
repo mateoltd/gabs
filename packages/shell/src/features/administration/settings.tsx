@@ -42,6 +42,12 @@ export function Settings(
         title="Settings"
         description="Appearance, offline access, and workspace preferences."
       />
+      {!props.online && (
+        <p className="small">
+          Device preferences and authorized local networking remain available.
+          Connect to manage workspace policy and billing.
+        </p>
+      )}
       <div className="settings-grid">
         <section className="panel">
           <h2>Appearance</h2>
@@ -63,7 +69,11 @@ export function Settings(
               : "The workspace administrator has disabled offline storage."}
           </p>
           <Button
-            disabled={!bootstrap.offlineHours || busy}
+            disabled={
+              !bootstrap.offlineHours ||
+              busy ||
+              (!props.online && !offlineEnabled)
+            }
             onClick={async () => {
               try {
                 await toggleOffline();
@@ -81,7 +91,7 @@ export function Settings(
             data.
           </p>
         </section>
-        {bootstrap.permissions.includes("workspace.manage") && (
+        {props.online && bootstrap.permissions.includes("workspace.manage") && (
           <section className="panel">
             <h2>Workspace policy</h2>
             <form

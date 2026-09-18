@@ -55,8 +55,12 @@ export function MotionRoutes({ children }: { children: ReactNode }) {
     };
   }, [location]);
   // Search/filter changes keep their existing component and input focus.
+  // The startup redirect must unmount immediately when the user chooses a page.
+  // Keeping the old root route alive for one effect can redirect that newer click.
   const visible =
-    location.pathname === displayed.pathname ? location : displayed;
+    displayed.pathname === "/" || location.pathname === displayed.pathname
+      ? location
+      : displayed;
   return (
     <div
       className="route-stage"

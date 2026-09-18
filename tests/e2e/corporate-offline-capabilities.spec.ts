@@ -146,6 +146,21 @@ test("real corporate leases enable cached browser exports and reject revoked, ta
     });
     await context.setOffline(true);
     await page.reload();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(
+      page.getByRole("combobox", { name: "Theme", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Save workspace policy", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Local network", exact: true }),
+    ).toHaveCount(0);
+    await selectValue(page, "Theme", "light");
+    await selectValue(page, "Theme", "dark");
+    await page
+      .getByRole("link", { name: "Offline capability notes", exact: true })
+      .click();
     await expect(ready).toBeVisible();
     const download = page.waitForEvent("download");
     await exportButton.click();

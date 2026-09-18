@@ -79,8 +79,8 @@ const bridge: DesktopBridge = {
     };
   },
   lanStatus: (scope) => ipcRenderer.invoke("suite:lan-status", scope),
-  setLan: (scope, enabled) =>
-    ipcRenderer.invoke("suite:lan-set", scope, enabled),
+  setLan: (scope, enabled, grant) =>
+    ipcRenderer.invoke("suite:lan-set", scope, enabled, grant),
   authStatus: () => ipcRenderer.invoke("suite:auth-status"),
   execute: (request) => ipcRenderer.invoke("suite:execute", request),
   login: (options) => ipcRenderer.invoke("suite:login", options),

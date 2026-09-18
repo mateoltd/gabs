@@ -335,3 +335,101 @@ it("expires an administrator lease while authenticated peer discovery is still w
     await fixture.close();
   }
 });
+
+it("uses employee relay grants, limits receipts to their module and stops on authority loss", async () => {
+  const scope = { userId: randomUUID(), workspaceId: randomUUID() };
+  const fixture = await lanFixture(scope.workspaceId);
+  const grant = {
+    moduleId: "notes",
+    moduleVersion: "1.0.0",
+    capability: "relay",
+  };
+  let authorized = true;
+  let checks = 0;
+  let inbox: RelayEnvelope[] = [];
+  const session = new ManagedLanSession({
+    currentUser: () => scope.userId,
+    authorize: async () => {
+      throw Error("No administrator permission");
+    },
+    authorizeModule: async (_scope, selected) => {
+      expect(selected).toEqual(grant);
+      checks++;
+      if (!authorized) throw Error("Module grant revoked");
+      return Date.now() + 60000;
+    },
+    configure: async () => fixture.config("a"),
+    readInbox: async () => structuredClone(inbox),
+    writeInbox: async (_scope, value) => {
+      inbox = structuredClone(value);
+    },
+  });
+  const peer = new LanTransport(fixture.config("b"), async () => {});
+  const packet = (moduleId: string) =>
+    envelope(
+      scope.workspaceId,
+      randomUUID(),
+      JSON.stringify({ call: { moduleId } }),
+    );
+  try {
+    await expect(session.enable(scope)).rejects.toThrow(/administrator/);
+    await peer.start();
+    await session.enable(scope, grant);
+    await peer.discover();
+    const recipient = fixture.identities.a.fingerprint;
+    await peer.relay(recipient, packet("notes"));
+    expect(inbox).toHaveLength(1);
+    await expect(peer.relay(recipient, packet("foreign"))).rejects.toThrow(
+      /refused/,
+    );
+    expect(inbox).toHaveLength(1);
+    expect(checks).toBeGreaterThanOrEqual(4);
+    authorized = false;
+    await expect(session.refresh(scope)).rejects.toThrow(/revoked/);
+    expect(session.status(scope).enabled).toBe(false);
+    await expect(session.enable(scope, grant)).rejects.toThrow(/revoked/);
+    expect(inbox).toHaveLength(1);
+  } finally {
+    await session.stop();
+    await peer.stop();
+    await fixture.close();
+  }
+});
+
+it("does not bind a listener when module authority expires during certificate loading", async () => {
+  const scope = { userId: randomUUID(), workspaceId: randomUUID() };
+  const fixture = await lanFixture(scope.workspaceId);
+  const now = Date.now();
+  let changes = 0;
+  const session = new ManagedLanSession({
+    currentUser: () => scope.userId,
+    authorize: async () => {
+      throw Error("No administrator permission");
+    },
+    authorizeModule: async () => now + 1000,
+    configure: async () => {
+      vi.spyOn(Date, "now").mockReturnValue(now + 2000);
+      return fixture.config("a");
+    },
+    changed: () => {
+      changes++;
+    },
+    readInbox: async () => [],
+    writeInbox: async () => {},
+  });
+  try {
+    await expect(
+      session.enable(scope, {
+        moduleId: "notes",
+        moduleVersion: "1.0.0",
+        capability: "relay",
+      }),
+    ).rejects.toThrow(/expired during configuration/);
+    expect(changes).toBe(0);
+    expect(session.status(scope).enabled).toBe(false);
+  } finally {
+    vi.restoreAllMocks();
+    await session.stop();
+    await fixture.close();
+  }
+});
