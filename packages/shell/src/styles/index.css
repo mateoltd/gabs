@@ -2333,6 +2333,10 @@ legend {
   align-items: center;
   padding-block: 12px;
 }
+.module-saved-change {
+  flex-basis: 100%;
+  min-width: 0;
+}
 .module-pending span {
   flex: 1;
   min-width: 140px;
@@ -2673,6 +2677,9 @@ body:has(.local-workspace),
 }
 .module-conflict-values dd {
   margin: 0;
+}
+.module-saved-values {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 @media (max-width: 600px) {
   .module-conflict-values {

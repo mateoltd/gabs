@@ -12,6 +12,7 @@ import {
 import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
 import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
 import { ConflictReview } from "./conflict-review";
+import { SavedChange } from "./saved-change";
 import { useModuleReferences } from "./references";
 import { canonical } from "@suite/module-sdk/registry";
 import {
@@ -1194,6 +1195,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       ? "Resume review"
                       : "Review"}
                   </Button>
+                )}
+                {["create", "update"].includes(entry.call.action) && (
+                  <SavedChange
+                    entry={entry}
+                    schema={definition.schema as TObject}
+                    loadReferences={loadReferences}
+                  />
                 )}
               </div>
             ))}

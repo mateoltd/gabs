@@ -10,6 +10,14 @@ Offline reference pickers include same-account/workspace pending creates and mar
 
 Reviewed replacement of a rejected/conflicting request preserves its record target and existing prerequisites. The journal reconnects dependents atomically. Replacing uncertain work, reusing a retry identifier for different content, or introducing circular prerequisites fails without deleting the draft.
 
+## Successive edits to one record
+
+New queued resource writes wait for unresolved writes to the same scoped record. Request and dependency edges commit together; concurrent enqueues use the storage lock. A reviewed replacement retains its original place and reconnects later edits without creating a cycle. Distinct records remain independent. Existing input, retry identities and recorded server versions are preserved.
+
+Each captured edit uses an actual downloaded server snapshot, not a provisional version. The server merges disjoint changes; overlapping changes require explicit review even when the preceding edit came from the same device. Pending rows expose a keyboard-accessible **View saved change** disclosure with original/saved field values and capture time. These values remain separate from accepted table rows.
+
+[Same-record acceptance](verification/record-order/README.md) verifies offline capture, browser reload/native offline restart, uncertainty, overlapping conflict, explicit review, dependent continuation and unrelated progress with exact server state/audit assertions. Legacy already-dispatched journals cannot be retroactively ordered. Archive interactions, colliding-create same-record descendants and arbitrary commands retain separate required gates.
+
 ## Failed-create collisions
 
 A conflicting create can be reviewed as a separate record after an explicit server outcome check. A confirmed cancellation fences the old request; the parent and eligible unsubmitted resource dependents then receive fresh request keys in one local transaction. The parent receives a fresh record ID and declared links follow it. Existing corporate records, original request bodies, child base snapshots and unrelated work remain intact. Lost settlement replies can be recovered after reload or process restart. An accepted original receipt never creates a second record.
@@ -49,9 +57,9 @@ With offline storage disabled, direct pending input remains in the mounted edito
 ## Remaining OFF-01 work
 
 - Extend direct-attempt acceptance to archived-input recovery and original-resource permission changes during archive recovery. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
-- Nested/reference-field comparisons and journaled/direct failed-create collisions now have scoped browser/native recovery evidence. Ambiguous drafts, same-record ordering and custom descendants retain separate required work.
-- Nested cross-module capture and rejected-parent continuation now have scoped [browser/native acceptance](verification/cross-capture/README.md), including explicit grants, revocation/regrant, lost replies, collision remapping and unrelated progress. Ambiguous drafts, same-record changes and custom descendants remain separate gates.
-- Complete same-record pending-edit ordering and clear identification/recovery of individual pending changes.
+- Nested/reference-field comparisons and journaled/direct failed-create collisions now have scoped browser/native recovery evidence. Ambiguous drafts, same-record descendants of colliding creates and custom descendants retain separate required work.
+- Nested cross-module capture and rejected-parent continuation now have scoped [browser/native acceptance](verification/cross-capture/README.md), including explicit grants, revocation/regrant, lost replies, collision remapping and unrelated progress. Ambiguous drafts, same-record descendants of colliding creates and custom descendants remain separate gates.
+- New same-record queued edits now have scoped ordering and saved-input inspection acceptance. Finish archive interaction/recovery and legacy unsequenced journal recovery; do not infer those from the new-capture journey.
 - Align retry-key validation across desktop submissions and relay receipt lookups with server-accepted formats; those older paths still use narrower character rules than execution and the new settlement endpoint.
 - Re-audit durable queued custom operations, archive behavior and recovery controls against operation policies; retain missing implementation in the tracker rather than treating generated CRUD coverage as full SDK coverage.
 

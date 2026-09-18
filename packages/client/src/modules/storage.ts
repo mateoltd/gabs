@@ -33,6 +33,7 @@ import { flushJournal, type JournalEntry } from "@suite/module-sdk/sync";
 import {
   assertJournalOrder,
   referenceDependencies,
+  recordDependencies,
   JournalConflictError,
 } from "./journal";
 import { canonical } from "@suite/module-sdk/registry";
@@ -239,6 +240,9 @@ export async function enqueue(
           ...new Set([
             ...dependencies,
             ...(replaced?.dependencies ?? []),
+            // A review occupies the original position; later writes already wait
+            // for it and must not become its own prerequisites.
+            ...(replaced ? [] : recordDependencies(call, s.journal, scope)),
             ...referenceDependencies(schema, call, s.journal, scope),
           ]),
         ];

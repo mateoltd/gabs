@@ -134,6 +134,87 @@ function storage() {
   };
 }
 afterEach(() => vi.unstubAllGlobals());
+it("atomically orders same-record edits, preserves failed predecessors and reconnects review without a cycle", async () => {
+  const { platform, install, interrupt } = storage();
+  await install();
+  const edit = (key: string, name: string): ModuleCall => ({
+    ...call(key),
+    action: "update",
+    input: {
+      id: "record",
+      baseVersion: 1,
+      baseData: data,
+      data: { ...data, name },
+    },
+  });
+  const first = edit("first-edit", "First");
+  const second = edit("second-edit", "Second");
+  await enqueue(platform, scope, first);
+  interrupt();
+  await expect(enqueue(platform, scope, second)).rejects.toThrow(
+    "Interrupted commit",
+  );
+  expect((await readModuleStorage(platform, scope)).journal).toHaveLength(1);
+  await Promise.all([
+    enqueue(platform, scope, second),
+    enqueue(platform, scope, edit("third-edit", "Third")),
+  ]);
+  const entries = () =>
+    readModuleStorage(platform, scope).then((s) => s.journal);
+  expect((await entries()).map((e) => e.dependencies)).toEqual([
+    [],
+    ["first-edit"],
+    ["second-edit"],
+  ]);
+  const sent: string[] = [];
+  await syncModuleStorage(
+    platform,
+    scope,
+    async (request) => {
+      sent.push(request.key!);
+      throw { status: 403, message: "Denied" };
+    },
+    () => true,
+  );
+  expect(sent).toEqual(["first-edit"]);
+  expect((await entries()).map((e) => e.state)).toEqual([
+    "rejected",
+    "pending",
+    "pending",
+  ]);
+  await enqueue(platform, scope, edit("reviewed-edit", "Reviewed"), [], {
+    draftKey: "draft",
+    supersedes: "first-edit",
+  });
+  expect((await entries()).map((e) => e.dependencies)).toEqual([
+    [],
+    ["reviewed-edit"],
+    ["second-edit"],
+    [],
+  ]);
+  await syncModuleStorage(
+    platform,
+    scope,
+    async (request) => {
+      sent.push(request.key!);
+      return {
+        ...row,
+        data: (request.input as { data: Record<string, unknown> }).data,
+      };
+    },
+    () => true,
+  );
+  expect(sent).toEqual([
+    "first-edit",
+    "reviewed-edit",
+    "second-edit",
+    "third-edit",
+  ]);
+  // Ordering never rewrites saved base versions/data or claims a future server version.
+  expect((await entries())[1].call).toEqual(second);
+  expect((await entries())[0].call).toEqual(first);
+});
+
 it("retains original signed versions through updates and uninstall, isolates scopes, and retries uncertain receipts without blocking unrelated work", async () => {
   const { platform, install, root } = storage();
   await install();

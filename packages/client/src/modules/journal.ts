@@ -12,6 +12,41 @@ export class JournalConflictError extends Error {
   readonly code = "JOURNAL_CONFLICT";
 }
 
+/** Serialize new resource writes to one record without changing their original input. */
+export function recordDependencies(
+  call: ModuleCall,
+  journal: readonly JournalEntry[],
+  scope: Scope,
+): string[] {
+  const id = (call.input as { id?: unknown } | undefined)?.id;
+  if (
+    !call.resource ||
+    !["create", "update", "archive"].includes(call.action) ||
+    typeof id !== "string" ||
+    !id
+  )
+    return [];
+  const predecessors = journal.filter((entry) => {
+    const target = (entry.call.input as { id?: unknown } | undefined)?.id;
+    return (
+      entry.userId === scope.userId &&
+      entry.workspaceId === scope.workspaceId &&
+      entry.id !== call.key &&
+      !entry.supersededBy &&
+      entry.state !== "accepted" &&
+      entry.call.moduleId === call.moduleId &&
+      entry.call.resource === call.resource &&
+      ["create", "update", "archive"].includes(entry.call.action) &&
+      typeof target === "string" &&
+      target.toLowerCase() === id.toLowerCase()
+    );
+  });
+  const waiting = new Set(predecessors.map((entry) => entry.id));
+  for (const entry of predecessors)
+    for (const prerequisite of entry.dependencies) waiting.delete(prerequisite);
+  return [...waiting];
+}
+
 export function assertJournalOrder(
   journal: readonly JournalEntry[],
   scope: Scope,
