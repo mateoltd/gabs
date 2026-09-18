@@ -93,6 +93,39 @@ describe("offline and native boundaries", () => {
       ),
     ).toBe(false);
   });
+  it("preserves opaque native retry identities and rejects transport changes", () => {
+    const request = {
+      operation: "moduleRequest",
+      params: { workspaceId: randomUUID(), moduleId: "contacts" },
+    };
+    for (const key of [
+      "device:contacts/123.v1+draft=1@office",
+      "CaseSensitive key",
+      "key:12\tgood",
+      "é".repeat(8),
+      "a".repeat(8),
+      "a".repeat(128),
+    ])
+      expect(
+        validateOperation({ ...request, idempotencyKey: key }).idempotencyKey,
+      ).toBe(key);
+    for (const key of [
+      "short",
+      "a".repeat(129),
+      " key:12345",
+      "key:12345 ",
+      "key:12345\t",
+      "key:12\r\nInjected: value",
+      "key:12\0bad",
+      "key:12\x01bad",
+      "key:12\x7fbad",
+      "key:1234😀",
+      12345678,
+    ])
+      expect(() =>
+        validateOperation({ ...request, idempotencyKey: key }),
+      ).toThrow("Invalid request key");
+  });
   it("rejects arbitrary native URLs, routes and filesystem scopes", () => {
     const moduleRequest = {
       operation: "moduleRequest",

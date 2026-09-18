@@ -135,7 +135,7 @@ test("received drafts reconcile remote prerequisites and original releases witho
     ).toBe(true);
     const remoteIdentity = await (await remote.get("/api/v1/me")).json();
     expect(remoteIdentity.user.id).toBe(userId);
-    const parent = randomUUID();
+    const parent = `remote:notes/${randomUUID()}.v1+draft=1`;
     const committed = await remote.post(
       `/api/v1/module/${moduleId}/workspaces/${workspaceId}/records`,
       {
@@ -153,12 +153,30 @@ test("received drafts reconcile remote prerequisites and original releases witho
       },
     );
     expect(committed.status()).toBe(200);
+    // Retry the remote request through renderer IPC with the exact opaque key.
+    const replayed = await page.evaluate(
+      ({ workspaceId, moduleId, key, version }) =>
+        window.suiteDesktop!.execute({
+          operation: "moduleRequest",
+          params: { workspaceId, moduleId },
+          idempotencyKey: key,
+          moduleVersion: version,
+          body: {
+            resource: "notes",
+            action: "create",
+            input: { data: { text: "Accepted on another device" } },
+          },
+        }),
+      { workspaceId, moduleId, key: parent, version: published.version },
+    );
+    expect(replayed.status, JSON.stringify(replayed.body)).toBe(200);
+    expect(replayed.body).toEqual(await committed.json());
     const packet = (
       text: string,
       version = published.version,
       dependencies: string[] = [],
     ): RelayEnvelope => {
-      const key = randomUUID();
+      const key = `office:notes/${randomUUID()}@capture`;
       const payload = JSON.stringify({
         ...scope,
         id: key,
@@ -186,7 +204,7 @@ test("received drafts reconcile remote prerequisites and original releases witho
       parent,
     ]);
     const missing = packet("Unresolved prerequisite", published.version, [
-      randomUUID(),
+      `absent:notes/${randomUUID()}`,
     ]);
     const retained = packet("Original release draft"),
       blocked = packet("Unconfirmed old release");

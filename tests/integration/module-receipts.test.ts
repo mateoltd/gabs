@@ -58,30 +58,49 @@ it("reads only committed same-account module receipts under current workspace an
       expect(response.statusCode).toBe(200);
       return response.json().version as string;
     };
-    const key = randomUUID(),
-      operationKey = randomUUID(),
+    const key = `device:contacts/${randomUUID()}.v1+draft=1`,
+      operationKey = `office:inventory/${randomUUID()}@create`,
       absent = randomUUID();
-    const created = await server.app.inject({
-      method: "POST",
-      url: `/api/v1/module/contacts/workspaces/${workspace}/records`,
-      headers: {
-        ...source,
-        "idempotency-key": key,
-        "x-module-version": await acceptedVersion("contacts"),
-      },
-      payload: {
-        resource: "contacts",
-        action: "create",
-        input: {
-          data: {
-            name: "Received reference",
-            kind: "person",
-            relationship: "customer",
-          },
+    const createCall = {
+      resource: "contacts",
+      action: "create",
+      input: {
+        data: {
+          name: "Received reference",
+          kind: "person",
+          relationship: "customer",
         },
       },
-    });
+    };
+    const contactVersion = await acceptedVersion("contacts");
+    const create = () =>
+      server.app.inject({
+        method: "POST",
+        url: `/api/v1/module/contacts/workspaces/${workspace}/records`,
+        headers: {
+          ...source,
+          "idempotency-key": key,
+          "x-module-version": contactVersion,
+        },
+        payload: createCall,
+      });
+    const created = await create();
     expect(created.statusCode, created.body).toBe(200);
+    const repeated = await create();
+    expect(repeated.statusCode, repeated.body).toBe(200);
+    expect(repeated.json()).toEqual(created.json());
+    const recovered = await server.app.inject({
+      method: "POST",
+      url: `/api/v1/module/contacts/workspaces/${workspace}/attempts/settle`,
+      headers: { ...source, "x-module-version": contactVersion },
+      payload: { key, call: createCall },
+    });
+    expect(recovered.statusCode, recovered.body).toBe(200);
+    expect(recovered.json()).toEqual({
+      key,
+      outcome: "accepted",
+      result: created.json(),
+    });
     const operation = await server.app.inject({
       method: "POST",
       url: `/api/v1/module/inventory/workspaces/${workspace}/operations/create-product`,
@@ -136,6 +155,15 @@ it("reads only committed same-account module receipts under current workspace an
     ).toEqual({ accepted: [] });
     expect((await lookup([key], randomUUID())).statusCode).toBe(403);
     expect((await lookup(["short"])).statusCode).toBe(400);
+    expect((await lookup(["a".repeat(129)])).statusCode).toBe(400);
+    expect((await lookup(["invalid\0key"])).statusCode).toBe(400);
+    const invalidSettlement = await server.app.inject({
+      method: "POST",
+      url: `/api/v1/module/contacts/workspaces/${workspace}/attempts/settle`,
+      headers: { ...source, "x-module-version": contactVersion },
+      payload: { key: "invalid\0key", call: createCall },
+    });
+    expect(invalidSettlement.statusCode).toBe(400);
     expect(
       (await lookup(Array.from({ length: 101 }, () => randomUUID())))
         .statusCode,

@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
+import { RequestKeySchema as key } from "./request-key";
 const name = Type.String({ pattern: "^[a-z][a-z0-9-]{0,63}$" });
-const key = Type.String({ minLength: 8, maxLength: 128 });
 /** Settle an exact request: return its receipt or permanently prevent its execution. */
 export const AttemptSettlementRequestSchema = Type.Object(
   {

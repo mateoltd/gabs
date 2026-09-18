@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-const key = Type.String({ minLength: 8, maxLength: 128, pattern: "^[\\w-]+$" });
+import { RequestKeySchema as key } from "./request-key";
 /** A read-only lookup. Unknown and currently inaccessible keys are indistinguishable. */
 export const ReceiptLookupSchema = Type.Object(
   {

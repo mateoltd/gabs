@@ -1,7 +1,9 @@
 import { assertSchema } from "@suite/module-sdk";
+import { validateHeaderValue } from "node:http";
 import { ReferenceQuerySchema } from "@suite/module-sdk/references";
 import {
   OPERATIONS,
+  RequestKeySchema,
   operationPath,
   type OperationRequest,
   type LoginOptions,
@@ -83,12 +85,21 @@ export function validateOperation(value: unknown): OperationRequest {
       ].includes(r.operation))
   )
     throw Error("Invalid module version");
-  if (
-    r.idempotencyKey !== undefined &&
-    (typeof r.idempotencyKey !== "string" ||
-      !/^[\w-]{8,128}$/.test(r.idempotencyKey))
-  )
-    throw Error("Invalid request key");
+  if (r.idempotencyKey !== undefined) {
+    try {
+      assertSchema(RequestKeySchema, r.idempotencyKey);
+      validateHeaderValue("Idempotency-Key", r.idempotencyKey);
+      // Fetch normalizes header whitespace. Never silently change a retry identity.
+      if (
+        new Headers({ "Idempotency-Key": r.idempotencyKey }).get(
+          "Idempotency-Key",
+        ) !== r.idempotencyKey
+      )
+        throw Error("Request key would change in transport");
+    } catch {
+      throw Error("Invalid request key");
+    }
+  }
   if (
     r.query &&
     Object.keys(r.query).some(
