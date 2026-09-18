@@ -33,7 +33,8 @@ export type CommandCorrectionOptions = {
     | "viewless"
     | "uninstalled"
     | "resource-viewless"
-    | "resource-uninstalled";
+    | "resource-uninstalled"
+    | "resource-stale-metadata";
   recoverySurface?: "viewless" | "uninstalled";
   exportWork(button: Locator): Promise<unknown>;
   rejectExport(
@@ -41,6 +42,10 @@ export type CommandCorrectionOptions = {
     moduleId: string,
     during: () => Promise<void>,
   ): Promise<void>;
+  holdRecoveryMetadata?(scope: {
+    userId: string;
+    workspaceId: string;
+  }): Promise<{ release(): Promise<void> }>;
   holdSettlement?(): Promise<{
     arrived(): Promise<void>;
     release(): Promise<void>;
@@ -64,7 +69,8 @@ export async function commandCorrectionJourney(
     return commandContinuationJourney(options);
   if (
     options.mode === "resource-viewless" ||
-    options.mode === "resource-uninstalled"
+    options.mode === "resource-uninstalled" ||
+    options.mode === "resource-stale-metadata"
   )
     return resourceHostJourney(options);
   if (options.mode === "viewless" || options.mode === "uninstalled")

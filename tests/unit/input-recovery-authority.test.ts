@@ -385,3 +385,78 @@ it("authorizes historical command exports using host-observed contracts through 
     /command/,
   );
 });
+
+it.each(["platformState", "moduleArtifact", "moduleReceiptArtifact"] as const)(
+  "discards delayed successful %s metadata without revoking a newer prepared policy",
+  async (operation) => {
+    const f = fixture();
+    await f.authorize();
+    await f.authority.setOffline(f.scope, true);
+    f.policy.policyRevision = "2";
+    await f.authorize();
+    const before = structuredClone([...f.values]);
+    const body =
+      operation === "platformState" ? { modules: [f.pkg.artifact] } : f.pkg;
+    await f.authority.observeResponse(
+      f.scope,
+      operation,
+      { status: 200, body },
+      "1",
+    );
+    // Invalid obsolete content is discarded before parsing; it cannot replace or revoke newer metadata.
+    await f.authority.observeResponse(
+      f.scope,
+      operation,
+      { status: 200, body: {} },
+      "1",
+    );
+    expect([...f.values]).toEqual(before);
+    f.offline();
+    f.restart();
+    await f.authorize();
+  },
+);
+
+it.each(["platformState", "moduleArtifact", "moduleReceiptArtifact"] as const)(
+  "still revokes offline recovery after malformed current %s metadata",
+  async (operation) => {
+    const f = fixture();
+    await f.authorize();
+    await f.authority.setOffline(f.scope, true);
+    await f.authority.observeResponse(
+      f.scope,
+      operation,
+      { status: 200, body: {} },
+      "1",
+    );
+    f.offline();
+    f.restart();
+    await expect(f.authorize()).rejects.toThrow("Reconnect");
+  },
+);
+
+it.each([401, 403, 426])(
+  "preserves a real %s denial even when the request started under an older policy",
+  async (status) => {
+    const f = fixture();
+    await f.authorize();
+    await f.authority.setOffline(f.scope, true);
+    f.policy.policyRevision = "2";
+    await f.authorize();
+    await f.authority.observeResponse(
+      f.scope,
+      "platformState",
+      { status, body: {} },
+      "1",
+    );
+    await f.authority.observeResponse(
+      f.scope,
+      "platformState",
+      { status: 200, body: { modules: [f.pkg.artifact] } },
+      "1",
+    );
+    f.offline();
+    f.restart();
+    await expect(f.authorize()).rejects.toThrow("Reconnect");
+  },
+);

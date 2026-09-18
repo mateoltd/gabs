@@ -266,11 +266,12 @@ export async function resourceHostJourney(options: CommandCorrectionOptions) {
     await expect(dialog).toHaveClass(/is-open/);
     return dialog;
   };
+  const heldMetadata = await options.holdRecoveryMetadata?.(scope);
   await pool.query(
     "update suite.roles set permissions=array_remove(array_remove(permissions,$2),$3) where workspace_id=$1",
     [scope.workspaceId, `${id}.notes.write`, `${id}.open`],
   );
-  await page.reload();
+  if (!heldMetadata) await page.reload();
   await settings();
   await expect(
     page.getByRole("button", { name: /^Saved records and drafts/ }),
@@ -279,13 +280,14 @@ export async function resourceHostJourney(options: CommandCorrectionOptions) {
     "update suite.roles set permissions=array_append(permissions,$2) where workspace_id=$1 and protected",
     [scope.workspaceId, `${id}.notes.write`],
   );
-  await page.reload();
+  if (!heldMetadata) await page.reload();
   let dialog = await inbox();
   await expect(
     dialog.getByRole("heading", { name: "Notes: draft", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await options.offline(true);
+  await heldMetadata?.release();
   page = await options.restartOffline();
   dialog = await inbox();
   const change = (action: string) =>

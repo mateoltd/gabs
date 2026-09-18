@@ -495,35 +495,13 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
         void lan.stop(scope).catch(() => {});
         await nativeAuthority.revoke(scope).catch(() => {});
       }
-      // Recovery metadata failure must not revoke unrelated device or LAN capabilities.
-      try {
-        if (res.ok && request.operation === "bootstrap")
-          await inputRecovery.observe(scope, body);
-        else if (res.ok && request.operation === "workspacePolicy")
-          await inputRecovery.observe(scope, body.bootstrap);
-        else if (
-          res.ok &&
-          request.operation === "platformState" &&
-          recoveryRevision !== undefined
-        )
-          await inputRecovery.observeCatalog(scope, body, recoveryRevision);
-        else if (
-          res.ok &&
-          (request.operation === "moduleArtifact" ||
-            request.operation === "moduleReceiptArtifact")
-        )
-          await inputRecovery.observeArtifact(
-            scope,
-            body,
-            recoveryRevision,
-            request.operation === "moduleArtifact" &&
-              recoveryRevision !== undefined,
-          );
-        else if ([401, 403, 426].includes(res.status))
-          await inputRecovery.revoke(scope);
-      } catch {
-        await inputRecovery.revoke(scope).catch(() => {});
-      }
+      // Recovery owns its metadata ordering; genuine server denial still revokes access.
+      await inputRecovery.observeResponse(
+        scope,
+        request.operation,
+        { status: res.status, body },
+        recoveryRevision,
+      );
     }
     if (res.status === 401) {
       void lan.stop().catch(() => {});

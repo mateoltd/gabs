@@ -43,6 +43,13 @@ interface Host {
 const key = (scope: Scope) =>
   `input-recovery/${scope.userId}/${scope.workspaceId}`;
 
+/** An obsolete successful response is not a denial of the newer policy. */
+class SupersededRecoveryMetadata extends Error {
+  constructor() {
+    super("Recovery policy changed while verifying dependencies.");
+  }
+}
+
 /** Policy and dependency metadata come only from authenticated main-process responses. */
 export class NativeInputRecovery {
   private states = new Map<string, Stored>();
@@ -99,6 +106,41 @@ export class NativeInputRecovery {
   revision(scope: Scope) {
     return this.states.get(key(scope))?.policy?.policyRevision;
   }
+  /** Consume authenticated main-process responses without revoking newer policy for stale metadata. */
+  async observeResponse(
+    scope: Scope,
+    operation: OperationRequest["operation"],
+    response: { status: number; body: unknown },
+    revision?: string,
+  ) {
+    try {
+      if (response.status >= 200 && response.status < 300) {
+        if (operation === "bootstrap") await this.observe(scope, response.body);
+        else if (operation === "workspacePolicy") {
+          assertSchema(
+            Type.Object({ bootstrap: BootstrapSchema }),
+            response.body,
+          );
+          await this.observe(scope, response.body.bootstrap);
+        } else if (operation === "platformState" && revision !== undefined)
+          await this.observeCatalog(scope, response.body, revision);
+        else if (
+          operation === "moduleArtifact" ||
+          operation === "moduleReceiptArtifact"
+        )
+          await this.observeArtifact(
+            scope,
+            response.body,
+            revision,
+            operation === "moduleArtifact" && revision !== undefined,
+          );
+      } else if ([401, 403, 426].includes(response.status))
+        await this.revoke(scope);
+    } catch (error) {
+      if (!(error instanceof SupersededRecoveryMetadata))
+        await this.revoke(scope).catch(() => {});
+    }
+  }
   observe(scope: Scope, policy: unknown) {
     const generation = this.generation;
     return this.serial(async () => {
@@ -129,13 +171,13 @@ export class NativeInputRecovery {
     const generation = this.generation;
     return this.serial(async () => {
       this.check(scope, generation);
+      const state = await this.state(scope);
+      if (revision !== undefined && state.policy?.policyRevision !== revision)
+        throw new SupersededRecoveryMetadata();
       assertSchema(SignedArtifactSchema, value);
       const module = hydrateModule(moduleContract(value.artifact));
       if (module.id !== value.module_id || module.version !== value.version)
         throw Error("Invalid recovery module identity.");
-      const state = await this.state(scope);
-      if (revision !== undefined && state.policy?.policyRevision !== revision)
-        throw Error("Recovery policy changed while verifying dependencies.");
       (state.contracts ??= {})[`${module.id}@${module.version}`] = JSON.parse(
         JSON.stringify(moduleContract(value.artifact)),
       );
@@ -151,6 +193,9 @@ export class NativeInputRecovery {
     const generation = this.generation;
     return this.serial(async () => {
       this.check(scope, generation);
+      const state = await this.state(scope);
+      if (state.policy?.policyRevision !== revision)
+        throw new SupersededRecoveryMetadata();
       assertSchema(
         Type.Object({
           modules: Type.Array(Type.Record(Type.String(), Type.Unknown())),
@@ -160,9 +205,6 @@ export class NativeInputRecovery {
       const modules = value.modules.map((value) =>
         hydrateModule(moduleContract(value)),
       );
-      const state = await this.state(scope);
-      if (state.policy?.policyRevision !== revision)
-        throw Error("Recovery policy changed while verifying dependencies.");
       for (const module of modules) {
         (state.contracts ??= {})[`${module.id}@${module.version}`] = JSON.parse(
           JSON.stringify(

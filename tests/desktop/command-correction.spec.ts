@@ -24,6 +24,9 @@ type CaptureState = typeof globalThis & {
   holdSettlement?: boolean;
   settlementArrived?: boolean;
   releaseSettlement?: () => void;
+  holdRecoveryMetadata?: string;
+  recoveryMetadataArrived?: boolean;
+  releaseRecoveryMetadata?: () => void;
 };
 test.use({ actionTimeout: 15000 });
 for (const mode of [
@@ -40,6 +43,7 @@ for (const mode of [
   "uninstalled",
   "resource-viewless",
   "resource-uninstalled",
+  "resource-stale-metadata",
 ] as const)
   test(`native command correction preserves review after ${mode} original`, async () => {
     test.setTimeout(180000);
@@ -63,6 +67,7 @@ globalThis.fetch=async(...args)=>{
  if(create&&key===globalThis.blockedKey)throw new TypeError("Interrupted original",{cause:{code:"ECONNRESET"}});
  if(create)globalThis.dispatched.push(key);
  const result=await original(...args);
+ if(globalThis.holdRecoveryMetadata===key&&new URL(String(args[0])).pathname.endsWith("/platform")&&args[1]?.method==="GET"&&result.ok){globalThis.holdRecoveryMetadata=undefined;globalThis.recoveryMetadataArrived=true;await new Promise(resolve=>{globalThis.releaseRecoveryMetadata=resolve})}
  if(globalThis.holdSettlement&&String(args[0]).endsWith("/attempts/settle")&&result.ok){globalThis.holdSettlement=false;globalThis.settlementArrived=true;await new Promise(resolve=>{globalThis.releaseSettlement=resolve})}
  if(create&&key===globalThis.lossKey&&result.ok){globalThis.lossKey=undefined;throw new TypeError('Lost reply',{cause:{code:'ECONNRESET'}})}
  if(globalThis.lossSettlement&&String(args[0]).endsWith("/attempts/settle")&&result.ok){globalThis.lossSettlement=false;throw new TypeError("Lost settlement reply",{cause:{code:"ECONNRESET"}})}
@@ -219,6 +224,56 @@ globalThis.fetch=async(...args)=>{
             (globalThis as CaptureState).blockedKey = key;
           }, key);
         },
+        holdRecoveryMetadata:
+          mode !== "resource-stale-metadata"
+            ? undefined
+            : async (scope) => {
+                const marker = crypto.randomUUID();
+                await app.evaluate((_, marker) => {
+                  (globalThis as CaptureState).holdRecoveryMetadata = marker;
+                }, marker);
+                await page.evaluate(
+                  ({ scope, marker }) => {
+                    const state = window as typeof window & {
+                      recoveryMetadataDone?: boolean;
+                    };
+                    state.recoveryMetadataDone = false;
+                    void window
+                      .suiteDesktop!.execute({
+                        operation: "platformState",
+                        params: { workspaceId: scope.workspaceId },
+                        idempotencyKey: marker,
+                      })
+                      .finally(() => {
+                        state.recoveryMetadataDone = true;
+                      });
+                  },
+                  { scope, marker },
+                );
+                await expect
+                  .poll(() =>
+                    app.evaluate(
+                      () =>
+                        (globalThis as CaptureState).recoveryMetadataArrived,
+                    ),
+                  )
+                  .toBe(true);
+                return {
+                  release: async () => {
+                    await app.evaluate(() => {
+                      (globalThis as CaptureState).releaseRecoveryMetadata!();
+                    });
+                    await page.waitForFunction(
+                      () =>
+                        (
+                          window as typeof window & {
+                            recoveryMetadataDone?: boolean;
+                          }
+                        ).recoveryMetadataDone,
+                    );
+                  },
+                };
+              },
         holdSettlement: async () => {
           await app.evaluate(() => {
             (globalThis as CaptureState).holdSettlement = true;
