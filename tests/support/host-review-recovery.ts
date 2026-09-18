@@ -2,6 +2,8 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
+import { assertSchema } from "@suite/module-sdk";
+import { SavedWorkRecoverySchema } from "@suite/module-sdk/platform";
 import { selectValue } from "../e2e/controls.helpers";
 
 /** Exercise the same saved work outside its module, then return to its real editor. */
@@ -12,6 +14,7 @@ export async function hostReviewRecovery(options: {
   moduleId: string;
   moduleName: string;
   scenario: string;
+  exportWork(button: Locator): Promise<unknown>;
   offline(value: boolean): Promise<void>;
   restartOffline(): Promise<Page>;
   reconnect(page: Page): Promise<Page>;
@@ -106,6 +109,55 @@ export async function hostReviewRecovery(options: {
       .click();
   }
   await options.inspect(dialog);
+  const exportedDrafts = new Set<string>();
+  for (const button of await dialog
+    .getByRole("button", { name: "Export saved draft", exact: true })
+    .all()) {
+    const exported = await options.exportWork(button);
+    assertSchema(SavedWorkRecoverySchema, exported);
+    expect(exported).toMatchObject({ ...scope, moduleId, selection: "draft" });
+    if (exported.selection !== "draft") throw Error("Expected a saved draft");
+    expect(exportedDrafts.has(exported.key)).toBe(false);
+    exportedDrafts.add(exported.key);
+    const review = before.draftReviews?.[exported.key];
+    expect(exported.data).toEqual(before.drafts[exported.key]);
+    expect(exported.target).toEqual(
+      before.draftTargets?.[exported.key] ?? null,
+    );
+    expect(exported.draftVersion).toBe(before.draftVersions?.[exported.key]);
+    expect(exported.moduleVersion).toBe(
+      review?.recoveryInput?.moduleVersion ??
+        before.draftVersions?.[exported.key],
+    );
+    expect(exported.review).toEqual(review);
+    expect(exported.entry).toEqual(
+      review?.entryId
+        ? before.journal.find((entry) => entry.id === review.entryId)
+        : undefined,
+    );
+  }
+  expect([...exportedDrafts].sort()).toEqual(
+    Object.keys(before.drafts)
+      .filter((key) => key.startsWith(`${moduleId}/`))
+      .sort(),
+  );
+  expect(exportedDrafts.size).toBeGreaterThan(0);
+  for (const button of await dialog
+    .getByRole("button", { name: "Export saved request", exact: true })
+    .all()) {
+    const exported = await options.exportWork(button);
+    assertSchema(SavedWorkRecoverySchema, exported);
+    expect(exported).toMatchObject({
+      ...scope,
+      moduleId,
+      selection: "request",
+    });
+    if (exported.selection !== "request")
+      throw Error("Expected a saved request");
+    expect(exported.entry).toEqual(
+      before.journal.find((entry) => entry.id === exported.entry.id),
+    );
+  }
   for (const button of await dialog
     .getByRole("button", { name: "Resolve record outcome", exact: true })
     .all())
@@ -120,6 +172,10 @@ export async function hostReviewRecovery(options: {
     review.evaluate((element) => element.scrollIntoView({ block: "start" }));
   await showReview();
   await mkdir("docs/verification/host-review-recovery", { recursive: true });
+  await mkdir("docs/verification/work-recovery-export", { recursive: true });
+  await page.screenshot({
+    path: `docs/verification/work-recovery-export/${options.kind}-${options.scenario}.png`,
+  });
   await page.screenshot({
     path: `docs/verification/host-review-recovery/${options.kind}-${options.scenario}.png`,
   });
@@ -140,6 +196,9 @@ export async function hostReviewRecovery(options: {
     ).violations,
   ).toEqual([]);
   await showReview();
+  await page.screenshot({
+    path: `docs/verification/work-recovery-export/${options.kind}-${options.scenario}-narrow.png`,
+  });
   await page.screenshot({
     path: `docs/verification/host-review-recovery/${options.kind}-${options.scenario}-narrow.png`,
   });

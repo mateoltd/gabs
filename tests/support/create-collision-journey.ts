@@ -1,5 +1,10 @@
 import { hostReviewRecovery } from "./host-review-recovery";
-import { expect, type Page, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  type Locator,
+  type Page,
+  type APIRequestContext,
+} from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
@@ -12,6 +17,7 @@ export async function createCollisionJourney(options: {
   api: APIRequestContext;
   pool: Pool;
   kind: "web" | "native";
+  exportWork(button: Locator): Promise<unknown>;
   sameRecord?: boolean;
   archiveChosen?: boolean;
   ordinaryDrafts?: boolean;

@@ -1,3 +1,4 @@
+import { nativeWorkExport } from "../support/work-export";
 import "dotenv/config";
 import {
   test,
@@ -37,7 +38,7 @@ test("native archived input survives restart and exports exact saved data", asyn
       `const original=globalThis.fetch;
 globalThis.offlineFlag=${offline};globalThis.dispatched=[];globalThis.failures=[];
 globalThis.fetch=async(...args)=>{try{
- if(globalThis.offlineFlag)throw new TypeError('Offline',{cause:{code:'ECONNREFUSED'}});
+ if(globalThis.offlineFlag)throw new TypeError('fetch failed',{cause:{code:'ECONNREFUSED'}});
  const body=typeof args[1]?.body==='string'?JSON.parse(args[1].body):undefined;
  const create=String(args[0]).endsWith('/records')&&body?.action==='update';
  const key=new Headers(args[1]?.headers).get('idempotency-key');
@@ -100,6 +101,7 @@ globalThis.fetch=async(...args)=>{try{
       api,
       pool,
       kind: "native",
+      exportWork: (button) => nativeWorkExport(app, profile, button),
       offline,
       restartOffline: async () => {
         await app.close();

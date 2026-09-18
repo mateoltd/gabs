@@ -146,6 +146,35 @@ export class NativeInputRecovery {
       await this.save(scope, state);
     });
   }
+  /** Current contracts observed by main from the authenticated workspace catalog. */
+  observeCatalog(scope: Scope, value: unknown, revision: string) {
+    const generation = this.generation;
+    return this.serial(async () => {
+      this.check(scope, generation);
+      assertSchema(
+        Type.Object({
+          modules: Type.Array(Type.Record(Type.String(), Type.Unknown())),
+        }),
+        value,
+      );
+      const modules = value.modules.map((value) =>
+        hydrateModule(moduleContract(value)),
+      );
+      const state = await this.state(scope);
+      if (state.policy?.policyRevision !== revision)
+        throw Error("Recovery policy changed while verifying dependencies.");
+      for (const module of modules) {
+        (state.contracts ??= {})[`${module.id}@${module.version}`] = JSON.parse(
+          JSON.stringify(
+            moduleContract(module as unknown as Record<string, unknown>),
+          ),
+        );
+        (state.currentVersions ??= {})[module.id] = module.version;
+        state.dependencies[module.id] = Object.keys(module.dependencies ?? {});
+      }
+      await this.save(scope, state);
+    });
+  }
   setOffline(scope: Scope, enabled: boolean) {
     const generation = this.generation;
     return this.serial(async () => {

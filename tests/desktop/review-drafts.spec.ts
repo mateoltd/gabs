@@ -1,3 +1,4 @@
+import { nativeWorkExport } from "../support/work-export";
 import "dotenv/config";
 import {
   test,
@@ -30,7 +31,7 @@ test("native independent reviews survive process restart and offline resumption"
       `const original=globalThis.fetch;
       globalThis.offlineFlag=${offline};
       globalThis.fetch=(...args)=>globalThis.offlineFlag
-        ? Promise.reject(new TypeError("Offline",{cause:{code:"ECONNREFUSED"}}))
+        ? Promise.reject(new TypeError("fetch failed",{cause:{code:"ECONNREFUSED"}}))
         : original(...args);
       require(${JSON.stringify(resolve("apps/desktop/dist/main.cjs"))});`,
     );
@@ -82,6 +83,7 @@ test("native independent reviews survive process restart and offline resumption"
       api,
       pool,
       kind: "native",
+      exportWork: (button) => nativeWorkExport(app, profile, button),
       offline: async (offline) => {
         await app.evaluate((_, offline) => {
           (

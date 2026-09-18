@@ -1,3 +1,4 @@
+import { browserWorkExport } from "../support/work-export";
 import "dotenv/config";
 import { test, expect, request } from "@playwright/test";
 import { Pool } from "pg";
@@ -43,6 +44,7 @@ for (const scenario of ["linked", "edits", "archived", "drafts"])
         api,
         pool,
         kind: "web",
+        exportWork: browserWorkExport,
         sameRecord,
         archiveChosen: scenario === "archived",
         ordinaryDrafts: scenario === "drafts",

@@ -76,6 +76,35 @@ for (const mode of [
             await page.unroute(pattern);
             page.off("download", observed);
           }
+          const preparation = `**/module/${moduleId}/workspaces/*/receipt-artifact?*`;
+          await page.route(preparation, (route) =>
+            route.fulfill({
+              status: 401,
+              contentType: "application/json",
+              body: JSON.stringify({
+                code: "UNAUTHENTICATED",
+                message: "Sign in to continue.",
+              }),
+            }),
+          );
+          try {
+            const denied = page.waitForResponse(
+              (response) =>
+                response.url().includes(`/module/${moduleId}/`) &&
+                response.url().includes("receipt-artifact") &&
+                response.status() === 401,
+            );
+            await page.reload();
+            await denied;
+            await expect(
+              page.getByRole("heading", {
+                name: "Saved work recovery",
+                exact: true,
+              }),
+            ).toHaveCount(0);
+          } finally {
+            await page.unroute(preparation);
+          }
         },
         exportWork: async (button) => {
           const download = button.page().waitForEvent("download");

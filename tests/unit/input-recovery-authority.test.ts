@@ -282,6 +282,12 @@ it("new policy revisions discard stale dependency metadata and reject late artif
   ).rejects.toThrow("policy changed");
   f.offline();
   await expect(f.authorize()).rejects.toThrow("dependencies");
+  await expect(
+    f.authority.observeCatalog(f.scope, { modules: [f.pkg.artifact] }, "1"),
+  ).rejects.toThrow("policy changed");
+  await f.authority.observeCatalog(f.scope, { modules: [f.pkg.artifact] }, "2");
+  f.restart();
+  await f.authorize();
   f.online();
   await f.authorize();
   f.offline();
@@ -343,11 +349,19 @@ it("authorizes historical command exports using host-observed contracts through 
       },
     },
   };
+  // Downloads may precede bootstrap. Retain their immutable source contracts
+  // without treating them as the currently selected corporate release.
+  await f.authority.observeArtifact(f.scope, f.pkg, undefined, false);
   f.release(current);
   await f.authority.setOffline(f.scope, true);
+  await f.authority.observe(f.scope, f.policy);
+  await f.authority.observeCatalog(f.scope, { modules: [current] }, "1");
+  f.offline();
+  f.restart();
   await expect(f.authority.authorize(f.scope, work, () => {})).rejects.toThrow(
     /command/,
   );
+  f.online();
   f.policy.permissions.push("custom-notes.new-grant");
   await f.authority.authorize(f.scope, work, () => {});
   f.offline();

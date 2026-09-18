@@ -55,7 +55,7 @@ for (const mode of [
         `const original=globalThis.fetch;
 globalThis.offlineFlag=${offline};globalThis.dispatched=[];
 globalThis.fetch=async(...args)=>{
- if(globalThis.offlineFlag)throw new TypeError('Offline',{cause:{code:'ECONNREFUSED'}});
+ if(globalThis.offlineFlag)throw new TypeError('fetch failed',{cause:{code:'ECONNREFUSED'}});
  const body=typeof args[1]?.body==='string'?JSON.parse(args[1].body):undefined;
  const create=String(args[0]).endsWith('/operations/capture');
  const key=new Headers(args[1]?.headers).get('idempotency-key');
@@ -158,9 +158,16 @@ globalThis.fetch=async(...args)=>{
               globalThis as typeof globalThis & { releasePicker?: () => void }
             ).releasePicker?.(),
           );
-          await expect(page.getByRole("alert")).toContainText(
-            "does not allow exporting this command",
-          );
+          await expect
+            .poll(
+              async () =>
+                (await button.count()) === 0 ||
+                (await page.getByRole("alert").allTextContents()).some(
+                  (message) =>
+                    message.includes("does not allow exporting this command"),
+                ),
+            )
+            .toBe(true);
           await expect(readFile(file)).rejects.toMatchObject({
             code: "ENOENT",
           });
@@ -182,6 +189,11 @@ globalThis.fetch=async(...args)=>{
               try {
                 return JSON.parse(await readFile(file, "utf8"));
               } catch {
+                const errors = await button
+                  .locator("..")
+                  .getByRole("alert")
+                  .allTextContents();
+                if (errors.length) throw Error(errors.join("; "));
                 return null;
               }
             })

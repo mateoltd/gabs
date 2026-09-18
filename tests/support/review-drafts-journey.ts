@@ -1,6 +1,11 @@
 import { hostReviewRecovery } from "./host-review-recovery";
 import { publishOnlineReviewFixture } from "./review-fixture";
-import { expect, type Page, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  type Locator,
+  type Page,
+  type APIRequestContext,
+} from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -15,6 +20,7 @@ export async function reviewDraftsJourney(options: {
   api: APIRequestContext;
   pool: Pool;
   kind: "web" | "native";
+  exportWork(button: Locator): Promise<unknown>;
   offline(value: boolean): Promise<void>;
   restart(offline?: boolean): Promise<Page>;
   narrow(): Promise<void>;

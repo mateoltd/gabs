@@ -503,15 +503,21 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
           await inputRecovery.observe(scope, body.bootstrap);
         else if (
           res.ok &&
-          (request.operation === "moduleArtifact" ||
-            request.operation === "moduleReceiptArtifact") &&
+          request.operation === "platformState" &&
           recoveryRevision !== undefined
+        )
+          await inputRecovery.observeCatalog(scope, body, recoveryRevision);
+        else if (
+          res.ok &&
+          (request.operation === "moduleArtifact" ||
+            request.operation === "moduleReceiptArtifact")
         )
           await inputRecovery.observeArtifact(
             scope,
             body,
             recoveryRevision,
-            request.operation === "moduleArtifact",
+            request.operation === "moduleArtifact" &&
+              recoveryRevision !== undefined,
           );
         else if ([401, 403, 426].includes(res.status))
           await inputRecovery.revoke(scope);

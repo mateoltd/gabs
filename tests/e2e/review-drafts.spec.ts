@@ -1,3 +1,4 @@
+import { browserWorkExport } from "../support/work-export";
 import "dotenv/config";
 import { test, expect, request } from "@playwright/test";
 import { Pool } from "pg";
@@ -37,6 +38,7 @@ test("independent saved reviews survive reload without replacing ordinary drafts
       api,
       pool,
       kind: "web",
+      exportWork: browserWorkExport,
       offline: (value) => context.setOffline(value),
       restart: async (offline = false) => {
         await context.setOffline(offline);

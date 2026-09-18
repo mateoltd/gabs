@@ -1,3 +1,4 @@
+import { browserWorkExport } from "../support/work-export";
 import "dotenv/config";
 import { test, expect, request } from "@playwright/test";
 import { Pool } from "pg";
@@ -40,6 +41,7 @@ test("archived input remains recoverable without changing archived records", asy
       api,
       pool,
       kind: "web",
+      exportWork: browserWorkExport,
       offline: (value) => context.setOffline(value),
       restartOffline: async () => {
         await page.reload();
