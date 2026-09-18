@@ -125,3 +125,98 @@ it("simulates the same provisional capture and exact-key replay API with permiss
   await sim.sync();
   expect(await sim.client.call("names", {})).toEqual(["Simulated capture"]);
 });
+
+it("requires both signed original and installed command permissions across releases", async () => {
+  const { canAccessCommand } =
+    await import("../../packages/shell/src/features/modules/views/command-permissions");
+  const { default: original } = await import("../fixtures/queued-notes/module");
+  const installed = {
+    ...original,
+    version: "2.0.0",
+    operations: {
+      ...original.operations,
+      capture: {
+        ...original.operations.capture,
+        permission: "custom-notes.capture-next",
+      },
+    },
+  };
+  const call = {
+    moduleId: original.id,
+    moduleVersion: original.version,
+    operation: "capture",
+    action: "operation" as const,
+    input: { name: "Saved" },
+  };
+  const grants = new Set<string>([original.operations.capture.permission]);
+  const allowed = (permission: string) => grants.has(permission);
+  expect(canAccessCommand(call, installed, original, allowed)).toBe(false);
+  grants.clear();
+  grants.add(installed.operations.capture.permission);
+  expect(canAccessCommand(call, installed, original, allowed)).toBe(false);
+  grants.add(original.operations.capture.permission);
+  expect(canAccessCommand(call, installed, original, allowed)).toBe(true);
+  grants.delete(original.operations.capture.permission);
+  expect(canAccessCommand(call, installed, original, allowed)).toBe(false);
+  expect(
+    canAccessCommand(
+      { ...call, moduleVersion: installed.version },
+      installed,
+      installed,
+      allowed,
+    ),
+  ).toBe(true);
+});
+
+it("does not authorize unknown or changed command kinds through a historical contract", async () => {
+  const { canAccessCommand } =
+    await import("../../packages/shell/src/features/modules/views/command-permissions");
+  const { default: original } = await import("../fixtures/queued-notes/module");
+  const call = {
+    moduleId: original.id,
+    moduleVersion: original.version,
+    operation: "capture",
+    action: "operation" as const,
+    input: {},
+  };
+  const yes = () => true;
+  expect(canAccessCommand(call, original, undefined, yes)).toBe(false);
+  expect(
+    canAccessCommand(
+      { ...call, moduleVersion: "0.0.1" },
+      original,
+      original,
+      yes,
+    ),
+  ).toBe(false);
+  expect(
+    canAccessCommand({ ...call, moduleId: "foreign" }, original, original, yes),
+  ).toBe(false);
+  expect(
+    canAccessCommand(
+      { ...call, operation: "constructor" },
+      original,
+      original,
+      yes,
+    ),
+  ).toBe(false);
+  expect(
+    canAccessCommand({ ...call, resource: "notes" }, original, original, yes),
+  ).toBe(false);
+  for (const changed of [
+    { policy: "online" as const },
+    { policy: "local" as const },
+    { serviceOnly: true },
+    { kind: "query" as const },
+  ]) {
+    const installed = {
+      ...original,
+      version: "2.0.0",
+      operations: {
+        ...original.operations,
+        capture: { ...original.operations.capture, ...changed },
+      },
+    };
+    expect(canAccessCommand(call, installed, original, yes)).toBe(false);
+  }
+});

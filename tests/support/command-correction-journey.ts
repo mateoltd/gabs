@@ -17,7 +17,8 @@ export async function commandCorrectionJourney(options: {
     | "uncertain"
     | "late-accepted"
     | "lease-expired"
-    | "permission-revoked";
+    | "permission-revoked"
+    | "upgrade";
   holdSettlement?(): Promise<{
     arrived(): Promise<void>;
     release(): Promise<void>;
@@ -37,11 +38,17 @@ export async function commandCorrectionJourney(options: {
   let page = options.page;
   const { api, pool, mode } = options;
   const interrupted = mode === "lease-expired" || mode === "permission-revoked";
-  const evidence = interrupted ? "command-authority" : "command-correction";
+  const evidence =
+    mode === "upgrade"
+      ? "command-upgrade"
+      : interrupted
+        ? "command-authority"
+        : "command-correction";
   const id = `correct-${randomUUID().slice(0, 8)}`;
+  const fixtureName = `Correction notes ${id.slice(-8)}`;
   const pkg = await publishExecutableFixture({
     id,
-    name: "Correction notes",
+    name: fixtureName,
     sourceDirectory: "tests/fixtures/queued-notes",
   });
   const me = await (await api.get("/api/v1/me")).json();
@@ -89,9 +96,7 @@ export async function commandCorrectionJourney(options: {
     page.getByRole("button", { name: "Disable offline storage", exact: true }),
   ).toBeVisible();
   const open = async () => {
-    await page
-      .getByRole("link", { name: "Correction notes", exact: true })
-      .click();
+    await page.getByRole("link", { name: fixtureName, exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Save pending note", exact: true }),
     ).toBeVisible();
@@ -204,6 +209,168 @@ export async function commandCorrectionJourney(options: {
   await options.wide();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
+  if (mode === "upgrade") {
+    const next = await publishExecutableFixture({
+      id,
+      name: fixtureName,
+      sourceDirectory: "tests/fixtures/queued-notes",
+      transform: (file, source) => {
+        source = source.replaceAll(`${id}.capture`, `${id}.capture-next`);
+        if (file === "module.ts")
+          source = source.replace(
+            "{ name: Type.String({ minLength: 1 }) },",
+            '{ name: Type.String({ minLength: 1 }), reason: Type.String({ minLength: 3, title: "Reason" }) },',
+          );
+        if (file === "view.tsx")
+          source = source.replace(
+            "{ name },",
+            '{ name, reason: "New capture" },',
+          );
+        if (file === "module-server.ts")
+          source = source.replace(
+            ".create(input)",
+            ".create({ name: input.name })",
+          );
+        return source;
+      },
+    });
+    const rollout = await api.post(
+      `/api/v1/workspaces/${scope.workspaceId}/platform`,
+      {
+        headers: { ...headers, "idempotency-key": randomUUID() },
+        data: {
+          action: "rollout",
+          version: 0,
+          value: {
+            moduleId: id,
+            version: next.version,
+            mandatory: false,
+            acceptedVersions: [pkg.version],
+          },
+        },
+      },
+    );
+    expect(rollout.ok(), await rollout.text()).toBe(true);
+    await options.reconnect();
+    await page.reload();
+    await page.getByRole("link", { name: "Modules", exact: true }).click();
+    const card = page.locator(".module-install-card").filter({
+      has: page.getByRole("heading", {
+        name: fixtureName,
+        exact: true,
+      }),
+    });
+    await expect(card).toContainText(`Version ${next.version}`);
+    const update = card.getByRole("button", { name: "Update", exact: true });
+    if (await update.isVisible()) await update.click();
+    await expect(card).toContainText(`Installed ${next.version}`);
+    // Establish an explicit old-only policy and reopen the installed view
+    // before testing the permission boundary.
+    await pool.query(
+      "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1",
+      [scope.workspaceId, `${id}.capture-next`],
+    );
+    await page.reload();
+    await open();
+    await expect(
+      page.getByRole("button", { name: "Save pending note", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: /^Saved commands/ }),
+    ).toHaveCount(0);
+    expect((await journal()).map((e) => e.call)).toEqual(
+      before.map((e) => e.call),
+    );
+    // Only the new permission cannot disclose an original request or its saved review.
+    await pool.query(
+      "update suite.roles set permissions=array_append(array_remove(permissions,$2),$3) where workspace_id=$1",
+      [scope.workspaceId, `${id}.capture`, `${id}.capture-next`],
+    );
+    await page.reload();
+    await open();
+    await expect(
+      page.getByRole("button", { name: "Save pending note", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: /^Saved commands/ }),
+    ).toHaveCount(0);
+    const denied = await api.post(
+      `/api/v1/module/${id}/workspaces/${scope.workspaceId}/attempts/settle`,
+      {
+        headers: { ...headers, "x-module-version": pkg.version },
+        data: {
+          key: before[0].id,
+          call: {
+            action: "operation",
+            operation: "capture",
+            input: before[0].call.input,
+          },
+        },
+      },
+    );
+    expect(denied.status()).toBe(403);
+    await options.offline(true);
+    page = await options.restartOffline();
+    await open();
+    await expect(
+      page.getByRole("button", { name: /^Saved commands/ }),
+    ).toHaveCount(0);
+    await options.narrow();
+    await page.screenshot({
+      path: `docs/verification/${evidence}/${options.kind}-original-permission-denied.png`,
+    });
+    await options.wide();
+    expect(
+      (await options.storage(page, scope)).commandReviews?.[before[0].id]
+        ?.moduleVersion,
+    ).toBe(pkg.version);
+    await pool.query(
+      "update suite.roles set permissions=array_append(permissions,$2) where workspace_id=$1 and not ($2=any(permissions))",
+      [scope.workspaceId, `${id}.capture`],
+    );
+    await options.reconnect();
+    await page.reload();
+    dialog = await inbox();
+    await dialog
+      .getByRole("button", { name: "Resume command review", exact: true })
+      .click();
+    review = page.getByRole("dialog", {
+      name: "Review saved command",
+      exact: true,
+    });
+    await expect(review).toContainText("The installed release changed");
+    await expect(review.getByLabel("Name", { exact: true })).toHaveValue(
+      "Corrected parent",
+    );
+    await expect(
+      review.getByRole("button", {
+        name: "Prepare corrected command",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await review
+      .getByLabel("Reason", { exact: true })
+      .fill("Reviewed after upgrade");
+    await review
+      .getByRole("button", { name: "Save review", exact: true })
+      .click();
+    await expect(review).toContainText("Review saved on this device.");
+    const revised = (await options.storage(page, scope)).commandReviews?.[
+      before[0].id
+    ];
+    expect(revised).toMatchObject({
+      moduleVersion: next.version,
+      source: before[0].call,
+      input: { name: "Corrected parent", reason: "Reviewed after upgrade" },
+    });
+    await options.narrow();
+    await page.screenshot({
+      path: `docs/verification/${evidence}/${options.kind}-upgraded-review-narrow.png`,
+    });
+    await options.wide();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  }
   if (mode === "late-accepted") {
     await pool.query(
       "update suite.module_activations set config=$3::jsonb where workspace_id=$1 and module_id=$2",
@@ -443,14 +610,18 @@ export async function commandCorrectionJourney(options: {
   expect(final[1].call).toEqual(before[1].call);
   expect(final[1].dependencies).toEqual([final[3].id]);
   expect(final[2]).toEqual(before[2]);
-  expect(final[3].call.input).toEqual({ name: "Corrected parent" });
+  expect(final[3].call.input).toEqual(
+    mode === "upgrade"
+      ? { name: "Corrected parent", reason: "Reviewed after upgrade" }
+      : { name: "Corrected parent" },
+  );
   const repeat = await api.post(
     `/api/v1/module/${id}/workspaces/${scope.workspaceId}/operations/capture`,
     {
       headers: {
         ...headers,
         "idempotency-key": final[3].id,
-        "x-module-version": pkg.version,
+        "x-module-version": final[3].call.moduleVersion!,
       },
       data: final[3].call.input,
     },

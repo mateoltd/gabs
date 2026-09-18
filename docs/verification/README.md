@@ -726,3 +726,8 @@ Final verification passed 487 unit/PostgreSQL tests across 82 files, strict root
 ## Held command authority, 18 September 2026
 
 [Acceptance record](command-authority/README.md): recovery rechecks access after asynchronous reads/verification and within its final local transaction. Delayed real settlement replies, lease expiry and delivered command revocation preserve exact saved work, hide unauthorized input and permit only subsequent authorized continuation. Passed 502 unit/PostgreSQL tests across 84 files, strict checks/four fresh builds, five headless browser and six hidden/unfocused desktop journeys, scoped Axe/keyboard/overflow and six inspected captures. Twenty historical captures were restored; no UI/style source changed. Original versus installed permissions across upgrades, profile recovery and broader OFF-01/release gates remain open.
+
+
+## Command upgrades and original permissions, 18 September 2026
+
+[Scoped acceptance](command-upgrade/README.md) verifies original/installed permission checks, retained review contracts, offline denial, explicit review of a new required input field, lost-reply recovery and exact old-release dependent continuation after a compatible upgrade. Final-source verification passed 504 unit/PostgreSQL tests, strict checks/four fresh builds, nine headless browser journeys and eight hidden/unfocused native journeys, with scoped accessibility and six inspected captures. Forty-four historical captures were restored; no stylesheet changed. Fixture corrections and the initial 503/504 run's unexplained concurrent Orders draft server error are recorded. Its focused 18-test rerun and fresh full run passed, without establishing the cause. APP-02, broader OFF-01, full parity and UI refinement remain open.

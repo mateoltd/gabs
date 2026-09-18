@@ -11,6 +11,7 @@ for (const mode of [
   "late-accepted",
   "lease-expired",
   "permission-revoked",
+  "upgrade",
 ] as const)
   test(`command correction preserves review and dependencies after ${mode} original`, async ({
     page,

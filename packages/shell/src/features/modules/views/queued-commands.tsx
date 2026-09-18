@@ -1,3 +1,4 @@
+import { canAccessCommand } from "./command-permissions";
 import { CommandCorrection } from "./command-correction";
 import {
   commandDependents,
@@ -14,6 +15,7 @@ import { createModuleQueue } from "@suite/client/module-queue";
 import {
   readModuleStorage,
   syncModuleStorage,
+  type ModuleStorage,
 } from "@suite/client/module-storage";
 import {
   responseContract,
@@ -27,6 +29,10 @@ import type {
   ModuleQueue,
 } from "@suite/module-sdk";
 import type { JournalEntry } from "@suite/module-sdk/sync";
+
+// A missing operation must not invalidate another operation's verified definition.
+const commandContractKey = (call: ModuleCall) =>
+  JSON.stringify([call.moduleId, call.moduleVersion, call.operation]);
 
 type SavedCommand = {
   entry: JournalEntry;
@@ -42,8 +48,20 @@ export function useQueuedCommands(
   viewPermission: string,
   executing?: (change: 1 | -1) => void,
 ) {
-  const latest = React.useRef({ props, executing });
-  latest.current = { props, executing };
+  const latest = React.useRef({ props, executing, module });
+  latest.current = { props, executing, module };
+  const contracts = React.useRef(new Map<string, ModuleDefinition>());
+  const rememberContract = async (state: ModuleStorage, call: ModuleCall) => {
+    const key = commandContractKey(call);
+    try {
+      const verified = await responseContract(state, call);
+      contracts.current.set(key, verified.module);
+      return verified.module;
+    } catch (error) {
+      contracts.current.delete(key);
+      throw error;
+    }
+  };
   const mounted = React.useRef(false);
   const [commands, setCommands] = React.useState<SavedCommand[]>([]);
   const [error, setError] = React.useState<unknown>();
@@ -54,25 +72,27 @@ export function useQueuedCommands(
     const p = latest.current.props;
     if (
       !mounted.current ||
+      latest.current.module.id !== module.id ||
+      latest.current.module.version !== module.version ||
       !p.offlineEnabled ||
       p.scope.userId !== props.scope.userId ||
       p.scope.workspaceId !== props.scope.workspaceId ||
       !canUse(p.bootstrap, module.id, viewPermission, p.moduleCatalog)
     )
       return false;
-    if (call) {
-      const operation = module.operations[call.operation ?? ""];
-      if (
-        call.moduleId !== module.id ||
-        call.action !== "operation" ||
-        !operation ||
-        operation.policy !== "queued" ||
-        operation.kind === "query" ||
-        operation.serviceOnly ||
-        !canUse(p.bootstrap, module.id, operation.permission, p.moduleCatalog)
+    if (
+      call &&
+      !canAccessCommand(
+        call,
+        module,
+        call.moduleVersion === module.version
+          ? module
+          : contracts.current.get(commandContractKey(call)),
+        (permission) =>
+          canUse(p.bootstrap, module.id, permission, p.moduleCatalog),
       )
-        return false;
-    }
+    )
+      return false;
     const now = Date.now();
     const authorizedAt = Date.parse(p.bootstrap.authorizedAt);
     if (p.online && navigator.onLine)
@@ -103,33 +123,52 @@ export function useQueuedCommands(
       const p = latest.current.props;
       const state = await readModuleStorage(p.platform, p.scope);
       const saved: SavedCommand[] = [];
+      const failures: unknown[] = [];
       for (const entry of state.journal) {
         if (
           entry.userId !== p.scope.userId ||
           entry.workspaceId !== p.scope.workspaceId ||
           entry.supersededBy ||
-          !access(entry.call)
+          entry.call.moduleId !== module.id ||
+          entry.call.action !== "operation"
         )
           continue;
-        const { module: original } = await responseContract(state, entry.call);
-        if (entry.state === "accepted")
-          validateModuleResponse(original, entry.call, entry.result);
-        if (access(entry.call)) {
+        try {
+          const original = await rememberContract(state, entry.call);
+          if (!access(entry.call)) continue;
+          if (entry.state === "accepted")
+            validateModuleResponse(original, entry.call, entry.result);
+          const review = commandReview(state, entry.id);
+          if (review) {
+            const reviewed = {
+              ...review.source,
+              moduleVersion: review.moduleVersion,
+            };
+            await rememberContract(state, reviewed);
+            if (!access(reviewed)) continue;
+          }
           const dependents = [];
           for (const child of commandDependents(state, p.scope, entry.id)) {
-            if (!access(child.call)) continue;
-            const verified = await responseContract(state, child.call);
-            if (access(child.call))
-              dependents.push({ entry: child, module: verified.module });
+            if (
+              child.call.moduleId !== module.id ||
+              child.call.action !== "operation"
+            )
+              continue;
+            try {
+              const original = await rememberContract(state, child.call);
+              if (access(child.call))
+                dependents.push({ entry: child, module: original });
+            } catch (error) {
+              failures.push(error);
+            }
           }
-          saved.push({
-            entry,
-            module: original,
-            review: commandReview(state, entry.id),
-            dependents,
-          });
+          if (access(entry.call))
+            saved.push({ entry, module: original, review, dependents });
+        } catch (error) {
+          failures.push(error);
         }
       }
+      if (mounted.current && access() && failures.length) setError(failures[0]);
       if (mounted.current)
         setCommands(
           access() ? saved.filter(({ entry }) => access(entry.call)) : [],
@@ -148,14 +187,35 @@ export function useQueuedCommands(
     activity?.(1);
     if (mounted.current) setBusy(true);
     try {
+      const stored = await readModuleStorage(p.platform, p.scope);
+      const failures: unknown[] = [];
+      const unavailable = new Set<string>();
+      for (const entry of stored.journal) {
+        if (
+          entry.userId !== p.scope.userId ||
+          entry.workspaceId !== p.scope.workspaceId ||
+          entry.call.moduleId !== module.id ||
+          entry.call.action !== "operation" ||
+          entry.state !== "pending" ||
+          entry.supersededBy
+        )
+          continue;
+        try {
+          await rememberContract(stored, entry.call);
+        } catch (error) {
+          unavailable.add(commandContractKey(entry.call));
+          failures.push(error);
+        }
+      }
       await syncModuleStorage(
         p.platform,
         p.scope,
         (call) => sendModuleCall(p.client, p.scope, call),
         () => access(undefined, true),
-        (call) => access(call, true),
+        (call) =>
+          !unavailable.has(commandContractKey(call)) && access(call, true),
       );
-      if (mounted.current && access()) setError(undefined);
+      if (mounted.current && access()) setError(failures[0]);
     } catch (error) {
       if (mounted.current && access()) setError(error);
     } finally {
@@ -172,7 +232,22 @@ export function useQueuedCommands(
       access(call),
     );
     return {
-      get: adapter.get,
+      async get(identity) {
+        if (!access())
+          throw Error(
+            "Current access does not allow reading this saved change.",
+          );
+        const call: ModuleCall = {
+          ...identity,
+          action: "operation",
+          input: {},
+        };
+        await rememberContract(
+          await readModuleStorage(props.platform, props.scope),
+          call,
+        );
+        return adapter.get(identity);
+      },
       async capture(call, dependencies) {
         if (!latest.current.props.offlineEnabled)
           throw Error(
@@ -257,6 +332,7 @@ export function useQueuedCommands(
     input: unknown,
     revision: number,
     selected: CommandContinuation[],
+    previous?: CommandReview,
   ) =>
     recovery(() => {
       const p = latest.current.props;
@@ -267,7 +343,13 @@ export function useQueuedCommands(
         module.version,
         input,
         revision,
-        (call) => access(call),
+        (call) =>
+          access(call) &&
+          (!previous ||
+            access({
+              ...previous.source,
+              moduleVersion: previous.moduleVersion,
+            })),
         selected,
       );
     });
@@ -306,7 +388,19 @@ export function useQueuedCommands(
     saveReview,
     replace,
     queue,
-    commands: commands.filter(({ entry }) => access(entry.call)),
+    commands: commands
+      .filter(
+        ({ entry, review }) =>
+          access(entry.call) &&
+          (!review ||
+            access({ ...review.source, moduleVersion: review.moduleVersion })),
+      )
+      .map((command) => ({
+        ...command,
+        dependents: command.dependents.filter(({ entry }) =>
+          access(entry.call),
+        ),
+      })),
     error: access() ? error : undefined,
     busy,
     online: access(undefined, true),
@@ -434,7 +528,13 @@ export function SavedCommands({
           online={state.online}
           busy={state.busy}
           save={(input, revision, selected) =>
-            state.saveReview(reviewing.entry, input, revision, selected)
+            state.saveReview(
+              reviewing.entry,
+              input,
+              revision,
+              selected,
+              reviewing.review,
+            )
           }
           replace={(review, key, selected) =>
             state.replace(reviewing.entry, review, key, selected)

@@ -43,7 +43,7 @@ The blocked states remove corporate saved input and retain clear revalidation gu
 
 ## Remaining requirements
 
-- Original versus current permission declarations when installed module releases change; cross-release command correction and schema/reference-aware review.
+- [Command upgrade acceptance](../command-upgrade/README.md) now covers original/installed permission declarations, compatible rollout and explicit review of a new required input field. Removed/reclassified commands, historical-grant administration and further schema/reference-aware review remain required.
 - Profile/sign-out recovery, permanent revocation and authorized recovery/export choices. Process restart is not profile-removal acceptance.
 - Cross-module/resource dependents, submitted-child outcomes, archive/custom descendants, history retention and full scheduling simulation.
 - The previously recorded intermittent native linked-create dialog-close concern remains unresolved. Broad OFF-01, product and release acceptance are not closed here.

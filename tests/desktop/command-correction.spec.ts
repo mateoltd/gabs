@@ -32,6 +32,7 @@ for (const mode of [
   "late-accepted",
   "lease-expired",
   "permission-revoked",
+  "upgrade",
 ] as const)
   test(`native command correction preserves review after ${mode} original`, async () => {
     test.setTimeout(180000);
