@@ -211,6 +211,38 @@ export class ManagedLanSession {
       throw Error("Local network authorization changed.");
     await session.transport.relay(peerId, envelope);
   }
+  async inbox(scope: Scope): Promise<RelayEnvelope[]> {
+    this.identity(scope);
+    await this.writes;
+    const value = await this.host.readInbox(scope);
+    this.identity(scope);
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > 10)
+      throw Error("The relay quarantine needs recovery.");
+    for (const envelope of value)
+      validateRelayEnvelope(envelope, scope.workspaceId);
+    return value;
+  }
+  dismiss(scope: Scope, id: string, digest: string) {
+    const task = this.writes.then(async () => {
+      this.identity(scope);
+      const stored = await this.host.readInbox(scope);
+      this.identity(scope);
+      if (stored === undefined) return;
+      if (!Array.isArray(stored) || stored.length > 10)
+        throw Error("The relay quarantine needs recovery.");
+      for (const envelope of stored)
+        validateRelayEnvelope(envelope, scope.workspaceId);
+      await this.host.writeInbox(
+        scope,
+        stored.filter(
+          (envelope) => envelope.id !== id || envelope.digest !== digest,
+        ),
+      );
+    });
+    this.writes = task.catch(() => {});
+    return task;
+  }
   private receive(session: Session, envelope: RelayEnvelope): Promise<void> {
     const task = this.writes.then(async () => {
       if (this.active(session.scope) !== session)

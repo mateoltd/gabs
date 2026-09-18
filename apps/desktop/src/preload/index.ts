@@ -5,6 +5,11 @@ window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.os = process.platform;
 });
 const bridge: DesktopBridge = {
+  lanReceipts: (scope) => ipcRenderer.invoke("suite:lan-receipts", scope),
+  submitLanReceipt: (scope, id, digest) =>
+    ipcRenderer.invoke("suite:lan-receipt-submit", scope, id, digest),
+  dismissLanReceipt: (scope, id, digest) =>
+    ipcRenderer.invoke("suite:lan-receipt-dismiss", scope, id, digest),
   downloadExport: async (handle, id) => {
     const response = await ipcRenderer.invoke(
       "suite:export-download",

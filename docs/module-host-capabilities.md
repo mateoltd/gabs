@@ -1,6 +1,6 @@
 # Module host capabilities
 
-SDK-05 adds typed, signed capability declarations to independently published modules. Corporate custom views can request a bounded export, a notification, or access to an already authorized desktop LAN transport. Every corporate call currently requires a live server authorization check. [Development simulation](module-scenarios.md#host-capability-fixtures) is available with typed result fixtures and explicit simulated outcomes. Standalone/offline grants remain unfinished in the [acceptance map](sdk-05-acceptance.md).
+SDK-05 adds typed, signed capability declarations to independently published modules. Corporate custom views can request a bounded export, a notification, or access to an already authorized desktop LAN transport. LAN calls require a live server authorization check; supported offline exports use explicit signed leases. [Development simulation](module-scenarios.md#host-capability-fixtures) is available with typed result fixtures and explicit simulated outcomes. Scoped standalone/offline acceptance and remaining work are recorded in the [acceptance map](sdk-05-acceptance.md).
 
 ## Authoring
 
@@ -59,3 +59,17 @@ These are boundaries for reviewed, trusted modules, not a sandbox for hostile Ja
 ## Verification
 
 See [corporate host capability acceptance](verification/host-capabilities/README.md), including independent signed publication, real browser download, native file writing, revocation during dialogs, stale-view cancellation and explicit evidence limits.
+
+## Relaying a durable pending change
+
+Use the portable helper with an existing durable `JournalEntry`, preserving its original request ID, account, workspace, signed module version, base version and dependencies:
+
+```ts
+import { pendingRelay } from "@suite/module-sdk/relay";
+
+await host.call("relay", { peerId, ...pendingRelay(entry) });
+```
+
+The public `PendingRelaySchema` and `assertPendingRelay` share the receiver's structural contract. The helper rejects superseded/non-pending changes and invalid retry identities, strips prior result/error claims, and bounds payload size and nesting. Module-policy and input-schema validation still occur at the receiving host against the authorized signed release. Online-only commitments cannot use draft recovery.
+
+A relayed response only acknowledges encrypted quarantine. [Received draft recovery](verification/lan-recovery/README.md) lets an administrator signed into the same account review and submit the draft explicitly. The server checks current permissions and business rules; retries reuse the original idempotency key. Current recovery requires the exact authoring version to be active and locally confirmed dependency receipts. Package reuse, full receipt lifecycle, broader employee access and offline LAN authority remain required work.

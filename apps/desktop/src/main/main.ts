@@ -10,6 +10,7 @@ import {
   isCapabilityTransportFailure,
 } from "./capability-authority";
 import { ManagedLanSession } from "./lan/session";
+import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
   cacheRead,
@@ -164,6 +165,27 @@ const lan = new ManagedLanSession({
 const lanStatus = (scope: Scope) => ({
   configured: lanConfigured(scope),
   ...lan.status(scope),
+});
+const lanRecovery = new LanRecovery({
+  currentUser: () => userId,
+  request: (request) => execute(request, 8000),
+  inbox: (scope) => lan.inbox(scope),
+  dismiss: (scope, id, digest) => lan.dismiss(scope, id, digest),
+  read: async (scope, id) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    return cacheRead(
+      `${scope.userId}/${scope.workspaceId}/relay-receipts/${id}`,
+    );
+  },
+  write: async (scope, id, value) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    await cacheWrite(
+      `${scope.userId}/${scope.workspaceId}/relay-receipts/${id}`,
+      value,
+    );
+  },
 });
 let cacheReady: Promise<void> | undefined;
 async function ensureCache() {
@@ -346,7 +368,10 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
   if (res.status === 426) updateRequired = true;
   if (request.operation === "me" && res.ok) {
     const user = body.user as { id: string };
-    if (userId && userId !== user.id) void lan.stop().catch(() => {});
+    if (userId && userId !== user.id) {
+      lanRecovery.invalidate();
+      void lan.stop().catch(() => {});
+    }
     userId = user.id;
     csrfToken = body.csrfToken as string | undefined;
   }
@@ -645,6 +670,29 @@ function handlers() {
       throw Error("Invalid billing destination.");
     await shell.openExternal(url.href);
   });
+  ipcMain.handle("suite:lan-receipts", (event, scope: Scope) => {
+    sender(event);
+    validateScope(scope, userId);
+    return lanRecovery.list(scope);
+  });
+  for (const action of ["submit", "dismiss"] as const) {
+    ipcMain.handle(
+      `suite:lan-receipt-${action}`,
+      (event, scope: Scope, id: string, digest: string) => {
+        sender(event);
+        validateScope(scope, userId);
+        if (
+          typeof id !== "string" ||
+          !id.length ||
+          id.length > 128 ||
+          typeof digest !== "string" ||
+          !/^[a-f0-9]{64}$/.test(digest)
+        )
+          throw Error("Invalid receipt selection.");
+        return lanRecovery[action](scope, id, digest);
+      },
+    );
+  }
   ipcMain.handle("suite:lan-status", (event, scope: Scope) => {
     sender(event);
     validateScope(scope, userId);
@@ -676,6 +724,7 @@ function handlers() {
     moduleHosts.clear();
     nativeAuthority.clear();
     localDeviceHosts.clear();
+    lanRecovery.invalidate();
     await lan.stop();
     const options = validateLogin(value);
     loginPromise ??= login(options);
@@ -691,6 +740,7 @@ function handlers() {
     localDeviceHosts.clear();
     const token = refreshToken;
     const previousUser = userId;
+    lanRecovery.invalidate();
     userId = undefined;
     if (previousUser && secureAvailable())
       await nativeAuthority.purge({ userId: previousUser });

@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./module-lifecycle";
+import { ReceivedDrafts } from "./received-drafts";
 const archetypes = [
   "modern-dark",
   "chromatic-playful",
@@ -208,22 +209,27 @@ export function LocalNetwork(props: FeatureProps) {
           ? `${state.data.peers.length} peers connected`
           : "Disabled"}
       </p>
-      <Button
-        disabled={busy || !state.data?.configured}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await native.setLan(props.scope, !state.data?.enabled);
-            await state.refetch();
-          } catch (e) {
-            setError(e);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {state.data?.enabled ? "Disable local network" : "Enable local network"}
-      </Button>
+      <div className="module-toolbar">
+        <Button
+          disabled={busy || !state.data?.configured}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await native.setLan(props.scope, !state.data?.enabled);
+              await state.refetch();
+            } catch (e) {
+              setError(e);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {state.data?.enabled
+            ? "Disable local network"
+            : "Enable local network"}
+        </Button>
+        <ReceivedDrafts {...props} />
+      </div>
       <ErrorMessage error={error} />
     </section>
   );

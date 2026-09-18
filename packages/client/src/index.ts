@@ -66,7 +66,23 @@ export interface LanStatus {
   peers: { id: string; address: string; port: number; seen: number }[];
   port?: number;
 }
+export interface LanReceipt {
+  id: string;
+  digest: string;
+  kind: "artifact" | "pending";
+  state:
+    "received" | "pending" | "accepted" | "rejected" | "conflict" | "invalid";
+  moduleId?: string;
+  action?: string;
+  target?: string;
+  input?: unknown;
+  dependencies?: number;
+  message: string;
+}
 export interface DesktopBridge {
+  lanReceipts(scope: Scope): Promise<LanReceipt[]>;
+  submitLanReceipt(scope: Scope, id: string, digest: string): Promise<void>;
+  dismissLanReceipt(scope: Scope, id: string, digest: string): Promise<void>;
   downloadExport(
     handle: string,
     id: string,

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { defineView } from "@suite/module-sdk/ui";
 import { Button, ErrorMessage } from "@suite/ui-web";
 import module from "./module";
+import { pendingRelay } from "@suite/module-sdk/relay";
 export default defineView(module, ({ host, scope }) => {
   const [status, setStatus] = useState("Ready"),
     [error, setError] = useState<unknown>(),
@@ -24,13 +25,13 @@ export default defineView(module, ({ host, scope }) => {
     const id = crypto.randomUUID();
     const result = await host.call("relay", {
       peerId: peer,
-      kind: "pending",
-      id,
-      payload: JSON.stringify({
+      ...pendingRelay({
         ...scope,
         id,
         state: "pending",
         dependencies: [],
+        createdAt: Date.now(),
+        attempts: 0,
         call: {
           moduleId,
           moduleVersion: module.version,
