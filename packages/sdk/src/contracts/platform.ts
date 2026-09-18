@@ -44,6 +44,8 @@ export interface SignedArtifact {
   artifact: Record<string, unknown>;
 }
 
+export type ArtifactMetadata = Omit<SignedArtifact, "artifact">;
+
 /** Exact immutable bytes selected for a device installation. */
 export interface InstallationSelection {
   moduleId: string;

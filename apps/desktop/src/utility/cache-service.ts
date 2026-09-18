@@ -61,3 +61,13 @@ export const cachePurge = (key: string) => send("purge", { key });
 
 export const cachePruneArtifacts = (key: string, keep: string[]) =>
   send("prune-artifacts", { key, keep });
+
+export const cacheVerifyLanPackage = (
+  key: string,
+  transfer: import("@suite/module-sdk/relay-artifacts").ArtifactTransfer,
+  metadata: import("@suite/module-sdk/platform").ArtifactMetadata,
+  publicKey: string,
+) =>
+  send("verify-lan-package", { key, transfer, metadata, publicKey }) as Promise<
+    import("@suite/module-sdk/platform").SignedArtifact
+  >;

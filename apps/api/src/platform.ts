@@ -1388,33 +1388,45 @@ export async function registerPlatform(
         );
       }),
   );
-  app.get<{ Params: { workspaceId: string; moduleId: string } }>(
-    "/api/v1/module/:moduleId/workspaces/:workspaceId/artifact",
-    { schema: { operationId: "moduleArtifact", params } },
-    async (req) =>
-      inWorkspace(db, req.params.workspaceId, async (tx) => {
-        const ctx = await authorize(
-          tx,
-          req.actor,
-          req.params.workspaceId,
-          req.id,
-          undefined,
-          req.params.moduleId,
-        );
-        const module = await workspaceModule(
-          tx,
-          ctx.workspaceId,
-          req.params.moduleId,
-          runtime.catalog,
-        );
-        const release = found(
-          (await resolveWorkspaceRelease(tx, ctx.workspaceId, module.id)).find(
-            (p) => p.module_id === module.id,
-          ),
-        );
-        verifyPackage(release, await publicKey());
-        await audit(tx, ctx, "modules.downloaded", module.id);
-        return release;
-      }),
-  );
+  for (const metadataOnly of [false, true])
+    app.get<{ Params: { workspaceId: string; moduleId: string } }>(
+      `/api/v1/module/:moduleId/workspaces/:workspaceId/artifact${metadataOnly ? "/metadata" : ""}`,
+      {
+        schema: {
+          operationId: metadataOnly
+            ? "moduleArtifactMetadata"
+            : "moduleArtifact",
+          params,
+        },
+      },
+      async (req) =>
+        inWorkspace(db, req.params.workspaceId, async (tx) => {
+          const ctx = await authorize(
+            tx,
+            req.actor,
+            req.params.workspaceId,
+            req.id,
+            undefined,
+            req.params.moduleId,
+          );
+          const module = await workspaceModule(
+            tx,
+            ctx.workspaceId,
+            req.params.moduleId,
+            runtime.catalog,
+          );
+          const release = found(
+            (
+              await resolveWorkspaceRelease(tx, ctx.workspaceId, module.id)
+            ).find((p) => p.module_id === module.id),
+          );
+          verifyPackage(release, await publicKey());
+          if (metadataOnly) {
+            const { artifact: _artifact, ...metadata } = release;
+            return metadata;
+          }
+          await audit(tx, ctx, "modules.downloaded", module.id);
+          return release;
+        }),
+    );
 }

@@ -31,27 +31,31 @@ type Result<K extends OperationId> = K extends "businessCutoverReview"
                 ? { publicKey: string }
                 : K extends "platformState"
                   ? PlatformState
-                  : K extends "moduleArtifact"
-                    ? SignedArtifact
-                    : K extends "platformCommand"
-                      ? {
-                          ok: boolean;
-                          installation?: import("@suite/module-sdk/platform").InstallationReceipt;
-                        }
-                      : K extends
-                            "moduleRequest" | "moduleOperation" | "moduleQuery"
-                        ? unknown
-                        : K extends keyof operations
-                          ? operations[K] extends {
-                              responses: {
-                                200: {
-                                  content: { "application/json": infer R };
+                  : K extends "moduleArtifactMetadata"
+                    ? import("@suite/module-sdk/platform").ArtifactMetadata
+                    : K extends "moduleArtifact"
+                      ? SignedArtifact
+                      : K extends "platformCommand"
+                        ? {
+                            ok: boolean;
+                            installation?: import("@suite/module-sdk/platform").InstallationReceipt;
+                          }
+                        : K extends
+                              | "moduleRequest"
+                              | "moduleOperation"
+                              | "moduleQuery"
+                          ? unknown
+                          : K extends keyof operations
+                            ? operations[K] extends {
+                                responses: {
+                                  200: {
+                                    content: { "application/json": infer R };
+                                  };
                                 };
-                              };
-                            }
-                            ? R
-                            : never
-                          : unknown;
+                              }
+                              ? R
+                              : never
+                            : unknown;
 export class ApiError extends Error {
   constructor(
     public status: number,

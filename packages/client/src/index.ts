@@ -80,6 +80,17 @@ export interface LanReceipt {
   message: string;
 }
 export interface DesktopBridge {
+  receivedPackage(
+    scope: Scope,
+    selection: import("@suite/module-sdk/platform").InstallationSelection,
+  ): Promise<
+    | {
+        pkg: import("@suite/module-sdk/platform").SignedArtifact;
+        transferId: string;
+      }
+    | undefined
+  >;
+  acknowledgePackage(scope: Scope, transferId: string): Promise<void>;
   lanReceipts(scope: Scope): Promise<LanReceipt[]>;
   submitLanReceipt(scope: Scope, id: string, digest: string): Promise<void>;
   dismissLanReceipt(scope: Scope, id: string, digest: string): Promise<void>;

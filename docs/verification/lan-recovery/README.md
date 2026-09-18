@@ -30,7 +30,7 @@ The first native run exposed a harness assumption: this development profile requ
 
 ## Remaining required work
 
-- Verified received-package reuse by the normal installation path; artifacts currently remain quarantined.
+- Received-package reuse was subsequently verified in the [package milestone](../lan-packages/README.md); broader pending-receipt work below remains required.
 - Full receipt lifecycle: safe recovery/export/discard of invalid and unconfirmed work, capacity/retention management, dependencies already accepted on another device, and reconciliation after the active module version changes. Current submission requires the exact authoring version to be active; absent dependency receipts wait explicitly.
 - Broader employee/delegated LAN authority. This acceptance covers the currently implemented same-account administrator recovery path.
 - Offline enablement/relay authority, peer-list exchange, distributed scan coordination, partition behavior and supported-platform/deployment certificate acceptance.

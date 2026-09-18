@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./registry": "./src/contracts/registry.ts",
     "./catalog": "./src/contracts/catalog.ts",
+    "./relay-artifacts": "./src/contracts/relay-artifacts.ts",
     "./relay": "./src/contracts/relay.ts",
     "./sync": "./src/contracts/sync.ts",
     "./governance": "./src/contracts/governance.ts",

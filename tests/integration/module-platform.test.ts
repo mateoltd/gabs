@@ -79,6 +79,75 @@ afterAll(async () => {
   await db.destroy();
 });
 describe("Public module runtime", () => {
+  it("authorizes package metadata without downloading bytes and follows pins and dependency entitlements", async () => {
+    const metadata = (moduleId: string, workspaceId = workspace) =>
+      server.app.inject({
+        method: "GET",
+        url: `/api/v1/module/${moduleId}/workspaces/${workspaceId}/artifact/metadata`,
+        headers,
+      });
+    const full = await server.app.inject({
+      method: "GET",
+      url: `/api/v1/module/contacts/workspaces/${workspace}/artifact`,
+      headers,
+    });
+    expect(full.statusCode).toBe(200);
+    const { artifact: _artifact, ...expected } = full.json();
+    const response = await metadata("contacts");
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expected);
+    expect(JSON.stringify(response.json()).length).toBeLessThan(
+      full.body.length,
+    );
+    expect((await metadata("contacts", randomUUID())).statusCode).toBe(403);
+    await inWorkspace(db, workspace, (tx) =>
+      tx
+        .updateTable("suite.entitlements")
+        .set({ active: false })
+        .where("workspace_id", "=", workspace)
+        .where("module_id", "=", "contacts")
+        .execute(),
+    );
+    try {
+      expect((await metadata("contacts")).statusCode).toBe(403);
+      expect((await metadata("projects")).statusCode).toBe(403);
+    } finally {
+      await inWorkspace(db, workspace, (tx) =>
+        tx
+          .updateTable("suite.entitlements")
+          .set({ active: true })
+          .where("workspace_id", "=", workspace)
+          .where("module_id", "=", "contacts")
+          .execute(),
+      );
+    }
+    await inWorkspace(db, foreign, (tx) =>
+      tx
+        .insertInto("suite.platform_settings")
+        .values({
+          workspace_id: foreign,
+          key: "pin:inventory",
+          value: { version: "1.1.0" },
+          version: 1,
+        })
+        .execute(),
+    );
+    try {
+      const pinned = await metadata("inventory", foreign);
+      expect(pinned.statusCode).toBe(200);
+      expect(pinned.json().version).toBe("1.1.0");
+      expect(pinned.json()).not.toHaveProperty("artifact");
+    } finally {
+      await inWorkspace(db, foreign, (tx) =>
+        tx
+          .deleteFrom("suite.platform_settings")
+          .where("workspace_id", "=", foreign)
+          .where("key", "=", "pin:inventory")
+          .execute(),
+      );
+    }
+  });
+
   it("serves authorized reference pages through versioned API contracts", async () => {
     const marker = `${randomUUID()} 50%_literal`;
     const ids: string[] = [];

@@ -77,3 +77,9 @@ export function pendingRelay(entry: JournalEntry) {
     throw Error("The pending change exceeds the relay size limit.");
   return { kind: "pending" as const, id: value.id, payload };
 }
+
+export {
+  artifactRelays,
+  type ArtifactPart,
+  type ArtifactTransfer,
+} from "./relay-artifacts";

@@ -246,6 +246,10 @@ export const OPERATIONS = {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/records",
   },
+  moduleArtifactMetadata: {
+    method: "GET",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/artifact/metadata",
+  },
   moduleArtifact: {
     method: "GET",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/artifact",

@@ -1,15 +1,42 @@
 import { DatabaseSync } from "node:sqlite";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { verifyLanPackage } from "./lan-package";
+import type { ArtifactTransfer } from "@suite/module-sdk/relay-artifacts";
+import type { ArtifactMetadata } from "@suite/module-sdk/platform";
 let db: DatabaseSync | undefined, key: Buffer | undefined;
-process.parentPort.on("message", (event) => {
+function read(cacheKey: string): unknown {
+  const row = db!
+    .prepare("SELECT payload FROM cache WHERE key=?")
+    .get(cacheKey) as { payload: Uint8Array } | undefined;
+  if (!row) return;
+  const bytes = Buffer.from(row.payload),
+    cipher = createDecipheriv("aes-256-gcm", key!, bytes.subarray(0, 12));
+  cipher.setAAD(Buffer.from(cacheKey));
+  cipher.setAuthTag(bytes.subarray(12, 28));
+  return JSON.parse(
+    Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString(
+      "utf8",
+    ),
+  );
+}
+process.parentPort.on("message", async (event) => {
   const message = event.data as {
     id: number;
-    action: "open" | "read" | "write" | "purge" | "prune-artifacts";
+    action:
+      | "open"
+      | "read"
+      | "write"
+      | "purge"
+      | "prune-artifacts"
+      | "verify-lan-package";
     path?: string;
     secret?: string;
     key?: string;
     value?: unknown;
     keep?: string[];
+    transfer?: ArtifactTransfer;
+    metadata?: ArtifactMetadata;
+    publicKey?: string;
   };
   try {
     if (message.action === "open") {
@@ -40,21 +67,14 @@ process.parentPort.on("message", (event) => {
       ).run(message.key, Buffer.concat([iv, cipher.getAuthTag(), encrypted]));
       value = true;
     } else if (message.action === "read") {
-      const row = db
-        .prepare("SELECT payload FROM cache WHERE key=?")
-        .get(message.key) as { payload: Uint8Array } | undefined;
-      if (row) {
-        const bytes = Buffer.from(row.payload),
-          cipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12));
-        cipher.setAAD(Buffer.from(message.key));
-        cipher.setAuthTag(bytes.subarray(12, 28));
-        value = JSON.parse(
-          Buffer.concat([
-            cipher.update(bytes.subarray(28)),
-            cipher.final(),
-          ]).toString("utf8"),
-        );
-      }
+      value = read(message.key);
+    } else if (message.action === "verify-lan-package") {
+      value = await verifyLanPackage(
+        (index) => read(`${message.key}/${index}`),
+        message.transfer!,
+        message.metadata!,
+        message.publicKey!,
+      );
     } else if (message.action === "prune-artifacts") {
       const retained = new Set(message.keep);
       const rows = db

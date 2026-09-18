@@ -8,6 +8,11 @@ import {
   type RelayEnvelope,
 } from "./transport";
 interface Host {
+  receiveArtifact?(
+    scope: Scope,
+    envelope: RelayEnvelope,
+    check: () => void,
+  ): Promise<void>;
   currentUser(): string | undefined;
   authorize(scope: Scope): Promise<unknown>;
   configure(scope: Scope): Promise<LanConfig>;
@@ -248,6 +253,12 @@ export class ManagedLanSession {
       if (this.active(session.scope) !== session)
         throw Error("Local network authorization changed.");
       validateRelayEnvelope(envelope, session.scope.workspaceId);
+      if (envelope.kind === "artifact" && this.host.receiveArtifact) {
+        return this.host.receiveArtifact(session.scope, envelope, () => {
+          if (this.active(session.scope) !== session)
+            throw Error("Local network authorization changed.");
+        });
+      }
       const stored = await this.host.readInbox(session.scope);
       if (this.active(session.scope) !== session)
         throw Error("Local network authorization changed.");

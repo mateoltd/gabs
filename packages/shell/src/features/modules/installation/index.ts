@@ -328,13 +328,20 @@ export async function installModule(
           }
         if (!pkg) {
           failureCode = "download";
-          pkg = await props.client.request({
-            operation: "moduleArtifact",
-            params: {
-              workspaceId: props.scope.workspaceId,
-              moduleId: release.moduleId,
-            },
-          });
+          const received =
+            props.platform.kind === "desktop"
+              ? await window.suiteDesktop?.receivedPackage(props.scope, release)
+              : undefined;
+          check();
+          pkg =
+            received?.pkg ??
+            (await props.client.request({
+              operation: "moduleArtifact",
+              params: {
+                workspaceId: props.scope.workspaceId,
+                moduleId: release.moduleId,
+              },
+            }));
           failureCode = "verification";
           await verifyArtifact(pkg, trust.publicKey);
           if (
@@ -353,6 +360,17 @@ export async function installModule(
           await changeModuleStorage(props.platform, props.scope, (s) => {
             (s.downloads ??= {})[cacheKey] = verified;
           });
+          check();
+          if (received) {
+            // Only retire the transport cache after the normal installer owns durable bytes.
+            // Cleanup failure cannot invalidate a verified download or its server receipt.
+            await window
+              .suiteDesktop!.acknowledgePackage(
+                props.scope,
+                received.transferId,
+              )
+              .catch(() => {});
+          }
         }
         failureCode = "policy";
         assertClientHost(pkg.artifact, viewHost.capabilities);

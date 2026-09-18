@@ -10,6 +10,7 @@ import {
   isCapabilityTransportFailure,
 } from "./capability-authority";
 import { ManagedLanSession } from "./lan/session";
+import { LanPackages } from "./lan/packages";
 import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
@@ -17,6 +18,7 @@ import {
   cacheWrite,
   cachePurge,
   cachePruneArtifacts,
+  cacheVerifyLanPackage,
 } from "../utility/cache-service";
 import { randomBytes, createHash } from "node:crypto";
 import {
@@ -122,7 +124,9 @@ const lanConfigured = (scope?: Scope) =>
     process.env.SUITE_LAN_WORKSPACE &&
     (!scope || scope.workspaceId === process.env.SUITE_LAN_WORKSPACE)
   );
-const lan = new ManagedLanSession({
+const lan: ManagedLanSession = new ManagedLanSession({
+  receiveArtifact: (scope, envelope, check) =>
+    lanPackages.receive(scope, envelope, check),
   currentUser: () => userId,
   authorize: async (scope) => {
     const result = await execute(
@@ -186,6 +190,46 @@ const lanRecovery = new LanRecovery({
       value,
     );
   },
+});
+const packageCacheKey = (scope: Scope, key: string) =>
+  `${scope.userId}/${scope.workspaceId}/relay-packages/${key}`;
+const lanPackages: LanPackages = new LanPackages({
+  currentUser: () => userId,
+  request: (request) => execute(request, 8000),
+  read: async (scope, key) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    return cacheRead(packageCacheKey(scope, key));
+  },
+  write: async (scope, key, value) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    await cacheWrite(packageCacheKey(scope, key), value);
+  },
+  prune: async (scope, keep) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    await cachePruneArtifacts(
+      packageCacheKey(scope, ""),
+      keep.map((key) => packageCacheKey(scope, key)),
+    );
+  },
+  verify: async (scope, transfer, metadata, publicKey) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    return cacheVerifyLanPackage(
+      packageCacheKey(scope, transfer.transfer),
+      transfer,
+      metadata,
+      publicKey,
+    );
+  },
+  readInbox: async (scope) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    return cacheRead(`${scope.userId}/${scope.workspaceId}/relay-inbox`);
+  },
+  dismiss: (scope, id, digest) => lan.dismiss(scope, id, digest),
 });
 let cacheReady: Promise<void> | undefined;
 async function ensureCache() {
@@ -370,6 +414,7 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     const user = body.user as { id: string };
     if (userId && userId !== user.id) {
       lanRecovery.invalidate();
+      lanPackages.invalidate();
       void lan.stop().catch(() => {});
     }
     userId = user.id;
@@ -670,6 +715,26 @@ function handlers() {
       throw Error("Invalid billing destination.");
     await shell.openExternal(url.href);
   });
+  ipcMain.handle(
+    "suite:lan-package",
+    (
+      event,
+      scope: Scope,
+      selection: import("@suite/module-sdk/platform").InstallationSelection,
+    ) => {
+      sender(event);
+      validateScope(scope, userId);
+      return lanPackages.get(scope, selection);
+    },
+  );
+  ipcMain.handle(
+    "suite:lan-package-ack",
+    (event, scope: Scope, transferId: string) => {
+      sender(event);
+      validateScope(scope, userId);
+      return lanPackages.acknowledge(scope, transferId);
+    },
+  );
   ipcMain.handle("suite:lan-receipts", (event, scope: Scope) => {
     sender(event);
     validateScope(scope, userId);
@@ -725,6 +790,7 @@ function handlers() {
     nativeAuthority.clear();
     localDeviceHosts.clear();
     lanRecovery.invalidate();
+    lanPackages.invalidate();
     await lan.stop();
     const options = validateLogin(value);
     loginPromise ??= login(options);
@@ -741,6 +807,7 @@ function handlers() {
     const token = refreshToken;
     const previousUser = userId;
     lanRecovery.invalidate();
+    lanPackages.invalidate();
     userId = undefined;
     if (previousUser && secureAvailable())
       await nativeAuthority.purge({ userId: previousUser });
