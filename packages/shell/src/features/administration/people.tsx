@@ -1,3 +1,4 @@
+import { PermissionOrigin } from "./permission-origin";
 import { type FeatureProps } from "@suite/client";
 import {
   PLATFORM_PERMISSIONS,
@@ -62,7 +63,8 @@ export function People(props: FeatureProps) {
   const moduleState = usePlatformState(props);
   const businessPermissions = [
     ...new Set(
-      moduleState.data?.modules.flatMap((m) => m.permissions) ??
+      moduleState.data?.permissionCatalog?.map((entry) => entry.permission) ??
+        moduleState.data?.modules.flatMap((m) => m.permissions) ??
         productBusinessPermissions,
     ),
   ].filter((p) => !(PLATFORM_PERMISSIONS as readonly string[]).includes(p));
@@ -739,25 +741,48 @@ export function People(props: FeatureProps) {
           </Field>
           <fieldset className="permission-list">
             <legend>Allowed actions</legend>
+            <p>
+              Actions from other releases may allow saved-work recovery and
+              supported older clients. Current permissions and module access
+              still apply.
+            </p>
             {(role !== "new" && role?.protected
               ? role.permissions
               : businessPermissions
             ).map((p) => (
-              <label className="check-row" key={p}>
-                <Checkbox
-                  checked={permissions.includes(p)}
-                  disabled={role !== "new" && !!role?.protected}
-                  onCheckedChange={(e) => {
-                    setPermissions(
-                      e
-                        ? [...permissions, p]
-                        : permissions.filter((x) => x !== p),
-                    );
-                    setAttempt(crypto.randomUUID());
-                  }}
+              <div key={p}>
+                <label className="check-row">
+                  <Checkbox
+                    aria-describedby={
+                      moduleState.data?.permissionCatalog?.some(
+                        (entry) => entry.permission === p && !entry.current,
+                      ) &&
+                      !moduleState.data?.permissionCatalog?.some(
+                        (entry) => entry.permission === p && entry.current,
+                      )
+                        ? `permission-origin-${p}`
+                        : undefined
+                    }
+                    checked={permissions.includes(p)}
+                    disabled={role !== "new" && !!role?.protected}
+                    onCheckedChange={(e) => {
+                      setPermissions(
+                        e
+                          ? [...permissions, p]
+                          : permissions.filter((x) => x !== p),
+                      );
+                      setAttempt(crypto.randomUUID());
+                    }}
+                  />
+                  <span>{permissionLabel(p)}</span>
+                </label>
+                <PermissionOrigin
+                  id={`permission-origin-${p}`}
+                  entries={moduleState.data?.permissionCatalog?.filter(
+                    (entry) => entry.permission === p,
+                  )}
                 />
-                <span>{permissionLabel(p)}</span>
-              </label>
+              </div>
             ))}
           </fieldset>
           <ErrorMessage error={error} />

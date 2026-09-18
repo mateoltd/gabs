@@ -38,7 +38,7 @@ Unit coverage also exercises original policy changes to online, local, query and
 ## Limits and continuation
 
 - The host recovery surface currently requires an available installed custom view. Recovery after uninstall, removal of the whole view/navigation, suspension, permanent revocation, and a module-independent recovery inbox remain required.
-- Command recovery export and administrator assignment of historical permission identifiers remain required. Test setup changes real database grants; it does not establish the administrator UI for historical grants.
+- Command recovery export remains required. The later [historical-permission milestone](../historical-permissions/README.md) verifies administrator assignment and revocation through People and the matrix. The original retirement evidence used direct database grant setup; its historical test counts do not establish that later UI behavior.
 - Dispatch remains owned by mounted module views. A general workspace scheduler must preserve these boundaries when introduced; this milestone does not establish background execution with every module view closed.
 - Further schema transitions, three-release reviews, cross-module/resource continuations, submitted-child outcomes, reference-aware correction editors, profile/sign-out behavior, history retention and broader offline/release gates remain open.
 - The earlier linked-create dialog-close reliability concern and concurrent Orders draft server error remain unestablished, as documented in [upgrade acceptance](../command-upgrade/README.md). Passing regressions do not establish their causes or fixes.

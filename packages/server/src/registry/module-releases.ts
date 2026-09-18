@@ -1,3 +1,4 @@
+import type { ModulePermission } from "@suite/module-sdk/platform";
 import { sql } from "kysely";
 import { moduleStorageVersions } from "../persistence/module-storage";
 import { readFile } from "node:fs/promises";
@@ -258,19 +259,83 @@ export async function registeredModuleIds(tx: Tx, catalog: ModuleCatalog) {
   ];
 }
 
-/** Both policy editors validate against the workspace's selected signed contracts. */
+/** Selected contracts and signed published history share one administration catalogue.
+ * Historical declarations do not enable a module or authorize an actor themselves.
+ */
+export async function workspacePermissionCatalog(
+  tx: Tx,
+  workspaceId: string,
+  catalog: ModuleCatalog,
+  selected?: readonly ModuleDefinition[],
+): Promise<ModulePermission[]> {
+  const definitions =
+    selected ??
+    (await Promise.all(
+      (await registeredModuleIds(tx, catalog)).map((id) =>
+        workspaceModule(tx, workspaceId, id, catalog),
+      ),
+    ));
+  const entries = new Map<string, ModulePermission>();
+  const add = (module: ModuleDefinition, current: boolean) => {
+    for (const permission of module.permissions) {
+      if ((PLATFORM_PERMISSIONS as readonly string[]).includes(permission))
+        continue;
+      const key = JSON.stringify([module.id, permission]);
+      const existing = entries.get(key);
+      if (existing) {
+        existing.current ||= current;
+        if (!existing.versions.includes(module.version))
+          existing.versions.push(module.version);
+      } else
+        entries.set(key, {
+          permission,
+          moduleId: module.id,
+          current,
+          versions: [module.version],
+        });
+    }
+  };
+  for (const definition of definitions) add(definition, true);
+  if (!definitions.length) return [];
+  const releases = await tx
+    .selectFrom("suite.module_releases")
+    .select([
+      "module_id",
+      "version",
+      sql<string>`jsonb_build_object(
+      'module_id', module_id, 'version', version, 'manifest', manifest,
+      'artifact', artifact, 'digest', digest, 'signature', signature, 'key_id', key_id
+    )::text`.as("content"),
+    ])
+    .where(
+      "module_id",
+      "in",
+      definitions.map((m) => m.id),
+    )
+    .execute();
+  if (releases.length) {
+    const publicKey = await registryPublicKey();
+    for (const release of releases) {
+      const verified = verifiedPackages.get(release.content, publicKey);
+      // Never use unsigned manifest metadata or client-supplied permission names.
+      add(releaseContract(verified), false);
+    }
+  }
+  return [...entries.values()]
+    .map((entry) => ({ ...entry, versions: entry.versions.sort() }))
+    .sort((a, b) => a.permission.localeCompare(b.permission));
+}
+
 export async function workspaceBusinessPermissions(
   tx: Tx,
   workspaceId: string,
   catalog: ModuleCatalog,
 ) {
-  const definitions = await Promise.all(
-    (await registeredModuleIds(tx, catalog)).map((id) =>
-      workspaceModule(tx, workspaceId, id, catalog),
+  return [
+    ...new Set(
+      (await workspacePermissionCatalog(tx, workspaceId, catalog)).map(
+        (entry) => entry.permission,
+      ),
     ),
-  );
-  return [...new Set(definitions.flatMap((m) => m.permissions))].filter(
-    (permission) =>
-      !(PLATFORM_PERMISSIONS as readonly string[]).includes(permission),
-  );
+  ];
 }

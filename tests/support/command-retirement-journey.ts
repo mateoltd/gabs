@@ -1,3 +1,4 @@
+import { historicalPermissionJourney } from "./historical-permission-journey";
 import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -70,6 +71,11 @@ export async function commandRetirementJourney(
     name: fixtureName,
     sourceDirectory: "tests/fixtures/queued-notes",
     transform: (file, source) => {
+      if (file === "module.ts")
+        source = source.replace(
+          "permissions: [",
+          'permissions: [\n    "contacts.contacts.read",',
+        );
       if (file === "view.tsx")
         return `import { defineView } from "@suite/module-sdk/ui";
 import { PageHeading } from "@suite/ui-web";
@@ -165,8 +171,19 @@ export default defineView(module, function Notes() { return <PageHeading title="
     expect((await settle(before[0])).status()).toBe(403);
   }
   await pool.query(
-    "update suite.roles set permissions=array(select distinct unnest(permissions || $2::text[])) where workspace_id=$1",
-    [scope.workspaceId, [`${id}.capture`, `${id}.capture-next`]],
+    "update suite.roles set permissions=array_append(array_remove(permissions,$2),$3) where workspace_id=$1",
+    [scope.workspaceId, `${id}.capture`, `${id}.capture-next`],
+  );
+  await page.reload();
+  await historicalPermissionJourney(
+    { ...options, page },
+    {
+      id,
+      scope,
+      headers,
+      version: pkg.version,
+      denied: () => settle(before[0]),
+    },
   );
   if (mode === "service-only") {
     // Recovery of an old public receipt does not expose today's service-only handler.

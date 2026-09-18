@@ -65,6 +65,7 @@ import {
   resolveWorkspaceRelease,
   workspaceModule,
   workspaceBusinessPermissions,
+  workspacePermissionCatalog,
   registeredModuleIds,
 } from "@suite/server-core/registry/module-releases";
 import { readFile } from "node:fs/promises";
@@ -750,6 +751,14 @@ export async function registerPlatform(
           .execute();
         return {
           modules: definitions,
+          permissionCatalog: ctx.permissions.includes("roles.manage")
+            ? await workspacePermissionCatalog(
+                tx,
+                ctx.workspaceId,
+                runtime.catalog,
+                definitions,
+              )
+            : [],
           storage: await tx
             .selectFrom("suite.module_storage")
             .select(["module_id", "schema_version", "release_version"])

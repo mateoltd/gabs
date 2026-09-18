@@ -1,3 +1,4 @@
+import { PermissionOrigin } from "./permission-origin";
 import { PermissionDecision } from "./permission-decision";
 import { type FeatureProps } from "@suite/client";
 import {
@@ -78,9 +79,19 @@ export function Organization(props: FeatureProps) {
   const permissions = [
     ...new Set([
       ...productPermissions,
-      ...state.data.modules.flatMap((m) => m.permissions),
+      ...(state.data.permissionCatalog?.map((entry) => entry.permission) ??
+        state.data.modules.flatMap((m) => m.permissions)),
     ]),
-  ].filter((p) => !filter || p.startsWith(filter + "."));
+  ].filter(
+    (permission) =>
+      !filter ||
+      (state.data.permissionCatalog
+        ? state.data.permissionCatalog.some(
+            (entry) =>
+              entry.moduleId === filter && entry.permission === permission,
+          )
+        : permission.startsWith(filter + ".")),
+  );
   async function save() {
     setBusy(true);
     setError(undefined);
@@ -465,6 +476,11 @@ export function Organization(props: FeatureProps) {
                         .map((part) => part.replaceAll("_", " "))
                         .join(" / ")}
                     </span>
+                    <PermissionOrigin
+                      entries={state.data.permissionCatalog?.filter(
+                        (entry) => entry.permission === permission,
+                      )}
+                    />
                   </th>
                   {state.data.roles.map((role) => {
                     let result;

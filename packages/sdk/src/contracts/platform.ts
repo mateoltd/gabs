@@ -1,7 +1,16 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { ModuleDefinition } from "../index";
 import type { OrganizationPolicy } from "./governance";
+export const ModulePermissionSchema = Type.Object({
+  permission: Type.String(),
+  moduleId: Type.String(),
+  current: Type.Boolean(),
+  versions: Type.Array(Type.String()),
+});
+export type ModulePermission = Static<typeof ModulePermissionSchema>;
 export interface PlatformState {
+  /** Verified declarations for policy administration, not effective actor grants. */
+  permissionCatalog?: ModulePermission[];
   modules: ModuleDefinition[];
   storage?: {
     module_id: string;
