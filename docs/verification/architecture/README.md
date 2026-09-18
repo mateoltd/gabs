@@ -111,3 +111,20 @@ Final-source parent verification passed:
 - Four fresh wide/narrow web/native Settings captures were inspected under `screenshots/sync-*`; changed-source formatting and diff checks passed. Historical captures overwritten by tests were restored.
 
 The checkpointed [native recovery ordering fix](../recovery-metadata-ordering/README.md) separately closes OFF-01-EXPORT. Full OFF-01, product parity and final UI refinement remain open.
+
+
+## Queued-resource checkpoint review, 19 September 2026
+
+Checkpoint `c43e7de` preserves queued-resource work before the user-requested `gpt-5.6-sol` review at `xhigh`. The physical package migration was already complete. Independent and parent review confirmed the current ownership: portable public capture contracts in `sdk/src/client`, durable capture in `client/src/modules`, simulation in `sdk/src/testing`, development transport in tooling and React/view authorization in the shell. Additional package moves or nesting were not justified by these responsibilities.
+
+The review found duplicated request-key validation. The durable client adapter now reuses the existing platform `RequestKeySchema`; SDK simulation reuses SDK queue key/dependency schemas for both resources and commands. This rejects NUL-containing keys/prerequisites before journal mutation and avoids adding a forbidden SDK dependency on platform contracts. Parent review also corrected the structural capture-error guard: identities containing both command and resource fields cannot be narrowed into a valid retry identity. These guards communicate request identity, never authority.
+
+Parent review inspected all changed production files and the regressions. Final verification passed:
+
+- Strict root/browser/Node/preload/worker checks, dependency/copy checks and four fresh builds: `/tmp/gabs-resource-architecture-final-build.log`.
+- 41 affected tests across six files, including nine architecture fixtures, fourteen resource tests, command host/integration, simulation and host compatibility: `/tmp/gabs-resource-architecture-final-tests.log`.
+- Both command/resource development-preview journeys headless: `/tmp/gabs-resource-architecture-final-preview.log`.
+- The complete unit/PostgreSQL suite passed 550 tests across 89 files immediately before the schema-reuse correction; the affected final-source run above covers that correction. This is not a claim that the entire suite was rerun afterward.
+- The checkpointed resource milestone separately passed six browser and five hidden/minimized, unfocused native cases before these validation-only corrections. Its [evidence](../resource-continuation/README.md) records the exact sequence and twelve inspected captures. No production stylesheet or signed historical artifact changed.
+
+Physical paths, public package identifiers, module permissions and corporate authority remain intact. OFF-01-RESOURCE has scoped local acceptance; OFF-01, full product parity and final UI refinement remain incomplete. The paused goal stays paused during this requested architecture task.

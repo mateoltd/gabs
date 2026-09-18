@@ -42,15 +42,17 @@ export function isQueueCaptureError(
   )
     return false;
   const identity = value.identity as Record<string, unknown>;
-  const fields =
-    typeof identity.operation === "string"
-      ? ["moduleId", "moduleVersion", "operation", "key"]
-      : ["moduleId", "moduleVersion", "resource", "key"];
+  const command = "operation" in identity;
   if (
-    typeof identity.operation !== "string" &&
-    !["create", "update", "archive"].includes(String(identity.action))
+    command
+      ? "resource" in identity || "action" in identity
+      : typeof identity.action !== "string" ||
+        !["create", "update", "archive"].includes(identity.action)
   )
     return false;
+  const fields = command
+    ? ["moduleId", "moduleVersion", "operation", "key"]
+    : ["moduleId", "moduleVersion", "resource", "key"];
   return fields.every(
     (key) => typeof identity[key] === "string" && identity[key].length > 0,
   );

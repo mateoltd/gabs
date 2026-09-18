@@ -6,6 +6,7 @@ import {
   type ModuleResourceQueue,
   type QueuedResourceIdentity,
 } from "@suite/module-sdk";
+import { RequestKeySchema } from "@suite/contracts";
 import type { Platform, Scope } from "../index";
 import { enqueue, readModuleStorage } from "./storage";
 import { responseContract, validateModuleResponse } from "./response";
@@ -100,14 +101,9 @@ export function createModuleResourceQueue(
         (resource.appendOnly && call.action !== "create")
       )
         throw Error("This resource action does not allow queued capture.");
-      const key = Type.String({
-        minLength: 8,
-        maxLength: 128,
-        pattern: "^[^\\u0000]*$",
-      });
-      assertSchema(key, call.key);
+      assertSchema(RequestKeySchema, call.key);
       assertSchema(
-        Type.Array(key, { uniqueItems: true, maxItems: 100 }),
+        Type.Array(RequestKeySchema, { uniqueItems: true, maxItems: 100 }),
         dependencies,
       );
       assertSchema(

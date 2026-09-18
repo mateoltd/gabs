@@ -1,6 +1,6 @@
 # Public queued resources and command dependencies
 
-Status: OFF-01-RESOURCE implementation and focused browser acceptance complete; final regression/native verification pending.
+Status: OFF-01-RESOURCE locally verified within the scope below. Full OFF-01 and product parity remain incomplete.
 
 ## Contract and ownership
 
@@ -27,7 +27,10 @@ Unit coverage includes durable restart/lookup, explicit retry targets, differing
 - Expanded create/update/archive browser journey passed after its harness closed the still-open Saved commands dialog before navigating. The initial navigation timeout was a test issue; product checks were unchanged. Log: `/tmp/gabs-resource-lifecycle-web-final.log`.
 - Strict checks and all four fresh production builds passed in `/tmp/gabs-resource-queue-final-build.log`. Later fixture/test-only changes passed strict checks in `/tmp/gabs-resource-lifecycle-types.log`.
 - The first full regression attempt was interrupted with no completion result; its process handle was gone and no matching process remained. Its inactive isolated database was removed. It supplies no acceptance evidence.
-- Final regression and broader browser/native acceptance are pending. Wide/narrow captures are being inspected; they establish continuity, not final UI approval.
+- The completed broad regression passed 548 tests across 89 files. All six headless browser cases and five hidden/minimized, unfocused native cases passed, covering both continuation paths, queued capture/retry/revocation, workspace scheduling, previews and native stale-metadata recovery. Logs: `/tmp/gabs-resource-queue-regression-final.log`, `/tmp/gabs-resource-queue-web-acceptance.log`, `/tmp/gabs-resource-queue-native-acceptance.log`.
+- Parent review then rejected ambiguous mixed command/resource identities in `isQueueCaptureError`. Strict checks/four fresh builds and all 550 unit/PostgreSQL tests across 89 files passed after that correction. Logs: `/tmp/gabs-resource-review-build.log`, `/tmp/gabs-resource-review-tests.log`.
+- The subsequent [architecture review](../architecture/README.md#queued-resource-checkpoint-review-19-september-2026) aligned simulator/host request-key validation with their existing schema owners and records final affected checks. The broad browser/native run above preceded these validation-only corrections; it is not represented as a second final-source full run.
+- All twelve wide/narrow web/native captures in this directory were inspected, including selected/unselected creates, reachable scrolled actions, revocation feedback and original/update comparisons. Text wraps within narrow dialogs; lower content and actions remain scrollable. These captures establish continuity, not final UI approval. No production stylesheet changed.
 
 ## Remaining scope
 

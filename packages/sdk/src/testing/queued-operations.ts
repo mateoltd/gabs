@@ -6,10 +6,13 @@ import {
   type QueuedOperationIdentity,
   type QueuedResourceIdentity,
   resourceMutationSchema,
-  Type,
 } from "../index";
 import { canonical } from "../contracts/registry";
 import type { JournalEntry } from "../contracts/sync";
+import {
+  queueDependenciesSchema,
+  queueKeySchema,
+} from "../client/queued-operation";
 
 /** In-memory development simulation only. Production hosts supply durable storage. */
 export function simulateQueuedOperations(
@@ -95,12 +98,8 @@ export function simulateQueuedOperations(
           resourceMutationSchema(resource.schema, call.action),
           call.input,
         );
-        const keySchema = Type.String({ minLength: 8, maxLength: 128 });
-        assertSchema(keySchema, call.key);
-        assertSchema(
-          Type.Array(keySchema, { maxItems: 100, uniqueItems: true }),
-          dependencies,
-        );
+        assertSchema(queueKeySchema, call.key);
+        assertSchema(queueDependenciesSchema, dependencies);
         if (dependencies.includes(call.key))
           throw Error("A saved write cannot depend on itself.");
         const old = journal.find((entry) => entry.id === call.key);
@@ -150,6 +149,10 @@ export function simulateQueuedOperations(
       )
         throw Error("Only queued commands can be captured.");
       assertSchema(op.input, call.input);
+      assertSchema(queueKeySchema, call.key);
+      assertSchema(queueDependenciesSchema, dependencies);
+      if (dependencies.includes(call.key))
+        throw Error("A saved command cannot depend on itself.");
       const old = journal.find((entry) => entry.id === call.key);
       if (
         old &&

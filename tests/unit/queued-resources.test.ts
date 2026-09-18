@@ -381,7 +381,59 @@ it("rejects malformed direct host capture and isolates queued resource receipts 
   ).toBeUndefined();
 });
 
-it("does not narrow malformed resource capture errors into valid retry identities", () => {
+it.each([
+  { kind: "resource" as const, malformed: "key" as const },
+  { kind: "resource" as const, malformed: "dependency" as const },
+  { kind: "command" as const, malformed: "key" as const },
+  { kind: "command" as const, malformed: "dependency" as const },
+])(
+  "rejects NUL in raw $kind $malformed without writing either journal",
+  async ({ kind, malformed }) => {
+    const f = await fixture();
+    const key = malformed === "key" ? "invalid\u0000key" : "valid-key-001";
+    const dependencies =
+      malformed === "dependency" ? ["invalid\u0000dependency"] : [];
+    const call =
+      kind === "resource"
+        ? {
+            moduleId: module.id,
+            moduleVersion: module.version,
+            resource: "notes",
+            action: "create" as const,
+            key,
+            input: { id: crypto.randomUUID(), data: { name: "Blocked" } },
+          }
+        : {
+            moduleId: module.id,
+            moduleVersion: module.version,
+            action: "operation" as const,
+            operation: "capture",
+            key,
+            input: { name: "Blocked" },
+          };
+    const durable = createModuleQueue(f.platform, scope, () => true);
+    await expect(
+      kind === "resource"
+        ? durable.resources!.capture(call, dependencies)
+        : durable.capture(call, dependencies),
+    ).rejects.toThrow();
+    expect((await f.read()).journal).toHaveLength(0);
+
+    const simulated = createModuleSimulator(module, { server });
+    await expect(
+      kind === "resource"
+        ? simulated.queue.resources!.capture(call, dependencies)
+        : simulated.queue.capture(call, dependencies),
+    ).rejects.toThrow();
+    expect(simulated.snapshot().journal).toHaveLength(0);
+  },
+);
+
+it.each([
+  { operation: 42, action: "delete-all" },
+  { operation: 42, action: "create" },
+  { operation: "capture", action: "delete-all" },
+])("rejects ambiguous capture error identities: %j", (mixed) => {
   expect(
     isQueueCaptureError({
       code: "QUEUED_CAPTURE_UNCONFIRMED",
@@ -391,8 +443,7 @@ it("does not narrow malformed resource capture errors into valid retry identitie
         moduleVersion: "1",
         resource: "notes",
         key: "retained-key",
-        operation: 42,
-        action: "delete-all",
+        ...mixed,
       },
     }),
   ).toBe(false);

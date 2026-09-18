@@ -1,10 +1,10 @@
 # Architecture reconciliation
 
-Status: implemented and locally accepted in the working tree, 17 September 2026. This reconciliation precedes further feature-parity expansion following the user's architecture feedback. Product scope and the later UI-refinement goal remain unchanged.
+Status: implemented, committed and locally accepted. The initial migration was verified on 17 September 2026; subsequent reviews are recorded in the [architecture evidence](verification/architecture/README.md). This reconciliation addresses the user's architecture feedback. Product scope and the later UI-refinement goal remain unchanged.
 
-## Baseline diagnosis
+## Historical baseline diagnosis
 
-The directory structure reflects incremental implementation more than stable ownership:
+Before the migration, the directory structure reflected incremental implementation more than stable ownership:
 
 - `packages/app-web/src` contains all 33 source files directly, including shell, administration, installation, profiles and module rendering. `index.tsx` is 1,482 lines; `admin.tsx` is 1,505 lines.
 - `packages/platform/src` combines browser persistence, native contracts, local profiles, worker execution and business-specific cache types. `local-profiles.ts` is 1,651 lines in the current working tree.

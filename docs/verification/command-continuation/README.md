@@ -1,6 +1,6 @@
 # Explicit command continuation across modules
 
-Status: locally verified cross-module command continuation, 19 September 2026. OFF-01 and full product parity remain active; OFF-01-EXPORT is an unresolved native export reliability follow-up.
+Status: locally verified cross-module command continuation, 19 September 2026. OFF-01 and full product parity remain incomplete. [OFF-01-EXPORT](../recovery-metadata-ordering/README.md) was subsequently verified.
 
 ## Behavior and ownership
 
@@ -20,7 +20,7 @@ Focused signed-contract/storage tests cover selected cross-module commands and c
 
 ## Remaining gates
 
-This scoped milestone does not complete OFF-01. Real capture-to-recovery acceptance for command-to-resource continuations, broader custom/archive descendants, submitted-child outcomes, source-schema/legacy combinations and full scheduling simulation remain required. Resource continuation currently has storage/authorization coverage; it is not claimed as a complete public SDK authoring journey. Sign-out/profile recovery, provider/signed-release acceptance and final UI refinement remain open. Earlier intermittent native dialog and concurrent Orders concerns remain tracked independently.
+This scoped milestone does not complete OFF-01. The later [public queued-resource milestone](../resource-continuation/README.md) adds command-to-create continuation through the SDK and create/update/archive restart/retry journeys. Broader update/archive descendants in rejected-command reviews, submitted-child outcomes, source-schema/legacy combinations and full scheduling simulation remain required. Sign-out/profile recovery, provider/signed-release acceptance and final UI refinement remain open. Earlier intermittent native dialog and concurrent Orders concerns remain tracked independently.
 
 ## Verification
 

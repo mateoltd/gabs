@@ -239,3 +239,8 @@ CORE-002/CORE-003, BACK-002 and UI-003 gain [scoped continuation evidence](verif
 ## Native recovery ordering, 19 September 2026
 
 CORE-003 and UI-003 gain [scoped OFF-01-EXPORT evidence](verification/recovery-metadata-ordering/README.md): a controlled late successful metadata response no longer revokes newer restored native recovery authority. Malformed current metadata, genuine HTTP denials and expired leases remain blocking. Final-source checks passed 540 unit/PostgreSQL tests, strict checks/four fresh builds, three headless browser and five hidden native journeys after the synchronization ownership correction. This closes the tracked export reliability follow-up, not broad offline/profile recovery or any entire original requirement.
+
+
+## Public queued-resource acceptance, 19 September 2026
+
+CORE-003 and UI-003 gain [scoped OFF-01-RESOURCE evidence](verification/resource-continuation/README.md): inferred resource capture and provisional receipts, stable targets, real update/archive bases, declared dependencies, current-authority checks, compatible host contracts and development simulation. Real web/native journeys prove selected command-to-create continuation and create/update/archive restart/retry without duplicate effects or audits. The evidence distinguishes broad acceptance from subsequent validation-only corrections. Broader descendant reviews, submitted-child outcomes, schema/legacy transitions and profile/release gates remain required; no entire original requirement is newly complete.
