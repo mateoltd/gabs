@@ -5,6 +5,7 @@ import { createModuleClient, type ModuleCall } from "@suite/module-sdk";
 import { moduleServers } from "@suite/module-catalog/server";
 import inventory from "../../modules/inventory/module";
 import orders from "../../modules/orders/module";
+import previousOrders from "../../modules/orders/releases/2.0.0/module";
 import {
   connectDatabase,
   identify,
@@ -58,14 +59,24 @@ const send =
       throw Object.assign(new Error(response.json().message), response.json());
     return response.json();
   };
+it("adds only the signed export declaration to the retained Orders business contract", () => {
+  const { version, capabilities, ...business } = orders;
+  const { version: previousVersion, ...previousBusiness } = previousOrders;
+  expect(version).toBe("2.1.0");
+  expect(previousVersion).toBe("2.0.0");
+  expect(business).toEqual(previousBusiness);
+  expect(capabilities).toEqual({
+    export: { kind: "files.export", permission: "orders.export" },
+  });
+});
 it("initializes new personal and company workspaces directly on current scoped defaults and fences historical writes", async () => {
-  expect([inventory.version, orders.version]).toEqual(["2.0.0", "2.0.0"]);
+  expect([inventory.version, orders.version]).toEqual(["2.0.0", "2.1.0"]);
   expect(
     moduleServers
-      .filter(
-        (s) =>
-          s.module.version === "2.0.0" &&
-          ["inventory", "orders"].includes(s.module.id),
+      .filter((s) =>
+        [inventory, orders].some(
+          (m) => m.id === s.module.id && m.version === s.module.version,
+        ),
       )
       .map((s) => s.kind),
   ).toEqual(["scoped", "scoped"]);
@@ -101,6 +112,20 @@ it("initializes new personal and company workspaces directly on current scoped d
     },
   });
   expect(again.json()).toEqual(response.json());
+  const authority = await app.app.inject({
+    method: "POST",
+    url: `/api/v1/module/orders/workspaces/${workspace}/capabilities/authorize`,
+    headers: { ...headers, "x-module-version": orders.version },
+    payload: { capability: "export" },
+  });
+  expect(authority.statusCode, authority.body).toBe(200);
+  expect(authority.json()).toMatchObject({
+    moduleId: "orders",
+    moduleVersion: "2.1.0",
+    capability: "export",
+    kind: "files.export",
+    workspaceId: workspace,
+  });
   for (const target of [workspace, personal.id]) {
     await inWorkspace(db, target, async (tx) => {
       const storage = await tx
@@ -113,7 +138,7 @@ it("initializes new personal and company workspaces directly on current scoped d
         storage.map((s) => [s.module_id, s.schema_version, s.release_version]),
       ).toEqual([
         ["inventory", 2, "2.0.0"],
-        ["orders", 2, "2.0.0"],
+        ["orders", 2, "2.1.0"],
       ]);
       expect(
         (

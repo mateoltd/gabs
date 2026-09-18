@@ -1,1 +1,1 @@
-export { default } from "./releases/2.0.0/module-server";
+export { default } from "./releases/2.1.0/module-server";

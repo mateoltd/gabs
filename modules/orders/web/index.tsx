@@ -1,4 +1,6 @@
-import type { ModuleDefinition } from "@suite/module-sdk";
+import { type ModuleDefinition } from "@suite/module-sdk";
+import capabilityRelease from "../releases/2.1.0/module";
+import { createOnlineModuleHost } from "@suite/client/host";
 import { Table } from "@suite/ui-web";
 import moduleDefinition from "../releases/1.1.0/module";
 import { useToast, Tooltip } from "@suite/ui-web";
@@ -1616,32 +1618,62 @@ export default function Orders(
                     const controller = new AbortController();
                     downloads.current.add(controller);
                     try {
-                      await downloadCorporateExport({
-                        client,
-                        scope,
-                        moduleVersion: props.definition.version,
-                        id: e.id,
-                        signal: controller.signal,
-                        check: () => {
-                          const current = currentView.current;
-                          if (
-                            !current.online ||
-                            current.scope.userId !== scope.userId ||
-                            current.scope.workspaceId !== scope.workspaceId ||
-                            current.definition.version !==
-                              props.definition.version ||
-                            !canUseWithCatalog(
-                              current.bootstrap,
-                              "orders",
-                              "orders.export",
-                              current.moduleCatalog,
-                            )
+                      const check = () => {
+                        const current = currentView.current;
+                        if (
+                          !current.online ||
+                          current.scope.userId !== scope.userId ||
+                          current.scope.workspaceId !== scope.workspaceId ||
+                          current.definition.version !==
+                            props.definition.version ||
+                          !canUseWithCatalog(
+                            current.bootstrap,
+                            "orders",
+                            "orders.export",
+                            current.moduleCatalog,
                           )
-                            throw Error(
-                              "Your access changed. Reopen this export to continue.",
-                            );
-                        },
-                      });
+                        )
+                          throw Error(
+                            "Your access changed. Reopen this export to continue.",
+                          );
+                      };
+                      if (props.definition.capabilities?.export) {
+                        const declaration =
+                          props.definition.capabilities.export;
+                        if (
+                          declaration.kind !== "files.export" ||
+                          declaration.permission !== "orders.export" ||
+                          declaration.offline
+                        )
+                          throw Error(
+                            "This Orders release requires a compatible export view.",
+                          );
+                        const file = await client.request(
+                          {
+                            operation: "exportDownload",
+                            params: { ...params, id: e.id },
+                          },
+                          { signal: controller.signal },
+                        );
+                        check();
+                        const host = createOnlineModuleHost(
+                          {
+                            ...capabilityRelease,
+                            version: props.definition.version,
+                          },
+                          { client, scope, signal: controller.signal, check },
+                        );
+                        await host.call("export", file);
+                      } else {
+                        await downloadCorporateExport({
+                          client,
+                          scope,
+                          moduleVersion: props.definition.version,
+                          id: e.id,
+                          signal: controller.signal,
+                          check,
+                        });
+                      }
                     } catch (e) {
                       if (!controller.signal.aborted) {
                         setError(e);

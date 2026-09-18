@@ -1,5 +1,5 @@
 import { createModuleHost } from "@suite/module-sdk/host-capabilities";
-import { executeWebHostCapability } from "./host-capabilities";
+import { executeWebHostCapability } from "@suite/client/host";
 import { deviceLeaseAccess, useDeviceLeases } from "./device-leases";
 import { browserCapabilityLeases } from "@suite/client/browser";
 import { ApiError } from "@suite/client/api";

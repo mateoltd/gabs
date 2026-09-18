@@ -11,9 +11,10 @@ import s3 from "@suite/inventory/releases/2.0.0/module-server";
 import s4 from "@suite/orders/module-server";
 import s5 from "@suite/orders/releases/1.1.0/module-server";
 import s6 from "@suite/orders/releases/2.0.0/module-server";
+import s7 from "@suite/orders/releases/2.1.0/module-server";
 const staged: Array<
   ScopedModuleServer | TrustedModuleServer<{ tx: Tx; ctx: Context }>
-> = [s0, s1, s2, s3, s4, s5, s6];
+> = [s0, s1, s2, s3, s4, s5, s6, s7];
 const identities = new Map<string, (typeof staged)[number]>();
 for (const server of staged) {
   const key = server.module.id + "@" + server.module.version;

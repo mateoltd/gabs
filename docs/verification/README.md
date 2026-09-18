@@ -513,3 +513,7 @@ Typed declared allowances, deterministic expiry, held-action rechecks and CLI/pr
 ### 18 September 2026: SDK-05 scoped Orders export delivery
 
 [Scoped acceptance](order-export-delivery/README.md) verifies server-owned file content, non-auditing readiness checks, post-dialog authority, stale-view cancellation and generic CSV denial. Five unit/session tests, five browser journeys, five hidden native journeys and the affected final native rerun pass, with strict builds and regenerated API contracts. Final native error text/Axe and screenshot inspection pass. The [official effect audit](../official-capability-adoption.md) keeps signed capability adoption and administrator review open; this compatibility prerequisite does not close SDK-05 or parity.
+
+## 18 September 2026: official Orders capability release
+
+[Orders 2.1.0 acceptance](orders-capability-release/README.md) verifies the signed public export capability, shared browser/native host bridge and protected pinned 2.0.0 behavior. Strict builds, 315 unit/PostgreSQL tests, four distinct headless and four hidden native journeys passed. The missing pin-fixture idempotency key was corrected before the affected browser pair passed. Scoped native Axe and four inspected captures pass. SDK-05 administrator review and all broader parity gates remain open; no production release or final UI approval is claimed.
