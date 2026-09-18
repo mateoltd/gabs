@@ -81,3 +81,15 @@ Checkpoint branch `checkpoint/architecture-queued-foundation-badb5bb` preserves 
 The new queued-command contracts remain portable in `sdk/src/client`; durable storage, response verification and the host queue adapter belong to `client/src/modules`. The SDK defines the interface and the client implements it. Parent inspection also checked public exports, environment configurations, workspace discovery, CI/build paths and the absence of obsolete physical package paths. No source, style, public package identity or signed artifact changed.
 
 Fresh validation passed all nine architecture fixtures and `pnpm build`: strict root/browser/Node/preload/worker checks, dependency/copy checks, and four successful build tasks reused from the valid Turbo cache. Logs: `/tmp/gabs-architecture-queued-review-tests.log` and `/tmp/gabs-architecture-queued-review-build.log`. Existing bundle-size warnings remain. No browser or desktop window was launched. This confirms structural acceptance; custom-view queue integration, full parity and the later UI-refinement goal remain open.
+
+## Saved-work checkpoint review, 18 September 2026
+
+Checkpoint `168834e9c671dfe72d85979ae1b8a73fe4646e28`, retained on `checkpoint/architecture-work-export-review`, preserves the unfinished OFF-01 saved-work export implementation and captures. It is a recovery snapshot, not feature acceptance.
+
+The user-requested `gpt-5.6-sol` subagent at `xhigh` independently audited the current checkout while the parent reviewed public exports, dependency enforcement, environment configurations and current recovery ownership. Both found no additional structural correction justified. The requested physical migration is already implemented in `92fd5fb`, with boundary improvements in `2c306be`.
+
+Saved-work wire schemas belong to the portable SDK, validation and snapshot construction to the client, recovery presentation to the shell, and privileged save authorization to Electron main. The explicit client export resolves through declared dependencies. Runtime, tooling and CI contain no obsolete physical package paths; retained public package identifiers remain compatibility contracts. No product source, style or signed artifact changed during this review.
+
+Fresh parent verification passed all nine architecture fixtures and `pnpm build`: root/browser/Node/preload/worker TypeScript checks, dependency/copy checks and four successful build tasks using valid Turbo cache entries. Logs: `/tmp/gabs-architecture-work-export-tests.log` and `/tmp/gabs-architecture-work-export-build.log`. Existing bundle-size warnings remain. No browser or desktop window was launched.
+
+Eighteen historical PNGs overwritten during the preceding export tests were restored from `c1ae747`; the eight new export captures remain separate. [The saved-work checkpoint record](../work-recovery-export/README.md) distinguishes earlier partial tests from remaining final-source browser/native, regression and visual acceptance. OFF-01 and full parity remain active; UI refinement remains a later goal.
