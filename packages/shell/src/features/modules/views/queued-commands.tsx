@@ -1,4 +1,4 @@
-import { synchronizeWorkspace } from "../synchronization/run";
+import { synchronizeWorkspace } from "../synchronization/host";
 import { SavedWorkExport } from "../recovery/export";
 import { canReadSavedWork } from "../recovery/access";
 import {

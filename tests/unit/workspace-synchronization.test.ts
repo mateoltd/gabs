@@ -11,7 +11,7 @@ import {
   enqueue,
   readModuleStorage,
 } from "../../packages/client/src/modules/storage";
-import { synchronizeWorkspace } from "../../packages/shell/src/features/modules/synchronization/run";
+import { synchronizeWorkspace } from "../../packages/shell/src/features/modules/synchronization/host";
 import { canDispatchQueuedCall } from "../../packages/client/src/modules/dispatch";
 
 const pair = generateKeyPairSync("ed25519");

@@ -37,3 +37,6 @@ Workspace-wide scheduling, remaining source-schema/legacy transitions, cross-mod
 ## Reliability follow-up, 19 September 2026
 
 The later [command-continuation regression](../command-continuation/README.md) observed one native `resource-uninstalled` failure while exporting saved work after permission restoration and offline restart: `Reconnect to authorize recovery export.` The unchanged journey passed its focused rerun. This does not establish a fix. OFF-01-EXPORT now tracks deterministic recovery preparation and stale-response/reauthentication analysis; the historical milestone above does not close this follow-up.
+
+
+Follow-up resolution, 19 September 2026: [OFF-01-EXPORT](../recovery-metadata-ordering/README.md) now has a controlled failing-before/passing-after reproduction and final-source acceptance. Obsolete successful metadata caused the newer native authority to be revoked; that path is fixed while current malformed metadata, actual denials and lease checks remain enforced. The earlier failed runs above remain historical evidence.

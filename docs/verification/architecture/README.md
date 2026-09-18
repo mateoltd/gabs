@@ -93,3 +93,21 @@ Saved-work wire schemas belong to the portable SDK, validation and snapshot cons
 Fresh parent verification passed all nine architecture fixtures and `pnpm build`: root/browser/Node/preload/worker TypeScript checks, dependency/copy checks and four successful build tasks using valid Turbo cache entries. Logs: `/tmp/gabs-architecture-work-export-tests.log` and `/tmp/gabs-architecture-work-export-build.log`. Existing bundle-size warnings remain. No browser or desktop window was launched.
 
 Eighteen historical PNGs overwritten during the preceding export tests were restored from `c1ae747`; the eight new export captures remain separate. [The subsequent saved-work acceptance record](../work-recovery-export/README.md) now documents final-source browser/native, regression and visual verification, superseding the partial evidence available at this checkpoint. OFF-01 and full parity remain active; UI refinement remains a later goal.
+
+
+## Synchronization ownership review, 19 September 2026
+
+Checkpoint `546837c` preserves the native recovery metadata-ordering work before the user-requested `gpt-5.6-sol` review at `xhigh`. The original physical migration remains in `92fd5fb`; this review found one subsequent ownership regression in workspace synchronization.
+
+The durable journal/network runner moves from the shell to `packages/client/src/modules/synchronization.ts`, exposed through `@suite/client/module-synchronization`. The shell retains its React scheduler and a small typed adapter binding connected saved-work access and installed dependency-graph verification. Automatic scheduling and explicit resource/command retries share that adapter. Scope, policy revision, cancellation, original contracts, lock-time verification, retry identities and authentication-error handling remain intact.
+
+Parent review checked the complete runner and the actual installed-module verifier. The verification binding returns the verified signature and must validate the exact stored release and complete dependency graph without mutating storage. Physical package names, signed/public compatibility identifiers and UI behavior/styles remain unchanged; the view files only change their synchronization import.
+
+Final-source parent verification passed:
+
+- Strict root/browser/Node/preload/worker checks, dependency/copy enforcement and four fresh production builds: `/tmp/gabs-architecture-sync-build.log`.
+- All 540 unit/PostgreSQL tests across 88 files, including nine architecture fixtures: `/tmp/gabs-architecture-sync-regression.log`.
+- Three headless browser journeys and five hidden/minimized, unfocused native journeys: `/tmp/gabs-architecture-sync-web.log` and `/tmp/gabs-architecture-sync-native.log`. These cover queued capture/retry/revocation, route-independent synchronization, cross-module continuation and native export restoration/stale metadata.
+- Four fresh wide/narrow web/native Settings captures were inspected under `screenshots/sync-*`; changed-source formatting and diff checks passed. Historical captures overwritten by tests were restored.
+
+The checkpointed [native recovery ordering fix](../recovery-metadata-ordering/README.md) separately closes OFF-01-EXPORT. Full OFF-01, product parity and final UI refinement remain open.

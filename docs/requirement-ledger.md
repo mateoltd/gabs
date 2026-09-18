@@ -234,3 +234,8 @@ This continuation closes concrete gaps; independent executable client/server loa
 CORE-002/CORE-003, BACK-002 and UI-003 gain [scoped continuation evidence](verification/command-continuation/README.md): reviewed queued commands continue across modules under their own verified original/installed contracts and permissions, with saved selections, transaction-time installation checks and exact unchanged requests. Real web/native restart and child-revocation journeys verify only explicitly selected work resumes. Storage/authorization tests include create/update/archive children; complete command-to-resource authoring acceptance remains open.
 
 531 unit/PostgreSQL tests, strict checks/four builds and the linked browser/native cases passed within their recorded scope. Ten captures were inspected. An intermittent existing native offline export denial remains **OFF-01-EXPORT** after an unchanged passing rerun; the original native full run was not clean. No broad original requirement, profile recovery, final UI or overall parity gate is closed by this milestone.
+
+
+## Native recovery ordering, 19 September 2026
+
+CORE-003 and UI-003 gain [scoped OFF-01-EXPORT evidence](verification/recovery-metadata-ordering/README.md): a controlled late successful metadata response no longer revokes newer restored native recovery authority. Malformed current metadata, genuine HTTP denials and expired leases remain blocking. Final-source checks passed 540 unit/PostgreSQL tests, strict checks/four fresh builds, three headless browser and five hidden native journeys after the synchronization ownership correction. This closes the tracked export reliability follow-up, not broad offline/profile recovery or any entire original requirement.

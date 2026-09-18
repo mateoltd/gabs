@@ -1,4 +1,4 @@
-import { synchronizeWorkspace } from "../synchronization/run";
+import { synchronizeWorkspace } from "../synchronization/host";
 import { sendModuleCall } from "@suite/client/module-transport";
 import { exportRecoveryInput } from "@suite/client/browser";
 import { isDefinitiveRejection } from "@suite/module-sdk/sync";

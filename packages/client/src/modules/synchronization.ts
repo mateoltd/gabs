@@ -1,33 +1,45 @@
-import { type FeatureProps } from "@suite/client";
-import { ApiError } from "@suite/client/api";
-import { canDispatchQueuedCall } from "@suite/client/module-dispatch";
-import {
-  responseContract,
-  responseContractKey,
-} from "@suite/client/module-response";
+import type { FeatureProps } from "../index";
+import { ApiError } from "../api";
+import { canDispatchQueuedCall } from "./dispatch";
+import { responseContract, responseContractKey } from "./response";
 import {
   readModuleStorage,
   syncModuleStorage,
-} from "@suite/client/module-storage";
-import { sendModuleCall } from "@suite/client/module-transport";
+  type ModuleStorage,
+} from "./storage";
+import { sendModuleCall } from "./transport";
 import {
   hydrateModule,
   type ModuleCall,
   type ModuleDefinition,
 } from "@suite/module-sdk";
 import { createModuleCatalog } from "@suite/module-sdk/catalog";
-import { verifiedInstalledModule } from "../installation";
-import { canReadSavedWork } from "../recovery/access";
+import type { PlatformState } from "@suite/module-sdk/platform";
+
+export interface WorkspaceSynchronizationBindings {
+  current(): FeatureProps | undefined;
+  canSynchronize(props: FeatureProps): boolean;
+  /**
+   * Verify the exact stored release and its complete dependency graph against
+   * current host and platform policy without mutating storage.
+   */
+  verifyInstalledModule(
+    props: FeatureProps,
+    storage: ModuleStorage,
+    moduleId: string,
+    state: PlatformState,
+  ): Promise<false | { signature: string }>;
+}
 
 /** One workspace pass; the durable journal owns ordering, uncertainty and retries. */
 export async function synchronizeWorkspace(
-  current: () => FeatureProps | undefined,
+  bindings: WorkspaceSynchronizationBindings,
   signal: AbortSignal = new AbortController().signal,
 ) {
-  const owner = current();
+  const owner = bindings.current();
   const revision = owner?.bootstrap.policyRevision;
   const authorized = () => {
-    const props = current();
+    const props = bindings.current();
     return !!(
       owner &&
       props &&
@@ -35,7 +47,7 @@ export async function synchronizeWorkspace(
       props.scope.userId === owner.scope.userId &&
       props.scope.workspaceId === owner.scope.workspaceId &&
       props.bootstrap.policyRevision === revision &&
-      canReadSavedWork(props, true)
+      bindings.canSynchronize(props)
     );
   };
   if (!owner || !authorized()) return { sent: 0, errors: [] };
@@ -63,7 +75,12 @@ export async function synchronizeWorkspace(
   const errors: unknown[] = [];
   for (const id of new Set(pending.map((entry) => entry.call.moduleId))) {
     try {
-      const verified = await verifiedInstalledModule(owner, stored, id, state);
+      const verified = await bindings.verifyInstalledModule(
+        owner,
+        stored,
+        id,
+        state,
+      );
       if (!verified) continue;
       const definitions = new Map<string, ModuleDefinition>();
       const collect = (moduleId: string) => {
@@ -76,7 +93,7 @@ export async function synchronizeWorkspace(
         for (const dependency of Object.keys(definition.dependencies))
           collect(dependency);
       };
-      // verifiedInstalledModule verified this complete dependency graph.
+      // verifyInstalledModule verified this complete dependency graph.
       collect(id);
       dependencies.set(
         id,
@@ -97,7 +114,7 @@ export async function synchronizeWorkspace(
     }
   }
   const eligible = (call: ModuleCall) => {
-    const props = current();
+    const props = bindings.current();
     const module = installed.get(call.moduleId);
     return !!(
       props &&
@@ -130,13 +147,18 @@ export async function synchronizeWorkspace(
     async (call) => {
       const latest = await readModuleStorage(owner.platform, owner.scope);
       // Uninstall, repair or an update may have happened while the journal lock was queued.
-      const props = current();
+      const props = bindings.current();
       const verified =
         props &&
-        (await verifiedInstalledModule(props, latest, call.moduleId, state));
+        (await bindings.verifyInstalledModule(
+          props,
+          latest,
+          call.moduleId,
+          state,
+        ));
       if (
         !verified ||
-        verified.pkg.signature !==
+        verified.signature !==
           stored.installed[call.moduleId]?.signed?.signature ||
         !eligible(call)
       )
@@ -149,7 +171,7 @@ export async function synchronizeWorkspace(
           signal,
         });
       } catch (error) {
-        const latest = current();
+        const latest = bindings.current();
         if (
           !signal.aborted &&
           latest?.scope.userId === owner.scope.userId &&

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { FeatureProps } from "@suite/client";
-import { synchronizeWorkspace } from "./run";
+import { synchronizeWorkspace } from "./host";
 
 /** Corporate work progresses while any workspace route is open. Never mounts module code. */
 export function useWorkspaceSynchronization(props: FeatureProps | undefined) {
