@@ -201,7 +201,35 @@ export function ResourceRecovery(
                   ? `Review of request ${draft.review.entryId}.`
                   : "Saved separately from submitted changes."}
               </p>
+              {(draft.original?.recordId ?? draft.target?.id) && (
+                <p>
+                  Record:{" "}
+                  <code>{draft.original?.recordId ?? draft.target?.id}</code>
+                </p>
+              )}
+              {draft.review?.collision && (
+                <div>
+                  {draft.review.collision.targetId && (
+                    <p>
+                      Selected record:{" "}
+                      <code>{draft.review.collision.targetId}</code>
+                    </p>
+                  )}
+                  <p>
+                    Prerequisite request:{" "}
+                    <code>{draft.review.collision.parentId}</code>
+                  </p>
+                  <p>
+                    {draft.review.collision.ready
+                      ? "Review the saved values before submitting this draft."
+                      : draft.review.collision.targetId
+                        ? "Review the selected target before submitting this draft."
+                        : "Review this reassigned draft before submitting it."}
+                  </p>
+                </div>
+              )}
               <SavedDraft
+                original={draft.original}
                 unsubmitted={
                   !draft.review &&
                   draft.module.resources[draft.call.resource!].policy ===
@@ -224,6 +252,11 @@ export function ResourceRecovery(
                   <summary>
                     View original draft before record reassignment
                   </summary>
+                  {draft.source.target && (
+                    <p>
+                      Original record: <code>{draft.source.target.id}</code>
+                    </p>
+                  )}
                   <SavedDraft
                     unsubmitted={false}
                     data={draft.source.data}

@@ -57,7 +57,8 @@ for (const scenario of ["linked", "edits", "archived", "drafts"])
             return route.abort("connectionreset");
           });
         },
-        restart: async () => {
+        restart: async (offline = false) => {
+          await context.setOffline(offline);
           await page.reload();
           return page;
         },

@@ -51,3 +51,6 @@ The existing command, archived-input, independent-review and list/administration
 Host-owned saved-review/collision/source-schema and legacy archive journeys need further real-client acceptance beyond the unit and existing generated-view regressions here. Command/record export from the independent recovery surface, deliberate reinstatement or correction, permanently revoked-workspace policy, profile/sign-out recovery, general background scheduling, cross-module/resource dependents and the broader offline workflow map remain required. No broad original requirement is declared complete.
 
 The earlier intermittent linked-dialog close and concurrent Orders draft server-error concerns remain unresolved. This work does not establish their causes, signed installed-platform acceptance, final UI approval or whole-product accessibility conformance.
+
+
+Follow-up: [advanced host review recovery](../host-review-recovery/README.md) now supplies real browser/native uninstall, offline inspection and explicit reinstatement evidence for queued/direct reviews, collision-source drafts and archived input. That later record owns its original-base presentation correction and verification; broader schema/legacy combinations, exports, profiles and scheduling remain open.

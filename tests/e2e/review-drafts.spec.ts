@@ -38,7 +38,8 @@ test("independent saved reviews survive reload without replacing ordinary drafts
       pool,
       kind: "web",
       offline: (value) => context.setOffline(value),
-      restart: async () => {
+      restart: async (offline = false) => {
+        await context.setOffline(offline);
         await page.reload();
         return page;
       },

@@ -1,3 +1,4 @@
+import { hostReviewRecovery } from "./host-review-recovery";
 import { publishOnlineReviewFixture } from "./review-fixture";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -15,7 +16,7 @@ export async function reviewDraftsJourney(options: {
   pool: Pool;
   kind: "web" | "native";
   offline(value: boolean): Promise<void>;
-  restart(): Promise<Page>;
+  restart(offline?: boolean): Promise<Page>;
   narrow(): Promise<void>;
   wide(): Promise<void>;
   storage(
@@ -177,6 +178,34 @@ export async function reviewDraftsJourney(options: {
       { address: "Alpha reviewed address", choices: { name: "local" } },
       { address: "Beta reviewed address", choices: { name: "remote" } },
     ]);
+  page = await hostReviewRecovery({
+    ...options,
+    page,
+    scope,
+    moduleId: "contacts",
+    moduleName: "Contacts",
+    scenario: "queued-reviews",
+    restartOffline: () => options.restart(true),
+    reconnect: () => options.restart(),
+    inspect: async (dialog) => {
+      await expect(
+        dialog.getByRole("heading", {
+          name: "Contacts: saved review",
+          exact: true,
+        }),
+      ).toHaveCount(2);
+      for (const value of [
+        "Alpha reviewed address",
+        "Beta reviewed address",
+        "Unsubmitted ordinary draft",
+        "local",
+        "remote",
+      ])
+        await expect(dialog.getByText(value, { exact: true })).toBeVisible();
+      for (const entry of entries) await expect(dialog).toContainText(entry.id);
+    },
+  });
+  await contacts();
   await expect(
     pending("Alpha").getByRole("button", {
       name: "Resume review",
@@ -389,6 +418,42 @@ export async function reviewDraftsJourney(options: {
   await expect(
     savedReviews().getByRole("button", { name: "Resume review", exact: true }),
   ).toHaveCount(2);
+  await expect
+    .poll(async () => (await state()).drafts[`${onlineId}/records`]?.name)
+    .toBe("Ordinary online draft");
+  page = await hostReviewRecovery({
+    ...options,
+    page,
+    scope,
+    moduleId: onlineId,
+    moduleName: "Online review records",
+    scenario: "direct-reviews",
+    restartOffline: () => options.restart(true),
+    reconnect: () => options.restart(),
+    inspect: async (dialog) => {
+      await expect(
+        dialog.getByRole("heading", {
+          name: "Records: saved review",
+          exact: true,
+        }),
+      ).toHaveCount(2);
+      for (const value of [
+        "Reviewed Direct Alpha",
+        "Reviewed Direct Beta",
+        "Ordinary online draft",
+        "local",
+        "remote",
+      ])
+        await expect(dialog.getByText(value, { exact: true })).toBeVisible();
+      await expect(
+        dialog.getByRole("button", {
+          name: "Resolve record outcome",
+          exact: true,
+        }),
+      ).toHaveCount(0);
+    },
+  });
+  await onlineLink();
   await savedReviews().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: `docs/verification/review-drafts/${options.kind}-direct.png`,

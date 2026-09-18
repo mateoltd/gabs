@@ -10,7 +10,7 @@ import {
 import { Pool } from "pg";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createCollisionJourney } from "../support/create-collision-journey";
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
@@ -27,13 +27,20 @@ for (const scenario of ["linked", "edits", "drafts"])
       resolve(tmpdir(), "suite-create-collisions-"),
     );
     let app!: ElectronApplication, page!: Page;
-    const launch = async () => {
+    const launch = async (offline = false) => {
+      const entry = resolve(profile, "recovery-entry.cjs");
+      await writeFile(
+        entry,
+        `const original=globalThis.fetch;
+      globalThis.offlineFlag=${offline};
+      globalThis.fetch=(...args)=>globalThis.offlineFlag
+        ? Promise.reject(new TypeError("Offline",{cause:{code:"ECONNREFUSED"}}))
+        : original(...args);
+      require(${JSON.stringify(resolve("apps/desktop/dist/main.cjs"))});`,
+      );
       app = await electron.launch({
         executablePath: require("electron"),
-        args: [
-          resolve("apps/desktop/dist/main.cjs"),
-          `--user-data-dir=${profile}`,
-        ],
+        args: [entry, `--user-data-dir=${profile}`],
         env: {
           ...process.env,
           NODE_ENV: "development",
@@ -46,12 +53,22 @@ for (const scenario of ["linked", "edits", "drafts"])
         BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
       );
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await page
-        .getByRole("button", { name: "Open local workspace", exact: true })
-        .click();
-      await expect(
-        page.getByRole("button", { name: "Switch workspace", exact: true }),
-      ).toBeVisible();
+      if (offline) {
+        await page.evaluate(() => {
+          Object.defineProperty(navigator, "onLine", {
+            configurable: true,
+            get: () => false,
+          });
+          window.dispatchEvent(new Event("offline"));
+        });
+      } else {
+        await page
+          .getByRole("button", { name: "Open local workspace", exact: true })
+          .click();
+        await expect(
+          page.getByRole("button", { name: "Switch workspace", exact: true }),
+        ).toBeVisible();
+      }
       return page;
     };
     try {
@@ -73,17 +90,9 @@ for (const scenario of ["linked", "edits", "drafts"])
         ordinaryDrafts: scenario === "drafts",
         offline: async (offline) => {
           await app.evaluate((_, offline) => {
-            const state = globalThis as typeof globalThis & {
-              savedFetch?: typeof fetch;
-            };
-            state.savedFetch ??= globalThis.fetch;
-            globalThis.fetch = offline
-              ? async () => {
-                  throw new TypeError("fetch failed", {
-                    cause: { code: "ECONNREFUSED" },
-                  });
-                }
-              : state.savedFetch;
+            (
+              globalThis as typeof globalThis & { offlineFlag: boolean }
+            ).offlineFlag = offline;
           }, offline);
           await page.evaluate((offline) => {
             Object.defineProperty(navigator, "onLine", {
@@ -113,9 +122,9 @@ for (const scenario of ["linked", "edits", "drafts"])
             };
           });
         },
-        restart: async () => {
+        restart: async (offline = false) => {
           await app.close();
-          return launch();
+          return launch(offline);
         },
         wide: () =>
           app.evaluate(({ BrowserWindow }) =>

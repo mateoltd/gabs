@@ -56,11 +56,13 @@ export function SavedDraft({
   unsubmitted,
   data,
   target,
+  original,
   schema,
 }: {
   unsubmitted: boolean;
   data: Record<string, unknown>;
   target: ResourceRecord | null;
+  original?: { version?: number; data?: Record<string, unknown> };
   schema: TObject;
 }) {
   const [open, setOpen] = useState(false);
@@ -73,8 +75,12 @@ export function SavedDraft({
       {open && (
         <SavedValues
           draft={unsubmitted ? "unsubmitted" : "preserved"}
-          update={!!target}
-          input={{ data, baseData: target?.data, baseVersion: target?.version }}
+          update={!!target || !!original}
+          input={{
+            data,
+            baseData: original ? original.data : target?.data,
+            baseVersion: original ? original.version : target?.version,
+          }}
           schema={schema}
         />
       )}

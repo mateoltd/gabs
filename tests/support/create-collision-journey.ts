@@ -1,3 +1,4 @@
+import { hostReviewRecovery } from "./host-review-recovery";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -15,7 +16,7 @@ export async function createCollisionJourney(options: {
   archiveChosen?: boolean;
   ordinaryDrafts?: boolean;
   offline(value: boolean): Promise<void>;
-  restart(): Promise<Page>;
+  restart(offline?: boolean): Promise<Page>;
   narrow(): Promise<void>;
   wide(): Promise<void>;
   loseSettlementReply(): Promise<void>;
@@ -586,6 +587,43 @@ export async function createCollisionJourney(options: {
         reviews.find(([key]) => key.startsWith("contacts/notes/"))![0]
       ],
     ).toEqual({ contactId: originalId, text: "Unqueued linked note" });
+    page = await hostReviewRecovery({
+      ...options,
+      page,
+      scope,
+      moduleId: "contacts",
+      moduleName: "Contacts",
+      scenario: "collision-reviews",
+      restartOffline: () => options.restart(true),
+      reconnect: () => options.restart(),
+      inspect: async (dialog) => {
+        for (const title of ["Contacts: saved review", "Notes: saved review"])
+          await expect(
+            dialog.getByRole("heading", { name: title, exact: true }),
+          ).toBeVisible();
+        for (const value of [
+          "444",
+          "Unqueued linked note",
+          originalId,
+          newId,
+          parent.id,
+        ])
+          await expect(dialog).toContainText(value);
+        await expect(dialog).toContainText(
+          "Review the selected target before submitting this draft.",
+        );
+        const note = dialog.locator("li").filter({
+          has: dialog.page().getByRole("heading", {
+            name: "Notes: saved review",
+            exact: true,
+          }),
+        });
+        await expect(note).toContainText(
+          "Review this reassigned draft before submitting it.",
+        );
+        await expect(note).not.toContainText("Review the selected target");
+      },
+    });
     page = await options.restart();
     await selectValue(page, "Workspace", scope.workspaceId);
     await page

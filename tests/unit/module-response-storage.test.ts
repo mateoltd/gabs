@@ -360,6 +360,24 @@ it("preserves archived review input and original release/base metadata atomicall
   expect(restored.drafts[key]).toEqual(draft.data);
   expect(restored.draftTargets?.[key]).toEqual(draft.target);
   expect(restored.draftReviews?.[key]).toEqual(review);
+  const recovered = await resourceRecoveryInputs(restored, scope, "contacts");
+  expect(recovered.drafts[0].original).toEqual({
+    recordId: row.id,
+    version: 1,
+    data,
+  });
+  const withoutJournal = await resourceRecoveryInputs(
+    { ...restored, journal: [] },
+    scope,
+    "contacts",
+  );
+  expect(withoutJournal.drafts[0].original).toEqual({
+    recordId: row.id,
+    version: 1,
+    data: undefined,
+  });
+  // A later archived snapshot is not evidence of the original submitted base.
+  expect(withoutJournal.drafts[0].target?.version).toBe(2);
   expect(restored.journal[0]).toMatchObject({
     call: originalCall,
     state: "conflict",

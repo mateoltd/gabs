@@ -41,6 +41,11 @@ export interface SavedResourceDraft extends ResourceInput {
   data: Record<string, unknown>;
   target: ResourceRecord | null;
   review?: NonNullable<ModuleStorage["draftReviews"]>[string];
+  original?: {
+    recordId?: string;
+    version?: number;
+    data?: Record<string, unknown>;
+  };
   source?: ResourceInput & {
     data: Record<string, unknown>;
     target: ResourceRecord | null;
@@ -104,7 +109,50 @@ export async function resourceRecoveryInputs(
           target: review.collision.sourceTarget,
         };
       }
-      drafts.push({ key, data, target, review, call, module, source });
+      let original: SavedResourceDraft["original"];
+      if (review?.recoveryInput) {
+        const provenance = review.recoveryInput;
+        const entry = state.journal.find(
+          (entry) =>
+            entry.id === review.entryId &&
+            entry.userId === scope.userId &&
+            entry.workspaceId === scope.workspaceId &&
+            entry.call.moduleId === moduleId &&
+            entry.call.resource === resource &&
+            entry.call.moduleVersion === provenance.moduleVersion,
+        );
+        const input = entry?.call.input as
+          | {
+              id?: string;
+              baseVersion?: number;
+              baseData?: Record<string, unknown>;
+            }
+          | undefined;
+        const recordId = provenance.recordId ?? input?.id ?? target?.id;
+        const version = provenance.baseVersion ?? input?.baseVersion;
+        const archivedSource = review.collision?.sourceTarget;
+        original = {
+          recordId,
+          version,
+          data:
+            input?.id === recordId && input?.baseVersion === version
+              ? input?.baseData
+              : archivedSource?.id === recordId &&
+                  archivedSource?.version === version
+                ? archivedSource?.data
+                : undefined,
+        };
+      }
+      drafts.push({
+        key,
+        data,
+        target,
+        review,
+        call,
+        module,
+        source,
+        original,
+      });
     } catch (error) {
       failures.push(error);
     }

@@ -215,3 +215,8 @@ This continuation closes concrete gaps; independent executable client/server loa
 ### 18 September 2026: host-owned record and draft recovery
 
 [Scoped OFF-01 acceptance](verification/resource-recovery-host/README.md) extends CORE-002, CORE-003, BACK-002, UI-003 and offline correctness: Settings inspects original record changes and ordinary drafts after resource removal or device uninstall, and explicitly recovers or cancels original requests without resubmitting or changing input. Recovered signed receipts survive another offline restart. Read/write revocation blocks recovery independently of the removed navigation grant. The evidence record distinguishes real create/update/draft journeys from unit coverage of independent reviews and archive authority. Advanced review/collision/legacy archive journeys in this host surface, exports, profile recovery and broader release gates remain required; no broad original requirement closes here.
+
+
+### 18 September 2026: advanced saved-review recovery
+
+[Scoped OFF-01 acceptance](verification/host-review-recovery/README.md) extends CORE-002, CORE-003, BACK-002, UI-003 and offline correctness with queued/direct comparisons, original collision-source drafts and archived input through real offline uninstall/reinstall journeys. Archived base presentation now uses original request provenance instead of a later archived snapshot; unavailable originals are reported. Existing resource permissions and exact request identities remain unchanged. The linked evidence owns verification results and limits. Remaining schema/legacy transitions, independent exports, profiles and broader release requirements remain open; no original requirement is broadly completed or deferred.

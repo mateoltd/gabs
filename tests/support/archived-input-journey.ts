@@ -1,3 +1,4 @@
+import { hostReviewRecovery } from "./host-review-recovery";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -219,6 +220,32 @@ export async function archivedInputJourney(options: {
   expect((await journal())[0].call).toEqual(saved[0].call);
   expect((await journal())[0].state).toBe("conflict");
   await close();
+  page = await hostReviewRecovery({
+    ...options,
+    page,
+    scope,
+    moduleId: "contacts",
+    moduleName: "Contacts",
+    scenario: "archived-review",
+    reconnect: async (current) => {
+      await options.reconnect();
+      return current;
+    },
+    inspect: async (dialog) => {
+      const review = dialog.locator("li").filter({
+        has: dialog.page().getByRole("heading", {
+          name: "Contacts: saved review",
+          exact: true,
+        }),
+      });
+      await expect(review).toContainText("Based on server version 1.");
+      await expect(review).not.toContainText("Based on server version 2.");
+      await expect(review).toContainText(original.id);
+      for (const value of ["111", "222"])
+        await expect(review).toContainText(value);
+    },
+  });
+  await nav();
   await pending("Active pending contact")
     .getByRole("button", { name: "Review", exact: true })
     .click();
