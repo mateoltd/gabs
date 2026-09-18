@@ -1,4 +1,5 @@
 import { validateHostCapabilities } from "../contracts/host-capabilities";
+import { moduleSchemaFormats, type SchemaStringFormat } from "./formats";
 import { validateStorageContract, type StorageContract } from "./storage";
 import {
   Type,
@@ -18,7 +19,12 @@ export type JsonRecord = Record<string, unknown>;
 export const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const field = {
   text: (
-    options: { maxLength?: number; minLength?: number; title?: string } = {},
+    options: {
+      maxLength?: number;
+      minLength?: number;
+      title?: string;
+      format?: SchemaStringFormat;
+    } = {},
   ) => Type.String({ maxLength: 500, ...options }),
   number: (
     options: { minimum?: number; maximum?: number; title?: string } = {},
@@ -169,6 +175,7 @@ export function defineModule<const M extends ModuleDefinition>(
     navigation?: { view?: keyof NonNullable<M["views"]> & string };
   },
 ): M {
+  moduleSchemaFormats(definition);
   validateHostCapabilities(definition);
   if (definition.storage) validateStorageContract(definition.storage);
   if (definition.localStorage) validateStorageContract(definition.localStorage);

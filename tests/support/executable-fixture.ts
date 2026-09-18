@@ -29,13 +29,16 @@ export async function publishExecutableFixture(
     for (const name of [
       "module.ts",
       "module-server.ts",
+      "module-local.ts",
       "view.tsx",
       "view.css",
     ]) {
       const sourcePath = `${options.sourceDirectory ?? "tests/fixtures/custom-notes"}/${name}`;
       // Generated-only fixtures have no custom client view to copy.
       if (
-        (name === "view.tsx" || name === "view.css") &&
+        (name === "view.tsx" ||
+          name === "view.css" ||
+          name === "module-local.ts") &&
         !existsSync(sourcePath)
       )
         continue;

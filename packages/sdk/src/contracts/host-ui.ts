@@ -76,6 +76,7 @@ export function describeViewHost(bindings: {
     "view.context": [1],
     "client.resources": [1, 2, 3],
     "client.host": [1],
+    "client.formats": [1],
   };
   for (const [namespace, names] of Object.entries(viewHostExports))
     for (const name of names)

@@ -38,6 +38,7 @@
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
+    "@sinclair/typebox": "0.34.52",
     "@suite/api": "workspace:*",
     "@suite/app-web": "workspace:*",
     "@suite/design-tokens": "workspace:*",

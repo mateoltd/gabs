@@ -1,5 +1,4 @@
-import { ownSchemaValue } from "./schema-value";
-import { Value } from "@sinclair/typebox/value";
+import { schemaIssues } from "./validation";
 import {
   assertSchema,
   Type,
@@ -29,9 +28,7 @@ export function parseSchemaInput<S extends TSchema>(
   value: unknown,
 ): SchemaResult<S> {
   const hydrated = hydrateSchema(schema);
-  const issues = [...Value.Errors(hydrated, ownSchemaValue(value))]
-    .slice(0, 100)
-    .map(({ path, message }) => ({ path, message }));
+  const issues = schemaIssues(hydrated, value);
   return issues.length
     ? { ok: false, issues }
     : { ok: true, value: structuredClone(value) as Static<S> };

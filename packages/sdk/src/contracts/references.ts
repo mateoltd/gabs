@@ -1,6 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { ownSchemaValue } from "../authoring/schema-value";
-import { Value } from "@sinclair/typebox/value";
+import { checkSchema } from "../authoring/validation";
 import {
   assertSchema,
   hydrateSchema,
@@ -254,7 +253,7 @@ export function referenceValues(
     }
     for (const group of ["anyOf", "allOf"])
       schema[group]?.forEach((child: TSchema, index: number) => {
-        if (group === "allOf" || Value.Check(child, ownSchemaValue(value)))
+        if (group === "allOf" || checkSchema(child, value))
           visit(
             child,
             value,

@@ -1,3 +1,4 @@
+import { moduleSchemaFormats } from "../src/authoring/formats";
 import ts from "typescript";
 import {
   assertViewHost,
@@ -128,6 +129,7 @@ export async function buildClientViews(
     const requires = {
       ...(await requiredHostContracts(result.metafile.inputs)),
     };
+    if (moduleSchemaFormats(module).size) requires["client.formats"] = 1;
     if (Object.keys(module.capabilities ?? {}).length)
       requires["client.host"] = 1;
     const css = [

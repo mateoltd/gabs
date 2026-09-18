@@ -28,6 +28,10 @@ export {
 } from "./authoring/storage";
 export * from "./authoring/module";
 export * from "./authoring/validation";
+export {
+  supportedSchemaFormats,
+  type SchemaStringFormat,
+} from "./authoring/formats";
 export * from "./contracts/resource";
 export * from "./client/module-client";
 export * from "./client/merge";

@@ -521,3 +521,7 @@ Typed declared allowances, deterministic expiry, held-action rechecks and CLI/pr
 ## 18 September 2026: administrator capability review
 
 [Scoped acceptance](capability-review/README.md) verifies signed release inspection, saved grant/denial explanations, matrix edits, offline limits and native IPC. Passed 316 full unit/PostgreSQL tests, seven final guard checks, strict builds/API generation, 13 distinct headless journeys with affected reruns and three hidden native journeys. Scoped Axe and six inspected captures pass. The policy UUID validation defect is fixed locally; the broader standard-format defect is reproduced and reopens SDK-04 as SDK-04-FMT. Full parity remains unachieved.
+
+## Portable schema formats, 18 September 2026
+
+[SDK-04-FMT evidence](schema-formats/README.md): 341 unit/PostgreSQL tests across 69 files, strict environment checks/four builds, three distinct headless journeys across correction runs, one hidden native journey, scoped Axe and three inspected captures. Shared format validation now accepts valid declared formats and rejects invalid values or unsupported declarations without losing schema constraints, accepted records or retry receipts. The acceptance record explains initial harness failures and exact limits. SDK-04's reopened format gate is closed; full parity remains active.

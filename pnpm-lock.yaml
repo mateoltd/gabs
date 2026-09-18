@@ -217,6 +217,9 @@ importers:
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
+      '@sinclair/typebox':
+        specifier: 0.34.52
+        version: 0.34.52
       '@suite/api':
         specifier: workspace:*
         version: link:apps/api
@@ -602,6 +605,9 @@ importers:
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52
+      ajv-formats:
+        specifier: 3.0.1
+        version: 3.0.1(ajv@8.20.0)
       semver:
         specifier: 7.8.5
         version: 7.8.5
