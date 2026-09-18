@@ -37,7 +37,7 @@ import {
   JournalConflictError,
 } from "./journal";
 import { canonical } from "@suite/module-sdk/registry";
-export { pendingReferenceOptions } from "./journal";
+export { pendingReferenceOptions, recordDependencies } from "./journal";
 export interface InstallationAttempt {
   action: "install" | "uninstall";
   requestId: string;
@@ -82,7 +82,12 @@ export interface ModuleStorage {
   draftTargets?: Record<string, ResourceRecord | null>;
   draftReviews?: Record<
     string,
-    { entryId?: string; draftId?: string; comparison?: FieldReview }
+    {
+      entryId?: string;
+      draftId?: string;
+      comparison?: FieldReview;
+      recoveryInput?: { moduleVersion: string; baseVersion?: number };
+    }
   >;
   referenceOptions?: Record<
     string,

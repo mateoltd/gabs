@@ -13,6 +13,7 @@ import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
 import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
 import { ConflictReview } from "./conflict-review";
 import { SavedChange } from "./saved-change";
+import { ArchivedInput } from "./archived-input";
 import { useModuleReferences } from "./references";
 import { canonical } from "@suite/module-sdk/registry";
 import {
@@ -47,6 +48,7 @@ import {
   enqueue,
   readModuleStorage,
   syncModuleStorage,
+  recordDependencies,
   type ModuleStorage,
 } from "@suite/client/module-storage";
 import {
@@ -168,8 +170,21 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   );
   const exportInput = async () => {
     try {
+      const current = recoveryContext.current;
+      if (
+        !mounted.current ||
+        current.scope.userId !== scope.userId ||
+        current.scope.workspaceId !== scope.workspaceId ||
+        !canUse(
+          current.bootstrap,
+          moduleId,
+          `${moduleId}.${resource}.read`,
+          current.moduleCatalog,
+        )
+      )
+        throw Error("Current access does not allow exporting this input.");
       const input = carriedInput ?? {
-        version: module.version,
+        version: reviewSession?.recoveryInput?.moduleVersion ?? module.version,
         resource,
         data: form,
         record: editing ?? null,
@@ -184,7 +199,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         input: {
           data: input.data,
           ...(input.record
-            ? { id: input.record.id, baseVersion: input.record.version }
+            ? {
+                id: input.record.id,
+                baseVersion:
+                  reviewSession?.recoveryInput?.baseVersion ??
+                  input.record.version,
+              }
             : {}),
         },
         ...(attempt.current
@@ -268,12 +288,27 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const archive = async (call: ModuleCall) => {
     const retrying = !!archiveAttempt;
     if (archiveAttempt && archiveAttempt.key !== call.key) return;
-    setArchiveAttempt(call);
     setArchiveNotice(undefined);
     setBusy(true);
     setError(undefined);
     try {
+      if (!canRecoverCall(call))
+        throw Error("Current access does not allow this archive.");
+      if (!retrying) {
+        const stored = await readModuleStorage(platform, scope);
+        if (recordDependencies(call, stored.journal, scope).length)
+          throw Error(
+            "Resolve the pending changes for this record before archiving it.",
+          );
+        if (!canRecoverCall(call))
+          throw Error("Current access changed before archiving.");
+      }
+      setArchiveAttempt(call);
       await send(call);
+      if (!canRecoverCall(call))
+        throw Error(
+          "Current access changed. The original archive request is retained for recovery.",
+        );
       setArchiveAttempt(undefined);
       await query.refetch();
     } catch (error) {
@@ -580,6 +615,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       id: string;
       data: Record<string, unknown>;
       baseData?: Record<string, unknown>;
+      baseVersion?: number;
     };
     const current = (await send({
       moduleId: call.moduleId,
@@ -588,19 +624,28 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       action: "get",
       input: { id: input.id },
     })) as ResourceRecord;
-    const comparison = reviewFields(input.baseData, input.data, current.data);
+    const comparison = current.archived
+      ? undefined
+      : reviewFields(input.baseData, input.data, current.data);
     const review = {
       draftId: call.key ?? crypto.randomUUID(),
-      comparison: comparison.review,
+      comparison: comparison?.review,
+      ...(current.archived
+        ? {
+            recoveryInput: {
+              moduleVersion: call.moduleVersion ?? module.version,
+              baseVersion: input.baseVersion,
+            },
+          }
+        : {}),
     };
+    const data = comparison?.data ?? input.data;
     setEditing(current);
-    setForm(comparison.data);
+    setForm(data);
     setReviewSession(review);
-    await persistDraft(comparison.data, current, review);
-    if (current.archived)
-      throw Error(
-        "This record has been archived. Export your input before closing the editor.",
-      );
+    await persistDraft(data, current, review);
+    if (current.archived) await query.refetch();
+    return current.archived;
   }
   async function resolveOutcome() {
     if (
@@ -625,8 +670,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         const call =
           settling.type === "edit" ? attempt.current : archiveAttempt;
         if (!call) throw Error("This change no longer needs outcome recovery.");
+        if (!canRecoverCall(call))
+          throw Error(
+            "Current access does not allow recovery of the original change.",
+          );
         const result = await settleDirectCall(call);
-        if (!authorized())
+        if (!canRecoverCall(call))
           throw Error(
             "Unlock this workspace again to recover its confirmed outcome.",
           );
@@ -674,6 +723,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     setError(undefined);
     try {
       if (!attempt.current) {
+        if (editing?.archived)
+          throw Error(
+            "This record is archived. Export the preserved input instead.",
+          );
         if (identityCollision && !preparedCreate)
           throw Error(
             "This identity already exists. Review the separate-record option to keep your input.",
@@ -773,10 +826,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         if (
           failed?.action === "update" &&
           attemptMode.current === "direct" &&
-          (e as { status?: number }).status === 412
+          ((e as { status?: number }).status === 412 ||
+            (e as { code?: string }).code === "RECORD_ARCHIVED")
         ) {
           try {
-            await prepareDirectReview(failed);
+            if (await prepareDirectReview(failed)) return;
           } catch (reviewError) {
             setError(reviewError);
             return;
@@ -990,7 +1044,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                   </Button>
                   <Button
                     variant="ghost"
-                    disabled={!online || busy || !!archiveAttempt}
+                    disabled={
+                      !online ||
+                      busy ||
+                      !!archiveAttempt ||
+                      pending.some(
+                        (entry) =>
+                          (entry.call.input as { id?: string }).id === row.id,
+                      )
+                    }
                     onClick={() =>
                       void archive({
                         moduleId,
@@ -1004,6 +1066,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                   >
                     Archive
                   </Button>
+                  {pending.some(
+                    (entry) =>
+                      (entry.call.input as { id?: string }).id === row.id,
+                  ) && <span>Resolve pending changes before archiving.</span>}
                 </div>
               )
             }
@@ -1132,7 +1198,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                             entryId: entry.id,
                           })
                         ]) ||
-                      !write ||
+                      !allowed ||
                       busy ||
                       entry.state === "pending"
                     }
@@ -1145,6 +1211,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                         id?: string;
                         data?: Record<string, unknown>;
                         baseData?: Record<string, unknown>;
+                        baseVersion?: number;
                       };
                       setBusy(true);
                       setError(undefined);
@@ -1159,20 +1226,26 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                                 input: { id: command.id },
                               })) as ResourceRecord)
                             : null;
-                        if (current?.archived)
-                          throw Error(
-                            "This record has been archived. Export the pending change to recover its contents.",
-                          );
-                        const comparison = current
-                          ? reviewFields(
-                              command.baseData,
-                              command.data ?? {},
-                              current.data,
-                            )
-                          : undefined;
+                        const comparison =
+                          current && !current.archived
+                            ? reviewFields(
+                                command.baseData,
+                                command.data ?? {},
+                                current.data,
+                              )
+                            : undefined;
                         const session = {
                           entryId: entry.id,
                           comparison: comparison?.review,
+                          ...(current?.archived
+                            ? {
+                                recoveryInput: {
+                                  moduleVersion:
+                                    entry.call.moduleVersion ?? module.version,
+                                  baseVersion: command.baseVersion,
+                                },
+                              }
+                            : {}),
                         };
                         const next = comparison?.data ?? command.data ?? {};
                         await persistDraft(next, current, session);
@@ -1280,11 +1353,19 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             void read();
           }
         }}
-        title={editing ? "Edit record" : "New record"}
+        title={
+          editing?.archived
+            ? "Recover input"
+            : editing
+              ? "Edit record"
+              : "New record"
+        }
         description={
-          resourceAvailable
-            ? `Save ${definition.title.toLowerCase()} in this workspace.`
-            : "Recover input from a removed resource."
+          editing?.archived
+            ? "Recover your saved edit without changing the archived record."
+            : resourceAvailable
+              ? `Save ${definition.title.toLowerCase()} in this workspace.`
+              : "Recover input from a removed resource."
         }
       >
         <form
@@ -1405,28 +1486,43 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               ))}
             </section>
           )}
-          <fieldset
-            disabled={busy || !!attempt.current || unresolved.length > 0}
-            className="module-form-fields form-stack"
-          >
-            <SchemaForm
-              schema={definition.schema as FormSchema}
-              validate={
-                !!error &&
-                typeof error === "object" &&
-                "code" in error &&
-                error.code === "INVALID_INPUT"
-              }
-              fieldOrder={definition.columns}
-              value={form}
-              referenceOptions={refs}
+          {editing?.archived ? (
+            <ArchivedInput
+              schema={definition.schema as TObject}
+              data={form}
+              columns={definition.columns}
               loadReferences={loadReferences}
-              onChange={(v) => {
-                setForm(v);
-                void persistDraft(v, editing ?? null).catch(setError);
-              }}
             />
-          </fieldset>
+          ) : (
+            <fieldset
+              disabled={
+                busy ||
+                !!attempt.current ||
+                unresolved.length > 0 ||
+                !!editing?.archived ||
+                !write
+              }
+              className="module-form-fields form-stack"
+            >
+              <SchemaForm
+                schema={definition.schema as FormSchema}
+                validate={
+                  !!error &&
+                  typeof error === "object" &&
+                  "code" in error &&
+                  error.code === "INVALID_INPUT"
+                }
+                fieldOrder={definition.columns}
+                value={form}
+                referenceOptions={refs}
+                loadReferences={loadReferences}
+                onChange={(v) => {
+                  setForm(v);
+                  void persistDraft(v, editing ?? null).catch(setError);
+                }}
+              />
+            </fieldset>
+          )}
           {attempt.current && (
             <section className="form-stack" aria-label="Unconfirmed change">
               <p role="status">
@@ -1455,29 +1551,36 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </section>
           )}
           <ErrorMessage error={error} />
-          {!online && requiresConnection && (
+          {!online && requiresConnection && !editing?.archived && (
             <p role="status">
               {attempt.current
                 ? "Connect to confirm or resolve this pending change."
                 : "You can keep editing this draft offline. Connect to submit it."}
             </p>
           )}
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={
-              (!online && requiresConnection) ||
-              busy ||
-              !write ||
-              unresolved.length > 0 ||
-              identityCollision ||
-              ((!resourceAvailable || !!editing?.archived) && !attempt.current)
-            }
-          >
-            {online || requiresConnection ? "Save" : "Save pending change"}
-          </Button>
+          {!editing?.archived && (
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={
+                (!online && requiresConnection) ||
+                busy ||
+                !write ||
+                unresolved.length > 0 ||
+                identityCollision ||
+                ((!resourceAvailable || !!editing?.archived) &&
+                  !attempt.current)
+              }
+            >
+              {online || requiresConnection ? "Save" : "Save pending change"}
+            </Button>
+          )}
           {editing?.archived && !attempt.current && (
-            <Button type="button" onClick={() => void exportInput()}>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void exportInput()}
+            >
               Export input
             </Button>
           )}

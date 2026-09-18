@@ -509,7 +509,7 @@ test("an uncertain create response retries the same operation instead of duplica
     .click();
   await expect(
     page.getByText(
-      "The server response is uncertain. Retry this same change before editing or closing it.",
+      "The server response is uncertain. Retry this same change or resolve its outcome before editing or closing it.",
     ),
   ).toBeVisible();
   await page

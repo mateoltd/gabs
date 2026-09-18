@@ -134,6 +134,51 @@ function storage() {
   };
 }
 afterEach(() => vi.unstubAllGlobals());
+it("preserves archived review input and original release/base metadata atomically without accepting the rejected request", async () => {
+  const { platform, install, interrupt } = storage();
+  await install();
+  const originalCall: ModuleCall = {
+    ...call("archived-edit"),
+    action: "update",
+    input: {
+      id: row.id,
+      baseVersion: 1,
+      baseData: data,
+      data: { ...data, name: "Preserved edit" },
+    },
+  };
+  await enqueue(platform, scope, originalCall);
+  await changeModuleStorage(platform, scope, (state) => {
+    state.journal[0].state = "conflict";
+  });
+  const review = {
+    entryId: "archived-edit",
+    recoveryInput: { moduleVersion: "1.1.0", baseVersion: 1 },
+  };
+  const draft = {
+    data: { ...data, name: "Preserved edit" },
+    target: { ...row, version: 2, archived: true },
+    review,
+  };
+  const key = resourceDraftKey("contacts", "contacts", review);
+  interrupt();
+  await expect(
+    saveResourceDraft(platform, scope, "contacts", "contacts", draft),
+  ).rejects.toThrow("Interrupted commit");
+  expect(
+    (await readModuleStorage(platform, scope)).drafts[key],
+  ).toBeUndefined();
+  await saveResourceDraft(platform, scope, "contacts", "contacts", draft);
+  const restored = await readModuleStorage(platform, scope);
+  expect(restored.drafts[key]).toEqual(draft.data);
+  expect(restored.draftTargets?.[key]).toEqual(draft.target);
+  expect(restored.draftReviews?.[key]).toEqual(review);
+  expect(restored.journal[0]).toMatchObject({
+    call: originalCall,
+    state: "conflict",
+  });
+});
+
 it("atomically orders same-record edits, preserves failed predecessors and reconnects review without a cycle", async () => {
   const { platform, install, interrupt } = storage();
   await install();

@@ -657,3 +657,10 @@ Final acceptance passed 445 unit/PostgreSQL tests across 79 files, strict checks
 [Same-record acceptance](record-order/README.md) verifies atomic ordered capture, per-change saved-input inspection, browser reload/native offline restart, exact-key recovery after a lost reply, explicit overlapping conflict review, dependent continuation and unrelated progress. Original calls and server snapshots stay intact; PostgreSQL assertions verify final data/versions and five update audits.
 
 Final verification passed 447 unit/PostgreSQL tests across 80 files, strict checks/four builds, nine headless browser journeys and six hidden/minimized native journeys. Keyboard disclosures, scoped Axe and six inspected captures passed. Product source remained frozen during serialized final acceptance; historical screenshots were restored. Archive interactions/recovery, legacy unsequenced journals, colliding-create same-record descendants, ambiguous drafts and broader offline/profile/release gates remain required. OFF-01 and full parity stay open.
+
+
+## 18 September 2026: OFF-01 archived-input recovery
+
+[Archived-input acceptance](archived-input/README.md) verifies queued/direct archived targets, original input/base/version exports, cached offline restart, uncertain-request snapshots, pending-edit archive preflight and original-resource permission recovery across tab changes. Final product source passed 448 unit/PostgreSQL tests, strict checks/four builds, twelve distinct headless browser journeys and seven hidden/minimized native journeys. One stale browser wording assertion was corrected and the case rerun successfully; an earlier transient native reconnect failure did not reproduce with added diagnostics or in final acceptance. Scoped Axe and ten wide/narrow captures were inspected. Existing styles and historical captures are preserved.
+
+The native generic recovery export still lacks independent current authority checks after the save dialog. Renderer guards and valid file bytes do not establish that boundary; host/browser recovery authorization is the next required OFF-01/OFF-03 item. Full parity and final UI refinement remain open.

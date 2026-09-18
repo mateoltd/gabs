@@ -54,12 +54,18 @@ Generated direct editors and archive controls now use the same verified settleme
 
 With offline storage disabled, direct pending input remains in the mounted editor's memory. Disconnection hides the corporate surface; reconnecting and reauthorizing restores that in-memory input without writing drafts or journal entries. This milestone does not silently persist corporate data or establish direct process-exit/sign-out/profile recovery. Permanent revocation, received relay recovery controls and durable arbitrary custom-operation journals retain their separate gates. The server supports settlement of declared corporate commands, but these generated client journeys establish resource recovery only.
 
+### Archived input and archive preflight
+
+[Archived-input acceptance](verification/archived-input/README.md) now covers queued and direct edits whose target was archived. Review keeps the original input, module version and captured base version, offers a read-only export and never writes the archived record. Cached reviews survive offline browser reload/native restart. Uncertain update exports retain the exact original request and base snapshot. A new archive checks known unresolved local edits first; current server validation still decides business effects. Archive recovery checks the original resource's permissions even after changing tabs.
+
+The generic native recovery-file IPC still needs host-owned current authority checks, particularly after a delayed save dialog. Renderer guards and format validation do not establish that boundary. Browser export needs equivalent scoped acceptance; this is required engineering rather than a provider dependency.
+
 ## Remaining OFF-01 work
 
-- Extend direct-attempt acceptance to archived-input recovery and original-resource permission changes during archive recovery. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
+- Implement scoped recovery-export authorization in the host and browser, with revocation, lease expiry, account/workspace/profile transitions and delayed save-dialog checks. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
 - Nested/reference-field comparisons and journaled/direct failed-create collisions now have scoped browser/native recovery evidence. Ambiguous drafts, same-record descendants of colliding creates and custom descendants retain separate required work.
 - Nested cross-module capture and rejected-parent continuation now have scoped [browser/native acceptance](verification/cross-capture/README.md), including explicit grants, revocation/regrant, lost replies, collision remapping and unrelated progress. Ambiguous drafts, same-record descendants of colliding creates and custom descendants remain separate gates.
-- New same-record queued edits now have scoped ordering and saved-input inspection acceptance. Finish archive interaction/recovery and legacy unsequenced journal recovery; do not infer those from the new-capture journey.
+- New same-record queued edits now have scoped ordering and saved-input inspection acceptance. Archive preflight and archived-input recovery now have separate scoped acceptance. Legacy unsequenced journal recovery remains required; do not infer it from new-capture journeys.
 - Align retry-key validation across desktop submissions and relay receipt lookups with server-accepted formats; those older paths still use narrower character rules than execution and the new settlement endpoint.
 - Re-audit durable queued custom operations, archive behavior and recovery controls against operation policies; retain missing implementation in the tracker rather than treating generated CRUD coverage as full SDK coverage.
 

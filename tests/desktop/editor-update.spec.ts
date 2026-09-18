@@ -220,7 +220,7 @@ for (const uncertainReply of [false, true])
           await page.getByRole("button", { name: "Save", exact: true }).click();
           await expect(
             page.getByText(
-              "The server response is uncertain. Retry this same change before editing or closing it.",
+              "The server response is uncertain. Retry this same change or resolve its outcome before editing or closing it.",
             ),
           ).toBeVisible();
         }

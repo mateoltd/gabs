@@ -134,6 +134,10 @@ export async function directRecoveryJourney(options: {
       path: `docs/verification/direct-recovery/${options.kind}-${name}.png`,
     });
   };
+  await pool.query(
+    "update suite.roles set permissions=array_remove(permissions,'contacts.notes.write') where workspace_id=$1",
+    [workspaceId],
+  );
   await page.reload();
   await selectValue(page, "Workspace", workspaceId);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
@@ -292,6 +296,10 @@ export async function directRecoveryJourney(options: {
     .getByRole("button", { name: "Archive", exact: true })
     .click();
   const archive = await lost();
+  await page.getByRole("tab", { name: "Notes", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "New notes", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Retry archive", exact: true }),
   ).toBeEnabled();
@@ -313,6 +321,8 @@ export async function directRecoveryJourney(options: {
     page.getByText("Archive confirmed.", { exact: true }),
   ).toBeVisible();
   expect((await current(original.id)).archived).toBe(true);
+
+  await page.getByRole("tab", { name: "Contacts", exact: true }).click();
 
   // A cancelled archive preserves the live record, and a new attempt uses its new version.
   const second = await command("create", {

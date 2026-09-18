@@ -114,6 +114,7 @@ const RecoveryRequest = Type.Union([
           id: RecoveryId,
           data: RecoveryData,
           baseVersion: Type.Integer({ minimum: 1 }),
+          baseData: Type.Optional(RecoveryData),
         },
         { additionalProperties: false },
       ),
