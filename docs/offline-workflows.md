@@ -14,7 +14,7 @@ Reviewed replacement of a rejected/conflicting request preserves its record targ
 
 Generated updates retain the original values with the queued request. Review compares them with the attempted edit and a freshly fetched server record. Disjoint server changes remain in the proposed result; each overlapping top-level field needs an explicit local/server choice before the form or save action is enabled. Objects and arrays are reviewed as complete fields, matching the server's merge granularity. Older queued updates without original values require explicit choices for all differing fields.
 
-Review choices, the compared server version and subsequent form edits are saved with the draft. Resume uses that labeled server snapshot; saving always revalidates against current server state. A later overlapping server edit creates another visible conflict. The editor permits a new reviewed request for journal entries marked rejected/conflicting, preserves the record target and atomically replaces the prior entry. Denial after earlier uncertainty keeps the original entry pending, as described below.
+Review choices, the compared server version and subsequent form edits are saved independently for each reviewed request. Queued and direct reviews use distinct slots; submitting one consumes only that review, preserving other reviews and the ordinary draft. Legacy shared slots are promoted without overwriting an existing review. Resume uses that labeled server snapshot; saving always revalidates against current server state. [Independent review acceptance](verification/review-drafts/README.md) covers two queued and two online-only comparisons across browser reload/native restart and offline resumption with caching enabled. A later overlapping server edit creates another visible conflict. The editor permits a new reviewed request for journal entries marked rejected/conflicting, preserves the record target and atomically replaces the prior entry. Denial after earlier uncertainty keeps the original entry pending, as described below.
 
 ## Uncertain delivery
 
@@ -39,7 +39,6 @@ With offline storage disabled, direct pending input remains in the mounted edito
 ## Remaining OFF-01 work
 
 - Extend direct-attempt acceptance to cancelled-create collisions, archived-input recovery and original-resource permission changes during archive recovery. Preserve direct restart/sign-out/profile work under OFF-03. Permanently revoked access and received relay recovery controls require their own acceptance.
-- Preserve multiple simultaneous review drafts independently. The current editor has one saved draft slot per resource; starting another editor can replace that slot even though each original pending request remains in the journal.
 - Extend conflict acceptance to nested/reference-field decisions and failed-create collisions; current browser/native journeys cover ordinary resource updates and legacy requests without original values.
 - Verify rejected-parent correction and dependent continuation through the real editor, including restart and reauthentication. Storage-level coverage alone does not accept this interface.
 - Verify nested and cross-module dependent capture under explicit grants and revocation in the real interface.

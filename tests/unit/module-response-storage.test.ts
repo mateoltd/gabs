@@ -8,6 +8,8 @@ import type { Platform, Scope } from "../../packages/client/src";
 import { isModuleArtifactKey } from "../../packages/client/src";
 import {
   changeModuleStorage,
+  saveResourceDraft,
+  resourceDraftKey,
   enqueue,
   readModuleStorage,
   syncModuleStorage,
@@ -584,4 +586,140 @@ it("retains uncertainty after interrupted settlement persistence and permits cor
     state: "rejected",
     supersededBy: "settlement-corrected",
   });
+});
+
+it("isolates saved reviews from each other and ordinary drafts, including atomic replacement and stale writers", async () => {
+  const { platform, install, interrupt } = storage();
+  await install();
+  await enqueue(platform, scope, call("review-first"));
+  await enqueue(platform, scope, call("review-second"));
+  const first = { entryId: "review-first" },
+    second = { entryId: "review-second" };
+  const firstKey = resourceDraftKey("contacts", "contacts", first);
+  const secondKey = resourceDraftKey("contacts", "contacts", second);
+  await changeModuleStorage(platform, scope, (state) => {
+    state.journal.forEach((entry) => {
+      entry.state = "rejected";
+    });
+    // An existing installation stored its first review in the old shared slot.
+    state.drafts["contacts/contacts"] = { ...data, name: "First chosen value" };
+    state.draftReviews = { "contacts/contacts": first };
+    state.draftTargets = { "contacts/contacts": null };
+  });
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, name: "Second chosen value" },
+    target: null,
+    review: second,
+  });
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, name: "Ordinary draft" },
+    target: null,
+  });
+  let state = await readModuleStorage(platform, scope);
+  expect(state.drafts[firstKey].name).toBe("First chosen value");
+  expect(state.drafts[secondKey].name).toBe("Second chosen value");
+  expect(state.drafts["contacts/contacts"].name).toBe("Ordinary draft");
+  interrupt();
+  await expect(
+    enqueue(platform, scope, call("review-corrected"), [], {
+      draftKey: "contacts/contacts",
+      supersedes: first.entryId,
+    }),
+  ).rejects.toThrow("Interrupted commit");
+  expect((await readModuleStorage(platform, scope)).drafts).toEqual(
+    state.drafts,
+  );
+  await enqueue(platform, scope, call("review-corrected"), [], {
+    draftKey: "contacts/contacts",
+    supersedes: first.entryId,
+  });
+  state = await readModuleStorage(platform, scope);
+  expect(state.drafts[firstKey]).toBeUndefined();
+  expect(state.drafts[secondKey].name).toBe("Second chosen value");
+  expect(state.drafts["contacts/contacts"].name).toBe("Ordinary draft");
+  await expect(
+    saveResourceDraft(platform, scope, "contacts", "contacts", {
+      data,
+      target: null,
+      review: first,
+    }),
+  ).rejects.toThrow("no longer belongs");
+  await expect(
+    saveResourceDraft(
+      platform,
+      { ...scope, workspaceId: "other" },
+      "contacts",
+      "contacts",
+      { data, target: null, review: second },
+    ),
+  ).rejects.toThrow("no longer belongs");
+  expect((await readModuleStorage(platform, scope)).drafts).toEqual(
+    state.drafts,
+  );
+});
+
+it("retains independent direct comparisons and promotes legacy input without overwriting existing reviews", async () => {
+  const { platform, install, root, interrupt } = storage();
+  await install();
+  // Use the public comparator so fixtures stay tied to the actual stored review format.
+  const { reviewFields } = await import("@suite/module-sdk");
+  const review = reviewFields(
+    { name: "base" },
+    { name: "mine" },
+    { name: "theirs" },
+  ).review;
+  const one = { draftId: "direct:first", comparison: review },
+    two = { draftId: "direct:second", comparison: review };
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { name: "mine" },
+    target: row,
+    review: one,
+  });
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { name: "second" },
+    target: { ...row, id: "second" },
+    review: two,
+  });
+  const before = root();
+  interrupt();
+  await expect(
+    saveResourceDraft(platform, scope, "contacts", "contacts", {
+      data: { name: "changed" },
+      target: row,
+      review: one,
+    }),
+  ).rejects.toThrow("Interrupted commit");
+  expect(root()).toEqual(before);
+  const state = await readModuleStorage(platform, scope);
+  expect(state.drafts[resourceDraftKey("contacts", "contacts", one)].name).toBe(
+    "mine",
+  );
+  expect(state.drafts[resourceDraftKey("contacts", "contacts", two)].name).toBe(
+    "second",
+  );
+  expect(
+    resourceDraftKey("contacts", "contacts", { entryId: one.draftId }),
+  ).not.toBe(resourceDraftKey("contacts", "contacts", one));
+  await changeModuleStorage(platform, scope, (s) => {
+    s.drafts["contacts/contacts"] = { name: "Legacy direct choice" };
+    (s.draftTargets ??= {})["contacts/contacts"] = row;
+    (s.draftReviews ??= {})["contacts/contacts"] = { comparison: review };
+  });
+  const migrated = await readModuleStorage(platform, scope);
+  expect(
+    Object.values(migrated.drafts)
+      .map((d) => d.name)
+      .sort(),
+  ).toEqual(["Legacy direct choice", "mine", "second"]);
+  expect(migrated.drafts["contacts/contacts"]).toBeUndefined();
+  await changeModuleStorage(platform, scope, (state) => {
+    state.drafts["contacts/contacts"] = { name: "Legacy alternative" };
+    (state.draftTargets ??= {})["contacts/contacts"] = row;
+    (state.draftReviews ??= {})["contacts/contacts"] = one;
+  });
+  const collision = await readModuleStorage(platform, scope);
+  expect(
+    collision.drafts[resourceDraftKey("contacts", "contacts", one)].name,
+  ).toBe("mine");
+  expect(collision.drafts["contacts/contacts"].name).toBe("Legacy alternative");
 });

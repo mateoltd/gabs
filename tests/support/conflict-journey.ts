@@ -1,3 +1,4 @@
+import { resourceDraftKey } from "../../packages/client/src/modules/drafts";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -145,7 +146,8 @@ export async function conflictJourney(options: {
   await dialog
     .getByLabel("Address", { exact: true })
     .fill("Preserved review edit");
-  const draftKey = "contacts/contacts";
+  const entryId = (await options.storage(page, scope)).journal[0].id;
+  const draftKey = resourceDraftKey("contacts", "contacts", { entryId });
   await expect
     .poll(
       async () =>
@@ -163,12 +165,12 @@ export async function conflictJourney(options: {
   // A process starts at Overview; a browser reload retains the current module route.
   if (
     !(await page
-      .getByRole("button", { name: "Resume saved draft", exact: true })
+      .getByRole("button", { name: "Resume review", exact: true })
       .isVisible())
   )
     await page.locator('a[href$="/contacts"]').click();
   await page
-    .getByRole("button", { name: "Resume saved draft", exact: true })
+    .getByRole("button", { name: "Resume review", exact: true })
     .click();
   dialog = page.getByRole("dialog", { name: "Edit record", exact: true });
   await expect(dialog.getByLabel("Address", { exact: true })).toHaveValue(

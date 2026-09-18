@@ -39,6 +39,9 @@ import { canUse, type FeatureProps } from "@suite/client";
 import { ModuleInputRecoverySchema } from "@suite/module-sdk/platform";
 import {
   changeModuleStorage,
+  saveResourceDraft,
+  resourceDraftKey,
+  removeResourceDraft,
   enqueue,
   readModuleStorage,
   syncModuleStorage,
@@ -89,6 +92,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const attempt = useRef<ModuleCall | undefined>(undefined);
   const attemptMode = useRef<"direct" | "journal">("direct");
+  const requiresConnection =
+    definition.policy === "online" ||
+    (!!attempt.current && attemptMode.current === "direct") ||
+    !props.offlineEnabled ||
+    bootstrap.offlineHours <= 0;
   const [search, setSearch] = useState(""),
     [cursor, setCursor] = useState<string>(),
     [archived, setArchived] = useState(false);
@@ -186,7 +194,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     ...(Object.keys(ranges).length ? [ranges] : []),
     ...(orderBy.length ? [{ sort: orderBy }] : []),
   ]);
-  const draftKey = `${moduleId}/${resource}`;
+  const ordinaryDraftKey = resourceDraftKey(moduleId, resource);
+  const draftKey = resourceDraftKey(moduleId, resource, reviewSession);
   const allowed = canUse(
     bootstrap,
     moduleId,
@@ -357,23 +366,70 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const pending =
     storage?.journal.filter(
       (e) =>
+        e.userId === scope.userId &&
+        e.workspaceId === scope.workspaceId &&
         e.call.moduleId === moduleId &&
         e.call.resource === resource &&
         e.state !== "accepted" &&
         !e.supersededBy,
     ) ?? [];
+  const directReviews = Object.keys(storage?.draftReviews ?? {}).filter(
+    (key) =>
+      key.startsWith(`${ordinaryDraftKey}/review/`) &&
+      storage?.drafts[key] &&
+      !storage.draftReviews?.[key]?.entryId,
+  );
+  function pendingLabel(input: unknown, fallback: string) {
+    const command = input as { data?: Record<string, unknown>; id?: string };
+    for (const column of definition.columns) {
+      const value = command.data?.[column];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+    return command.id ?? fallback;
+  }
   async function persistDraft(
     data: Record<string, unknown>,
     record: ResourceRecord | null,
     review = reviewSession,
   ) {
     if (!props.offlineEnabled || !bootstrap.offlineHours) return;
-    await changeModuleStorage(platform, scope, (stored) => {
-      stored.drafts[draftKey] = data;
-      (stored.draftTargets ??= {})[draftKey] = record;
-      if (review) (stored.draftReviews ??= {})[draftKey] = review;
-      else if (stored.draftReviews) delete stored.draftReviews[draftKey];
+    await saveResourceDraft(platform, scope, moduleId, resource, {
+      data,
+      target: record,
+      review,
     });
+  }
+  async function resumeDraft(key: string) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const stored = await read();
+      const review = stored.draftReviews?.[key];
+      const entry = review?.entryId
+        ? stored.journal.find(
+            (item) =>
+              item.id === review.entryId &&
+              item.userId === scope.userId &&
+              item.workspaceId === scope.workspaceId &&
+              item.call.moduleId === moduleId &&
+              item.call.resource === resource &&
+              !item.supersededBy &&
+              ["conflict", "rejected"].includes(item.state),
+          )
+        : undefined;
+      if (!stored.drafts[key] || (review?.entryId && !entry))
+        throw Error(
+          "This review has already been replaced. Refresh pending changes.",
+        );
+      setForm(stored.drafts[key]);
+      setEditing(stored.draftTargets?.[key] ?? null);
+      setReviewSession(review);
+      setReviewTargetId((entry?.call.input as { id?: string } | undefined)?.id);
+    } catch (error) {
+      setError(error);
+    } finally {
+      setBusy(false);
+    }
   }
   const settlementTransport: SettlementTransport = ({
     moduleId,
@@ -400,7 +456,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       input: { id: input.id },
     })) as ResourceRecord;
     const comparison = reviewFields(input.baseData, input.data, current.data);
-    const review = { comparison: comparison.review };
+    const review = {
+      draftId: call.key ?? crypto.randomUUID(),
+      comparison: comparison.review,
+    };
     setEditing(current);
     setForm(comparison.data);
     setReviewSession(review);
@@ -459,9 +518,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           if (result.outcome === "accepted") {
             if (props.offlineEnabled && bootstrap.offlineHours > 0)
               await changeModuleStorage(platform, scope, (stored) => {
-                delete stored.drafts[draftKey];
-                if (stored.draftTargets) delete stored.draftTargets[draftKey];
-                if (stored.draftReviews) delete stored.draftReviews[draftKey];
+                removeResourceDraft(stored, draftKey);
               });
             attempt.current = undefined;
             setEditing(undefined);
@@ -552,9 +609,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       }
       if (!durable && props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (stored) => {
-          delete stored.drafts[draftKey];
-          if (stored.draftTargets) delete stored.draftTargets[draftKey];
-          if (stored.draftReviews) delete stored.draftReviews[draftKey];
+          removeResourceDraft(stored, draftKey);
         });
       attempt.current = undefined;
       setReviewSession(undefined);
@@ -665,37 +720,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           >
             {archived ? "Show active" : "Show archived"}
           </Button>
-          {write && storage?.drafts[draftKey] && (
-            <Button
-              onClick={() => {
-                const review = storage.draftReviews?.[draftKey];
-                const entry =
-                  review &&
-                  storage.journal.find(
-                    (item) =>
-                      item.id === review.entryId &&
-                      item.userId === scope.userId &&
-                      item.workspaceId === scope.workspaceId &&
-                      !item.supersededBy &&
-                      ["conflict", "rejected"].includes(item.state),
-                  );
-                if (review?.entryId && !entry) {
-                  setError(
-                    Error(
-                      "This review has already been replaced. Refresh pending changes.",
-                    ),
-                  );
-                  return;
-                }
-                setForm(storage.drafts[draftKey]);
-                setEditing(storage.draftTargets?.[draftKey] ?? null);
-                setReviewSession(review);
-                setReviewTargetId(
-                  (entry?.call.input as { id?: string } | undefined)?.id,
-                );
-                setError(undefined);
-              }}
-            >
+          {write && storage?.drafts[ordinaryDraftKey] && (
+            <Button onClick={() => void resumeDraft(ordinaryDraftKey)}>
               Resume saved draft
             </Button>
           )}
@@ -885,13 +911,51 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </Select>
           </Field>
         </div>
+        {directReviews.length > 0 && (
+          <section className="panel" aria-label="Saved reviews">
+            <h2>Saved reviews</h2>
+            {directReviews.map((key) => (
+              <div
+                className="module-pending"
+                key={key}
+                role="group"
+                aria-label={`Saved review: ${pendingLabel({ data: storage!.drafts[key], id: storage!.draftTargets?.[key]?.id }, key)}`}
+              >
+                <strong style={{ overflowWrap: "anywhere", maxWidth: "100%" }}>
+                  {pendingLabel(
+                    {
+                      data: storage!.drafts[key],
+                      id: storage!.draftTargets?.[key]?.id,
+                    },
+                    key,
+                  )}
+                </strong>
+                <Button
+                  disabled={!write || busy}
+                  onClick={() => void resumeDraft(key)}
+                >
+                  Resume review
+                </Button>
+              </div>
+            ))}
+          </section>
+        )}
         {!!pending.length && (
           <section className="panel">
             <h2>Pending changes</h2>
             {pending.map((entry) => (
-              <div className="module-pending" key={entry.id}>
-                <strong>{entry.state}</strong>
+              <div
+                className="module-pending"
+                key={entry.id}
+                role="group"
+                aria-label={`Pending ${entry.call.action}: ${pendingLabel(entry.call.input, entry.id)}`}
+              >
+                <strong style={{ overflowWrap: "anywhere", maxWidth: "100%" }}>
+                  {fieldLabel(entry.call.action)}:{" "}
+                  {pendingLabel(entry.call.input, entry.id)}
+                </strong>
                 <span>
+                  {fieldLabel(entry.state)}.{" "}
                   {entry.error ??
                     (entry.dependencies.some(
                       (id) =>
@@ -918,9 +982,21 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 ) : (
                   <Button
                     disabled={
-                      !online || !write || busy || entry.state === "pending"
+                      (!online &&
+                        !storage?.drafts[
+                          resourceDraftKey(moduleId, resource, {
+                            entryId: entry.id,
+                          })
+                        ]) ||
+                      !write ||
+                      busy ||
+                      entry.state === "pending"
                     }
                     onClick={async () => {
+                      const key = resourceDraftKey(moduleId, resource, {
+                        entryId: entry.id,
+                      });
+                      if (storage?.drafts[key]) return resumeDraft(key);
                       const command = entry.call.input as {
                         id?: string;
                         data?: Record<string, unknown>;
@@ -967,7 +1043,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       }
                     }}
                   >
-                    Review
+                    {storage?.drafts[
+                      resourceDraftKey(moduleId, resource, {
+                        entryId: entry.id,
+                      })
+                    ]
+                      ? "Resume review"
+                      : "Review"}
                   </Button>
                 )}
               </div>
@@ -1155,17 +1237,25 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             </section>
           )}
           <ErrorMessage error={error} />
+          {!online && requiresConnection && (
+            <p role="status">
+              {attempt.current
+                ? "Connect to confirm or resolve this pending change."
+                : "You can keep editing this draft offline. Connect to submit it."}
+            </p>
+          )}
           <Button
             type="submit"
             variant="primary"
             disabled={
+              (!online && requiresConnection) ||
               busy ||
               !write ||
               unresolved.length > 0 ||
               ((!resourceAvailable || !!editing?.archived) && !attempt.current)
             }
           >
-            {online ? "Save" : "Save pending change"}
+            {online || requiresConnection ? "Save" : "Save pending change"}
           </Button>
           {editing?.archived && !attempt.current && (
             <Button type="button" onClick={() => void exportInput()}>

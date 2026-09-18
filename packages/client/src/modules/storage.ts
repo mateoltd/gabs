@@ -1,4 +1,11 @@
 import {
+  resourceDraftKey,
+  removeResourceDraft,
+  promoteReviewDrafts,
+  type DraftReview,
+} from "./drafts";
+export { resourceDraftKey, removeResourceDraft } from "./drafts";
+import {
   responseContract,
   responseContractKey,
   validateModuleResponse,
@@ -72,7 +79,10 @@ export interface ModuleStorage {
   downloads?: Record<string, SignedArtifact>;
   drafts: Record<string, Record<string, unknown>>;
   draftTargets?: Record<string, ResourceRecord | null>;
-  draftReviews?: Record<string, { entryId?: string; comparison?: FieldReview }>;
+  draftReviews?: Record<
+    string,
+    { entryId?: string; draftId?: string; comparison?: FieldReview }
+  >;
   referenceOptions?: Record<
     string,
     Record<string, { value: string; label: string }[]>
@@ -88,7 +98,12 @@ const lockKey = (scope: Scope) =>
   `suite-modules:${scope.userId}:${scope.workspaceId}`;
 async function readUnlocked(platform: Platform, scope: Scope) {
   const stored = await platform.load<StoredModuleState>(scope, "module-state");
-  return stored ? hydrateModuleArtifacts(platform, scope, stored) : empty();
+  return stored
+    ? promoteReviewDrafts(
+        await hydrateModuleArtifacts(platform, scope, stored),
+        scope,
+      )
+    : empty();
 }
 export async function readModuleStorage(platform: Platform, scope: Scope) {
   return navigator.locks.request(lockKey(scope), () =>
@@ -113,6 +128,7 @@ export async function changeModuleStorage(
     const state = previous
       ? await hydrateModuleArtifacts(platform, scope, previous)
       : empty();
+    promoteReviewDrafts(state, scope);
     await fn(state);
     const stored = await persistModuleArtifacts(platform, scope, state);
     // This single durable write commits the release set and journal together, after all bytes exist.
@@ -120,6 +136,47 @@ export async function changeModuleStorage(
     return state;
   };
   return navigator.locks.request(lockKey(scope), change);
+}
+/** Save one review independently; stale windows cannot resurrect a replaced request. */
+export async function saveResourceDraft(
+  platform: Platform,
+  scope: Scope,
+  moduleId: string,
+  resource: string,
+  draft: {
+    data: Record<string, unknown>;
+    target: ResourceRecord | null;
+    review?: DraftReview;
+  },
+) {
+  return changeModuleStorage(platform, scope, (state) => {
+    const { data, target, review } = draft;
+    if (review?.entryId) {
+      const entry = state.journal.find(
+        (item) =>
+          item.id === review.entryId &&
+          item.userId === scope.userId &&
+          item.workspaceId === scope.workspaceId &&
+          item.call.moduleId === moduleId &&
+          item.call.resource === resource &&
+          !item.supersededBy &&
+          ["conflict", "rejected"].includes(item.state),
+      );
+      if (
+        !entry ||
+        (entry.call.action === "update" &&
+          (entry.call.input as { id?: string }).id !== target?.id)
+      )
+        throw new JournalConflictError(
+          "This review no longer belongs to an editable pending change. Refresh pending changes.",
+        );
+    }
+    const key = resourceDraftKey(moduleId, resource, review);
+    state.drafts[key] = data;
+    (state.draftTargets ??= {})[key] = target;
+    if (review) (state.draftReviews ??= {})[key] = review;
+    else if (state.draftReviews) delete state.draftReviews[key];
+  });
 }
 export async function enqueue(
   platform: Platform,
@@ -189,9 +246,18 @@ export async function enqueue(
     }
     if (!s.journal.some((e) => e.id === entry.id)) s.journal.push(entry);
     if (recovery) {
-      delete s.drafts[recovery.draftKey];
-      if (s.draftTargets) delete s.draftTargets[recovery.draftKey];
-      if (s.draftReviews) delete s.draftReviews[recovery.draftKey];
+      if (replaced) {
+        if (call.resource)
+          removeResourceDraft(
+            s,
+            resourceDraftKey(call.moduleId, call.resource, {
+              entryId: replaced.id,
+            }),
+          );
+        // An older caller may still identify the legacy shared slot.
+        if (s.draftReviews?.[recovery.draftKey]?.entryId === replaced.id)
+          removeResourceDraft(s, recovery.draftKey);
+      } else removeResourceDraft(s, recovery.draftKey);
       if (recovery.supersedes)
         s.journal = s.journal.map((e) =>
           e.userId !== scope.userId || e.workspaceId !== scope.workspaceId
