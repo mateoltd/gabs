@@ -260,6 +260,8 @@ export async function replaceCommand(
           dependencies: canonical(child.dependencies),
         };
       });
+      if (!authorized(entry.call) || !authorized(call))
+        throw Error("Current access changed before command recovery.");
       const outcome = await settleModuleCall(
         { ...entry.call, key: id },
         settle,

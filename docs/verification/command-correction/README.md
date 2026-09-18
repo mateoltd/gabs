@@ -39,7 +39,7 @@ The first unit fixture incorrectly retained custom-view declarations without exe
 
 ## Required continuation
 
-- Real command lease expiry during held actions, original/current permission transitions, installed release transitions and profile/sign-out recovery. Unit upgrade/authority checks do not substitute for these journeys.
+- [Held-action authority](../command-authority/README.md) now verifies real-client lease expiry and received revocation during delayed settlement replies. Original/current permission declarations across installed releases, schema transitions and profile/sign-out recovery remain required; unit upgrade checks do not substitute for those journeys.
 - Cross-module/resource dependents, archive/custom descendants, already-submitted child outcomes and further dependency recovery. Unselected work intentionally remains attached to the cancelled original; reassignment requires a separate explicit flow.
 - Reference-aware correction labels/editors, permanent revocation, history retention/large histories and full development simulation of derived references and recovery.
 - The previously documented intermittent native linked-create close concern remains unresolved. This milestone does not claim to fix it or complete any broad release gate.

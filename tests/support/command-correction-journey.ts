@@ -12,7 +12,16 @@ export async function commandCorrectionJourney(options: {
   api: APIRequestContext;
   pool: Pool;
   kind: "web" | "native";
-  mode: "rejected" | "uncertain" | "late-accepted";
+  mode:
+    | "rejected"
+    | "uncertain"
+    | "late-accepted"
+    | "lease-expired"
+    | "permission-revoked";
+  holdSettlement?(): Promise<{
+    arrived(): Promise<void>;
+    release(): Promise<void>;
+  }>;
   offline(value: boolean): Promise<void>;
   restartOffline(): Promise<Page>;
   reconnect(): Promise<void>;
@@ -27,6 +36,8 @@ export async function commandCorrectionJourney(options: {
 }) {
   let page = options.page;
   const { api, pool, mode } = options;
+  const interrupted = mode === "lease-expired" || mode === "permission-revoked";
+  const evidence = interrupted ? "command-authority" : "command-correction";
   const id = `correct-${randomUUID().slice(0, 8)}`;
   const pkg = await publishExecutableFixture({
     id,
@@ -169,9 +180,9 @@ export async function commandCorrectionJourney(options: {
     "Corrected parent",
   );
   await expect(review).toHaveClass(/is-open/);
-  await mkdir("docs/verification/command-correction", { recursive: true });
+  await mkdir(`docs/verification/${evidence}`, { recursive: true });
   await page.screenshot({
-    path: `docs/verification/command-correction/${options.kind}-${mode}-review.png`,
+    path: `docs/verification/${evidence}/${options.kind}-${mode}-review.png`,
   });
   expect(
     (
@@ -188,7 +199,7 @@ export async function commandCorrectionJourney(options: {
     ),
   ).toBe(true);
   await page.screenshot({
-    path: `docs/verification/command-correction/${options.kind}-${mode}-review-narrow.png`,
+    path: `docs/verification/${evidence}/${options.kind}-${mode}-review-narrow.png`,
   });
   await options.wide();
   await page.keyboard.press("Escape");
@@ -211,7 +222,8 @@ export async function commandCorrectionJourney(options: {
     );
     expect(accepted.ok(), await accepted.text()).toBe(true);
   }
-  await options.loseSettlementReply();
+  const held = interrupted ? await options.holdSettlement!() : undefined;
+  if (!held) await options.loseSettlementReply();
   await options.reconnect();
   dialog = await inbox();
   await dialog
@@ -238,7 +250,80 @@ export async function commandCorrectionJourney(options: {
       exact: true,
     })
     .click();
-  await expect(confirm.getByRole("alert")).toBeVisible();
+  if (held) {
+    await held.arrived();
+    const saved = await options.storage(page, scope);
+    const permission = async (granted: boolean) => {
+      await pool.query(
+        granted
+          ? "update suite.roles set permissions=array_append(permissions,$2) where workspace_id=$1 and not ($2=any(permissions))"
+          : "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1",
+        [scope.workspaceId, `${id}.capture`],
+      );
+      await pool.query(
+        "update suite.workspace_policy set revision=revision+1 where workspace_id=$1",
+        [scope.workspaceId],
+      );
+      await pool.query("select pg_notify('suite_policy',$1)", [
+        scope.workspaceId,
+      ]);
+    };
+    if (mode === "lease-expired") {
+      await options.offline(true);
+      await page.clock.install();
+      await page.clock.setSystemTime(new Date(Date.now() + 25 * 3600000));
+      await expect(
+        page.getByText(
+          "Connect to revalidate this workspace. Unsent drafts remain stored.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+    } else {
+      await permission(false);
+      await expect(
+        page.getByRole("button", { name: "Save pending note", exact: true }),
+      ).toBeDisabled();
+    }
+    await expect(review).toHaveCount(0);
+    await expect(confirm).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /^Saved commands/ }),
+    ).toHaveCount(0);
+    await held.release();
+    // Wait for the same workspace recovery lock, proving the held action has finished.
+    await page.evaluate(
+      (scope) =>
+        navigator.locks.request(
+          `suite-sync:${scope.userId}:${scope.workspaceId}`,
+          async () => {},
+        ),
+      scope,
+    );
+    const retained = await options.storage(page, scope);
+    expect(retained.journal).toEqual(saved.journal);
+    expect(retained.commandReviews).toEqual(saved.commandReviews);
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from suite.module_records where workspace_id=$1 and module_id=$2",
+          [scope.workspaceId, id],
+        )
+      ).rows[0].n,
+    ).toBe(0);
+    await options.narrow();
+    await page.screenshot({
+      path: `docs/verification/${evidence}/${options.kind}-${mode}-blocked-narrow.png`,
+    });
+    await options.wide();
+    if (mode === "lease-expired") await page.clock.setSystemTime(new Date());
+    else await permission(true);
+    await options.reconnect();
+    await page.reload();
+    await open();
+    await expect(
+      page.getByRole("button", { name: "Save pending note", exact: true }),
+    ).toBeEnabled();
+  } else await expect(confirm.getByRole("alert")).toBeVisible();
   expect(await journal()).toHaveLength(3);
   const late = await api.post(
     `/api/v1/module/${id}/workspaces/${scope.workspaceId}/operations/capture`,
@@ -336,7 +421,7 @@ export async function commandCorrectionJourney(options: {
     ).toBe(3);
     await options.narrow();
     await page.screenshot({
-      path: `docs/verification/command-correction/${options.kind}-${mode}-result-narrow.png`,
+      path: `docs/verification/${evidence}/${options.kind}-${mode}-result-narrow.png`,
     });
     expect(
       (
@@ -391,7 +476,7 @@ export async function commandCorrectionJourney(options: {
   await expect(confirm).toHaveCount(0);
   await options.narrow();
   await page.screenshot({
-    path: `docs/verification/command-correction/${options.kind}-${mode}-result-narrow.png`,
+    path: `docs/verification/${evidence}/${options.kind}-${mode}-result-narrow.png`,
   });
   expect(
     await page.evaluate(

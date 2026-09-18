@@ -5,7 +5,13 @@ import { selectValue } from "./controls.helpers";
 import { commandCorrectionJourney } from "../support/command-correction-journey";
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 test.use({ actionTimeout: 15000 });
-for (const mode of ["rejected", "uncertain", "late-accepted"] as const)
+for (const mode of [
+  "rejected",
+  "uncertain",
+  "late-accepted",
+  "lease-expired",
+  "permission-revoked",
+] as const)
   test(`command correction preserves review and dependencies after ${mode} original`, async ({
     page,
     context,
@@ -58,6 +64,26 @@ for (const mode of ["rejected", "uncertain", "late-accepted"] as const)
               return route.abort("connectionreset");
             return route.continue();
           });
+        },
+        holdSettlement: async () => {
+          let signal!: () => void, release!: () => void;
+          const arrived = new Promise<void>((resolve) => {
+            signal = resolve;
+          });
+          const held = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          let once = true;
+          await page.route("**/attempts/settle", async (route) => {
+            const response = await route.fetch();
+            if (once && response.ok()) {
+              once = false;
+              signal();
+              await held;
+            }
+            await route.fulfill({ response });
+          });
+          return { arrived: () => arrived, release: async () => release() };
         },
         loseSettlementReply: async () => {
           let lost = false;

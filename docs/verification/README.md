@@ -721,3 +721,8 @@ Final verification passed 487 unit/PostgreSQL tests across 82 files, strict root
 ## Saved command correction, 18 September 2026
 
 [Scoped recovery acceptance](command-correction/README.md) verifies offline saved reviews, exact original identities, authoritative cancellation before replacement, explicit never-submitted dependent choices and late acceptance without a new business effect. Passed: 500 unit/PostgreSQL tests across 84 files, strict checks/four fresh builds, six headless browser journeys and five hidden/unfocused native journeys. Real restart/lost-reply paths assert exact records and audit counts. Scoped Axe/keyboard/overflow and five representative captures were inspected. The detailed record separates the final presentation-only status fix from the preceding full unit run and records fixture/screenshot harness corrections. Twelve historical captures were restored; no stylesheet changed. OFF-01, broader recovery, full parity and UI refinement remain open.
+
+
+## Held command authority, 18 September 2026
+
+[Acceptance record](command-authority/README.md): recovery rechecks access after asynchronous reads/verification and within its final local transaction. Delayed real settlement replies, lease expiry and delivered command revocation preserve exact saved work, hide unauthorized input and permit only subsequent authorized continuation. Passed 502 unit/PostgreSQL tests across 84 files, strict checks/four fresh builds, five headless browser and six hidden/unfocused desktop journeys, scoped Axe/keyboard/overflow and six inspected captures. Twenty historical captures were restored; no UI/style source changed. Original versus installed permissions across upgrades, profile recovery and broader OFF-01/release gates remain open.

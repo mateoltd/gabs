@@ -21,9 +21,18 @@ type CaptureState = typeof globalThis & {
   blockedKey?: string;
   lossSettlement?: boolean;
   dispatched: string[];
+  holdSettlement?: boolean;
+  settlementArrived?: boolean;
+  releaseSettlement?: () => void;
 };
 test.use({ actionTimeout: 15000 });
-for (const mode of ["rejected", "uncertain", "late-accepted"] as const)
+for (const mode of [
+  "rejected",
+  "uncertain",
+  "late-accepted",
+  "lease-expired",
+  "permission-revoked",
+] as const)
   test(`native command correction preserves review after ${mode} original`, async () => {
     test.setTimeout(180000);
     const pool = new Pool({
@@ -46,6 +55,7 @@ globalThis.fetch=async(...args)=>{
  if(create&&key===globalThis.blockedKey)throw new TypeError("Interrupted original",{cause:{code:"ECONNRESET"}});
  if(create)globalThis.dispatched.push(key);
  const result=await original(...args);
+ if(globalThis.holdSettlement&&String(args[0]).endsWith("/attempts/settle")&&result.ok){globalThis.holdSettlement=false;globalThis.settlementArrived=true;await new Promise(resolve=>{globalThis.releaseSettlement=resolve})}
  if(create&&key===globalThis.lossKey&&result.ok){globalThis.lossKey=undefined;throw new TypeError('Lost reply',{cause:{code:'ECONNRESET'}})}
  if(globalThis.lossSettlement&&String(args[0]).endsWith("/attempts/settle")&&result.ok){globalThis.lossSettlement=false;throw new TypeError("Lost settlement reply",{cause:{code:"ECONNRESET"}})}
  return result;
@@ -120,6 +130,27 @@ globalThis.fetch=async(...args)=>{
           await app.evaluate((_, key) => {
             (globalThis as CaptureState).blockedKey = key;
           }, key);
+        },
+        holdSettlement: async () => {
+          await app.evaluate(() => {
+            (globalThis as CaptureState).holdSettlement = true;
+          });
+          return {
+            arrived: async () => {
+              await expect
+                .poll(() =>
+                  app.evaluate(
+                    () => (globalThis as CaptureState).settlementArrived,
+                  ),
+                )
+                .toBe(true);
+            },
+            release: async () => {
+              await app.evaluate(() => {
+                (globalThis as CaptureState).releaseSettlement!();
+              });
+            },
+          };
         },
         loseSettlementReply: async () => {
           await app.evaluate(() => {

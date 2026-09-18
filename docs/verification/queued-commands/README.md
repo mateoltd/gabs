@@ -55,6 +55,6 @@ Newly built views for modules exposing queued commands require `client.queue` re
 ## Required continuation
 
 - [Command correction acceptance](../command-correction/README.md) now covers saved reviews, current-schema validation, authoritative fencing and explicit same-module unsent prerequisites. Cross-module/resource dependents and submitted-child outcomes remain required. Never rekey an uncertain request automatically.
-- Uncommitted-outcome fencing now has separate browser/native evidence in that milestone. Lease expiry during held actions, profile/sign-out recovery, release upgrades and original/current permission transitions remain required.
+- Uncommitted-outcome fencing now has separate browser/native evidence in that milestone. [Held-action authority](../command-authority/README.md) adds lease expiry and received revocation. Profile/sign-out recovery, release upgrades and original/current permission declarations remain required.
 - Custom/archive descendants, already-submitted child outcomes, permanent revocation, journal retention/large histories and remaining OFF-01 gates. Extend simulation of derived references and dependency recovery alongside those contracts.
 - The earlier intermittent linked-create dialog-close concern remains open. Full parity, signed/provider release acceptance and final UI refinement remain separate requirements.

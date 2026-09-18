@@ -575,3 +575,96 @@ it("requires fresh approval when selected dependent input changes and rechecks d
   ).rejects.toThrow("access changed");
   expect(commandReview(await read(), "original-key")).toBeUndefined();
 });
+
+it("does not contact the settlement server after access expires during signed-contract verification", async () => {
+  const { platform, read } = await setup();
+  const review = await saveCommandReview(
+    platform,
+    scope,
+    "original-key",
+    module.version,
+    { name: "Correction" },
+    0,
+    yes,
+  );
+  let allowed = true;
+  const verify = crypto.subtle.verify.bind(crypto.subtle);
+  const held = vi
+    .spyOn(crypto.subtle, "verify")
+    .mockImplementation(async (...args) => {
+      const result = await verify(...args);
+      allowed = false;
+      return result;
+    });
+  const settle = vi.fn(async () => ({
+    key: "original-key",
+    outcome: "cancelled",
+  }));
+  try {
+    await expect(
+      replaceCommand(
+        platform,
+        scope,
+        "original-key",
+        review.revision,
+        "replacement",
+        [],
+        settle,
+        () => allowed,
+      ),
+    ).rejects.toThrow("access changed");
+    expect(settle).not.toHaveBeenCalled();
+  } finally {
+    held.mockRestore();
+  }
+  expect((await read()).journal).toHaveLength(1);
+  expect(commandReview(await read(), "original-key")).toEqual(review);
+});
+
+it("rechecks uncertain-outcome authority after storage reads and inside the final commit", async () => {
+  const { settleJournalEntry } =
+    await import("../../packages/client/src/modules/settlement");
+  const { platform, read } = await setup();
+  await changeModuleStorage(platform, scope, (state) => {
+    state.journal[0].state = "pending";
+    state.journal[0].delivery = "uncertain";
+  });
+  const before = (await read()).journal;
+  let allowed = true;
+  const load = platform.load.bind(platform);
+  const delayed = vi
+    .spyOn(platform, "load")
+    .mockImplementation(async (...args) => {
+      const result = await load(...args);
+      allowed = false;
+      return result;
+    });
+  const settle = vi.fn(async () => ({
+    key: "original-key",
+    outcome: "cancelled",
+  }));
+  await expect(
+    settleJournalEntry(platform, scope, "original-key", settle, () => allowed),
+  ).rejects.toThrow("access changed");
+  expect(settle).not.toHaveBeenCalled();
+  delayed.mockRestore();
+  allowed = true;
+  const prune = vi
+    .spyOn(platform, "pruneModuleArtifacts")
+    .mockImplementation(async () => {
+      allowed = false;
+    });
+  await expect(
+    settleJournalEntry(platform, scope, "original-key", settle, () => allowed),
+  ).rejects.toThrow("before saving");
+  expect(settle).toHaveBeenCalledOnce();
+  prune.mockRestore();
+  expect((await read()).journal).toEqual(before);
+  await settleJournalEntry(platform, scope, "original-key", settle, yes);
+  expect((await read()).journal[0]).toMatchObject({
+    id: "original-key",
+    state: "rejected",
+    settlement: "cancelled",
+    call: before[0].call,
+  });
+});

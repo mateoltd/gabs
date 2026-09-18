@@ -204,6 +204,8 @@ export async function settleJournalEntry(
           "Only an uncertain pending change can be resolved.",
         );
       const { call } = entry;
+      if (!authorized())
+        throw Error("Current access changed before outcome recovery.");
       const result = await settleModuleCall(
         { ...call, key: entry.id },
         settle,
@@ -217,6 +219,10 @@ export async function settleJournalEntry(
           "Unlock this workspace again to recover its confirmed outcome.",
         );
       await changeModuleStorage(platform, scope, (stored) => {
+        if (!authorized())
+          throw Error(
+            "Current access changed before saving the outcome. Recover it with the original identity after reconnecting.",
+          );
         const current = stored.journal.find(
           (e) =>
             e.id === id &&
