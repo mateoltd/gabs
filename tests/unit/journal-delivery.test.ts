@@ -49,6 +49,7 @@ it("persists dispatch before effects and retains an uncertain identity through d
     attempts: 1,
     delivery: "uncertain",
   });
+  expect(entries()[0].error).not.toContain("Reply lost");
   const denied: string[] = [];
   await flushJournal(
     store,

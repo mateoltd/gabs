@@ -788,6 +788,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/attempts/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["moduleAttemptSettle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspaceId}/module-receipts": {
         parameters: {
             query?: never;
@@ -6134,6 +6150,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    moduleAttemptSettle: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-module-version"?: string;
+            };
+            path: {
+                workspaceId: string;
+                moduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    key: string;
+                    call: {
+                        action: "create" | "update" | "archive";
+                        resource: string;
+                        input: unknown;
+                    } | {
+                        /** @enum {string} */
+                        action: "operation";
+                        operation: string;
+                        input: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        key: string;
+                        /** @enum {string} */
+                        outcome: "accepted";
+                        result: unknown;
+                    } | {
+                        key: string;
+                        /** @enum {string} */
+                        outcome: "cancelled";
+                    };
+                };
             };
         };
     };

@@ -71,7 +71,7 @@ export async function flushJournal(
           delete entry.result;
           entry.error =
             "The outcome of an earlier attempt is unknown. Your original change is retained for retry." +
-            (e.message ? ` ${e.message}` : "");
+            (e.status && e.message ? ` ${e.message}` : "");
         } else {
           entry.state =
             e.status === 409 || e.status === 412 ? "conflict" : "rejected";

@@ -1,5 +1,6 @@
 export * from "./commerce/business-cutover";
 export * from "./workspaces/receipts";
+export * from "./workspaces/attempts";
 export * from "./commerce/entities";
 export * from "./identity/permissions";
 import { OrderSchema } from "./commerce/entities";
@@ -246,6 +247,10 @@ export const OPERATIONS = {
   moduleRequest: {
     method: "POST",
     path: "/api/v1/module/:moduleId/workspaces/:workspaceId/records",
+  },
+  moduleAttemptSettle: {
+    method: "POST",
+    path: "/api/v1/module/:moduleId/workspaces/:workspaceId/attempts/settle",
   },
   moduleReceipts: {
     method: "POST",

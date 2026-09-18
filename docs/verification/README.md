@@ -608,3 +608,8 @@ Passed: 405 unit/PostgreSQL checks across 75 files, strict checks/four builds, s
 ## OFF-01 durable delivery through denial, 18 September 2026
 
 [Journal delivery acceptance](journal-delivery/README.md) verifies dispatch persistence before effects, restart-safe uncertainty after a lost reply and later denial, independent work, dependency waiting and exact receipt recovery when authority returns. Full isolated verification passes 413 checks across 76 files, strict checks/four builds, six headless and three hidden native journeys. Current PostgreSQL evidence has exactly one effect/audit per accepted change. Missing-receipt settlement, permanent revocation and other OFF-01 gates remain open; this is scoped progress, not parity completion.
+
+
+## OFF-01 authoritative settlement, 18 September 2026
+
+[Settlement acceptance](attempt-settlement/README.md) verifies both execution/cancellation race orders with observed PostgreSQL lock waits, atomic cancellation audit/rollback, cancelled-receipt exclusion and current authority. The generated UI survives a lost settlement reply and restart, blocks late original effects, reviews a corrected contact, reconnects its dependent note, and recovers an already committed receipt. Full verification passed 418 tests across 77 files, strict checks/four builds, six headless and three hidden native regressions. Extended affected journeys and scoped visual/accessibility checks passed. Migration 029 requires cancellation-aware server rollback targets. Direct online recovery, other OFF-01 work, hosted release acceptance and full parity remain open.

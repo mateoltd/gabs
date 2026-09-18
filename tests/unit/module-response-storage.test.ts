@@ -1,3 +1,4 @@
+import { settleJournalEntry } from "../../packages/client/src/modules/settlement";
 import { afterEach, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { Type, type ModuleCall } from "@suite/module-sdk";
@@ -445,4 +446,142 @@ it("rejects changed retry identities, uncertain replacement and dependency cycle
   const stored = await readModuleStorage(platform, scope);
   expect(stored.journal).toHaveLength(1);
   expect(stored.drafts.draft).toEqual(data);
+});
+
+it("validates settlement identity and original signed responses before changing uncertain journal state", async () => {
+  const { platform, install } = storage();
+  await install();
+  const originalCall = call("settlement-original");
+  await enqueue(platform, scope, originalCall);
+  await syncModuleStorage(
+    platform,
+    scope,
+    async () => {
+      throw Error("Lost reply");
+    },
+    () => true,
+  );
+  const current = async () =>
+    (await readModuleStorage(platform, scope)).journal[0];
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      "settlement-original",
+      async () => ({ key: "another-key", outcome: "cancelled" }),
+      () => true,
+    ),
+  ).rejects.toThrow("different change");
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      "settlement-original",
+      async () => ({
+        key: "settlement-original",
+        outcome: "accepted",
+        result: { ...row, data: { name: 1 } },
+      }),
+      () => true,
+    ),
+  ).rejects.toThrow();
+  expect(await current()).toMatchObject({
+    state: "pending",
+    delivery: "uncertain",
+  });
+  await install(upgraded);
+  expect(
+    await settleJournalEntry(
+      platform,
+      scope,
+      "settlement-original",
+      async (request) => {
+        expect(request).toMatchObject({
+          moduleId: "contacts",
+          moduleVersion: "1.1.0",
+          body: {
+            key: "settlement-original",
+            call: {
+              action: "create",
+              resource: "contacts",
+              input: originalCall.input,
+            },
+          },
+        });
+        return { key: "settlement-original", outcome: "accepted", result: row };
+      },
+      () => true,
+    ),
+  ).toBe("accepted");
+  expect(await current()).toMatchObject({ state: "accepted", result: row });
+  expect((await current()).delivery).toBeUndefined();
+});
+
+it("retains uncertainty after interrupted settlement persistence and permits correction only after confirmed cancellation", async () => {
+  const { platform, install, interrupt } = storage();
+  await install();
+  await enqueue(platform, scope, call("settlement-cancel"));
+  const settle = vi.fn(async () => ({
+    key: "settlement-cancel",
+    outcome: "cancelled",
+  }));
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      "settlement-cancel",
+      settle,
+      () => true,
+    ),
+  ).rejects.toThrow("uncertain");
+  expect(settle).not.toHaveBeenCalled();
+  await syncModuleStorage(
+    platform,
+    scope,
+    async () => {
+      throw Error("Lost reply");
+    },
+    () => true,
+  );
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      "settlement-cancel",
+      settle,
+      () => false,
+    ),
+  ).rejects.toThrow("unlock");
+  expect(settle).not.toHaveBeenCalled();
+  interrupt();
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      "settlement-cancel",
+      settle,
+      () => true,
+    ),
+  ).rejects.toThrow("Interrupted commit");
+  expect((await readModuleStorage(platform, scope)).journal[0]).toMatchObject({
+    state: "pending",
+    delivery: "uncertain",
+  });
+  expect(
+    await settleJournalEntry(
+      platform,
+      scope,
+      "settlement-cancel",
+      settle,
+      () => true,
+    ),
+  ).toBe("cancelled");
+  await enqueue(platform, scope, call("settlement-corrected"), [], {
+    draftKey: "contacts/contacts",
+    supersedes: "settlement-cancel",
+  });
+  expect((await readModuleStorage(platform, scope)).journal[0]).toMatchObject({
+    state: "rejected",
+    supersededBy: "settlement-corrected",
+  });
 });

@@ -13281,6 +13281,185 @@
         }
       }
     },
+    "/api/v1/module/{moduleId}/workspaces/{workspaceId}/attempts/settle": {
+      "post": {
+        "operationId": "moduleAttemptSettle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "key",
+                  "call"
+                ],
+                "properties": {
+                  "key": {
+                    "minLength": 8,
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "call": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "action",
+                          "resource",
+                          "input"
+                        ],
+                        "properties": {
+                          "action": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "create"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "update"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "archive"
+                                ]
+                              }
+                            ]
+                          },
+                          "resource": {
+                            "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                            "type": "string"
+                          },
+                          "input": {}
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "action",
+                          "operation",
+                          "input"
+                        ],
+                        "properties": {
+                          "action": {
+                            "type": "string",
+                            "enum": [
+                              "operation"
+                            ]
+                          },
+                          "operation": {
+                            "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                            "type": "string"
+                          },
+                          "input": {}
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "moduleId",
+            "required": true
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-module-version",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "outcome",
+                        "result"
+                      ],
+                      "properties": {
+                        "key": {
+                          "minLength": 8,
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "accepted"
+                          ]
+                        },
+                        "result": {}
+                      }
+                    },
+                    {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "outcome"
+                      ],
+                      "properties": {
+                        "key": {
+                          "minLength": 8,
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "cancelled"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/module-receipts": {
       "post": {
         "operationId": "moduleReceipts",

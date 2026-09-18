@@ -1,3 +1,4 @@
+import { settleJournalEntry } from "@suite/client/module-settlement";
 import {
   validateModuleResponse,
   ResponseContractUnavailable,
@@ -59,6 +60,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const moduleId = module.id;
   const responseModules = useRef(new Map<string, ModuleDefinition>());
   responseModules.current.set(`${module.id}@${module.version}`, module);
+  const [settling, setSettling] = useState<string>();
   const [archiveAttempt, setArchiveAttempt] = useState<ModuleCall>();
   const qc = useQueryClient();
   const names = Object.keys(module.resources).sort((a, b) =>
@@ -751,64 +753,126 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       ? "Waiting for prerequisite changes to be accepted. Unrelated work can still synchronize."
                       : "Waiting for server acceptance")}
                 </span>
-                <Button
-                  disabled={
-                    !online || !write || busy || entry.state === "pending"
-                  }
-                  onClick={async () => {
-                    const command = entry.call.input as {
-                      id?: string;
-                      data?: Record<string, unknown>;
-                      baseData?: Record<string, unknown>;
-                    };
-                    setBusy(true);
-                    setError(undefined);
-                    try {
-                      const current =
-                        entry.call.action === "update"
-                          ? ((await send({
-                              moduleId,
-                              moduleVersion: module.version,
-                              resource,
-                              action: "get",
-                              input: { id: command.id },
-                            })) as ResourceRecord)
-                          : null;
-                      if (current?.archived)
-                        throw Error(
-                          "This record has been archived. Export the pending change to recover its contents.",
-                        );
-                      const comparison = current
-                        ? reviewFields(
-                            command.baseData,
-                            command.data ?? {},
-                            current.data,
-                          )
-                        : undefined;
-                      const session = {
-                        entryId: entry.id,
-                        comparison: comparison?.review,
-                      };
-                      const next = comparison?.data ?? command.data ?? {};
-                      await persistDraft(next, current, session);
-                      setForm(next);
-                      setEditing(current);
-                      setReviewSession(session);
-                      setReviewTargetId(command.id);
-                    } catch (e) {
-                      setError(e);
-                    } finally {
-                      setBusy(false);
+                {entry.state === "pending" &&
+                entry.delivery !== "unsubmitted" ? (
+                  <Button
+                    disabled={!online || !write || busy}
+                    onClick={() => {
+                      setError(undefined);
+                      setSettling(entry.id);
+                    }}
+                  >
+                    Resolve outcome
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={
+                      !online || !write || busy || entry.state === "pending"
                     }
-                  }}
-                >
-                  Review
-                </Button>
+                    onClick={async () => {
+                      const command = entry.call.input as {
+                        id?: string;
+                        data?: Record<string, unknown>;
+                        baseData?: Record<string, unknown>;
+                      };
+                      setBusy(true);
+                      setError(undefined);
+                      try {
+                        const current =
+                          entry.call.action === "update"
+                            ? ((await send({
+                                moduleId,
+                                moduleVersion: module.version,
+                                resource,
+                                action: "get",
+                                input: { id: command.id },
+                              })) as ResourceRecord)
+                            : null;
+                        if (current?.archived)
+                          throw Error(
+                            "This record has been archived. Export the pending change to recover its contents.",
+                          );
+                        const comparison = current
+                          ? reviewFields(
+                              command.baseData,
+                              command.data ?? {},
+                              current.data,
+                            )
+                          : undefined;
+                        const session = {
+                          entryId: entry.id,
+                          comparison: comparison?.review,
+                        };
+                        const next = comparison?.data ?? command.data ?? {};
+                        await persistDraft(next, current, session);
+                        setForm(next);
+                        setEditing(current);
+                        setReviewSession(session);
+                        setReviewTargetId(command.id);
+                      } catch (e) {
+                        setError(e);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Review
+                  </Button>
+                )}
               </div>
             ))}
           </section>
         )}
       </section>
+      <Modal
+        title="Resolve pending change"
+        open={!!settling}
+        description="Confirm acceptance or stop further retries."
+        onOpenChange={(open) => {
+          if (!open && !busy) setSettling(undefined);
+        }}
+      >
+        <p>
+          The server will check whether this change committed. If it did not,
+          the server will stop further retries so you can review a correction.
+          Your saved input is kept.
+        </p>
+        <ErrorMessage error={error} />
+        <Button
+          variant="primary"
+          disabled={!online || !write || busy}
+          onClick={async () => {
+            if (!settling) return;
+            setBusy(true);
+            setError(undefined);
+            try {
+              await settleJournalEntry(
+                platform,
+                scope,
+                settling,
+                ({ moduleId, moduleVersion, body }) =>
+                  client.request({
+                    operation: "moduleAttemptSettle",
+                    params: { workspaceId: scope.workspaceId, moduleId },
+                    moduleVersion,
+                    body,
+                  }),
+                authorized,
+              );
+              setSettling(undefined);
+              await syncModuleStorage(platform, scope, transport, authorized);
+              await read();
+              await query.refetch();
+            } catch (error) {
+              setError(error);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Check and resolve
+        </Button>
+      </Modal>
       <Modal
         open={editing !== undefined}
         onOpenChange={(open) => {

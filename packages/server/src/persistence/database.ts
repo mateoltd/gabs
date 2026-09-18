@@ -234,6 +234,7 @@ export interface Database {
     key: string;
     operation: string;
     request_hash: string;
+    outcome: Generated<"accepted" | "cancelled">;
     response: unknown;
     created_at: Time;
   };

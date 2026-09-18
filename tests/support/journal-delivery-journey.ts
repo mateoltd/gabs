@@ -126,8 +126,8 @@ export async function journalDeliveryJourney(options: {
     page.getByText(/The outcome of an earlier attempt is unknown/),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Review", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "Resolve outcome", exact: true }),
+  ).toBeVisible();
   expect((await journal())[0].error).toContain(
     "Your role does not allow this action.",
   );
@@ -150,7 +150,7 @@ export async function journalDeliveryJourney(options: {
     delivery: "uncertain",
   });
   await expect(
-    page.getByRole("button", { name: "Review", exact: true }),
+    page.getByRole("button", { name: "Resolve outcome", exact: true }),
   ).toBeDisabled();
   await options.narrow();
   let axe = new AxeBuilder({ page });

@@ -18,6 +18,7 @@
     "./runtime/resources": "./src/runtime/resources.ts",
     "./runtime/services": "./src/runtime/services.ts",
     "./governance/capability-review": "./src/governance/capability-review.ts",
+    "./runtime/attempts": "./src/runtime/attempts.ts",
     "./runtime/receipts": "./src/runtime/receipts.ts"
   },
   "dependencies": {

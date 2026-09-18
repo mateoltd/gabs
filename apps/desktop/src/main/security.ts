@@ -73,6 +73,7 @@ export function validateOperation(value: unknown): OperationRequest {
       !/^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/.test(r.moduleVersion) ||
       ![
         "moduleRequest",
+        "moduleAttemptSettle",
         "moduleOperation",
         "moduleQuery",
         "moduleMembers",

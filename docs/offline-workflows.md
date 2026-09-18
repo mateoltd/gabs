@@ -22,16 +22,25 @@ The journal durably records dispatch before invoking transport. Failure to persi
 
 New, provably unsubmitted requests can still receive ordinary first-attempt rejection/conflict outcomes. An uncertain request and its dependents stay pending while unrelated authorized work proceeds after a permission denial. Current permissions remain mandatory. Once restored, retry uses the same key and original response contract to recover the committed receipt, without creating another record or audit event. Browser reload and protected desktop process restart have [scoped acceptance](verification/journal-delivery/README.md).
 
-There is not yet an authoritative negative-outcome settlement protocol for uncertain requests that never committed. Such work remains pending rather than becoming editable under a new key. Permanently revoked access, received relay envelopes and direct online editor recovery remain separate acceptance gates; the journal journey does not claim them complete.
+### Authoritative settlement
+
+Generated resource journals expose an explicit **Resolve outcome** action. The server locks the original account/workspace/retry key, rechecks current authority after waiting, and compares the exact operation and original versioned input fingerprint. An existing accepted receipt is returned; otherwise the same transaction writes a permanent cancellation and its audit. Every later execution using that key is blocked. A missing receipt alone never authorizes a correction.
+
+The client verifies the returned identity and, for acceptance, the original signed response contract before changing local state. Lost or malformed settlement replies leave the request uncertain and can be retried after restart. Confirmed cancellations retain their input as rejected work; ordinary review creates a fresh, validated request and atomically reconnects its dependents. Resolving also resumes unrelated synchronization immediately. See [settlement evidence](verification/attempt-settlement/README.md).
+
+Migration 029 preserves historical accepted receipts and adds explicit outcome metadata. Executable server rollback must retain cancellation-aware receipt handling; a server predating this protocol is not an accepted rollback target once cancellation rows exist. Hosted rollout/rollback acceptance remains part of release readiness.
+
+Permanent revocation, received relay recovery controls, direct online editors/archives and durable arbitrary custom-operation journals retain their separate gates. The server supports settlement of declared corporate commands, but the generated client journey establishes resource-journal recovery only.
 
 ## Remaining OFF-01 work
 
-- Implement authoritative settlement for uncertain requests that never committed, including safe correction after definitive rejection. A denied lookup or missing receipt alone must not authorize replacement while another attempt can still commit. Audit permanently revoked access and direct online editor recovery separately; preserve the original identity throughout.
+- Complete direct online editor/archive recovery through later denial using authoritative settlement, retaining original retry identities. Permanently revoked access and received relay recovery controls require their own acceptance; the generated resource-journal workflow does not establish them.
 - Preserve multiple simultaneous review drafts independently. The current editor has one saved draft slot per resource; starting another editor can replace that slot even though each original pending request remains in the journal.
 - Extend conflict acceptance to nested/reference-field decisions and failed-create collisions; current browser/native journeys cover ordinary resource updates and legacy requests without original values.
 - Verify rejected-parent correction and dependent continuation through the real editor, including restart and reauthentication. Storage-level coverage alone does not accept this interface.
 - Verify nested and cross-module dependent capture under explicit grants and revocation in the real interface.
 - Complete same-record pending-edit ordering and clear identification/recovery of individual pending changes.
+- Align retry-key validation across desktop submissions and relay receipt lookups with server-accepted formats; those older paths still use narrower character rules than execution and the new settlement endpoint.
 - Re-audit durable queued custom operations, archive behavior and recovery controls against operation policies; retain missing implementation in the tracker rather than treating generated CRUD coverage as full SDK coverage.
 
 Broader working-set management is OFF-02. Explicit sign-out/profile-removal recovery is OFF-03. Personal-to-company import is OFF-04. These required gates are not completed by a browser reload or a desktop process restart.

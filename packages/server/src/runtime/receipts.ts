@@ -18,6 +18,7 @@ export async function lookupModuleReceipts(
     .where("workspace_id", "=", ctx.workspaceId)
     .where("actor_id", "=", ctx.actor.id)
     .where("key", "in", [...keys])
+    .where("outcome", "=", "accepted")
     .execute();
   const definitions = new Map<
     string,

@@ -1,3 +1,4 @@
+import type { AttemptSettlement } from "@suite/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import type { Tx } from "./database";
 import type { Context } from "../identity/authorization";
@@ -16,14 +17,13 @@ function canonical(value: unknown): string {
     );
   return JSON.stringify(value) ?? "null";
 }
-export async function idempotent<T>(
+async function lockedReceipt(
   tx: Tx,
   ctx: Context,
   key: string | undefined,
   operation: string,
   input: unknown,
-  fn: () => Promise<T>,
-): Promise<T> {
+) {
   requireCondition(
     key && key.length >= 8 && key.length <= 128,
     400,
@@ -46,6 +46,31 @@ export async function idempotent<T>(
       "IDEMPOTENCY_CONFLICT",
       "This request key was already used with different input.",
     );
+  }
+  return { hash, previous };
+}
+export async function idempotent<T>(
+  tx: Tx,
+  ctx: Context,
+  key: string | undefined,
+  operation: string,
+  input: unknown,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const { hash, previous } = await lockedReceipt(
+    tx,
+    ctx,
+    key,
+    operation,
+    input,
+  );
+  if (previous) {
+    requireCondition(
+      previous.outcome !== "cancelled",
+      409,
+      "ATTEMPT_CANCELLED",
+      "This request was cancelled during outcome recovery. Resolve its outcome before reviewing a correction.",
+    );
     return previous.response as T;
   }
   const response = await fn();
@@ -54,13 +79,47 @@ export async function idempotent<T>(
     .values({
       workspace_id: ctx.workspaceId,
       actor_id: ctx.actor.id,
-      key,
+      key: key!,
       operation,
       request_hash: hash,
       response: JSON.stringify(response),
     })
     .execute();
   return response;
+}
+/** Shares execution's lock and fingerprint. Absence becomes a permanent fence, never a guess. */
+export async function settleIdempotent(
+  tx: Tx,
+  ctx: Context,
+  key: string,
+  operation: string,
+  input: unknown,
+): Promise<AttemptSettlement> {
+  const { hash, previous } = await lockedReceipt(
+    tx,
+    ctx,
+    key,
+    operation,
+    input,
+  );
+  if (previous)
+    return previous.outcome === "cancelled"
+      ? { key, outcome: "cancelled" }
+      : { key, outcome: "accepted", result: previous.response };
+  await tx
+    .insertInto("suite.idempotency")
+    .values({
+      workspace_id: ctx.workspaceId,
+      actor_id: ctx.actor.id,
+      key,
+      operation,
+      request_hash: hash,
+      outcome: "cancelled",
+      response: "null",
+    })
+    .execute();
+  await audit(tx, ctx, "module.attempt.cancel", key);
+  return { key, outcome: "cancelled" };
 }
 export async function audit(
   tx: Tx,

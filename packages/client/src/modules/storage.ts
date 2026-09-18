@@ -1,7 +1,6 @@
 import {
-  ResponseContractUnavailable,
+  responseContract,
   responseContractKey,
-  verifyResponseContract,
   validateModuleResponse,
   type ResponseContract,
 } from "./response";
@@ -87,24 +86,6 @@ const empty = (): ModuleStorage => ({
 });
 const lockKey = (scope: Scope) =>
   `suite-modules:${scope.userId}:${scope.workspaceId}`;
-async function responseContract(state: ModuleStorage, call: ModuleCall) {
-  const installed = state.installed[call.moduleId];
-  const candidates = [
-    state.responseContracts?.[responseContractKey(call)],
-    installed?.signed && installed.publicKey
-      ? { signed: installed.signed, publicKey: installed.publicKey }
-      : undefined,
-  ];
-  for (const contract of candidates) {
-    if (!contract) continue;
-    try {
-      return { contract, module: await verifyResponseContract(contract, call) };
-    } catch {
-      // A repaired installation may restore this exact signed version.
-    }
-  }
-  throw new ResponseContractUnavailable();
-}
 async function readUnlocked(platform: Platform, scope: Scope) {
   const stored = await platform.load<StoredModuleState>(scope, "module-state");
   return stored ? hydrateModuleArtifacts(platform, scope, stored) : empty();

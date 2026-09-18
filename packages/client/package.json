@@ -9,6 +9,7 @@
     "./browser": "./src/adapters/browser.ts",
     "./local-worker-runtime": "./src/local/runtime.ts",
     "./local-worker": "./src/local/worker.ts",
+    "./module-settlement": "./src/modules/settlement.ts",
     "./module-storage": "./src/modules/storage.ts",
     "./local-profiles": "./src/identity/local-profiles.ts",
     "./local-devices": "./src/adapters/local-devices.ts",

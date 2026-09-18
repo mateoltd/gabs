@@ -1,3 +1,4 @@
+import type { ModuleStorage } from "./storage";
 import {
   assertSchema,
   hydrateModule,
@@ -81,4 +82,23 @@ export function validateModuleResponse(
       cause,
     );
   }
+}
+
+export async function responseContract(state: ModuleStorage, call: ModuleCall) {
+  const installed = state.installed[call.moduleId];
+  const candidates = [
+    state.responseContracts?.[responseContractKey(call)],
+    installed?.signed && installed.publicKey
+      ? { signed: installed.signed, publicKey: installed.publicKey }
+      : undefined,
+  ];
+  for (const contract of candidates) {
+    if (!contract) continue;
+    try {
+      return { contract, module: await verifyResponseContract(contract, call) };
+    } catch {
+      // A repaired installation may restore this exact signed version.
+    }
+  }
+  throw new ResponseContractUnavailable();
 }

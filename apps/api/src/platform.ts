@@ -1,9 +1,13 @@
 import { CapabilityReviewSchema } from "@suite/module-sdk/capability-review";
 import {
+  AttemptSettlementRequestSchema,
+  AttemptSettlementSchema,
+  type AttemptSettlementRequest,
   ReceiptLookupSchema,
   ReceiptLookupResultSchema,
   type ReceiptLookup,
 } from "@suite/contracts";
+import { settleModuleAttempt } from "@suite/server-core/runtime/attempts";
 import { lookupModuleReceipts } from "@suite/server-core/runtime/receipts";
 import { reviewModuleCapabilities } from "@suite/server-core/governance/capability-review";
 import { HostAuthorizationSchema } from "@suite/module-sdk/host-capabilities";
@@ -1392,6 +1396,40 @@ export async function registerPlatform(
             await audit(tx, ctx, `platform.${req.body.action}`, key);
             return { ok: true };
           },
+        );
+      }),
+  );
+  app.post<{
+    Params: { workspaceId: string; moduleId: string };
+    Body: AttemptSettlementRequest;
+  }>(
+    "/api/v1/module/:moduleId/workspaces/:workspaceId/attempts/settle",
+    {
+      validatorCompiler: resourceValidator,
+      schema: {
+        operationId: "moduleAttemptSettle",
+        headers: moduleHeaders,
+        params: T.Object({ workspaceId: id, moduleId: slug }),
+        body: AttemptSettlementRequestSchema,
+        response: { 200: AttemptSettlementSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+          undefined,
+          req.params.moduleId,
+        );
+        return settleModuleAttempt(
+          tx,
+          ctx,
+          req.params.moduleId,
+          req.headers["x-module-version"],
+          req.body,
         );
       }),
   );
