@@ -5,6 +5,8 @@ import {
   isValidElement,
   useContext,
   useId,
+  useEffect,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
@@ -75,11 +77,18 @@ export function Select({
         : [];
     });
   }
+  const [open, setOpen] = useState(false);
   const options = collect(children);
   const placeholder = options.find((option) => option.value === "")?.label;
   const items = options.filter((option) => option.value !== "");
+  const unavailable = disabled || items.length === 0;
+  useEffect(() => {
+    if (unavailable) setOpen(false);
+  }, [unavailable]);
   return (
     <BaseSelect.Root
+      open={open && !unavailable}
+      onOpenChange={setOpen}
       value={value || null}
       onValueChange={(next, details) => {
         // A changing async option list can briefly unregister a still-present item.
@@ -97,7 +106,7 @@ export function Select({
       }}
       items={items}
       required={required}
-      disabled={disabled}
+      disabled={unavailable}
       name={name}
       id={id}
     >
@@ -105,7 +114,13 @@ export function Select({
         {leading}
         <BaseSelect.Value
           className="select-value"
-          placeholder={placeholder ?? "Choose an option"}
+          placeholder={
+            items.length
+              ? (placeholder ?? "Choose an option")
+              : props["aria-busy"] === true || props["aria-busy"] === "true"
+                ? "Loading choices…"
+                : "No choices available"
+          }
         />
         <BaseSelect.Icon className="select-icon">
           <ChevronDown size={16} />

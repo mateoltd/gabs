@@ -251,3 +251,118 @@ it("retains a definitive collision code without treating an uncertain retry as r
   expect(uncertain.entries()[0].state).toBe("pending");
   expect(uncertain.entries()[0].errorCode).toBeUndefined();
 });
+
+function reviewedGraph() {
+  const template = fixture().entries()[0];
+  let entries: JournalEntry[] = [
+    ["grandchild", ["child", "child"]],
+    ["child", ["replacement"]],
+    ["independent", []],
+    ["missing", ["absent"]],
+    ["cycle-a", ["cycle-b"]],
+    ["cycle-b", ["cycle-a"]],
+    ["replacement", []],
+  ].map(([id, dependencies], createdAt) => ({
+    ...structuredClone(template),
+    id: id as string,
+    dependencies: dependencies as string[],
+    call: {
+      moduleId: id === "replacement" ? "contacts" : "consumer",
+      action: "create",
+      input: {},
+    },
+    createdAt,
+  }));
+  return {
+    entries: () => structuredClone(entries),
+    store: {
+      list: async () => structuredClone(entries),
+      put: async (entry: JournalEntry) => {
+        entries = entries.map((e) =>
+          e.id === entry.id ? structuredClone(entry) : e,
+        );
+      },
+    },
+  };
+}
+
+it("drains older cross-module dependents of a new reviewed replacement once, while leaving missing and cyclic prerequisites pending", async () => {
+  const graph = reviewedGraph();
+  const sent: string[] = [];
+  await flushJournal(
+    graph.store,
+    async (call) => {
+      expect(graph.entries().find((e) => e.id === call.key)?.delivery).toBe(
+        "uncertain",
+      );
+      sent.push(call.key!);
+      return { id: call.key };
+    },
+    () => true,
+  );
+  expect(sent).toEqual(["independent", "replacement", "child", "grandchild"]);
+  expect(
+    graph
+      .entries()
+      .filter((e) => e.state === "pending")
+      .map((e) => e.id),
+  ).toEqual(["missing", "cycle-a", "cycle-b"]);
+  expect(
+    graph
+      .entries()
+      .filter((e) => e.state === "accepted")
+      .every((e) => e.attempts === 1),
+  ).toBe(true);
+});
+
+it("does not spin or release dependents after an unverified replacement response", async () => {
+  const graph = reviewedGraph();
+  const sent: string[] = [];
+  await flushJournal(
+    graph.store,
+    async (call) => {
+      sent.push(call.key!);
+      if (call.key === "replacement")
+        throw { status: 502, code: "INVALID_RESOURCE_RESPONSE" };
+      return { id: call.key };
+    },
+    () => true,
+  );
+  expect(sent).toEqual(["independent", "replacement"]);
+  expect(graph.entries().find((e) => e.id === "replacement")).toMatchObject({
+    state: "pending",
+    delivery: "uncertain",
+    attempts: 1,
+  });
+  expect(graph.entries().find((e) => e.id === "child")).toMatchObject({
+    state: "pending",
+    delivery: "unsubmitted",
+    attempts: 0,
+  });
+});
+
+it("rechecks authority before each newly released dependent and resumes safely in a later pass", async () => {
+  const graph = reviewedGraph();
+  let authorized = true;
+  const sent: string[] = [];
+  await flushJournal(
+    graph.store,
+    async (call) => {
+      sent.push(call.key!);
+      if (call.key === "replacement") authorized = false;
+      return { id: call.key };
+    },
+    () => authorized,
+  );
+  expect(sent).toEqual(["independent", "replacement"]);
+  expect(graph.entries().find((e) => e.id === "child")!.attempts).toBe(0);
+  await flushJournal(
+    graph.store,
+    async (call) => {
+      sent.push(call.key!);
+      return { id: call.key };
+    },
+    () => true,
+  );
+  expect(sent).toEqual(["independent", "replacement", "child", "grandchild"]);
+});

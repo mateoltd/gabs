@@ -50,16 +50,27 @@ export async function flushJournal(
 ) {
   const entries = await store.list();
   const states = new Map(entries.map((e) => [e.id, e.state]));
+  const ready: JournalEntry[] = [];
+  const remaining = new Map<string, number>();
+  const dependents = new Map<string, JournalEntry[]>();
   for (const entry of entries
     .filter((e) => e.state === "pending" && !e.supersededBy)
     .sort((a, b) => a.createdAt - b.createdAt)) {
+    const waiting = new Set(
+      entry.dependencies.filter((id) => states.get(id) !== "accepted"),
+    );
+    remaining.set(entry.id, waiting.size);
+    if (!waiting.size) ready.push(entry);
+    for (const id of waiting) {
+      const children = dependents.get(id);
+      if (children) children.push(entry);
+      else dependents.set(id, [entry]);
+    }
+  }
+  // Reviewed replacements may be newer than their dependents. Drain newly ready
+  // work without retrying an uncertain request twice in this pass.
+  for (const entry of ready) {
     if (!authorized()) break;
-    if (
-      entry.dependencies.some(
-        (id) => !states.has(id) || states.get(id) !== "accepted",
-      )
-    )
-      continue;
     // Old journals did not persist transport failures. Even attempts=0 cannot
     // establish that a legacy request never reached the server.
     const uncertain = entry.delivery !== "unsubmitted";
@@ -108,7 +119,12 @@ export async function flushJournal(
       }
     }
     await store.put(entry);
-    states.set(entry.id, entry.state);
     if (stop) break;
+    if (entry.state === "accepted")
+      for (const dependent of dependents.get(entry.id) ?? []) {
+        const count = remaining.get(dependent.id)! - 1;
+        remaining.set(dependent.id, count);
+        if (!count) ready.push(dependent);
+      }
   }
 }
