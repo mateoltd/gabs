@@ -13,6 +13,7 @@ export async function createCollisionJourney(options: {
   kind: "web" | "native";
   sameRecord?: boolean;
   archiveChosen?: boolean;
+  ordinaryDrafts?: boolean;
   offline(value: boolean): Promise<void>;
   restart(): Promise<Page>;
   narrow(): Promise<void>;
@@ -155,6 +156,52 @@ export async function createCollisionJourney(options: {
     }
     await options.offline(false);
   }
+  if (options.ordinaryDrafts) {
+    await expect(
+      page.getByRole("cell", {
+        name: "Existing corporate record",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await options.offline(true);
+    await page
+      .getByRole("row")
+      .filter({
+        has: page.getByRole("cell", {
+          name: "Existing corporate record",
+          exact: true,
+        }),
+      })
+      .getByRole("button", { name: "Edit", exact: true })
+      .click();
+    await page.getByLabel("Phone", { exact: true }).fill("444");
+    await page.keyboard.press("Escape");
+    await page.getByRole("tab", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "New notes", exact: true }).click();
+    await page
+      .getByRole("combobox", { name: "Contact Id", exact: true })
+      .click();
+    await page
+      .getByRole("option", {
+        name: "Collision contact (needs review)",
+        exact: true,
+      })
+      .click();
+    await page.getByLabel("Text", { exact: true }).fill("Unqueued linked note");
+    await page.keyboard.press("Escape");
+    await page.getByRole("tab", { name: "Contacts", exact: true }).click();
+    await options.offline(false);
+    const drafts = await options.storage(page, scope);
+    expect(drafts.drafts["contacts/contacts"].phone).toBe("444");
+    expect(drafts.drafts["contacts/notes"]).toEqual({
+      contactId: originalId,
+      text: "Unqueued linked note",
+    });
+    expect(drafts.draftVersions?.["contacts/notes"]).toBe(
+      captured[0].call.moduleVersion,
+    );
+    expect(drafts.journal).toHaveLength(3);
+  }
   const laterEdits = (await journal()).slice(3);
   if (options.sameRecord)
     expect(laterEdits.map((entry) => entry.dependencies)).toEqual([
@@ -188,8 +235,26 @@ export async function createCollisionJourney(options: {
   await expect(dialog).toContainText("Existing server records stay unchanged");
   await expect(dialog).toHaveClass(/is-open/);
   await expect(dialog).toHaveCSS("opacity", "1");
-  const evidence = `docs/verification/${options.sameRecord ? "collision-edits" : "create-collisions"}`;
+  const evidence = `docs/verification/${options.ordinaryDrafts ? "collision-drafts" : options.sameRecord ? "collision-edits" : "create-collisions"}`;
   const chooseTargets = async () => {
+    if (options.ordinaryDrafts) {
+      await expect(
+        dialog.getByRole("button", {
+          name: "Check and create separate record",
+          exact: true,
+        }),
+      ).toBeDisabled();
+      await selectValue(page, "Record for saved draft 1", "separate");
+      await selectValue(page, "Record for saved draft 2", "existing");
+      const disclosure = dialog
+        .getByText("View saved draft", { exact: true })
+        .first();
+      await disclosure.focus();
+      await page.keyboard.press("Enter");
+      await expect(dialog).toContainText("This draft has not been submitted.");
+      await expect(dialog).toContainText("444");
+      await page.keyboard.press("Enter");
+    }
     if (!options.sameRecord) return;
     await expect(
       dialog.getByRole("button", {
@@ -299,7 +364,10 @@ export async function createCollisionJourney(options: {
       exact: true,
     })
     .click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // Retain dialog errors in native failures, whose trace has no DOM snapshot.
+  await expect
+    .poll(() => page.getByRole("dialog").allTextContents())
+    .toEqual([]);
   await expect
     .poll(
       async () =>
@@ -496,6 +564,108 @@ export async function createCollisionJourney(options: {
       ).rows[0].n,
     ).toBe(2);
   }
+  if (options.ordinaryDrafts) {
+    const state = await options.storage(page, scope);
+    const reviews = Object.entries(state.draftReviews ?? {}).filter(
+      ([, review]) => !!review.collision,
+    );
+    expect(reviews).toHaveLength(2);
+    expect(state.drafts["contacts/contacts"]).toBeUndefined();
+    expect(state.drafts["contacts/notes"]).toBeUndefined();
+    expect(state.journal).toHaveLength(5);
+    expect(
+      reviews.find(([key]) => key.startsWith("contacts/contacts/"))![1]
+        .collision,
+    ).toMatchObject({
+      targetId: newId,
+      sourceTarget: { id: originalId },
+      sourceData: { phone: "444" },
+    });
+    expect(
+      state.drafts[
+        reviews.find(([key]) => key.startsWith("contacts/notes/"))![0]
+      ],
+    ).toEqual({ contactId: originalId, text: "Unqueued linked note" });
+    page = await options.restart();
+    await selectValue(page, "Workspace", scope.workspaceId);
+    await page
+      .getByRole("navigation", { name: "Main navigation", exact: true })
+      .getByRole("link", { name: "Contacts", exact: true })
+      .click();
+    await page
+      .getByRole("group", {
+        name: "Saved review: Existing corporate record",
+        exact: true,
+      })
+      .getByRole("button", { name: "Resume review", exact: true })
+      .click();
+    const edit = page.getByRole("dialog", { name: "Edit record", exact: true });
+    await expect(edit.getByLabel("Name", { exact: true })).toHaveValue(
+      "Recovered separate contact",
+    );
+    await expect(edit.getByLabel("Phone", { exact: true })).toHaveValue("444");
+    await options.offline(true);
+    await page.keyboard.press("Escape");
+    await page
+      .getByRole("button", { name: "Resume review", exact: true })
+      .click();
+    await expect(edit.getByLabel("Phone", { exact: true })).toHaveValue("444");
+    await options.offline(false);
+    await edit.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(edit).toHaveCount(0);
+    await page.getByRole("tab", { name: "Notes", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Resume review", exact: true })
+      .click();
+    await expect(page.getByLabel("Text", { exact: true })).toHaveValue(
+      "Unqueued linked note",
+    );
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        (await journal())
+          .filter((entry) => !entry.supersededBy)
+          .every((entry) => entry.state === "accepted"),
+      )
+      .toBe(true);
+    expect(
+      (
+        await pool.query(
+          "select data,version from suite.module_records where workspace_id=$1 and id=$2",
+          [scope.workspaceId, newId],
+        )
+      ).rows[0],
+    ).toMatchObject({
+      version: 2,
+      data: { name: "Recovered separate contact", phone: "444" },
+    });
+    expect(
+      (
+        await pool.query(
+          "select data,version from suite.module_records where workspace_id=$1 and id=$2",
+          [scope.workspaceId, originalId],
+        )
+      ).rows[0],
+    ).toEqual({ data: existing.data, version: existing.version });
+    expect(
+      (
+        await pool.query(
+          "select data from suite.module_records where workspace_id=$1 and resource='notes' and data->>'text'='Unqueued linked note'",
+          [scope.workspaceId],
+        )
+      ).rows[0].data.contactId,
+    ).toBe(originalId);
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int as n from suite.audit where workspace_id=$1 and action='contacts.contacts.update'",
+          [scope.workspaceId],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    await page.getByRole("tab", { name: "Contacts", exact: true }).click();
+  }
   const late = await api.post(
     `/api/v1/module/contacts/workspaces/${scope.workspaceId}/records`,
     {
@@ -533,7 +703,7 @@ export async function createCollisionJourney(options: {
     ).rows,
   ).toEqual([
     { action: "contacts.contacts.create", n: 2 },
-    { action: "contacts.notes.create", n: 1 },
+    { action: "contacts.notes.create", n: options.ordinaryDrafts ? 2 : 1 },
     { action: "module.attempt.cancel", n: 1 },
     { action: "projects.projects.create", n: 1 },
   ]);

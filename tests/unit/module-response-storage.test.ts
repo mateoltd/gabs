@@ -1,6 +1,7 @@
 import { prepareCreateReplacement } from "../../packages/client/src/modules/collisions";
 import {
   replaceFailedCreate,
+  collisionDrafts,
   settleJournalEntry,
 } from "../../packages/client/src/modules/settlement";
 import { afterEach, expect, it, vi } from "vitest";
@@ -743,6 +744,10 @@ it("isolates saved reviews from each other and ordinary drafts, including atomic
   await saveResourceDraft(platform, scope, "contacts", "contacts", {
     data: { ...data, name: "Ordinary draft" },
     target: null,
+    generation:
+      (await readModuleStorage(platform, scope)).draftGenerations?.[
+        "contacts/contacts"
+      ] ?? 0,
   });
   let state = await readModuleStorage(platform, scope);
   expect(state.drafts[firstKey].name).toBe("First chosen value");
@@ -1502,4 +1507,342 @@ it("requires a fresh target choice if a replacement create collides again, prese
     (await readModuleStorage(platform, scope)).draftReviews?.[draft]
       ?.recoveryInput,
   ).toEqual({ moduleVersion: "1.1.0", baseVersion: 1, recordId: collisionId });
+});
+
+it("uses original draft schemas to distinguish links from free text and preserves chosen drafts as non-executable reviews", async () => {
+  const { platform, install } = await collisionStorage();
+  const note = { contactId: collisionId, text: "Unqueued note" };
+  await saveResourceDraft(platform, scope, "contacts", "notes", {
+    data: note,
+    target: null,
+  });
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, phone: collisionId },
+    target: null,
+  });
+  await install(upgraded);
+  const drafts = await collisionDrafts(
+    await readModuleStorage(platform, scope),
+    scope,
+    "original-create",
+  );
+  expect(drafts.map((draft) => draft.key)).toEqual(["contacts/notes"]);
+  expect(drafts[0]).toMatchObject({ moduleVersion: "1.1.0", movable: true });
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+    {},
+    {
+      [drafts[0].key]: {
+        fingerprint: drafts[0].fingerprint,
+        destination: "separate",
+      },
+    },
+  );
+  const state = await readModuleStorage(platform, scope);
+  const key = Object.keys(state.draftReviews!).find(
+    (key) => state.draftReviews![key].collision,
+  )!;
+  expect(state.drafts[key]).toEqual({ ...note, contactId: separateId });
+  expect(state.draftReviews![key].collision).toMatchObject({
+    sourceData: note,
+    sourceTarget: null,
+    moduleVersion: "1.1.0",
+    parentId: "separate-create",
+  });
+  expect(state.drafts["contacts/notes"]).toBeUndefined();
+  expect(state.drafts["contacts/contacts"].phone).toBe(collisionId);
+  expect(state.journal).toHaveLength(5); // no request is invented for the ordinary draft
+  await expect(
+    saveResourceDraft(platform, scope, "contacts", "notes", {
+      data: { ...note, text: "Stale editor" },
+      target: null,
+      generation: 0,
+    }),
+  ).rejects.toThrow("another view");
+  await expect(
+    enqueue(
+      platform,
+      scope,
+      {
+        ...call("stale-draft-key"),
+        resource: "notes",
+        input: { id: crypto.randomUUID(), data: note },
+      },
+      [],
+      { draftKey: "contacts/notes", generation: 0 },
+    ),
+  ).rejects.toThrow("another view");
+  await expect(
+    enqueue(
+      platform,
+      scope,
+      {
+        ...call("unreviewed-key"),
+        resource: "notes",
+        input: { id: crypto.randomUUID(), data: note },
+      },
+      [],
+      { draftKey: key },
+    ),
+  ).rejects.toThrow("Review this draft");
+});
+
+it("requires fresh choices after a draft changes and recognizes record targets without embedded reference values", async () => {
+  const { platform } = await collisionStorage();
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data,
+    target: { ...row, id: collisionId },
+  });
+  const first = (
+    await collisionDrafts(
+      await readModuleStorage(platform, scope),
+      scope,
+      "original-create",
+    )
+  )[0];
+  expect(first.sameRecord).toBe(true);
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, name: "Changed elsewhere" },
+    target: { ...row, id: collisionId },
+  });
+  await expect(
+    replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+      {},
+      {
+        [first.key]: {
+          fingerprint: first.fingerprint,
+          destination: "separate",
+        },
+      },
+    ),
+  ).rejects.toThrow("fresh choice");
+  const current = await readModuleStorage(platform, scope);
+  expect(current.drafts[first.key].name).toBe("Changed elsewhere");
+  expect(current.journal.every((entry) => !entry.supersededBy)).toBe(true);
+  const fresh = (await collisionDrafts(current, scope, "original-create"))[0];
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+    {},
+    {
+      [fresh.key]: { fingerprint: fresh.fingerprint, destination: "separate" },
+    },
+  );
+  const result = await readModuleStorage(platform, scope);
+  const review = Object.values(result.draftReviews!).find(
+    (review) => review.collision,
+  )!.collision!;
+  expect(review.targetId).toBe(separateId);
+  expect(review.sourceTarget?.id).toBe(collisionId);
+  expect(review.sourceData.name).toBe("Changed elsewhere");
+});
+
+it.each(["legacy", "online"])(
+  "keeps %s drafts unchanged after explicit preservation and never silently remaps their history",
+  async (kind) => {
+    const { platform, install } = await collisionStorage();
+    if (kind === "online")
+      await install(
+        signPackage(
+          {
+            ...contacts,
+            version: "3.0.0",
+            resources: {
+              ...contacts.resources,
+              notes: { ...contacts.resources.notes, policy: "online" },
+            },
+          },
+          privateKey,
+        ),
+      );
+    const note = { contactId: collisionId, text: "Preserve exact input" };
+    await saveResourceDraft(platform, scope, "contacts", "notes", {
+      data: note,
+      target: null,
+    });
+    if (kind === "legacy")
+      await changeModuleStorage(platform, scope, (state) => {
+        delete state.draftVersions?.["contacts/notes"];
+      });
+    const draft = (
+      await collisionDrafts(
+        await readModuleStorage(platform, scope),
+        scope,
+        "original-create",
+      )
+    )[0];
+    expect(draft.movable).toBe(false);
+    await expect(
+      replaceFailedCreate(
+        platform,
+        scope,
+        "original-create",
+        collisionReplacement(),
+        async () => ({ key: "original-create", outcome: "cancelled" }),
+        () => true,
+        {},
+        {
+          [draft.key]: {
+            fingerprint: draft.fingerprint,
+            destination: "separate",
+          },
+        },
+      ),
+    ).rejects.toThrow("cannot be moved safely");
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+      {},
+      {
+        [draft.key]: {
+          fingerprint: draft.fingerprint,
+          destination: "existing",
+        },
+      },
+    );
+    expect(
+      (await readModuleStorage(platform, scope)).drafts[draft.key],
+    ).toEqual(note);
+  },
+);
+
+it("commits draft promotion and retirement atomically, and prevents stale review resurrection", async () => {
+  const { platform, interrupt } = await collisionStorage();
+  const note = { contactId: collisionId, text: "Atomic input" };
+  await saveResourceDraft(platform, scope, "contacts", "notes", {
+    data: note,
+    target: null,
+  });
+  const draft = (
+    await collisionDrafts(
+      await readModuleStorage(platform, scope),
+      scope,
+      "original-create",
+    )
+  )[0];
+  const choices = {
+    [draft.key]: {
+      fingerprint: draft.fingerprint,
+      destination: "existing" as const,
+    },
+  };
+  interrupt(2);
+  await expect(
+    replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+      {},
+      choices,
+    ),
+  ).rejects.toThrow("Interrupted commit");
+  const intact = await readModuleStorage(platform, scope);
+  expect(intact.drafts[draft.key]).toEqual(note);
+  expect(intact.draftGenerations?.[draft.key] ?? 0).toBe(0);
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+    {},
+    choices,
+  );
+  const state = await readModuleStorage(platform, scope);
+  const [key, review] = Object.entries(state.draftReviews!).find(
+    ([, review]) => review.collision,
+  )!;
+  await changeModuleStorage(platform, scope, (state) => {
+    delete state.drafts[key];
+    delete state.draftReviews![key];
+  });
+  await expect(
+    saveResourceDraft(platform, scope, "contacts", "notes", {
+      data: note,
+      target: null,
+      review,
+    }),
+  ).rejects.toThrow("another view");
+});
+
+it("reconnects preserved drafts after a repeated parent collision without rewriting an earlier existing-record choice", async () => {
+  const { platform } = await collisionStorage();
+  const note = { contactId: collisionId, text: "Keep this existing link" };
+  await saveResourceDraft(platform, scope, "contacts", "notes", {
+    data: note,
+    target: null,
+  });
+  const draft = (
+    await collisionDrafts(
+      await readModuleStorage(platform, scope),
+      scope,
+      "original-create",
+    )
+  )[0];
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+    {},
+    {
+      [draft.key]: { fingerprint: draft.fingerprint, destination: "existing" },
+    },
+  );
+  const before = await readModuleStorage(platform, scope);
+  const key = Object.keys(before.draftReviews!).find(
+    (key) => !!before.draftReviews![key].collision,
+  )!;
+  await changeModuleStorage(platform, scope, (state) => {
+    const parent = state.journal.find(
+      (entry) => entry.id === "separate-create",
+    )!;
+    parent.state = "conflict";
+    parent.attempts = 1;
+    delete parent.delivery;
+  });
+  const replacement = {
+    ...collisionReplacement(),
+    key: "second-separate-create",
+    input: { id: crypto.randomUUID(), data },
+  };
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "separate-create",
+    replacement,
+    async () => ({ key: "separate-create", outcome: "cancelled" }),
+    () => true,
+  );
+  const after = await readModuleStorage(platform, scope);
+  expect(after.drafts[key]).toEqual(note);
+  expect(after.draftReviews![key].collision).toEqual({
+    ...before.draftReviews![key].collision,
+    parentId: replacement.key,
+  });
 });

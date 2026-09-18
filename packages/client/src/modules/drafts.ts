@@ -13,7 +13,11 @@ export function resourceDraftKey(
 }
 
 export function removeResourceDraft(state: ModuleStorage, key: string) {
+  if (key.split("/").length === 2 && Object.hasOwn(state.drafts, key))
+    (state.draftGenerations ??= {})[key] =
+      (state.draftGenerations?.[key] ?? 0) + 1;
   delete state.drafts[key];
+  if (state.draftVersions) delete state.draftVersions[key];
   if (state.draftTargets) delete state.draftTargets[key];
   if (state.draftReviews) delete state.draftReviews[key];
 }
@@ -49,6 +53,8 @@ export function promoteReviewDrafts(state: ModuleStorage, scope: Scope) {
     state.drafts[destination] = state.drafts[key];
     (state.draftTargets ??= {})[destination] = target;
     (state.draftReviews ??= {})[destination] = review;
+    if (state.draftVersions?.[key])
+      (state.draftVersions ??= {})[destination] = state.draftVersions[key];
     removeResourceDraft(state, key);
   }
   return state;

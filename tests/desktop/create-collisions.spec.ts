@@ -15,8 +15,9 @@ import { tmpdir } from "node:os";
 import { createCollisionJourney } from "../support/create-collision-journey";
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 const require = createRequire(resolve("apps/desktop/package.json"));
-for (const sameRecord of [false, true])
-  test(`native colliding creates recover linked work after a lost reply and process restart ${sameRecord ? "with later record edits" : "with linked records"}`, async () => {
+for (const scenario of ["linked", "edits", "drafts"])
+  test(`native colliding creates recover linked work after a lost reply and process restart ${scenario}`, async () => {
+    const sameRecord = scenario === "edits";
     test.setTimeout(120000);
     const pool = new Pool({
       connectionString: process.env.MIGRATION_DATABASE_URL,
@@ -69,6 +70,7 @@ for (const sameRecord of [false, true])
         pool,
         kind: "native",
         sameRecord,
+        ordinaryDrafts: scenario === "drafts",
         offline: async (offline) => {
           await app.evaluate((_, offline) => {
             const state = globalThis as typeof globalThis & {

@@ -4,12 +4,12 @@ import { Pool } from "pg";
 import { selectValue } from "./controls.helpers";
 import { createCollisionJourney } from "../support/create-collision-journey";
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
-for (const scenario of ["linked", "edits", "archived"])
+for (const scenario of ["linked", "edits", "archived", "drafts"])
   test(`colliding creates recover separate records and linked work after a lost reply and reload ${scenario}`, async ({
     page,
     context,
   }) => {
-    const sameRecord = scenario !== "linked";
+    const sameRecord = scenario === "edits" || scenario === "archived";
     test.setTimeout(120000);
     const pool = new Pool({
       connectionString: process.env.MIGRATION_DATABASE_URL,
@@ -45,6 +45,7 @@ for (const scenario of ["linked", "edits", "archived"])
         kind: "web",
         sameRecord,
         archiveChosen: scenario === "archived",
+        ordinaryDrafts: scenario === "drafts",
         offline: (value) => context.setOffline(value),
         loseSettlementReply: async () => {
           let lost = false;

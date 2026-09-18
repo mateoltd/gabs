@@ -12,23 +12,18 @@ import {
 import { responseContract, responseContractKey } from "./response";
 import { removeResourceDraft, resourceDraftKey } from "./drafts";
 
+import {
+  collisionDrafts,
+  preserveCollisionDrafts,
+  containsRecordId,
+  type CreateDraftChoices,
+} from "./draft-collisions";
 const recordId = Type.String({ format: "uuid" });
 function input(call: ModuleCall) {
   if (!call.input || typeof call.input !== "object")
     throw new JournalConflictError("The original record input is unavailable.");
   return call.input as { id?: string; data?: unknown; baseData?: unknown };
 }
-function containsId(value: unknown, id: string): boolean {
-  if (typeof value === "string")
-    return value.toLowerCase() === id.toLowerCase();
-  if (Array.isArray(value)) return value.some((item) => containsId(item, id));
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Object.values(value).some((item) => containsId(item, id))
-  );
-}
-
 export type CreateRecoveryTargets = Partial<
   Record<string, "separate" | "existing">
 >;
@@ -87,6 +82,7 @@ export async function prepareCreateReplacement(
   replacement: ModuleCall,
   authorized: (call: ModuleCall) => boolean,
   targets: CreateRecoveryTargets = {},
+  draftChoices: CreateDraftChoices = {},
 ): Promise<ModuleStorage> {
   const scoped = state.journal.filter(
     (entry) =>
@@ -196,12 +192,18 @@ export async function prepareCreateReplacement(
     original.call.resource!,
     { entryId: originalId },
   );
+  const drafts = await collisionDrafts(state, scope, originalId);
   for (const [key, draft] of Object.entries(state.drafts)) {
-    if (key === ownDraft || state.draftReviews?.[key]?.entryId === originalId)
+    if (
+      key === ownDraft ||
+      state.draftReviews?.[key]?.entryId === originalId ||
+      drafts.some((draft) => draft.key === key) ||
+      key.split("/").length === 2
+    )
       continue;
     // Unsent drafts lack a durable dependency edge. Never guess whether a matching ID
     // means this provisional parent or the existing corporate record.
-    if (containsId(draft, fromId))
+    if (containsRecordId(draft, fromId))
       throw new JournalConflictError(
         "A saved draft also refers to this record. Review or queue that draft before creating a separate record.",
       );
@@ -284,6 +286,20 @@ export async function prepareCreateReplacement(
       ]),
     ];
   }
+  preserveCollisionDrafts(
+    result,
+    drafts,
+    draftChoices,
+    from,
+    toId,
+    replacement.key,
+    authorized,
+  );
+  // A prior preservation choice can still point at an unrelated existing record.
+  // Keep its input unchanged while reconnecting the replaced prerequisite.
+  for (const review of Object.values(result.draftReviews ?? {}))
+    if (review.collision?.parentId === originalId && !review.collision.ready)
+      review.collision.parentId = replacement.key;
   removeResourceDraft(result, ownDraft);
   for (const [key, review] of Object.entries(result.draftReviews ?? {}))
     if (review.entryId === originalId) removeResourceDraft(result, key);

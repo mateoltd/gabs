@@ -80,6 +80,8 @@ export interface ModuleStorage {
   >;
   downloads?: Record<string, SignedArtifact>;
   drafts: Record<string, Record<string, unknown>>;
+  draftVersions?: Record<string, string>;
+  draftGenerations?: Record<string, number>;
   draftTargets?: Record<string, ResourceRecord | null>;
   draftReviews?: Record<
     string,
@@ -87,6 +89,14 @@ export interface ModuleStorage {
       entryId?: string;
       draftId?: string;
       comparison?: FieldReview;
+      collision?: {
+        parentId: string;
+        sourceData: Record<string, unknown>;
+        sourceTarget: ResourceRecord | null;
+        targetId?: string;
+        moduleVersion?: string;
+        ready?: boolean;
+      };
       recoveryInput?: {
         moduleVersion: string;
         baseVersion?: number;
@@ -167,9 +177,11 @@ export async function saveResourceDraft(
     data: Record<string, unknown>;
     target: ResourceRecord | null;
     review?: DraftReview;
+    moduleVersion?: string;
+    generation?: number;
   },
 ) {
-  return changeModuleStorage(platform, scope, (state) => {
+  return changeModuleStorage(platform, scope, async (state) => {
     const { data, target, review } = draft;
     if (review?.entryId) {
       const entry = state.journal.find(
@@ -193,6 +205,38 @@ export async function saveResourceDraft(
         );
     }
     const key = resourceDraftKey(moduleId, resource, review);
+    if (
+      review?.collision &&
+      (!state.draftReviews?.[key]?.collision ||
+        canonical({
+          ...state.draftReviews[key].collision,
+          ready: undefined,
+        }) !== canonical({ ...review.collision, ready: undefined }))
+    )
+      throw new JournalConflictError(
+        "This saved review changed or was submitted in another view. Reload its current state.",
+      );
+    if (
+      !review?.entryId &&
+      !review?.draftId &&
+      (state.draftGenerations?.[key] ?? 0) !== (draft.generation ?? 0)
+    )
+      throw new JournalConflictError(
+        "This draft was moved or submitted in another view. Your open input is preserved; reopen its saved review before continuing.",
+      );
+    const version = draft.moduleVersion ?? state.installed[moduleId]?.version;
+    if (version) {
+      const call: ModuleCall = {
+        moduleId,
+        moduleVersion: version,
+        resource,
+        action: target ? "update" : "create",
+        input: {},
+      };
+      const { contract } = await responseContract(state, call);
+      (state.responseContracts ??= {})[responseContractKey(call)] = contract;
+      (state.draftVersions ??= {})[key] = version;
+    }
     state.drafts[key] = data;
     (state.draftTargets ??= {})[key] = target;
     if (review) (state.draftReviews ??= {})[key] = review;
@@ -204,7 +248,7 @@ export async function enqueue(
   scope: Scope,
   call: ModuleCall,
   dependencies: string[] = [],
-  recovery?: { draftKey: string; supersedes?: string },
+  recovery?: { draftKey: string; supersedes?: string; generation?: number },
 ) {
   const entry: JournalEntry = {
     id: call.key ?? crypto.randomUUID(),
@@ -217,6 +261,39 @@ export async function enqueue(
     delivery: "unsubmitted",
   };
   await changeModuleStorage(platform, scope, async (s) => {
+    if (
+      recovery &&
+      !recovery.supersedes &&
+      recovery.draftKey.split("/").length === 2 &&
+      (s.draftGenerations?.[recovery.draftKey] ?? 0) !==
+        (recovery.generation ?? 0)
+    )
+      throw new JournalConflictError(
+        "This draft was moved or submitted in another view. Reopen its saved review before continuing.",
+      );
+    if (
+      recovery?.draftKey.includes("/review/direct/") &&
+      !s.drafts[recovery.draftKey]
+    )
+      throw new JournalConflictError(
+        "This saved review was already moved or submitted in another view.",
+      );
+    const draftRecovery =
+      recovery && s.draftReviews?.[recovery.draftKey]?.collision;
+    if (
+      draftRecovery &&
+      (!draftRecovery.ready ||
+        !s.journal.some(
+          (entry) =>
+            entry.id === draftRecovery.parentId &&
+            entry.userId === scope.userId &&
+            entry.workspaceId === scope.workspaceId &&
+            entry.state === "accepted",
+        ))
+    )
+      throw new JournalConflictError(
+        "Review this draft after its prerequisite is accepted before submitting it.",
+      );
     const existing = s.journal.find((e) => e.id === entry.id);
     if (
       existing &&

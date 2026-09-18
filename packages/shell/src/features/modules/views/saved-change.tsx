@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { TObject } from "@suite/module-sdk";
+import type { TObject, ResourceRecord } from "@suite/module-sdk";
 import type { JournalEntry } from "@suite/module-sdk/sync";
 import { canonical } from "@suite/module-sdk/registry";
 import {
@@ -36,7 +36,8 @@ export function SavedChange({
       </p>
       {open && (
         <SavedValues
-          entry={entry}
+          input={entry.call.input as SavedInput}
+          update={entry.call.action === "update"}
           schema={schema}
           loadReferences={loadReferences}
         />
@@ -45,20 +46,55 @@ export function SavedChange({
   );
 }
 
+type SavedInput = {
+  data?: Record<string, unknown>;
+  baseData?: Record<string, unknown>;
+  baseVersion?: number;
+};
+
+export function SavedDraft({
+  unsubmitted,
+  data,
+  target,
+  schema,
+}: {
+  unsubmitted: boolean;
+  data: Record<string, unknown>;
+  target: ResourceRecord | null;
+  schema: TObject;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="module-saved-change"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>View saved draft</summary>
+      {open && (
+        <SavedValues
+          draft={unsubmitted ? "unsubmitted" : "preserved"}
+          update={!!target}
+          input={{ data, baseData: target?.data, baseVersion: target?.version }}
+          schema={schema}
+        />
+      )}
+    </details>
+  );
+}
+
 function SavedValues({
-  entry,
+  input,
+  draft,
+  update,
   schema,
   loadReferences,
 }: {
-  entry: JournalEntry;
+  input: SavedInput;
+  draft?: "unsubmitted" | "preserved";
+  update?: boolean;
   schema: TObject;
   loadReferences?: ReferenceLoader;
 }) {
-  const input = entry.call.input as {
-    data?: Record<string, unknown>;
-    baseData?: Record<string, unknown>;
-    baseVersion?: number;
-  };
   const snapshots = useMemo(
     () => [
       ...(input.baseData ? [{ id: "original", data: input.baseData }] : []),
@@ -86,13 +122,16 @@ function SavedValues({
   return (
     <div className="form-stack">
       <p>
-        This is the input saved for this request. It is not confirmed server
-        state.
+        {draft === "unsubmitted"
+          ? "This draft has not been submitted."
+          : draft === "preserved"
+            ? "This is preserved draft input. Review any prior submission before sending it."
+            : "This is the input saved for this request. It is not confirmed server state."}
         {input.baseVersion !== undefined
           ? ` Based on server version ${input.baseVersion}.`
           : ""}
       </p>
-      {!input.baseData && entry.call.action === "update" && (
+      {!input.baseData && update && (
         <p>The original values were not retained.</p>
       )}
       {!fields.length && <p>No field changes from the saved original.</p>}

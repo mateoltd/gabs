@@ -5,6 +5,9 @@ import {
   settleModuleCall,
   replaceFailedCreate,
   sameRecordCreateDependents,
+  collisionDrafts,
+  type CollisionDraft,
+  type CreateDraftChoices,
   type CreateRecoveryTargets,
   type SettlementTransport,
 } from "@suite/client/module-settlement";
@@ -15,7 +18,7 @@ import {
 import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
 import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
 import { ConflictReview } from "./conflict-review";
-import { SavedChange } from "./saved-change";
+import { SavedChange, SavedDraft } from "./saved-change";
 import { ArchivedInput } from "./archived-input";
 import { useModuleReferences } from "./references";
 import { canonical } from "@suite/module-sdk/registry";
@@ -31,6 +34,7 @@ import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Type,
   assertSchema,
   reviewFields,
   chooseReviewField,
@@ -118,6 +122,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     : [];
   const [reviewTargetId, setReviewTargetId] = useState<string>();
   const [separateCreate, setSeparateCreate] = useState(false);
+  const [recoveryDrafts, setRecoveryDrafts] = useState<CollisionDraft[]>([]);
+  const [draftChoices, setDraftChoices] = useState<CreateDraftChoices>({});
+  const [checkingDrafts, setCheckingDrafts] = useState(false);
+  const [draftScanError, setDraftScanError] = useState<unknown>();
+  const draftGeneration = useRef<{ key: string; value: number } | undefined>(
+    undefined,
+  );
   const [recoveryTargets, setRecoveryTargets] = useState<CreateRecoveryTargets>(
     {},
   );
@@ -437,6 +448,47 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       clearInterval(timer);
     };
   }, [online, allowed, bootstrap.authorizedAt, moduleId]);
+  useEffect(() => {
+    if (!separateCreate || !reviewedCreate || !storage) {
+      setRecoveryDrafts([]);
+      setCheckingDrafts(false);
+      setDraftScanError(undefined);
+      return;
+    }
+    let active = true;
+    setCheckingDrafts(true);
+    setDraftScanError(undefined);
+    void collisionDrafts(storage, scope, reviewedCreate.id)
+      .then((drafts) => {
+        if (
+          !drafts.every((draft) =>
+            canRecoverCall({
+              moduleId: draft.moduleId,
+              moduleVersion: draft.moduleVersion,
+              resource: draft.resource,
+              action: draft.target ? "update" : "create",
+              input: {},
+            }),
+          )
+        )
+          throw Error(
+            "Current access does not allow reviewing every affected saved draft.",
+          );
+        if (active) setRecoveryDrafts(drafts);
+      })
+      .catch((error) => {
+        if (active) {
+          setRecoveryDrafts([]);
+          setDraftScanError(error);
+        }
+      })
+      .finally(() => {
+        if (active) setCheckingDrafts(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [separateCreate, reviewedCreate?.id, storage, bootstrap, online]);
   if (!allowed)
     return (
       <Empty
@@ -510,6 +562,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       data,
       target: record,
       review,
+      moduleVersion: module.version,
+      generation:
+        draftGeneration.current?.key ===
+        resourceDraftKey(moduleId, resource, review)
+          ? draftGeneration.current.value
+          : 0,
     });
   }
   async function resumeDraft(key: string) {
@@ -517,11 +575,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     setError(undefined);
     try {
       const stored = await read();
-      const review = stored.draftReviews?.[key];
+      let review = stored.draftReviews?.[key];
       const entry = review?.entryId
         ? stored.journal.find(
             (item) =>
-              item.id === review.entryId &&
+              item.id === review?.entryId &&
               item.userId === scope.userId &&
               item.workspaceId === scope.workspaceId &&
               item.call.moduleId === moduleId &&
@@ -534,6 +592,66 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         throw Error(
           "This review has already been replaced. Refresh pending changes.",
         );
+      if (review?.collision && !review.collision.ready) {
+        if (
+          !online ||
+          !stored.journal.some(
+            (entry) =>
+              entry.id === review!.collision!.parentId &&
+              entry.userId === scope.userId &&
+              entry.workspaceId === scope.workspaceId &&
+              entry.state === "accepted",
+          )
+        )
+          throw Error(
+            "Connect after the separate record is accepted to review this saved draft.",
+          );
+        const source = review.collision;
+        const target = source.targetId
+          ? ((await send({
+              moduleId,
+              moduleVersion: module.version,
+              resource,
+              action: "get",
+              input: { id: source.targetId },
+            })) as ResourceRecord)
+          : null;
+        const compared =
+          target && !target.archived
+            ? reviewFields(
+                source.sourceTarget?.data,
+                stored.drafts[key],
+                target.data,
+              )
+            : undefined;
+        review = {
+          ...review,
+          collision: { ...source, ready: true },
+          comparison: compared?.review,
+          ...(target?.archived
+            ? {
+                recoveryInput: {
+                  moduleVersion: source.moduleVersion ?? module.version,
+                  recordId: source.sourceTarget?.id,
+                  baseVersion: source.sourceTarget?.version,
+                },
+              }
+            : {}),
+        };
+        const data = compared?.data ?? stored.drafts[key];
+        await saveResourceDraft(platform, scope, moduleId, resource, {
+          data,
+          target,
+          review,
+          moduleVersion: module.version,
+        });
+        stored.drafts[key] = data;
+        (stored.draftTargets ??= {})[key] = target;
+      }
+      draftGeneration.current = {
+        key,
+        value: stored.draftGenerations?.[key] ?? 0,
+      };
       setForm(stored.drafts[key]);
       setEditing(stored.draftTargets?.[key] ?? null);
       setReviewSession(review);
@@ -648,6 +766,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           settlementTransport,
           canRecoverCall,
           recoveryTargets,
+          draftChoices,
         );
       }
       setSeparateCreate(false);
@@ -793,6 +912,34 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           throw Error(
             "This resource was removed in the current release. Export your input before closing the editor.",
           );
+        if (
+          !preparedCreate &&
+          props.offlineEnabled &&
+          bootstrap.offlineHours > 0
+        ) {
+          const current = await readModuleStorage(platform, scope);
+          if (
+            !reviewSession &&
+            (current.draftGenerations?.[ordinaryDraftKey] ?? 0) !==
+              (draftGeneration.current?.value ?? 0)
+          )
+            throw Error(
+              "This draft was moved or submitted in another view. Your open input is preserved; reopen its saved review.",
+            );
+          if (reviewSession?.collision) {
+            const saved = current.draftReviews?.[draftKey]?.collision;
+            if (
+              !saved?.ready ||
+              !current.journal.some(
+                (entry) =>
+                  entry.id === saved.parentId && entry.state === "accepted",
+              )
+            )
+              throw Error(
+                "Reopen this saved review after its prerequisite is accepted.",
+              );
+          }
+        }
         assertSchema(definition.schema, form);
       }
       const call: ModuleCall = attempt.current ??
@@ -839,6 +986,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         await enqueue(platform, scope, call, [], {
           draftKey,
           supersedes: reviewId,
+          generation:
+            draftGeneration.current?.key === draftKey
+              ? draftGeneration.current.value
+              : 0,
         });
         attempt.current = undefined;
         setEditing(undefined);
@@ -915,6 +1066,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 setReviewSession(undefined);
                 setReviewTargetId(undefined);
                 setDirectCreate(undefined);
+                draftGeneration.current = {
+                  key: ordinaryDraftKey,
+                  value: storage?.draftGenerations?.[ordinaryDraftKey] ?? 0,
+                };
                 setEditing(null);
               }}
             >
@@ -1089,6 +1244,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                   <Button
                     variant="ghost"
                     onClick={() => {
+                      draftGeneration.current = {
+                        key: ordinaryDraftKey,
+                        value:
+                          storage?.draftGenerations?.[ordinaryDraftKey] ?? 0,
+                      };
                       setEditing(row);
                       setForm(row.data);
                     }}
@@ -1453,14 +1613,81 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             ))}
           </div>
         )}
-        <ErrorMessage error={error} />
+        {checkingDrafts && <p role="status">Checking saved drafts…</p>}
+        {!!recoveryDrafts.length && (
+          <section className="form-stack" aria-label="Saved draft choices">
+            <p>
+              These saved drafts may refer to the colliding record. Choose where
+              their links or record edits belong. Supported drafts will remain
+              saved for review; this does not submit them.
+            </p>
+            {recoveryDrafts.map((draft, index) => (
+              <div className="form-stack" key={draft.key}>
+                <p>{draft.title}</p>
+                {!draft.movable && (
+                  <p>
+                    This draft cannot be moved safely. Keep its input unchanged
+                    and review it in its original module.
+                  </p>
+                )}
+                <Field label={`Record for saved draft ${index + 1}`}>
+                  <Select
+                    value={
+                      draftChoices[draft.key]?.fingerprint === draft.fingerprint
+                        ? (draftChoices[draft.key]?.destination ?? "")
+                        : ""
+                    }
+                    disabled={busy}
+                    onValueChange={(value) =>
+                      setDraftChoices((current) => {
+                        const next = { ...current };
+                        if (value === "separate" || value === "existing")
+                          next[draft.key] = {
+                            fingerprint: draft.fingerprint,
+                            destination: value,
+                          };
+                        else delete next[draft.key];
+                        return next;
+                      })
+                    }
+                  >
+                    <SelectOption value="">Choose a record</SelectOption>
+                    {draft.movable && (
+                      <SelectOption value="separate">
+                        Separate record
+                      </SelectOption>
+                    )}
+                    <SelectOption value="existing">
+                      {draft.movable
+                        ? "Existing corporate record"
+                        : "Keep input unchanged"}
+                    </SelectOption>
+                  </Select>
+                </Field>
+                <SavedDraft
+                  unsubmitted={draft.movable}
+                  data={draft.data}
+                  target={draft.target}
+                  schema={(draft.schema ?? Type.Object({})) as TObject}
+                />
+              </div>
+            ))}
+          </section>
+        )}
+        <ErrorMessage error={draftScanError ?? error} />
         <Button
           variant="primary"
           disabled={
             !online ||
             !write ||
             busy ||
-            recoveryEdits.some((entry) => !recoveryTargets[entry.id])
+            checkingDrafts ||
+            !!draftScanError ||
+            recoveryEdits.some((entry) => !recoveryTargets[entry.id]) ||
+            recoveryDrafts.some(
+              (draft) =>
+                draftChoices[draft.key]?.fingerprint !== draft.fingerprint,
+            )
           }
           onClick={() => void createSeparateRecord()}
         >
@@ -1517,6 +1744,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 onClick={() => {
                   setError(undefined);
                   setRecoveryTargets({});
+                  setDraftChoices({});
+                  setRecoveryDrafts([]);
+                  setCheckingDrafts(true);
                   setSeparateCreate(true);
                 }}
               >

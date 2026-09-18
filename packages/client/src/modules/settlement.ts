@@ -16,6 +16,12 @@ export {
   sameRecordCreateDependents,
   type CreateRecoveryTargets,
 } from "./collisions";
+import type { CreateDraftChoices } from "./draft-collisions";
+export {
+  collisionDrafts,
+  type CollisionDraft,
+  type CreateDraftChoices,
+} from "./draft-collisions";
 import { removeResourceDraft } from "./drafts";
 
 /** Fence a failed create before atomically replacing its never-submitted dependency graph. */
@@ -27,6 +33,7 @@ export async function replaceFailedCreate(
   settle: SettlementTransport,
   authorized: (call: ModuleCall) => boolean,
   targets: CreateRecoveryTargets = {},
+  draftChoices: CreateDraftChoices = {},
 ): Promise<"accepted" | "replaced"> {
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
@@ -107,6 +114,7 @@ export async function replaceFailedCreate(
           replacement,
           authorized,
           targets,
+          draftChoices,
         );
         if (!authorized(call) || !authorized(replacement))
           throw Error(
