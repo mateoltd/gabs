@@ -1,3 +1,4 @@
+import { SavedWorkExport } from "../recovery/export";
 import { canReadSavedWork } from "../recovery/access";
 import { canAccessCommand, canInspectCommand } from "./command-permissions";
 import { CommandCorrection } from "./command-correction";
@@ -404,6 +405,10 @@ export function useQueuedCommands(
           access(entry.call, false, true),
         ),
       })),
+    recoveryProps:
+      owner.kind === "recovery"
+        ? { ...latest.current.props, module }
+        : undefined,
     error: access() ? error : undefined,
     busy,
     online: access(undefined, true),
@@ -542,6 +547,13 @@ export function SavedCommands({
                       {review ? "Resume command review" : "Review command"}
                     </ui.Button>
                   )}
+                {state.recoveryProps && (
+                  <SavedWorkExport
+                    {...state.recoveryProps}
+                    active={open}
+                    selection={{ requestId: entry.id }}
+                  />
+                )}
                 {entry.state !== "accepted" &&
                   entry.settlement !== "cancelled" &&
                   (!executable ||

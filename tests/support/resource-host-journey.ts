@@ -1,3 +1,5 @@
+import { assertSchema } from "@suite/module-sdk";
+import { SavedWorkRecoverySchema } from "@suite/module-sdk/platform";
 import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -295,6 +297,38 @@ export async function resourceHostJourney(options: CommandCorrectionOptions) {
   await expect(change("update")).toContainText("Preserved update");
   await change("draft").getByText("View saved draft", { exact: true }).click();
   await expect(change("draft")).toContainText("Never submitted draft");
+  const retained = await storage();
+  for (const action of ["create", "update", "draft"]) {
+    const exported = await options.exportWork(
+      change(action).getByRole("button", {
+        name:
+          action === "draft" ? "Export saved draft" : "Export saved request",
+        exact: true,
+      }),
+    );
+    assertSchema(SavedWorkRecoverySchema, exported);
+    expect(exported).toMatchObject({ ...scope, moduleId: id });
+    if (exported.selection === "request") {
+      expect(exported.entry).toEqual(
+        retained.journal.find((entry) => entry.id === exported.entry.id),
+      );
+    } else {
+      expect(exported.data).toEqual(retained.drafts[exported.key]);
+      expect(exported.target).toEqual(
+        retained.draftTargets?.[exported.key] ?? null,
+      );
+      expect(exported.draftVersion).toBe(
+        retained.draftVersions?.[exported.key],
+      );
+    }
+  }
+  expect((await storage()).journal).toEqual(retained.journal);
+  expect((await storage()).drafts).toEqual(retained.drafts);
+  await mkdir("docs/verification/work-recovery-export", { recursive: true });
+  await change("update").getByRole("heading").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: `docs/verification/work-recovery-export/${options.kind}-${options.mode}.png`,
+  });
   await expect(
     change("create").getByRole("button", {
       name: "Resolve record outcome",
@@ -303,6 +337,12 @@ export async function resourceHostJourney(options: CommandCorrectionOptions) {
   ).toBeDisabled();
   await mkdir("docs/verification/resource-recovery-host", { recursive: true });
   await options.narrow();
+  await change("update")
+    .getByRole("button", { name: "Export saved request", exact: true })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: `docs/verification/work-recovery-export/${options.kind}-${options.mode}-narrow.png`,
+  });
   expect(
     await dialog.evaluate((element) => {
       const title = element.querySelector("h2")!.getBoundingClientRect();
@@ -354,6 +394,17 @@ export async function resourceHostJourney(options: CommandCorrectionOptions) {
       })
       .click();
   };
+  const connectedExport = await options.exportWork(
+    change("update").getByRole("button", {
+      name: "Export saved request",
+      exact: true,
+    }),
+  );
+  assertSchema(SavedWorkRecoverySchema, connectedExport);
+  expect(connectedExport).toMatchObject({
+    selection: "request",
+    entry: retained.journal.find((entry) => entry.call.action === "update"),
+  });
   await options.loseSettlementReply();
   await settle("create");
   await expect(

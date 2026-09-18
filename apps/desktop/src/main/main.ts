@@ -503,10 +503,16 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
           await inputRecovery.observe(scope, body.bootstrap);
         else if (
           res.ok &&
-          request.operation === "moduleArtifact" &&
+          (request.operation === "moduleArtifact" ||
+            request.operation === "moduleReceiptArtifact") &&
           recoveryRevision !== undefined
         )
-          await inputRecovery.observeArtifact(scope, body, recoveryRevision);
+          await inputRecovery.observeArtifact(
+            scope,
+            body,
+            recoveryRevision,
+            request.operation === "moduleArtifact",
+          );
         else if ([401, 403, 426].includes(res.status))
           await inputRecovery.revoke(scope);
       } catch {
@@ -1042,7 +1048,7 @@ function handlers() {
     await inputRecovery.authorize(session.scope, input, check);
     check();
     const result = await dialog.showSaveDialog(win!, {
-      defaultPath: `module-input-${randomUUID()}.json`,
+      defaultPath: `${input.kind === "module-work-recovery" ? "saved-work" : "module-input"}-${randomUUID()}.json`,
       filters: [{ name: "Module input recovery", extensions: ["json"] }],
     });
     check();

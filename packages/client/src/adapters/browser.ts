@@ -1,5 +1,13 @@
+import { savedWorkContracts } from "../recovery/work";
+import { readModuleStorage } from "../modules/storage";
+import { moduleContract } from "@suite/module-sdk/client-artifact";
 import { checkRecoveryPolicy, validateRecoveryInput } from "../recovery/input";
-import { assertSchema, Type } from "@suite/module-sdk";
+import {
+  assertSchema,
+  Type,
+  hydrateModule,
+  type ModuleDefinition,
+} from "@suite/module-sdk";
 import { hostCapabilitySchemas } from "@suite/module-sdk/host-capabilities";
 import { ApiError, type SuiteClient } from "../api";
 import { openDB } from "idb";
@@ -179,13 +187,16 @@ export async function downloadCorporateExport(options: {
 /** Recovery input is scoped to a live view; the native host independently repeats authorization. */
 export async function exportRecoveryInput(options: {
   client: SuiteClient;
-  input: import("@suite/module-sdk/platform").ModuleInputRecovery;
+  input:
+    | import("@suite/module-sdk/platform").ModuleInputRecovery
+    | import("@suite/module-sdk/platform").SavedWorkRecovery;
   signal: AbortSignal;
   access(): {
     policy: import("@suite/contracts").Bootstrap;
     dependencies: readonly string[];
     online: boolean;
     offlineEnabled: boolean;
+    module?: ModuleDefinition;
   };
   receivePolicy(
     policy: import("@suite/contracts").Bootstrap,
@@ -223,6 +234,7 @@ export async function exportRecoveryInput(options: {
   }
   let access = options.access();
   let policy = access.policy;
+  let currentModule = access.module;
   const offline = !access.online || !navigator.onLine;
   if (!offline) {
     try {
@@ -241,6 +253,20 @@ export async function exportRecoveryInput(options: {
       check();
       policy = await options.receivePolicy(policy, signal);
       check();
+      if (input.kind === "module-work-recovery") {
+        const pkg = await options.client.request(
+          {
+            operation: "moduleArtifact",
+            params: {
+              workspaceId: input.workspaceId,
+              moduleId: input.moduleId,
+            },
+          },
+          { signal },
+        );
+        check();
+        currentModule = hydrateModule(moduleContract(pkg.artifact));
+      }
     } catch (error) {
       if (!signal.aborted) options.onError(error);
       throw error;
@@ -248,6 +274,24 @@ export async function exportRecoveryInput(options: {
   }
   access = options.access();
   const offlineNow = offline || !access.online || !navigator.onLine;
+  const contracts =
+    input.kind === "module-work-recovery" && currentModule
+      ? {
+          current: currentModule,
+          originals: await savedWorkContracts(
+            await readModuleStorage(browserPlatform, input),
+            input,
+          ),
+        }
+      : undefined;
+  check();
+  if (
+    input.kind === "module-work-recovery" &&
+    currentModule?.version !== options.access().module?.version
+  )
+    throw Error(
+      "The recovery release changed. Refresh saved work before exporting.",
+    );
   if (offlineNow && !access.offlineEnabled)
     throw Error("Reconnect to authorize recovery export.");
   if (offlineNow) {
@@ -262,13 +306,54 @@ export async function exportRecoveryInput(options: {
       snapshot.cachedAt > Date.now()
     )
       throw Error("Offline recovery access expired. Reconnect to continue.");
-    checkRecoveryPolicy(snapshot.bootstrap, input, access.dependencies, true);
+    checkRecoveryPolicy(
+      snapshot.bootstrap,
+      input,
+      access.dependencies,
+      true,
+      Date.now(),
+      contracts,
+    );
   }
-  checkRecoveryPolicy(policy, input, access.dependencies, offlineNow);
-  checkRecoveryPolicy(access.policy, input, access.dependencies, offlineNow);
+  if (input.kind === "module-work-recovery" && !offlineNow) {
+    const revision = policy.policyRevision;
+    try {
+      policy = await options.client.request(
+        { operation: "bootstrap", params: { workspaceId: input.workspaceId } },
+        { signal },
+      );
+      check();
+      policy = await options.receivePolicy(policy, signal);
+      check();
+      access = options.access();
+      if (policy.policyRevision !== revision)
+        throw Error(
+          "Workspace access changed while preparing this export. Refresh saved work and try again.",
+        );
+    } catch (error) {
+      if (!signal.aborted) options.onError(error);
+      throw error;
+    }
+  }
+  checkRecoveryPolicy(
+    policy,
+    input,
+    access.dependencies,
+    offlineNow,
+    Date.now(),
+    contracts,
+  );
+  checkRecoveryPolicy(
+    access.policy,
+    input,
+    access.dependencies,
+    offlineNow,
+    Date.now(),
+    contracts,
+  );
   check();
   await browserPlatform.saveFile(
-    `module-input-${crypto.randomUUID()}.json`,
+    `${input.kind === "module-work-recovery" ? "saved-work" : "module-input"}-${crypto.randomUUID()}.json`,
     JSON.stringify(input, null, 2),
   );
 }

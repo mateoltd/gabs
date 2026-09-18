@@ -1,9 +1,11 @@
+import { savedWorkCalls } from "@suite/client/work-recovery";
 import { BootstrapSchema, type OperationRequest } from "@suite/contracts";
 import { assertSchema, hydrateModule, Type } from "@suite/module-sdk";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
 import {
   SignedArtifactSchema,
   type ModuleInputRecovery,
+  type SavedWorkRecovery,
 } from "@suite/module-sdk/platform";
 import {
   checkRecoveryPolicy,
@@ -21,6 +23,10 @@ const StoredSchema = Type.Object({
   seenAt: Type.Number(),
   policy: Type.Optional(BootstrapSchema),
   dependencies: Type.Record(Type.String(), Type.Array(Type.String())),
+  contracts: Type.Optional(
+    Type.Record(Type.String(), Type.Record(Type.String(), Type.Unknown())),
+  ),
+  currentVersions: Type.Optional(Type.Record(Type.String(), Type.String())),
 });
 type Stored = typeof StoredSchema.static;
 interface Host {
@@ -114,7 +120,12 @@ export class NativeInputRecovery {
       await this.save(scope, state);
     });
   }
-  observeArtifact(scope: Scope, value: unknown, revision?: string) {
+  observeArtifact(
+    scope: Scope,
+    value: unknown,
+    revision?: string,
+    current = true,
+  ) {
     const generation = this.generation;
     return this.serial(async () => {
       this.check(scope, generation);
@@ -125,7 +136,13 @@ export class NativeInputRecovery {
       const state = await this.state(scope);
       if (revision !== undefined && state.policy?.policyRevision !== revision)
         throw Error("Recovery policy changed while verifying dependencies.");
-      state.dependencies[module.id] = Object.keys(module.dependencies ?? {});
+      (state.contracts ??= {})[`${module.id}@${module.version}`] = JSON.parse(
+        JSON.stringify(moduleContract(value.artifact)),
+      );
+      if (current) {
+        (state.currentVersions ??= {})[module.id] = module.version;
+        state.dependencies[module.id] = Object.keys(module.dependencies ?? {});
+      }
       await this.save(scope, state);
     });
   }
@@ -156,7 +173,7 @@ export class NativeInputRecovery {
   }
   async authorize(
     scope: Scope,
-    input: ModuleInputRecovery,
+    input: ModuleInputRecovery | SavedWorkRecovery,
     current: () => void,
   ) {
     validateRecoveryInput(input, scope, input.moduleId);
@@ -200,6 +217,27 @@ export class NativeInputRecovery {
         await this.observeArtifact(scope, pkg, revision);
         waiting.push(...(await this.state(scope)).dependencies[id]);
       }
+      if (input.kind === "module-work-recovery") {
+        const versions = new Set(
+          savedWorkCalls(input).map((call) => call.moduleVersion!),
+        );
+        for (const version of versions) {
+          if (
+            (await this.state(scope)).currentVersions?.[input.moduleId] ===
+            version
+          )
+            continue;
+          const pkg = await request({
+            operation: "moduleReceiptArtifact",
+            params: {
+              workspaceId: scope.workspaceId,
+              moduleId: input.moduleId,
+            },
+            query: { version },
+          });
+          await this.observeArtifact(scope, pkg, revision, false);
+        }
+      }
     } catch (error) {
       if (!(error instanceof CapabilityTransportUnavailable)) throw error;
       offline = true;
@@ -225,7 +263,36 @@ export class NativeInputRecovery {
         dependencies.add(id);
         waiting.push(...state.dependencies[id]);
       }
-      checkRecoveryPolicy(state.policy, input, [...dependencies], offline, now);
+      const currentVersion = state.currentVersions?.[input.moduleId];
+      const currentContract =
+        state.contracts?.[`${input.moduleId}@${currentVersion}`];
+      const contracts =
+        input.kind === "module-work-recovery" && currentContract
+          ? {
+              current: hydrateModule(moduleContract(currentContract)),
+              originals: [
+                ...new Set(
+                  savedWorkCalls(input).map((call) => call.moduleVersion!),
+                ),
+              ].map((version) => {
+                const contract =
+                  state.contracts?.[`${input.moduleId}@${version}`];
+                if (!contract)
+                  throw Error(
+                    "Reconnect to verify the original saved-work contract.",
+                  );
+                return hydrateModule(moduleContract(contract));
+              }),
+            }
+          : undefined;
+      checkRecoveryPolicy(
+        state.policy,
+        input,
+        [...dependencies],
+        offline,
+        now,
+        contracts,
+      );
       state.seenAt = Math.max(state.seenAt, now);
       await this.save(scope, state);
       check();

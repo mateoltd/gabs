@@ -1,6 +1,9 @@
-import { assertSchema } from "@suite/module-sdk";
+import { validateSavedWork, checkSavedWorkPermissions } from "./work";
+import { assertSchema, Type, type ModuleDefinition } from "@suite/module-sdk";
 import {
   ModuleInputRecoverySchema,
+  SavedWorkRecoverySchema,
+  type SavedWorkRecovery,
   type ModuleInputRecovery,
 } from "@suite/module-sdk/platform";
 import type { Bootstrap } from "@suite/contracts";
@@ -10,8 +13,13 @@ export function validateRecoveryInput(
   value: unknown,
   scope: Scope,
   moduleId: string,
-): ModuleInputRecovery {
-  assertSchema(ModuleInputRecoverySchema, value);
+): ModuleInputRecovery | SavedWorkRecovery {
+  assertSchema(
+    Type.Union([ModuleInputRecoverySchema, SavedWorkRecoverySchema]),
+    value,
+  );
+  if (value.kind === "module-work-recovery")
+    return validateSavedWork(value, scope, moduleId);
   if (
     value.userId !== scope.userId ||
     value.workspaceId !== scope.workspaceId ||
@@ -30,14 +38,21 @@ export function validateRecoveryInput(
 /** Recovery exports preserve input; they never authorize writes or revive a retired resource. */
 export function checkRecoveryPolicy(
   policy: Bootstrap,
-  input: ModuleInputRecovery,
+  input: ModuleInputRecovery | SavedWorkRecovery,
   dependencies: readonly string[],
   offline = false,
   now = Date.now(),
+  contracts?: {
+    current: ModuleDefinition;
+    originals: readonly ModuleDefinition[];
+  },
 ) {
   if (
     policy.workspace.id !== input.workspaceId ||
-    !policy.permissions.includes(`${input.moduleId}.${input.resource}.read`) ||
+    (input.kind === "module-input-recovery" &&
+      !policy.permissions.includes(
+        `${input.moduleId}.${input.resource}.read`,
+      )) ||
     [input.moduleId, ...dependencies].some(
       (id) =>
         !policy.modules.some(
@@ -50,6 +65,16 @@ export function checkRecoveryPolicy(
     )
   )
     throw Error("Current access does not allow exporting this input.");
+  if (input.kind === "module-work-recovery") {
+    if (!contracts)
+      throw Error("Reconnect to verify the saved-work contracts.");
+    checkSavedWorkPermissions(
+      input,
+      contracts.current,
+      contracts.originals,
+      (permission) => policy.permissions.includes(permission),
+    );
+  }
   if (
     offline &&
     (policy.offlineHours <= 0 ||

@@ -1,3 +1,6 @@
+import { SavedWorkRecoverySchema } from "@suite/module-sdk/platform";
+import { mkdir } from "node:fs/promises";
+import { assertSchema } from "@suite/module-sdk";
 import { historicalPermissionJourney } from "./historical-permission-journey";
 import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -337,12 +340,57 @@ export default defineView(module, function Notes() { return <PageHeading title="
   ).toBeVisible();
   await expect(entries().first()).toContainText("Reject this note");
   await expect(entries().first()).toContainText("Corrected parent");
+  if (recoverySurface) {
+    const retained = await options.storage(page, scope);
+    const exported = await options.exportWork(
+      entries()
+        .first()
+        .getByRole("button", { name: "Export saved request", exact: true }),
+    );
+    assertSchema(SavedWorkRecoverySchema, exported);
+    expect(exported).toMatchObject({
+      ...scope,
+      moduleId: id,
+      selection: "request",
+    });
+    if (exported.selection !== "request")
+      throw Error("Expected original command recovery");
+    expect(exported.entry).toEqual(
+      retained.journal.find((entry) => entry.id === exported.entry.id),
+    );
+    expect(exported.review).toEqual(
+      retained.commandReviews?.[exported.entry.id],
+    );
+    expect((await options.storage(page, scope)).journal).toEqual(
+      retained.journal,
+    );
+    expect((await options.storage(page, scope)).commandReviews).toEqual(
+      retained.commandReviews,
+    );
+    await mkdir("docs/verification/work-recovery-export", { recursive: true });
+    await entries()
+      .first()
+      .getByRole("button", { name: "Export saved request", exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `docs/verification/work-recovery-export/${options.kind}-${recoverySurface}.png`,
+    });
+  }
   await expect(
     entries()
       .first()
       .getByRole("button", { name: "Resolve outcome", exact: true }),
   ).toBeDisabled();
   await options.narrow();
+  if (recoverySurface) {
+    await entries()
+      .first()
+      .getByRole("button", { name: "Export saved request", exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `docs/verification/work-recovery-export/${options.kind}-${recoverySurface}-narrow.png`,
+    });
+  }
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
     true,
   );
@@ -362,6 +410,18 @@ export default defineView(module, function Notes() { return <PageHeading title="
   await options.reconnect();
   await page.reload();
   dialog = await inbox();
+  if (recoverySurface) {
+    const connectedExport = await options.exportWork(
+      entries()
+        .first()
+        .getByRole("button", { name: "Export saved request", exact: true }),
+    );
+    assertSchema(SavedWorkRecoverySchema, connectedExport);
+    expect(connectedExport).toMatchObject({
+      selection: "request",
+      entry: snapshot[0],
+    });
+  }
   await options.loseSettlementReply();
   await entries()
     .first()
@@ -506,4 +566,26 @@ export default defineView(module, function Notes() { return <PageHeading title="
   await page.screenshot({
     path: `docs/verification/${evidence}/${options.kind}-${label}-recovered-narrow.png`,
   });
+  if (recoverySurface === "viewless") {
+    await options.wide();
+    const retained = await options.storage(page, scope);
+    await options.rejectExport(
+      entries()
+        .first()
+        .getByRole("button", { name: "Export saved request", exact: true }),
+      id,
+      async () => {
+        await pool.query(
+          "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1",
+          [scope.workspaceId, `${id}.capture`],
+        );
+      },
+    );
+    expect((await options.storage(page, scope)).journal).toEqual(
+      retained.journal,
+    );
+    expect((await options.storage(page, scope)).commandReviews).toEqual(
+      retained.commandReviews,
+    );
+  }
 }

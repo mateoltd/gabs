@@ -1,3 +1,4 @@
+export { SavedWorkRecoverySchema, type SavedWorkRecovery } from "./recovery";
 import { Type, type Static } from "@sinclair/typebox";
 import type { ModuleDefinition } from "../index";
 import type { OrganizationPolicy } from "./governance";

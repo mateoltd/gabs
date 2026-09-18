@@ -10,7 +10,7 @@ import {
 import { Pool } from "pg";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { commandCorrectionJourney } from "../support/command-correction-journey";
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
@@ -120,6 +120,74 @@ globalThis.fetch=async(...args)=>{
         api,
         pool,
         kind: "native",
+        rejectExport: async (button, _moduleId, during) => {
+          const file = resolve(
+            profile,
+            `denied-work-${crypto.randomUUID()}.json`,
+          );
+          await app.evaluate(({ dialog }, file) => {
+            const held = globalThis as typeof globalThis & {
+              pickerArrived?: boolean;
+              releasePicker?: () => void;
+            };
+            held.pickerArrived = false;
+            dialog.showSaveDialog = async () => {
+              held.pickerArrived = true;
+              await new Promise<void>((resolve) => {
+                held.releasePicker = resolve;
+              });
+              return { canceled: false, filePath: file };
+            };
+          }, file);
+          await button.click();
+          await expect
+            .poll(() =>
+              app.evaluate(
+                () =>
+                  (
+                    globalThis as typeof globalThis & {
+                      pickerArrived?: boolean;
+                    }
+                  ).pickerArrived,
+              ),
+            )
+            .toBe(true);
+          await during();
+          await app.evaluate(() =>
+            (
+              globalThis as typeof globalThis & { releasePicker?: () => void }
+            ).releasePicker?.(),
+          );
+          await expect(page.getByRole("alert")).toContainText(
+            "does not allow exporting this command",
+          );
+          await expect(readFile(file)).rejects.toMatchObject({
+            code: "ENOENT",
+          });
+        },
+        exportWork: async (button) => {
+          const file = resolve(
+            profile,
+            `saved-work-${crypto.randomUUID()}.json`,
+          );
+          await app.evaluate(({ dialog }, file) => {
+            dialog.showSaveDialog = async () => ({
+              canceled: false,
+              filePath: file,
+            });
+          }, file);
+          await button.click();
+          await expect
+            .poll(async () => {
+              try {
+                return JSON.parse(await readFile(file, "utf8"));
+              } catch {
+                return null;
+              }
+            })
+            .not.toBeNull();
+          return JSON.parse(await readFile(file, "utf8"));
+        },
         mode,
         offline,
         restartOffline: async () => {

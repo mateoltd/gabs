@@ -1,3 +1,4 @@
+import { SavedWorkExport } from "./export";
 import { useEffect, useRef, useState } from "react";
 import { canUse, type FeatureProps } from "@suite/client";
 import { readModuleStorage } from "@suite/client/module-storage";
@@ -174,6 +175,11 @@ export function ResourceRecovery(
                   <ResourceValue value={entry.result} />
                 </details>
               )}
+              <SavedWorkExport
+                {...props}
+                active={open}
+                selection={{ requestId: entry.id }}
+              />
               {entry.state !== "accepted" &&
                 entry.settlement !== "cancelled" && (
                   <Button
@@ -247,6 +253,11 @@ export function ResourceRecovery(
                   <ResourceValue value={draft.review.comparison} />
                 </details>
               )}
+              <SavedWorkExport
+                {...props}
+                active={open}
+                selection={{ draftKey: draft.key }}
+              />
               {draft.source && (
                 <details>
                   <summary>

@@ -1,3 +1,7 @@
+import queuedDefinition from "../fixtures/queued-notes/module";
+const queuedModule = { ...queuedDefinition, views: {}, navigation: undefined };
+import type { ModuleDefinition } from "@suite/module-sdk";
+import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 import { afterEach, expect, it, vi } from "vitest";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { signPackage } from "@suite/module-sdk/node/signing";
@@ -11,13 +15,15 @@ import { CapabilityTransportUnavailable } from "../../apps/desktop/src/main/capa
 import { validateRecoveryInput } from "../../packages/client/src/recovery/input";
 import module from "../fixtures/local-capabilities";
 
-function fixture() {
+function fixture(selected: ModuleDefinition = module) {
+  const module = selected;
   const scope = { userId: randomUUID(), workspaceId: randomUUID() };
   const keys = generateKeyPairSync("ed25519");
-  const pkg = signPackage(
+  let pkg = signPackage(
     module,
     keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
   );
+  const releases = new Map([[module.version, pkg]]);
   const policy: Bootstrap = {
     workspace: {
       id: scope.workspaceId,
@@ -73,6 +79,11 @@ function fixture() {
       if (status !== 200) return { status, body: { message: "Denied" } };
       if (request.operation === "bootstrap")
         return { status: 200, body: structuredClone(policy) };
+      if (request.operation === "moduleReceiptArtifact")
+        return {
+          status: 200,
+          body: structuredClone(releases.get(String(request.query?.version))),
+        };
       if (request.operation === "moduleArtifact")
         return { status: 200, body: structuredClone(pkg) };
       throw Error("Unexpected request");
@@ -80,6 +91,13 @@ function fixture() {
   };
   let authority = new NativeInputRecovery(host);
   return {
+    release(value: ModuleDefinition) {
+      pkg = signPackage(
+        value,
+        keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      );
+      releases.set(value.version, pkg);
+    },
     scope,
     input,
     policy,
@@ -284,4 +302,72 @@ it("administrator shortening or disabling offline access applies to retained aut
   f.policy.offlineHours = 0;
   await f.authority.observe(f.scope, f.policy);
   await expect(f.authorize()).rejects.toThrow("expired");
+});
+
+it("authorizes historical command exports using host-observed contracts through restart and rejects current or original grant loss", async () => {
+  const f = fixture(queuedModule);
+  const call = {
+    moduleId: queuedModule.id,
+    moduleVersion: queuedModule.version,
+    action: "operation" as const,
+    operation: "capture",
+    key: randomUUID(),
+    input: { name: "Preserve" },
+  };
+  const work: SavedWorkRecovery = {
+    kind: "module-work-recovery",
+    formatVersion: 1,
+    ...f.scope,
+    moduleId: queuedModule.id,
+    moduleVersion: queuedModule.version,
+    selection: "request",
+    entry: {
+      ...f.scope,
+      id: call.key,
+      call,
+      dependencies: [],
+      state: "rejected",
+      createdAt: Date.now(),
+      attempts: 1,
+    },
+  };
+  const current = {
+    ...queuedModule,
+    version: "2.0.0",
+    permissions: [...queuedModule.permissions, "custom-notes.new-grant"],
+    operations: {
+      ...queuedModule.operations,
+      capture: {
+        ...queuedModule.operations.capture,
+        permission: "custom-notes.new-grant",
+      },
+    },
+  };
+  f.release(current);
+  await f.authority.setOffline(f.scope, true);
+  await expect(f.authority.authorize(f.scope, work, () => {})).rejects.toThrow(
+    /command/,
+  );
+  f.policy.permissions.push("custom-notes.new-grant");
+  await f.authority.authorize(f.scope, work, () => {});
+  f.offline();
+  f.restart();
+  await f.authority.authorize(f.scope, work, () => {});
+  const forged = structuredClone(work);
+  forged.entry.call = { ...call, operation: "names" };
+  await expect(
+    f.authority.authorize(f.scope, forged, () => {}),
+  ).rejects.toThrow(/command/);
+  f.online();
+  f.policy.permissions = f.policy.permissions.filter(
+    (p) => p !== queuedModule.operations.capture.permission,
+  );
+  await expect(f.authority.authorize(f.scope, work, () => {})).rejects.toThrow(
+    /command/,
+  );
+  f.offline();
+  f.restart();
+  await expect(f.authority.authorize(f.scope, work, () => {})).rejects.toThrow(
+    /command/,
+  );
 });

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import "dotenv/config";
 import { test, expect, request } from "@playwright/test";
 import { Pool } from "pg";
@@ -56,6 +57,33 @@ for (const mode of [
         api,
         pool,
         kind: "web",
+        rejectExport: async (button, moduleId, during) => {
+          let downloads = 0;
+          const observed = () => {
+            downloads++;
+          };
+          page.on("download", observed);
+          const pattern = `**/module/${moduleId}/workspaces/*/artifact`;
+          await page.route(pattern, async (route) => {
+            await during();
+            await route.fulfill({ response: await route.fetch() });
+          });
+          try {
+            await button.click();
+            await expect(button).toHaveCount(0);
+            expect(downloads).toBe(0);
+          } finally {
+            await page.unroute(pattern);
+            page.off("download", observed);
+          }
+        },
+        exportWork: async (button) => {
+          const download = button.page().waitForEvent("download");
+          await button.click();
+          return JSON.parse(
+            await readFile((await (await download).path())!, "utf8"),
+          );
+        },
         mode,
         offline: (value) => context.setOffline(value),
         restartOffline: async () => {

@@ -152,7 +152,9 @@ export interface DesktopBridge {
   closeLocalDevice(handle: string): Promise<void>;
   exportInput(
     handle: string,
-    input: import("@suite/module-sdk/platform").ModuleInputRecovery,
+    input:
+      | import("@suite/module-sdk/platform").ModuleInputRecovery
+      | import("@suite/module-sdk/platform").SavedWorkRecovery,
   ): Promise<void>;
   openModuleHost(
     scope: Scope,

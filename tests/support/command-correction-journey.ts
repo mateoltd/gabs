@@ -1,5 +1,10 @@
 import { resourceHostJourney } from "./resource-host-journey";
-import { expect, type Page, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  type Page,
+  type Locator,
+  type APIRequestContext,
+} from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -28,6 +33,12 @@ export type CommandCorrectionOptions = {
     | "resource-viewless"
     | "resource-uninstalled";
   recoverySurface?: "viewless" | "uninstalled";
+  exportWork(button: Locator): Promise<unknown>;
+  rejectExport(
+    button: Locator,
+    moduleId: string,
+    during: () => Promise<void>,
+  ): Promise<void>;
   holdSettlement?(): Promise<{
     arrived(): Promise<void>;
     release(): Promise<void>;
