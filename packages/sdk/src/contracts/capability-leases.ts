@@ -4,6 +4,7 @@ import { canonical } from "./registry";
 import {
   HostAuthorizationSchema,
   resolveHostCapability,
+  supportsOfflineHostCapability,
   type HostCapabilityCall,
 } from "./host-capabilities";
 const object = <P extends Parameters<typeof Type.Object>[0]>(properties: P) =>
@@ -136,7 +137,7 @@ export async function verifyCapabilityLeaseGrant(
   const declaration = expected.module.capabilities?.[expected.capability];
   if (
     declaration?.offline !== "lease" ||
-    !["files.export", "notifications.show"].includes(declaration.kind)
+    !supportsOfflineHostCapability(declaration.kind)
   )
     throw Error("This device capability requires online authorization.");
   if (

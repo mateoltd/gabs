@@ -259,7 +259,7 @@ Signed raw webhook bodies are verified. Event IDs are deduplicated transactional
 
 ## Desktop LAN transport
 
-Independently published custom views request privileged effects through [typed host capabilities](module-host-capabilities.md). Signed declarations and current module permissions gate exports, notifications and access to an already enabled desktop LAN transport. LAN capability calls currently require live authority; offline export support and remaining capability acceptance are tracked in [SDK-05](sdk-05-acceptance.md).
+Independently published custom views request privileged effects through [typed host capabilities](module-host-capabilities.md). Signed declarations and current module permissions gate exports, notifications and access to an already enabled desktop LAN transport. LAN capability calls default to live authority. Signed `offline: "lease"` declarations support peer status and provisional relay over an already enabled, unexpired transport; [scoped acceptance](verification/lan-leases/README.md) verifies real TLS effects with the main-process API transport unavailable. New client packages require `client.host` revision 2. Online administrator startup, explicit employee access and protected offline restart remain separate requirements in [SDK-05](sdk-05-acceptance.md).
 
 LAN is optional, administrator enabled, and requires a corporate offline lease. Bind provisioning to one company with `SUITE_LAN_WORKSPACE` (workspace UUID). Configure `SUITE_LAN_CERT`, `SUITE_LAN_KEY`, `SUITE_LAN_CA`, `SUITE_LAN_PEERS` (comma-separated certificate fingerprints), and `SUITE_LAN_ADDRESSES` (bounded private IPv4 addresses). Certificates need matching IP subject alternative names.
 

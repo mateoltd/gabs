@@ -12,6 +12,7 @@ import {
   type CapabilityLeasePayload,
 } from "@suite/module-sdk/capability-leases";
 import { assertSchema } from "@suite/module-sdk";
+import { supportsOfflineHostCapability } from "@suite/module-sdk/host-capabilities";
 import { canonical } from "@suite/module-sdk/registry";
 import type { Tx } from "../persistence/database";
 import type { Context } from "./authorization";
@@ -88,7 +89,7 @@ export async function prepareCapabilityLease(
   );
   requireCondition(
     declaration.offline === "lease" &&
-      ["files.export", "notifications.show"].includes(declaration.kind),
+      supportsOfflineHostCapability(declaration.kind),
     403,
     "CAPABILITY_ONLINE_REQUIRED",
     "This device capability requires online authorization.",

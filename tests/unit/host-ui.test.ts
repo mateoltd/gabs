@@ -221,3 +221,43 @@ it("retains legacy packages and bounds malformed requirements", () => {
     describeViewHost({ react: {}, jsx: {}, ui: { Button: undefined } }),
   ).not.toHaveProperty("ui.Button");
 });
+
+it("requires host revision 2 for signed offline LAN declarations while keeping online LAN compatible", async () => {
+  const { default: lan } = await import("../fixtures/lan-capabilities/module");
+  const client = await buildClientViews(
+    lan,
+    resolve("tests/fixtures/lan-capabilities"),
+  );
+  const pkg = signPackage(lan, privateKey, client);
+  expect(client.home.requires?.["client.host"]).toBe(2);
+  verifyPackage(pkg, publicKey);
+  await verifyArtifact(pkg, publicKey);
+  const oldHost = { ...host.capabilities, "client.host": [1] };
+  expect(() => assertManifestHost(pkg.manifest, oldHost)).toThrow(
+    /client.host revision 2/,
+  );
+  expect(() => assertClientHost(pkg.artifact, oldHost)).toThrow(
+    /client.host revision 2/,
+  );
+  const entry = await import(
+    `data:text/javascript;base64,${Buffer.from(client.home.javascript).toString("base64")}`
+  );
+  expect(() => entry.createView({ ...host, capabilities: oldHost })).toThrow(
+    /client.host revision 2/,
+  );
+  expect(() => assertClientHost(pkg.artifact, host.capabilities)).not.toThrow();
+  const online = {
+    ...lan,
+    capabilities: Object.fromEntries(
+      Object.entries(lan.capabilities).map(([name, declaration]) => {
+        const { offline, ...rest } = declaration;
+        return [name, rest];
+      }),
+    ),
+  };
+  const compatible = await buildClientViews(
+    online,
+    resolve("tests/fixtures/lan-capabilities"),
+  );
+  expect(compatible.home.requires?.["client.host"]).toBe(1);
+});

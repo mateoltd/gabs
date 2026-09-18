@@ -249,10 +249,14 @@ export function useDeviceLeases(
                   props.moduleCatalog,
                 ),
             )
-            .map(([, declaration]) =>
-              declaration.kind === "files.export"
-                ? "file exports"
-                : "notifications",
+            .map(
+              ([, declaration]) =>
+                ({
+                  "files.export": "file exports",
+                  "notifications.show": "notifications",
+                  "lan.status": "local peer status",
+                  "lan.relay": "local network transfers",
+                })[declaration.kind],
             ),
         ),
       ].join(" and ");

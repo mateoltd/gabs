@@ -61,14 +61,19 @@ export interface HostCapability {
   /** Requires a server-issued, expiring lease. Omitted declarations remain online-only. */
   offline?: "lease";
 }
-type CapabilityDeclaration = HostCapability &
-  (
-    | { kind: "files.export" | "notifications.show" }
-    | { kind: "lan.status" | "lan.relay"; offline?: never }
+/** Reviewed device effects that may use a scoped server lease. */
+export const offlineHostCapabilityKinds = [
+  "files.export",
+  "notifications.show",
+  "lan.status",
+  "lan.relay",
+] as const;
+export function supportsOfflineHostCapability(kind: HostCapabilityKind) {
+  return (offlineHostCapabilityKinds as readonly HostCapabilityKind[]).includes(
+    kind,
   );
-export function capability<const C extends CapabilityDeclaration>(
-  definition: C,
-): C {
+}
+export function capability<const C extends HostCapability>(definition: C): C {
   return definition;
 }
 export interface HostCapabilityCall {
@@ -98,9 +103,7 @@ export function validateHostCapabilities(
       !Object.hasOwn(hostCapabilitySchemas, declaration.kind) ||
       (declaration.offline !== undefined &&
         (declaration.offline !== "lease" ||
-          !["files.export", "notifications.show"].includes(
-            declaration.kind,
-          ))) ||
+          !supportsOfflineHostCapability(declaration.kind))) ||
       !module.permissions.includes(declaration.permission) ||
       !declaration.permission.startsWith(module.id + ".")
     )

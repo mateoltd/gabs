@@ -81,7 +81,7 @@ const sameGrant = (
   lease.payload.moduleVersion === module.version &&
   lease.payload.capability === capability;
 
-/** Corporate device leases only. This class cannot authorize business operations or LAN transport. */
+/** Corporate device leases only. This class cannot finalize business operations or establish peer trust. */
 export class CorporateCapabilityLeases {
   private epochs = new Map<string, number>();
   private blockedClocks = new Set<string>();

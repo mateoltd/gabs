@@ -32,10 +32,12 @@ export default defineModule({
     peers: capability({
       kind: "lan.status",
       permission: "custom-notes.network",
+      offline: "lease",
     }),
     relay: capability({
       kind: "lan.relay",
       permission: "custom-notes.network",
+      offline: "lease",
     }),
   },
   views: {

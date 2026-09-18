@@ -563,3 +563,9 @@ Partition-table convergence is a unit check, not multi-host production partition
 [OPS-01-STATUS acceptance](lan-status/README.md) verifies a compact native workspace indicator, shared Settings status, main-owned lifecycle notifications, scoped stale-result invalidation and keyboard focus retained during peer changes. Strict checks/four builds, 370 unit/PostgreSQL tests, three distinct hidden native journeys with affected reruns and the headless Settings regression pass. Inspected wide/narrow/high-contrast captures and scoped Axe accompany actual TLS peer arrival/removal, one-minute heartbeat, workspace switching, subscription cleanup, lease revocation and logout evidence.
 
 The recovery regression's archive assertion now waits for the visible operation result. Final renderer corrections have fresh strict/native acceptance after the full unit run. SDK-05-LAN-AUTH is next for explicit employee grants and protected offline startup/relay. Full parity and the separately queued UI-refinement goal remain unchanged.
+
+## Signed LAN module leases, 18 September 2026
+
+[SDK-05-LAN-LEASE acceptance](lan-leases/README.md) verifies explicit signed offline declarations, shared server/verifier eligibility, exact-release compatibility revision 2 and real provisional TLS transfer while the main-process API transport is unavailable. Connected permission revocation prevents subsequent offline replay. Strict checks/four builds, 375 distinct unit/PostgreSQL cases across the initial run and corrected focused rerun, two hidden native journeys and two headless browser journeys passed. Scoped Axe and an inspected capture accompany the native proof.
+
+This milestone requires an already enabled administrator transport. SDK-05-LAN-AUTH remains active for employee grants and protected offline startup/restart; broader recovery, deployment and parity gates remain open. Historical regression captures were preserved.

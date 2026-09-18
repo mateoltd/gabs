@@ -131,7 +131,12 @@ export async function buildClientViews(
     };
     if (moduleSchemaFormats(module).size) requires["client.formats"] = 1;
     if (Object.keys(module.capabilities ?? {}).length)
-      requires["client.host"] = 1;
+      requires["client.host"] = Object.values(module.capabilities ?? {}).some(
+        (capability) =>
+          capability.offline === "lease" && capability.kind.startsWith("lan."),
+      )
+        ? 2
+        : 1;
     const css = [
       ...result.outputFiles
         .filter((file) => file.path.endsWith(".css"))
