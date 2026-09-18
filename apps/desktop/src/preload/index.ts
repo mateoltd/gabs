@@ -40,11 +40,9 @@ const bridge: DesktopBridge = {
     return response.result;
   },
   openBilling: (url) => ipcRenderer.invoke("suite:billing-open", url),
-  lanStatus: () => ipcRenderer.invoke("suite:lan-status"),
+  lanStatus: (scope) => ipcRenderer.invoke("suite:lan-status", scope),
   setLan: (scope, enabled) =>
     ipcRenderer.invoke("suite:lan-set", scope, enabled),
-  relay: (scope, peerId, envelope) =>
-    ipcRenderer.invoke("suite:lan-relay", scope, peerId, envelope),
   authStatus: () => ipcRenderer.invoke("suite:auth-status"),
   execute: (request) => ipcRenderer.invoke("suite:execute", request),
   login: (options) => ipcRenderer.invoke("suite:login", options),

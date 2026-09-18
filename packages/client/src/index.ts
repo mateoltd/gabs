@@ -11,12 +11,7 @@ export interface Scope {
   workspaceId: string;
 }
 export type CacheKey =
-  | "snapshot"
-  | "drafts"
-  | "pending"
-  | "module-state"
-  | "relay-inbox"
-  | ModuleArtifactKey;
+  "snapshot" | "drafts" | "pending" | "module-state" | ModuleArtifactKey;
 export type ModuleArtifactKey = `module-artifact/${string}/${number}`;
 export const isModuleArtifactKey = (key: unknown): key is ModuleArtifactKey =>
   typeof key === "string" &&
@@ -100,19 +95,8 @@ export interface DesktopBridge {
     input: unknown,
   ): Promise<unknown>;
   openBilling(url: string): Promise<void>;
-  lanStatus(): Promise<LanStatus>;
+  lanStatus(scope: Scope): Promise<LanStatus>;
   setLan(scope: Scope, enabled: boolean): Promise<LanStatus>;
-  relay(
-    scope: Scope,
-    peerId: string,
-    envelope: {
-      kind: "artifact" | "pending";
-      workspaceId: string;
-      id: string;
-      payload: string;
-      digest: string;
-    },
-  ): Promise<void>;
   authStatus(): Promise<{
     mode: "development" | "oidc" | "unconfigured";
   }>;

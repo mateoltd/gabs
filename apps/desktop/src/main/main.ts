@@ -9,7 +9,7 @@ import {
   CapabilityTransportUnavailable,
   isCapabilityTransportFailure,
 } from "./capability-authority";
-import { LanTransport, type RelayEnvelope } from "./lan";
+import { ManagedLanSession } from "./lan/session";
 import {
   openCache,
   cacheRead,
@@ -111,21 +111,59 @@ const secureAvailable = () =>
   (process.platform !== "linux" ||
     safeStorage.getSelectedStorageBackend() !== "basic_text");
 const root = () => resolve(app.getPath("userData"), "secure-cache");
-let lan: LanTransport | undefined,
-  lanScope: Scope | undefined,
-  lanExpiry = 0;
-const lanConfigured = () =>
+const lanConfigured = (scope?: Scope) =>
   !!(
     process.env.SUITE_LAN_CERT &&
     process.env.SUITE_LAN_KEY &&
     process.env.SUITE_LAN_CA &&
     process.env.SUITE_LAN_PEERS &&
-    process.env.SUITE_LAN_ADDRESSES
+    process.env.SUITE_LAN_ADDRESSES &&
+    process.env.SUITE_LAN_WORKSPACE &&
+    (!scope || scope.workspaceId === process.env.SUITE_LAN_WORKSPACE)
   );
-const lanStatus = () => ({
-  configured: lanConfigured(),
-  workspaceId: lanScope?.workspaceId,
-  ...(lan?.status() ?? { enabled: false, peers: [] }),
+const lan = new ManagedLanSession({
+  currentUser: () => userId,
+  authorize: async (scope) => {
+    const result = await execute(
+      {
+        operation: "bootstrap",
+        params: { workspaceId: scope.workspaceId },
+      },
+      4000,
+    );
+    if (result.status !== 200)
+      throw Error("Workspace administrator access is required.");
+    return result.body;
+  },
+  configure: async (scope) => {
+    if (!lanConfigured(scope))
+      throw Error(
+        "Managed device certificates and peer policy must be configured first.",
+      );
+    return {
+      key: await readFile(process.env.SUITE_LAN_KEY!, "utf8"),
+      cert: await readFile(process.env.SUITE_LAN_CERT!, "utf8"),
+      ca: await readFile(process.env.SUITE_LAN_CA!, "utf8"),
+      workspaceId: scope.workspaceId,
+      allowedPeers: process.env.SUITE_LAN_PEERS!.split(","),
+      addresses: process.env.SUITE_LAN_ADDRESSES!.split(","),
+      ports: [49180, 49181, 49182],
+    };
+  },
+  readInbox: async (scope) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    return cacheRead(`${scope.userId}/${scope.workspaceId}/relay-inbox`);
+  },
+  writeInbox: async (scope, inbox) => {
+    await ensureCache();
+    validateScope(scope, userId);
+    await cacheWrite(`${scope.userId}/${scope.workspaceId}/relay-inbox`, inbox);
+  },
+});
+const lanStatus = (scope: Scope) => ({
+  configured: lanConfigured(scope),
+  ...lan.status(scope),
 });
 let cacheReady: Promise<void> | undefined;
 async function ensureCache() {
@@ -209,13 +247,7 @@ function cacheKey(scope: Scope, key: CacheKey) {
   if (
     !scope.workspaceId ||
     (!isModuleArtifactKey(key) &&
-      ![
-        "snapshot",
-        "drafts",
-        "pending",
-        "module-state",
-        "relay-inbox",
-      ].includes(key))
+      !["snapshot", "drafts", "pending", "module-state"].includes(key))
   )
     throw Error("Invalid cache key");
   return `${scope.userId}/${scope.workspaceId}/${key}`;
@@ -314,6 +346,7 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
   if (res.status === 426) updateRequired = true;
   if (request.operation === "me" && res.ok) {
     const user = body.user as { id: string };
+    if (userId && userId !== user.id) void lan.stop().catch(() => {});
     userId = user.id;
     csrfToken = body.csrfToken as string | undefined;
   }
@@ -322,17 +355,23 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     if (workspaceId) {
       const scope = { userId: actor, workspaceId };
       try {
-        if (res.ok && request.operation === "bootstrap")
+        if (res.ok && request.operation === "bootstrap") {
           await nativeAuthority.observe(scope, body);
-        else if (res.ok && request.operation === "workspacePolicy")
+          lan.observe(scope, body);
+        } else if (res.ok && request.operation === "workspacePolicy") {
           await nativeAuthority.observe(scope, body.bootstrap);
-        else if ([401, 403, 426].includes(res.status))
+          lan.observe(scope, body.bootstrap);
+        } else if ([401, 403, 426].includes(res.status)) {
+          void lan.stop(scope).catch(() => {});
           await nativeAuthority.revoke(scope);
+        }
       } catch {
+        void lan.stop(scope).catch(() => {});
         await nativeAuthority.revoke(scope).catch(() => {});
       }
     }
     if (res.status === 401) {
+      void lan.stop().catch(() => {});
       moduleHosts.clear();
       await nativeAuthority.purge({ userId: actor });
     }
@@ -532,23 +571,18 @@ function handlers() {
               }).show();
               return { requested: true };
             }
-            const activeLan =
-              lan &&
-              lanScope?.userId === authorization.userId &&
-              lanScope.workspaceId === authorization.workspaceId &&
-              Date.now() < lanExpiry
-                ? lan
-                : undefined;
-            if (authorization.kind === "lan.status")
+            const scope = {
+              userId: authorization.userId,
+              workspaceId: authorization.workspaceId,
+            };
+            if (authorization.kind === "lan.status") {
+              const status = lan.status(scope);
               return {
-                enabled: !!activeLan,
-                configured: lanConfigured(),
-                peers: activeLan?.status().peers ?? [],
+                enabled: status.enabled,
+                configured: lanConfigured(scope),
+                peers: status.peers,
               };
-            if (!activeLan)
-              throw Error(
-                "Enable the authorized local network for this workspace before using this capability.",
-              );
+            }
             const value = input as {
               peerId: string;
               kind: "artifact" | "pending";
@@ -569,11 +603,18 @@ function handlers() {
             const digest = createHash("sha256")
               .update(value.payload)
               .digest("hex");
-            await activeLan.relay(value.peerId, {
-              ...value,
-              workspaceId: authorization.workspaceId,
-              digest,
-            });
+            await lan.relay(
+              scope,
+              value.peerId,
+              {
+                kind: value.kind,
+                id: value.id,
+                payload: value.payload,
+                workspaceId: authorization.workspaceId,
+                digest,
+              },
+              recheck,
+            );
             return { relayed: true, authoritative: false };
           },
         })
@@ -604,9 +645,10 @@ function handlers() {
       throw Error("Invalid billing destination.");
     await shell.openExternal(url.href);
   });
-  ipcMain.handle("suite:lan-status", (event) => {
+  ipcMain.handle("suite:lan-status", (event, scope: Scope) => {
     sender(event);
-    return lanStatus();
+    validateScope(scope, userId);
+    return lanStatus(scope);
   });
   ipcMain.handle(
     "suite:lan-set",
@@ -614,76 +656,9 @@ function handlers() {
       sender(event);
       validateScope(scope, userId);
       if (typeof enabled !== "boolean") throw Error("Invalid network setting.");
-      if (lan) await lan.stop();
-      lan = undefined;
-      lanScope = undefined;
-      if (!enabled) return lanStatus();
-      if (!lanConfigured())
-        throw Error(
-          "Managed device certificates and peer policy must be configured first.",
-        );
-      const result = await execute({
-        operation: "bootstrap",
-        params: { workspaceId: scope.workspaceId },
-      });
-      const bootstrap = result.body as import("@suite/contracts").Bootstrap;
-      if (
-        result.status !== 200 ||
-        !bootstrap.permissions.includes("modules.manage") ||
-        !bootstrap.offlineHours
-      )
-        throw Error(
-          "Workspace administrator access and an offline lease are required.",
-        );
-      lanScope = scope;
-      lanExpiry =
-        new Date(bootstrap.authorizedAt).getTime() +
-        bootstrap.offlineHours * 3600000;
-      lan = new LanTransport(
-        {
-          key: await readFile(process.env.SUITE_LAN_KEY!, "utf8"),
-          cert: await readFile(process.env.SUITE_LAN_CERT!, "utf8"),
-          ca: await readFile(process.env.SUITE_LAN_CA!, "utf8"),
-          workspaceId: scope.workspaceId,
-          allowedPeers: process.env.SUITE_LAN_PEERS!.split(","),
-          addresses: process.env.SUITE_LAN_ADDRESSES!.split(","),
-          ports: [49180, 49181, 49182],
-        },
-        async (envelope) => {
-          if (Date.now() >= lanExpiry)
-            throw Error("Local network authorization expired.");
-          const key = cacheKey(scope, "relay-inbox");
-          const inbox = (await readSecure<RelayEnvelope[]>(key)) ?? [];
-          if (!inbox.some((e) => e.id === envelope.id)) {
-            if (inbox.length >= 10) throw Error("Relay inbox is full.");
-            await writeSecure(key, [...inbox, envelope]);
-          }
-        },
-      );
-      await lan.start();
-      return lanStatus();
-    },
-  );
-  ipcMain.handle(
-    "suite:lan-relay",
-    async (event, scope: Scope, peerId: string, envelope: RelayEnvelope) => {
-      sender(event);
-      validateScope(scope, userId);
-      if (
-        !lan ||
-        lanScope?.workspaceId !== scope.workspaceId ||
-        Date.now() >= lanExpiry
-      )
-        throw Error("Local network authorization expired.");
-      if (
-        !envelope ||
-        envelope.workspaceId !== scope.workspaceId ||
-        !["artifact", "pending"].includes(envelope.kind) ||
-        typeof envelope.payload !== "string" ||
-        envelope.payload.length > 200000
-      )
-        throw Error("Invalid relay envelope.");
-      await lan.relay(peerId, envelope);
+      if (enabled) await lan.enable(scope);
+      else await lan.stop(scope);
+      return lanStatus(scope);
     },
   );
   ipcMain.handle("suite:auth-status", (event) => {
@@ -701,6 +676,7 @@ function handlers() {
     moduleHosts.clear();
     nativeAuthority.clear();
     localDeviceHosts.clear();
+    await lan.stop();
     const options = validateLogin(value);
     loginPromise ??= login(options);
     try {
@@ -719,9 +695,7 @@ function handlers() {
     if (previousUser && secureAvailable())
       await nativeAuthority.purge({ userId: previousUser });
     else nativeAuthority.clear();
-    if (lan) await lan.stop();
-    lan = undefined;
-    lanScope = undefined;
+    await lan.stop();
     accessToken = refreshToken = devCookie = csrfToken = undefined;
     expiresAt = 0;
     if (previousUser) {

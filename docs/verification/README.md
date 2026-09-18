@@ -525,3 +525,9 @@ Typed declared allowances, deterministic expiry, held-action rechecks and CLI/pr
 ## Portable schema formats, 18 September 2026
 
 [SDK-04-FMT evidence](schema-formats/README.md): 341 unit/PostgreSQL tests across 69 files, strict environment checks/four builds, three distinct headless journeys across correction runs, one hidden native journey, scoped Axe and three inspected captures. Shared format validation now accepts valid declared formats and rejects invalid values or unsupported declarations without losing schema constraints, accepted records or retry receipts. The acceptance record explains initial harness failures and exact limits. SDK-04's reopened format gate is closed; full parity remains active.
+
+## Native LAN lifecycle and SDK relay, 18 September 2026
+
+[Scoped acceptance](native-lan/README.md) passed 345 full unit/PostgreSQL tests before final review, six focused transport/session tests after lease-expiry hardening, strict environment/boundary checks and all four build targets. One headless browser and two distinct hidden/unfocused Electron journeys passed across affected reruns. The new journey uses a signed independent SDK view, real mutual TLS, workspace-scoped provisioning, Settings enablement, third-port fallback, denied foreign/revoked requests, concurrent protected receipts, offline-lease revocation and logout. Scoped Axe and two inspected captures pass. No production styles changed.
+
+SDK-05-LAN is verified within this evidence; SDK-05 and OPS-01 remain open for quarantine consumption, verified artifact reuse, authoritative pending submission/recovery, peer coordination, offline authority and deployment/platform acceptance. This does not establish real-provider identity, packaged multi-device networking or full parity.

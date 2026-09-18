@@ -188,7 +188,7 @@ export function LocalNetwork(props: FeatureProps) {
   const state = useQuery({
     queryKey: [props.scope.userId, props.scope.workspaceId, "lan"],
     enabled: !!native,
-    queryFn: () => native!.lanStatus(),
+    queryFn: () => native!.lanStatus(props.scope),
     refetchInterval: 15000,
   });
   const [error, setError] = useState<unknown>(),

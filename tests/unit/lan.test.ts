@@ -7,7 +7,7 @@ import { X509Certificate, createHash } from "node:crypto";
 import {
   LanTransport,
   type RelayEnvelope,
-} from "../../apps/desktop/src/main/lan";
+} from "../../apps/desktop/src/main/lan/transport";
 describe("Managed local transport", () => {
   it("uses mutual TLS, falls back to a second port, and only relays matching-workspace envelopes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "suite-lan-"));
