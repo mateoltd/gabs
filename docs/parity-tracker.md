@@ -15,7 +15,7 @@ Statuses: **ready** = executable next work; **open** = unfinished; **active** = 
 
 ## Current handoff
 
-**Current architecture audit:** checkpoint `c219fc00` preserved unfinished collision work on `checkpoint/architecture-collision-review-2026-09-18`. A fresh Sol xhigh audit and parent review found no additional structural change justified; nine architecture fixtures and strict checks/four builds passed. See [current evidence](verification/architecture/README.md#collision-work-checkpoint-audit-18-september-2026). The subsequent collision acceptance is recorded below.
+**Current architecture audit:** clean checkpoint `badb5bb` is preserved on `checkpoint/architecture-queued-foundation-badb5bb`. The requested Sol xhigh review and parent review found no further structural correction justified, including the new queued SDK/client contracts. Nine boundary fixtures and strict checks passed; all four build tasks succeeded using the valid Turbo cache. See [current evidence](verification/architecture/README.md#queued-foundation-checkpoint-review-18-september-2026). No product source or UI changed; OFF-01 remains the primary item below.
 
 **Architecture follow-up:** the requested Sol xhigh review preserved checkpoint `88f45f7` under `checkpoint/architecture-review-2026-09-18`, confirmed the existing ownership layout, and hardened portable SDK/contract checks and conditional wildcard export resolution. Parent review, nine boundary fixtures, strict checks and all four builds passed; see [review evidence](verification/architecture/README.md#follow-up-architecture-review-18-september-2026). This does not change parity statuses or the next SDK-05 work below.
 

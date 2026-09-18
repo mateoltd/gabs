@@ -2,7 +2,7 @@
 
 Execution status, priorities and acceptance gates live in the [parity tracker](parity-tracker.md). The [product vision](product-vision.md) preserves the approved scope and architectural decisions. Update this ledger alongside the tracker when implementation or evidence changes.
 
-[Collision-work architecture audit](verification/architecture/README.md#collision-work-checkpoint-audit-18-september-2026) records a fresh Sol xhigh review, parent review, nine architecture fixtures and strict checks/four builds. Existing structural ownership remains accepted; no original requirement status changes and unfinished OFF-01 collision behavior is not accepted by these checks.
+[Current architecture review](verification/architecture/README.md#queued-foundation-checkpoint-review-18-september-2026) records checkpoint `badb5bb`, independent Sol xhigh and parent review, nine passing architecture fixtures, strict checks and four cached successful build tasks. Existing ownership remains accepted; no original requirement status changes and custom-view queued-command integration remains open.
 
 [Current checkout review](verification/architecture/README.md#current-checkout-audit-18-september-2026) reconfirms the existing architecture with fresh nine-fixture and strict-build acceptance. No requirement status changes; unfinished employee recovery remains outside this acceptance.
 
