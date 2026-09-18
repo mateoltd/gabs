@@ -31,6 +31,10 @@ import {
 import type { StoredModuleState } from "../../packages/client/src/modules/artifacts";
 import { verifyResponseContract } from "../../packages/client/src/modules/response";
 import { offlineRecoveryContracts } from "../../packages/shell/src/features/modules/recovery/contracts";
+import {
+  resourceRecoveryInputs,
+  canInspectResource,
+} from "../../packages/shell/src/features/modules/recovery/resource-input";
 const pair = generateKeyPairSync("ed25519");
 const privateKey = pair.privateKey
   .export({ type: "pkcs8", format: "pem" })
@@ -145,6 +149,143 @@ function storage() {
   };
 }
 afterEach(() => vi.unstubAllGlobals());
+it("retains current recovery metadata and the original draft schema after draft-only uninstall", async () => {
+  const { platform, install } = storage();
+  await install();
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, name: "Draft without a request" },
+    target: null,
+  });
+  await install(upgraded);
+  await changeModuleStorage(platform, scope, (state) => {
+    // The uninstall lifecycle records the current contract before artifact pruning.
+    state.recoveryVersions = { contacts: upgraded.version };
+    state.responseContracts![`contacts@${upgraded.version}`] = {
+      signed: upgraded,
+      publicKey,
+    };
+    delete state.installed.contacts;
+  });
+  const state = await readModuleStorage(platform, scope);
+  expect(state.journal).toEqual([]);
+  expect(state.installed.contacts).toBeUndefined();
+  const offline = await offlineRecoveryContracts(state);
+  expect(offline.failures).toEqual([]);
+  expect(offline.modules.map((module) => module.version)).toEqual([
+    upgraded.version,
+  ]);
+  const recovered = await resourceRecoveryInputs(state, scope, "contacts");
+  expect(recovered.failures).toEqual([]);
+  expect(recovered.drafts).toHaveLength(1);
+  expect(recovered.drafts[0].module.version).toBe(contacts.version);
+  expect(recovered.drafts[0].data.name).toBe("Draft without a request");
+});
+it("recovers resource receipts without losing ordinary drafts, reviews or original contracts after uninstall", async () => {
+  const { platform, install } = storage();
+  await install();
+  await enqueue(platform, scope, call("resource-receipt"));
+  await changeModuleStorage(platform, scope, (state) => {
+    state.journal[0].state = "rejected";
+  });
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, name: "Ordinary draft" },
+    target: null,
+  });
+  await saveResourceDraft(platform, scope, "contacts", "contacts", {
+    data: { ...data, name: "Separate review" },
+    target: null,
+    review: { entryId: "resource-receipt" },
+  });
+  const before = await readModuleStorage(platform, scope);
+  await install(upgraded);
+  await changeModuleStorage(platform, scope, (state) => {
+    delete state.installed.contacts;
+  });
+  await settleJournalEntry(
+    platform,
+    scope,
+    "resource-receipt",
+    async () => ({ key: "resource-receipt", outcome: "accepted", result: row }),
+    () => true,
+    "saved-resource",
+  );
+  const state = await readModuleStorage(platform, scope);
+  expect(state.drafts).toEqual(before.drafts);
+  expect(state.draftReviews).toEqual(before.draftReviews);
+  const recovered = await resourceRecoveryInputs(state, scope, "contacts");
+  expect(recovered.failures).toEqual([]);
+  expect(recovered.changes[0].entry).toMatchObject({
+    state: "accepted",
+    result: row,
+    recoveredAt: expect.any(Number),
+    call: before.journal[0].call,
+  });
+  expect(recovered.drafts.map((draft) => draft.data.name)).toEqual([
+    "Ordinary draft",
+    "Separate review",
+  ]);
+  expect(
+    recovered.drafts.every(
+      (draft) => draft.module.version === contacts.version,
+    ),
+  ).toBe(true);
+  const removed = { ...contacts, version: "3.0.0", resources: {} };
+  expect(
+    canInspectResource(call("resource-receipt"), removed, contacts, () => true),
+  ).toBe(true);
+  expect(
+    canInspectResource(
+      call("resource-receipt"),
+      removed,
+      contacts,
+      (permission) => !permission.endsWith(".write"),
+    ),
+  ).toBe(false);
+  expect(
+    (
+      await resourceRecoveryInputs(
+        state,
+        { ...scope, workspaceId: "other" },
+        "contacts",
+      )
+    ).changes,
+  ).toEqual([]);
+});
+it("preserves an archive and its identity if authority is revoked during saved-resource settlement", async () => {
+  const { platform, install } = storage();
+  await install();
+  const archive: ModuleCall = {
+    ...call("archive-recovery"),
+    action: "archive",
+    input: { id: row.id, baseVersion: row.version },
+  };
+  await enqueue(platform, scope, archive);
+  let allowed = true;
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      archive.key!,
+      async () => {
+        allowed = false;
+        return {
+          key: archive.key,
+          outcome: "accepted",
+          result: { ...row, archived: true },
+        };
+      },
+      () => allowed,
+      "saved-resource",
+    ),
+  ).rejects.toThrow("Unlock this workspace again");
+  const entry = (await readModuleStorage(platform, scope)).journal[0];
+  expect(entry).toMatchObject({
+    state: "pending",
+    call: archive,
+    delivery: "unsubmitted",
+  });
+  expect(entry.recoveredAt).toBeUndefined();
+});
 it("retains the last device recovery contract separately from original input and rejects altered contracts after uninstall", async () => {
   const { platform, install, root } = storage();
   await install();

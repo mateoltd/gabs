@@ -37,6 +37,8 @@ for (const mode of [
   "service-only",
   "viewless",
   "uninstalled",
+  "resource-viewless",
+  "resource-uninstalled",
 ] as const)
   test(`native command correction preserves review after ${mode} original`, async () => {
     test.setTimeout(180000);

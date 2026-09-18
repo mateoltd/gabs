@@ -181,7 +181,7 @@ export async function settleJournalEntry(
   id: string,
   settle: SettlementTransport,
   authorized: () => boolean,
-  mode: "uncertain" | "saved-command" = "uncertain",
+  mode: "uncertain" | "saved-command" | "saved-resource" = "uncertain",
 ) {
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
@@ -200,13 +200,15 @@ export async function settleJournalEntry(
         entry.supersededBy ||
         (mode === "uncertain"
           ? entry.state !== "pending" || entry.delivery === "unsubmitted"
-          : entry.call.action !== "operation" ||
+          : (mode === "saved-command"
+              ? entry.call.action !== "operation"
+              : !["create", "update", "archive"].includes(entry.call.action)) ||
             !["pending", "rejected", "conflict"].includes(entry.state))
       )
         throw new JournalConflictError(
           mode === "uncertain"
             ? "Only an uncertain pending change can be resolved."
-            : "Only an unresolved saved command can be resolved.",
+            : "Only an unresolved saved change can be resolved.",
         );
       const { call } = entry;
       if (mode === "saved-command") {
@@ -225,6 +227,18 @@ export async function settleJournalEntry(
         )
           throw new JournalConflictError(
             "Only an original public queued command can be recovered here.",
+          );
+      }
+      if (mode === "saved-resource") {
+        const { module } = await responseContract(state, call);
+        if (
+          !call.resource ||
+          call.operation ||
+          call.kind ||
+          module.resources[call.resource]?.policy !== "queued"
+        )
+          throw new JournalConflictError(
+            "Only an original queued resource change can be recovered here.",
           );
       }
       if (!authorized())
@@ -263,6 +277,7 @@ export async function settleJournalEntry(
           );
         delete current.delivery;
         delete current.orderingRecovery;
+        if (mode === "saved-resource") current.recoveredAt = Date.now();
         if (result.outcome === "accepted") {
           current.state = "accepted";
           current.result = result.result;

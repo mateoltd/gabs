@@ -71,6 +71,12 @@ export async function settleModuleAttempt(
       "This resource is not available in the original release.",
     );
     requireCondition(
+      original.resources[call.resource].policy !== "local",
+      403,
+      "INVALID_RECOVERY_TARGET",
+      "Only corporate resource changes can be settled here.",
+    );
+    requireCondition(
       ctx.permissions.includes(`${moduleId}.${call.resource}.read`) &&
         ctx.permissions.includes(`${moduleId}.${call.resource}.write`),
       403,

@@ -746,3 +746,12 @@ Final verification passed 487 unit/PostgreSQL tests across 82 files, strict root
 ## Host-owned command recovery, 18 September 2026
 
 [Scoped OFF-01 acceptance](command-recovery-host/README.md) verifies Settings recovery after custom-view removal and device uninstall, signed offline contracts, current/original command grants, independence from the old view permission, suspension denial, offline restart, lost settlement replies and exact accepted/cancelled outcomes. A still-public independent pending command is never dispatched by recovery; uninstall remains effective. Final product source passed 508 unit/PostgreSQL tests, strict checks/four fresh builds, fourteen headless browser cases and ten hidden/unfocused Electron cases. Scoped Axe/overflow checks and twenty inspected new captures accompany the evidence. Historical captures were restored; no stylesheet changed. Full parity, host-owned resource/draft recovery, export, profile recovery and final UI refinement remain open.
+
+
+## Host-owned record and draft recovery, 18 September 2026
+
+[Scoped OFF-01 evidence](resource-recovery-host/README.md) verifies original record input, ordinary drafts and accepted/cancelled outcomes after resource removal or device uninstall. Current resource grants, signed original contracts, offline leases, lost replies and restart remain enforced; settlement does not submit corrections or delete drafts. The new surface uses the existing UI components.
+
+Storage/server/model paths passed 510 unit/PostgreSQL tests before the final presentation and routing corrections. Final source passed strict checks/four fresh builds, eighteen headless browser cases, fourteen hidden/unfocused native cases and five additional native uninstall/reconnect repetitions. Twelve captures were inspected and 111 historical captures restored. Diagnostics traced the intermittent missing launcher to a stale startup redirect replacing Settings; the final redirect rechecks the live URL, with ordinary router timing preserved. The detailed evidence records the failed intermediate fix and test import correction. No stylesheet changed. Advanced review/collision acceptance, exports, profile recovery, broader parity and final UI refinement remain open.
+
+Final storage follow-up: the affected 55-test file and strict checks passed after adding a draft-only uninstall case. It verifies retention of both current recovery metadata and the original draft schema without a journal. Product source and completed browser/native acceptance were unchanged.

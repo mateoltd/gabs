@@ -11,7 +11,8 @@ import {
 import { ContentSkeleton } from "@suite/ui-web";
 import { flushSync } from "react-dom";
 import {
-  Navigate,
+  useNavigate,
+  useHref,
   Routes,
   useLocation,
   type NavigateProps,
@@ -20,10 +21,22 @@ import {
 const ActiveLocation = createContext<string | undefined>(undefined);
 
 /** A retained page may finish loading during a newer navigation. It cannot redirect it. */
-export function RouteRedirect(props: NavigateProps) {
+export function RouteRedirect({ to, replace, state, relative }: NavigateProps) {
   const active = useContext(ActiveLocation);
   const displayed = useLocation();
-  return active === displayed.key ? <Navigate {...props} /> : null;
+  const navigate = useNavigate();
+  const href = useHref(displayed);
+  useEffect(() => {
+    // Browser history may have advanced before this router render committed.
+    // Recheck it at execution time so startup cannot replace a newer user action.
+    const actual = new URL(window.location.href);
+    if (window.suiteDesktop)
+      actual.hash = "/" + actual.hash.slice(1).replace(/^\//, "");
+    const rendered = new URL(href, actual);
+    if (active === displayed.key && actual.href === rendered.href)
+      void navigate(to, { replace, state, relative });
+  }, [active, displayed.key, href, navigate, to, replace, state, relative]);
+  return null;
 }
 
 /** Snapshot only page content. The shell stays live during navigation. */

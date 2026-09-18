@@ -1,3 +1,4 @@
+import { ResourceRecovery } from "./resources";
 import type { FeatureProps } from "@suite/client";
 import { readModuleStorage } from "@suite/client/module-storage";
 import { hydrateModule, type ModuleDefinition } from "@suite/module-sdk";
@@ -10,23 +11,25 @@ import { offlineRecoveryContracts } from "./contracts";
 
 function ModuleRecovery(props: FeatureProps & { module: ModuleDefinition }) {
   const state = useQueuedCommands(props, props.module, { kind: "recovery" });
-  if (!state.commands.length && !state.error) return null;
   return (
-    <section aria-label={`${props.module.name} saved commands`}>
+    <section aria-label={`${props.module.name} saved work`}>
       <h4>{props.module.name}</h4>
-      <SavedCommands state={state} />
+      <div className="actions">
+        <SavedCommands state={state} />
+        <ResourceRecovery {...props} />
+      </div>
     </section>
   );
 }
 
 /** Host-owned inspection does not mount executable module code or install it. */
-export function CommandRecovery(props: FeatureProps) {
+export function SavedWorkRecovery(props: FeatureProps) {
   const current = usePlatformState(props);
   const saved = useQuery({
     queryKey: [
       props.scope.userId,
       props.scope.workspaceId,
-      "command-recovery",
+      "saved-work-recovery",
       props.online,
     ],
     enabled: props.offlineEnabled,
@@ -40,11 +43,14 @@ export function CommandRecovery(props: FeatureProps) {
             (entry) =>
               entry.userId === props.scope.userId &&
               entry.workspaceId === props.scope.workspaceId &&
-              entry.call.action === "operation" &&
-              !entry.supersededBy,
+              !entry.supersededBy &&
+              (entry.call.action === "operation" ||
+                entry.state !== "accepted" ||
+                entry.recoveredAt !== undefined),
           )
           .map((entry) => entry.call.moduleId),
       );
+      for (const key of Object.keys(state.drafts)) ids.add(key.split("/")[0]);
       return {
         ids: [...ids],
         ...(props.online
@@ -75,11 +81,11 @@ export function CommandRecovery(props: FeatureProps) {
   });
   return (
     <div>
-      <h3>Saved command recovery</h3>
+      <h3>Saved work recovery</h3>
       <p className="small">
-        Inspect saved commands and resolve their original outcomes, even after
-        removing a module from this device. Current access and offline expiry
-        still apply.
+        Inspect saved changes and drafts, and resolve original requests even
+        after removing a module from this device. Current access and offline
+        expiry still apply.
       </p>
       <ErrorMessage
         error={

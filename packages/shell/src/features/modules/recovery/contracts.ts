@@ -22,7 +22,8 @@ export async function offlineRecoveryContracts(state: ModuleStorage) {
         if (
           state.journal.some(
             (entry) => entry.call.moduleId === id && !entry.supersededBy,
-          )
+          ) ||
+          Object.keys(state.drafts).some((key) => key.startsWith(`${id}/`))
         )
           throw Error("The saved recovery contract is missing.");
         continue;

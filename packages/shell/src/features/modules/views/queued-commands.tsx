@@ -1,3 +1,4 @@
+import { canReadSavedWork } from "../recovery/access";
 import { canAccessCommand, canInspectCommand } from "./command-permissions";
 import { CommandCorrection } from "./command-correction";
 import {
@@ -10,7 +11,7 @@ import {
 } from "@suite/client/command-recovery";
 import * as React from "react";
 import * as ui from "@suite/ui-web";
-import { canReadSnapshot, canUse, type FeatureProps } from "@suite/client";
+import { canUse, type FeatureProps } from "@suite/client";
 import { createModuleQueue } from "@suite/client/module-queue";
 import {
   readModuleStorage,
@@ -96,24 +97,7 @@ export function useQueuedCommands(
       )
     )
       return false;
-    const now = Date.now();
-    const authorizedAt = Date.parse(p.bootstrap.authorizedAt);
-    if (p.online && navigator.onLine)
-      return (
-        authorizedAt <= now &&
-        now <
-          authorizedAt + Math.max(p.bootstrap.offlineHours, 1 / 60) * 3600000
-      );
-    if (
-      connected ||
-      !canReadSnapshot(p.snapshot, now) ||
-      p.snapshot.bootstrap.workspace.id !== p.scope.workspaceId ||
-      p.snapshot.bootstrap.authorizedAt !== p.bootstrap.authorizedAt
-    )
-      return false;
-    return (
-      now < authorizedAt + Math.min(p.bootstrap.offlineHours, 24) * 3600000
-    );
+    return canReadSavedWork(p, connected);
   };
   const refresh = async () => {
     if (refreshing.current) return;

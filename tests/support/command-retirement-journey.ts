@@ -156,7 +156,7 @@ export default defineView(module, function Notes() { return <PageHeading title="
         .click();
       await expect(
         page.getByRole("heading", {
-          name: "Saved command recovery",
+          name: "Saved work recovery",
           exact: true,
         }),
       ).toBeVisible();
@@ -480,6 +480,12 @@ export default defineView(module, function Notes() { return <PageHeading title="
     snapshot.map((e) => e.attempts),
   );
   expect((await journal())[2].delivery).toBe("unsubmitted");
+  if (recoverySurface) {
+    await open();
+    await expect(
+      page.getByRole("heading", { name: "Contacts", exact: true }),
+    ).toHaveCount(0);
+  }
   dialog = await inbox();
   const counts = await pool.query(
     "select (select count(*)::int from suite.module_records where workspace_id=$1 and module_id=$2) as records, (select count(*)::int from suite.audit where workspace_id=$1 and action='module.attempt.cancel') as cancellations",

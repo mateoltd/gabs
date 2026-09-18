@@ -1,3 +1,4 @@
+import { resourceHostJourney } from "./resource-host-journey";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -23,7 +24,9 @@ export type CommandCorrectionOptions = {
     | "removed"
     | "service-only"
     | "viewless"
-    | "uninstalled";
+    | "uninstalled"
+    | "resource-viewless"
+    | "resource-uninstalled";
   recoverySurface?: "viewless" | "uninstalled";
   holdSettlement?(): Promise<{
     arrived(): Promise<void>;
@@ -44,6 +47,11 @@ export type CommandCorrectionOptions = {
 export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
+  if (
+    options.mode === "resource-viewless" ||
+    options.mode === "resource-uninstalled"
+  )
+    return resourceHostJourney(options);
   if (options.mode === "viewless" || options.mode === "uninstalled")
     options = {
       ...options,

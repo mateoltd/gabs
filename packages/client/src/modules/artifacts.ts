@@ -149,6 +149,7 @@ export async function persistModuleArtifacts(
       .filter(
         (entry) =>
           entry.call.action === "operation" ||
+          entry.recoveredAt !== undefined ||
           (entry.state !== "accepted" && !entry.supersededBy),
       )
       .map(
@@ -161,7 +162,8 @@ export async function persistModuleArtifacts(
     if (
       state.journal.some(
         (entry) => entry.call.moduleId === id && !entry.supersededBy,
-      )
+      ) ||
+      Object.keys(state.drafts).some((key) => key.startsWith(`${id}/`))
     )
       retained.add(`${id}@${version}`);
   for (const [key, version] of Object.entries(state.draftVersions ?? {}))

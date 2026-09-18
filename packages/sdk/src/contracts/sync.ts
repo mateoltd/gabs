@@ -24,6 +24,8 @@ export interface JournalEntry {
   businessError?: unknown;
   /** Recorded only after a verified authoritative cancellation response. */
   settlement?: "cancelled";
+  /** Explicit host recovery retains the verified original contract for later receipt inspection. */
+  recoveredAt?: number;
   result?: unknown;
 }
 export interface JournalStore {

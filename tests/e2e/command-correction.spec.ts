@@ -16,6 +16,8 @@ for (const mode of [
   "service-only",
   "viewless",
   "uninstalled",
+  "resource-viewless",
+  "resource-uninstalled",
 ] as const)
   test(`command correction preserves review and dependencies after ${mode} original`, async ({
     page,

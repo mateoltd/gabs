@@ -1,0 +1,23 @@
+{
+  "run": "/tmp/gabs-resource-host-reviewed-native.log",
+  "scenario": "resource-uninstalled",
+  "navigation": [
+    {
+      "settingsClick": "suite://app/index.html"
+    },
+    {
+      "method": "pushState",
+      "from": "suite://app/index.html",
+      "to": "#/settings"
+    },
+    {
+      "method": "replaceState",
+      "from": "suite://app/index.html#/settings",
+      "to": "#/overview"
+    }
+  ],
+  "visiblePage": "Overview",
+  "journalStates": ["pending", "pending"],
+  "draftPreserved": true,
+  "latestSignedRecoveryContractPreserved": true
+}

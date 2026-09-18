@@ -11,7 +11,7 @@ import {
 } from "@suite/ui-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { CommandRecovery } from "../modules/recovery/commands";
+import { SavedWorkRecovery } from "../modules/recovery";
 export function Settings(
   props: FeatureProps & {
     toggleOffline: () => Promise<void>;
@@ -91,7 +91,7 @@ export function Settings(
             Local drafts are not a backup. Signing out removes local workspace
             data.
           </p>
-          <CommandRecovery {...props} />
+          <SavedWorkRecovery {...props} />
         </section>
         {props.online && bootstrap.permissions.includes("workspace.manage") && (
           <section className="panel">
