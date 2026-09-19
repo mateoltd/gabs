@@ -1,89 +1,7 @@
 import { LocalExecutionError } from "@suite/module-sdk/local";
-import { openDB } from "idb";
-
-export interface LocalVault {
-  id: string;
-  name: string;
-  salt: Uint8Array;
-  iv: Uint8Array;
-  ciphertext: ArrayBuffer;
-  updatedAt: number;
-  revision?: number;
-  removedAt?: number;
-}
-
-const database = () =>
-  openDB("suite-local-profiles", 1, {
-    upgrade(db) {
-      db.createObjectStore("vaults", { keyPath: "id" });
-    },
-  });
-
-async function derive(password: string, salt: Uint8Array) {
-  const material = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt as Uint8Array<ArrayBuffer>,
-      iterations: 600000,
-      hash: "SHA-256",
-    },
-    material,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
-const encrypt = (
-  vault: Pick<LocalVault, "id">,
-  key: CryptoKey,
-  value: unknown,
-  iv: Uint8Array,
-) =>
-  crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv: iv as Uint8Array<ArrayBuffer>,
-      additionalData: new TextEncoder().encode(vault.id),
-    },
-    key,
-    new TextEncoder().encode(JSON.stringify(value)),
-  );
-
-type ProfileChange = { id: string; origin: string };
-const origin = crypto.randomUUID();
-const listeners = new Set<(id: string) => void>();
-let channel: BroadcastChannel | undefined;
-export function subscribeLocalProfiles(listener: (id: string) => void) {
-  listeners.add(listener);
-  if (!channel) {
-    channel = new BroadcastChannel("suite-local-profiles");
-    channel.onmessage = (event: MessageEvent<ProfileChange>) => {
-      if (event.data?.origin !== origin && typeof event.data?.id === "string")
-        for (const notify of listeners) notify(event.data.id);
-    };
-  }
-  return () => {
-    listeners.delete(listener);
-    if (!listeners.size) {
-      channel?.close();
-      channel = undefined;
-    }
-  };
-}
-function changed(id: string) {
-  for (const listener of listeners) listener(id);
-  const sender = new BroadcastChannel("suite-local-profiles");
-  sender.postMessage({ id, origin });
-  sender.close();
-}
+import { database, changed, assertVaultRevision, type LocalVault } from "./store";
+import { derive, encrypt, decryptVault } from "./crypto";
+export { assertVaultRevision, subscribeLocalProfiles, type LocalVault } from "./store";
 export async function listLocalProfiles() {
   return ((await (await database()).getAll("vaults")) as LocalVault[])
     .filter((vault) => vault.removedAt === undefined)
@@ -96,18 +14,20 @@ export async function listRemovedLocalProfiles() {
 }
 /** Removal retains encrypted work and fences every earlier unlocked writer. */
 export async function removeLocalProfile(id: string) {
-  const tx = (await database()).transaction("vaults", "readwrite");
-  const vault = (await tx.store.get(id)) as LocalVault | undefined;
+  const tx = (await database()).transaction(["vaults", "unlocks"], "readwrite");
+  const vault = (await tx.objectStore("vaults").get(id)) as LocalVault | undefined;
   if (!vault) {
     await tx.done;
     throw Error("Local profile not found.");
   }
   if (vault.removedAt === undefined)
-    await tx.store.put({
+    await tx.objectStore("vaults").put({
       ...vault,
       removedAt: Date.now(),
+      unlock: undefined,
       revision: (vault.revision ?? 0) + 1,
     });
+  await tx.objectStore("unlocks").delete(id);
   await tx.done;
   changed(id);
 }
@@ -135,30 +55,6 @@ export async function createVault(
   return { vault, key };
 }
 
-async function decryptVault<T>(vault: LocalVault, password: string) {
-  try {
-    const key = await derive(password, vault.salt);
-    const bytes = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: vault.iv as Uint8Array<ArrayBuffer>,
-        additionalData: new TextEncoder().encode(vault.id),
-      },
-      key,
-      vault.ciphertext,
-    );
-    return {
-      vault,
-      key,
-      data: JSON.parse(new TextDecoder().decode(bytes)) as T,
-    };
-  } catch {
-    throw Error(
-      "The local profile could not be unlocked. Check the passphrase.",
-    );
-  }
-}
-
 export async function unlockVault<T>(id: string, password: string) {
   const vault = (await (await database()).get("vaults", id)) as
     LocalVault | undefined;
@@ -180,8 +76,8 @@ export async function restoreVault<T>(
     throw Error("This profile is not available for restoration.");
   const result = await decryptVault<T>(vault, password);
   signal?.throwIfAborted();
-  const tx = connection.transaction("vaults", "readwrite");
-  const stored = (await tx.store.get(id)) as LocalVault | undefined;
+  const tx = connection.transaction(["vaults", "unlocks"], "readwrite");
+  const stored = (await tx.objectStore("vaults").get(id)) as LocalVault | undefined;
   if (
     signal?.aborted ||
     !stored ||
@@ -199,27 +95,15 @@ export async function restoreVault<T>(
   const restored: LocalVault = {
     ...stored,
     removedAt: undefined,
+    unlock: undefined,
     revision: (stored.revision ?? 0) + 1,
     updatedAt: Date.now(),
   };
-  await tx.store.put(restored);
+  await tx.objectStore("vaults").put(restored);
+  await tx.objectStore("unlocks").delete(id);
   await tx.done;
   changed(id);
   return { ...result, vault: restored };
-}
-
-export async function assertVaultRevision(vault: LocalVault, revision: number) {
-  const stored = (await (await database()).get("vaults", vault.id)) as
-    LocalVault | undefined;
-  if (
-    !stored ||
-    stored.removedAt !== undefined ||
-    (stored.revision ?? 0) !== revision
-  )
-    throw new LocalExecutionError(
-      "PROFILE_CHANGED",
-      "This profile changed in another window or was removed. Unlock it again before using module access.",
-    );
 }
 
 export async function commitVault(
