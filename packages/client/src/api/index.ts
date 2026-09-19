@@ -122,6 +122,16 @@ interface SessionState {
   lastInvalidUser?: string;
   listeners: Set<(event: IdentityInvalidation) => Promise<void>>;
 }
+export interface ClientAccess {
+  before(
+    request: OperationRequest,
+    userId?: string,
+  ): Promise<(() => Promise<void>) | undefined>;
+  identity(identity: {
+    user: { id: string };
+    csrfToken?: string;
+  }): Promise<void>;
+}
 export class SuiteClient {
   private session: SessionState = {
     generation: 0,
@@ -184,7 +194,7 @@ export class SuiteClient {
     return this.session.userId === userId;
   }
   forUser(userId: string): SuiteClient {
-    const client = new SuiteClient(this.transport);
+    const client = new SuiteClient(this.transport, this.access);
     client.session = this.session;
     client.expectedUserId = userId;
     return client;
@@ -195,7 +205,10 @@ export class SuiteClient {
       if (id === workspaceId) controller.abort();
   }
   private transport: Transport;
-  constructor(transport?: Transport) {
+  constructor(
+    transport?: Transport,
+    private access?: ClientAccess,
+  ) {
     this.transport = transport ?? httpTransport("", () => this.session.csrf);
   }
   module<const M extends ModuleDefinition>(definition: M, workspaceId: string) {
@@ -207,7 +220,7 @@ export class SuiteClient {
     request: OperationRequest & { operation: K },
     options?: { signal?: AbortSignal },
   ): Promise<Result<K>> {
-    const expected = this.expectedUserId;
+    const expected = this.expectedUserId ?? request.expectedUserId;
     if (expected && this.session.userId && expected !== this.session.userId)
       throw new ApiError(
         401,
@@ -234,10 +247,18 @@ export class SuiteClient {
         ? AbortSignal.any([controller.signal, options.signal])
         : controller.signal;
       signal.throwIfAborted();
+      const finishAccess = this.access
+        ? await this.access.before(
+            expected ? { ...request, expectedUserId: expected } : request,
+            expected ?? this.session.userId,
+          )
+        : undefined;
+      signal.throwIfAborted();
       result = await this.transport(
         expected ? { ...request, expectedUserId: expected } : request,
         signal,
       );
+      if (finishAccess) await finishAccess();
       signal.throwIfAborted();
     } finally {
       this.reads.delete(controller);
@@ -318,6 +339,21 @@ export class SuiteClient {
         "PROFILE_CHANGED",
         "A newer identity observation superseded this reply.",
       );
+    if (request.operation === "me" && !expected && this.access) {
+      await this.access.identity(
+        result.body as { user: { id: string }; csrfToken?: string },
+      );
+      if (
+        meSequence !== this.session.meSequence ||
+        this.session.userId !==
+          (result.body as { user: { id: string } }).user.id
+      )
+        throw new ApiError(
+          401,
+          "PROFILE_CHANGED",
+          "A newer identity observation superseded this reply.",
+        );
+    }
     return result.body as Result<K>;
   }
 }

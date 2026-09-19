@@ -43,14 +43,20 @@ export function Tooltip({
   );
 }
 
-export function FeedbackProvider({ children }: { children: ReactNode }) {
+export function FeedbackProvider({
+  children,
+  label = "Notifications",
+}: {
+  children: ReactNode;
+  label?: string;
+}) {
   const container = useContext(ControlPortalContext);
   return (
     <BaseTooltip.Provider delay={450}>
       <Toast.Provider timeout={5000} limit={3}>
         {children}
         <Toast.Portal container={container ?? undefined}>
-          <Toast.Viewport className="toast-viewport">
+          <Toast.Viewport className="toast-viewport" aria-label={label}>
             <ToastList />
           </Toast.Viewport>
         </Toast.Portal>

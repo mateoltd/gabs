@@ -1,6 +1,9 @@
 import { openDB, type DBSchema } from "idb";
 import { SuiteClient } from "../api";
-import { BrowserProfileLock } from "../identity/browser-profile-lock";
+import {
+  BrowserProfileLock,
+  type BrowserRecoveryChallenge,
+} from "../identity/browser-profile-lock";
 export type { BrowserRecoveryChallenge } from "../identity/browser-profile-lock";
 
 interface LockDatabase extends DBSchema {
@@ -45,4 +48,57 @@ export function createBrowserProfileLock() {
       (await database).close();
     },
   };
+}
+
+let shared: ReturnType<typeof createBrowserProfileLock> | undefined;
+/** One coordinator per browser document; native clients retain their host-owned policy. */
+export const getBrowserProfileLock = () =>
+  (shared ??= createBrowserProfileLock()).lock;
+
+const recoveryKey = "suite-browser-profile-recovery";
+interface PendingRecovery {
+  id: string;
+  challenge: BrowserRecoveryChallenge;
+}
+export function browserProfileRecovery(): PendingRecovery | undefined {
+  const raw = sessionStorage.getItem(recoveryKey);
+  if (!raw) return;
+  try {
+    const value = JSON.parse(raw) as PendingRecovery;
+    if (
+      typeof value.id === "string" &&
+      typeof value.challenge?.account === "string" &&
+      typeof value.challenge.snapshot === "string" &&
+      Number.isSafeInteger(value.challenge.startedAt)
+    )
+      return value;
+  } catch {
+    /* Invalid local intent never grants access. */
+  }
+  sessionStorage.removeItem(recoveryKey);
+}
+export async function beginBrowserProfileRecovery() {
+  const challenge = await getBrowserProfileLock().beginRecovery();
+  sessionStorage.setItem(
+    recoveryKey,
+    JSON.stringify({
+      id: crypto.randomUUID(),
+      challenge,
+    } satisfies PendingRecovery),
+  );
+}
+export async function completeBrowserProfileRecovery(
+  beforeUnlock?: (account: string) => Promise<void>,
+) {
+  const pending = browserProfileRecovery();
+  if (!pending) throw Error("Start profile recovery again.");
+  await getBrowserProfileLock().completeRecovery(
+    pending.challenge,
+    beforeUnlock,
+  );
+  if (browserProfileRecovery()?.id === pending.id)
+    sessionStorage.removeItem(recoveryKey);
+}
+export function cancelBrowserProfileRecovery() {
+  sessionStorage.removeItem(recoveryKey);
 }

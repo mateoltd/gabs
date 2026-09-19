@@ -268,3 +268,57 @@ it.each(["refresh", "lock"] as const)(
     expect((await f.lock.profileLockStatus()).locked).toBe(action === "lock");
   },
 );
+
+it("keeps recovery locked when credential adoption fails or a lock interrupts it", async () => {
+  const f = fixture();
+  await f.lock.activate(account);
+  await f.lock.configureProfileLock(pin, false);
+  await f.lock.lockProfile();
+  const challenge = await f.lock.beginRecovery();
+  f.signIn();
+  await expect(
+    f.lock.completeRecovery(challenge, async () => {
+      throw Error("Session expired");
+    }),
+  ).rejects.toThrow("Session expired");
+  expect(await f.lock.profileLockStatus()).toMatchObject({
+    locked: true,
+    canRecover: false,
+  });
+  await expect(
+    f.lock.completeRecovery(challenge, () => f.lock.lockProfile()),
+  ).rejects.toMatchObject({ status: 423 });
+  expect(await f.lock.profileLockStatus()).toMatchObject({
+    locked: true,
+    canRecover: false,
+  });
+});
+
+it("does not grant an older recovery after a new sign-in intent starts", async () => {
+  const f = fixture(),
+    entered = deferred(),
+    finish = deferred();
+  await f.lock.activate(account);
+  await f.lock.configureProfileLock(pin, false);
+  await f.lock.lockProfile();
+  const challenge = await f.lock.beginRecovery();
+  f.signIn();
+  let requests = 0;
+  f.host.recovery = async () => {
+    if (++requests === 1) {
+      entered.resolve();
+      await finish.promise;
+    }
+    return f.proof();
+  };
+  const recovering = f.lock.completeRecovery(challenge);
+  const rejected = expect(recovering).rejects.toMatchObject({ status: 423 });
+  await entered.promise;
+  await f.lock.beginRecovery();
+  finish.resolve();
+  await rejected;
+  expect(await f.lock.profileLockStatus()).toMatchObject({
+    locked: true,
+    canRecover: false,
+  });
+});

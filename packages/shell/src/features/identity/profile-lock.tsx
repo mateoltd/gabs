@@ -19,13 +19,19 @@ import {
   Checkbox,
 } from "@suite/ui-web";
 import { Login } from "./login";
+import { beginBrowserProfileRecovery } from "@suite/client/browser-profile-lock";
+import {
+  profileLock,
+  profileLockReady,
+  finishBrowserProfileRecovery,
+} from "../../app/runtime";
 import { LocalWorkspace } from "../modules/local/workspace";
 import { BrandIcon } from "../../app/brand";
 
 const LockContext = createContext<ProfileLockStatus | undefined>(undefined);
 export const useProfileLock = () => useContext(LockContext);
-export function NativeProfileGate({ children }: { children: ReactNode }) {
-  const native = window.suiteDesktop;
+export function ProfileGate({ children }: { children: ReactNode }) {
+  const capability = profileLock;
   const [status, setStatus] = useState<ProfileLockStatus>();
   const [error, setError] = useState<unknown>();
   const [recover, setRecover] = useState(false);
@@ -38,30 +44,39 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
   const unlockAttempt = useRef(0);
   const received = useRef<ProfileLockStatus | undefined>(undefined);
   useEffect(() => {
-    if (!native) return;
     let active = true;
     const apply = (next: ProfileLockStatus) => {
       if (!active) return;
       const previous = received.current;
       if (previous && next.revision < previous.revision) return;
-      if (previous?.userId && previous.userId !== next.userId) qc.clear();
+      if (
+        window.suiteDesktop &&
+        previous?.userId &&
+        previous.userId !== next.userId
+      )
+        qc.clear();
       received.current = next;
       setStatus(next);
     };
-    const stop = native.onProfileLock(apply);
-    void native.profileLockStatus().then(apply).catch(setError);
+    const stop = capability.onProfileLock(apply);
+    void profileLockReady
+      .then(async (recoveryError) => {
+        apply(await capability.profileLockStatus());
+        if (recoveryError) setError(recoveryError);
+      })
+      .catch(setError);
     return () => {
       active = false;
       stop();
     };
-  }, [native, qc]);
+  }, [capability, qc]);
   useEffect(() => {
     if (!status) return;
     unlockAttempt.current++;
     setBusy(false);
     setPin("");
-    setError(undefined);
     if (!status.locked) {
+      setError(undefined);
       setOpened(true);
       setRecover(false);
       setPersonal(false);
@@ -76,14 +91,16 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
     window.addEventListener("suite-local-mode", enter);
     return () => window.removeEventListener("suite-local-mode", enter);
   }, [status?.locked]);
-  if (!native) return children;
   async function unlock(method: "pin" | "biometric") {
-    if (busy || !native) return;
+    if (busy) return;
     const attempt = ++unlockAttempt.current;
     setBusy(true);
     setError(undefined);
     try {
-      await native.unlockProfile(method, method === "pin" ? pin : undefined);
+      await capability.unlockProfile(
+        method,
+        method === "pin" ? pin : undefined,
+      );
     } catch (error) {
       if (attempt === unlockAttempt.current) setError(error);
     } finally {
@@ -97,7 +114,11 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
     <LockContext.Provider value={status}>
       {opened && (
         <PreservedSurface
-          key={status?.userId ?? "signed-out"}
+          key={
+            window.suiteDesktop
+              ? (status?.userId ?? "signed-out")
+              : "browser-session"
+          }
           visible={!!status && !status.locked}
         >
           {children}
@@ -118,7 +139,14 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
           </FeedbackProvider>
         ) : recover ? (
           <FeedbackProvider>
-            <Login />
+            <Login
+              beforeSignIn={
+                window.suiteDesktop ? undefined : beginBrowserProfileRecovery
+              }
+              onSignedIn={
+                window.suiteDesktop ? undefined : finishBrowserProfileRecovery
+              }
+            />
           </FeedbackProvider>
         ) : (
           <main className="local-workspace">
@@ -181,8 +209,9 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
               </form>
               {!status.available && (
                 <p>
-                  Protected storage is unavailable. Unlock the operating
-                  system’s protected storage or sign in online.
+                  {window.suiteDesktop
+                    ? "Protected storage is unavailable. Unlock the operating system’s protected storage or sign in online."
+                    : "Browser storage is unavailable. Restore access to this browser’s storage before continuing."}
                 </p>
               )}
               <div className="actions">
@@ -205,7 +234,7 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
 
 export function ProfileLockSettings() {
   const status = useContext(LockContext);
-  const native = window.suiteDesktop;
+  const capability = profileLock;
   const [pin, setPin] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [previous, setPrevious] = useState("");
@@ -227,7 +256,7 @@ export function ProfileLockSettings() {
     );
     return () => window.clearTimeout(timer);
   }, [status?.recoveryExpiresAt, status?.userId]);
-  if (!native || !status?.userId) return null;
+  if (!status?.userId) return null;
   async function run(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -247,13 +276,14 @@ export function ProfileLockSettings() {
     <section className="panel">
       <h2>Device unlock</h2>
       <p>
-        Protect this saved online profile on this desktop. A device PIN does not
+        Protect this saved online profile on this device. A device PIN does not
         replace online authentication or extend offline access.
       </p>
       {!status.available && (
         <p role="status">
-          Protected storage is unavailable. Unlock it before changing device
-          unlock settings.
+          {window.suiteDesktop
+            ? "Protected storage is unavailable. Unlock it before changing device unlock settings."
+            : "Browser storage is unavailable. Restore it before changing device unlock settings."}
         </p>
       )}
       <ErrorMessage error={error} />
@@ -266,7 +296,7 @@ export function ProfileLockSettings() {
             return;
           }
           void run(() =>
-            native!.configureProfileLock(pin, biometric, previous),
+            capability.configureProfileLock(pin, biometric, previous),
           );
         }}
       >
@@ -323,9 +353,9 @@ export function ProfileLockSettings() {
             />{" "}
             Use Touch ID to unlock this profile
           </label>
-        ) : (
+        ) : window.suiteDesktop ? (
           <p>Touch ID is unavailable on this device. Use a device PIN.</p>
-        )}
+        ) : null}
         <div className="actions">
           <Button type="submit" disabled={busy || !status.available}>
             {status.enabled ? "Update device unlock" : "Enable device unlock"}
@@ -335,7 +365,7 @@ export function ProfileLockSettings() {
               <Button
                 type="button"
                 disabled={busy}
-                onClick={() => void run(() => native!.lockProfile())}
+                onClick={() => void run(() => capability.lockProfile())}
               >
                 Lock profile
               </Button>
@@ -343,7 +373,7 @@ export function ProfileLockSettings() {
                 type="button"
                 disabled={busy || !status.available}
                 onClick={() =>
-                  void run(() => native!.removeProfileLock(previous))
+                  void run(() => capability.removeProfileLock(previous))
                 }
               >
                 Remove device PIN
@@ -363,7 +393,7 @@ export function ProfileLockSettings() {
             <Button
               disabled={busy || !status.available}
               onClick={() =>
-                void run(() => native!.removeProfileLock(undefined, true))
+                void run(() => capability.removeProfileLock(undefined, true))
               }
             >
               Reset forgotten device PIN

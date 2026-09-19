@@ -18,6 +18,7 @@ import {
 } from "../offline/storage-retention";
 import type { Platform, Scope, CacheKey, RememberedIdentity } from "../index";
 import { CorporateCapabilityLeases } from "../identity/capability-leases";
+import { getBrowserProfileLock } from "./browser-profile-lock";
 const db = () =>
   openDB("suite-offline-v1", 1, {
     upgrade(db) {
@@ -67,7 +68,7 @@ export function subscribeBrowserAccount(
   };
   return () => channel.close();
 }
-export const browserPlatform: Platform = {
+const storedPlatform: Platform = {
   kind: "web",
   accountRevision: async (userId) =>
     (await (await db()).get("records", `${userId}/account-revision`)) ??
@@ -174,6 +175,35 @@ export const browserPlatform: Platform = {
       new Notification(title, { body: message });
   },
 };
+export const browserPlatform: Platform = {
+  ...storedPlatform,
+  rememberIdentity: (identity) =>
+    identity
+      ? getBrowserProfileLock().withAccess(identity.userId, () =>
+          storedPlatform.rememberIdentity(identity),
+        )
+      : storedPlatform.rememberIdentity(undefined),
+  load: <T>(scope: Scope, kind: CacheKey) =>
+    getBrowserProfileLock().withAccess(scope.userId, () =>
+      storedPlatform.load<T>(scope, kind),
+    ),
+  save: (scope, kind, value) =>
+    getBrowserProfileLock().withAccess(scope.userId, () =>
+      storedPlatform.save(scope, kind, value),
+    ),
+  pruneModuleArtifacts: (scope, keep) =>
+    getBrowserProfileLock().withAccess(scope.userId, () =>
+      storedPlatform.pruneModuleArtifacts(scope, keep),
+    ),
+  purgeWorkspace: (scope) =>
+    getBrowserProfileLock().withAccess(scope.userId, () =>
+      storedPlatform.purgeWorkspace(scope),
+    ),
+  purgeUser: (userId) =>
+    getBrowserProfileLock().withAccess(userId, () =>
+      storedPlatform.purgeUser(userId),
+    ),
+};
 export function getPlatform(): Platform {
   const native = window.suiteDesktop;
   if (!native) return browserPlatform;
@@ -244,7 +274,9 @@ export async function downloadCorporateExport(options: {
   );
   if (file.filename !== metadata.filename)
     throw Error("The export identity changed while saving.");
-  await browserPlatform.saveFile(file.filename, file.content);
+  await getBrowserProfileLock().withAccess(options.scope.userId, () =>
+    browserPlatform.saveFile(file.filename, file.content),
+  );
   return { status: "offered" as const };
 }
 
@@ -416,8 +448,10 @@ export async function exportRecoveryInput(options: {
     contracts,
   );
   check();
-  await browserPlatform.saveFile(
-    `${input.kind === "module-work-recovery" ? "saved-work" : "module-input"}-${crypto.randomUUID()}.json`,
-    JSON.stringify(input, null, 2),
+  await getBrowserProfileLock().withAccess(input.userId, () =>
+    browserPlatform.saveFile(
+      `${input.kind === "module-work-recovery" ? "saved-work" : "module-input"}-${crypto.randomUUID()}.json`,
+      JSON.stringify(input, null, 2),
+    ),
   );
 }

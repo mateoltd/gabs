@@ -7,6 +7,7 @@ import {
   type HostCapabilityCall,
 } from "@suite/module-sdk/host-capabilities";
 import { browserPlatform } from "./browser";
+import { getBrowserProfileLock } from "./browser-profile-lock";
 import type { Scope } from "../index";
 export async function executeWebHostCapability(
   authorization: unknown,
@@ -26,14 +27,18 @@ export async function executeWebHostCapability(
   assertSchema(hostCapabilitySchemas[kind].input, call.input);
   if (kind === "files.export") {
     const input = call.input as { filename: string; content: string };
-    await browserPlatform.saveFile(input.filename, input.content);
+    await getBrowserProfileLock().withAccess(scope.userId, () =>
+      browserPlatform.saveFile(input.filename, input.content),
+    );
     return { status: "offered" };
   }
   if (kind === "notifications.show") {
     const input = call.input as { title: string; message: string };
     if (!("Notification" in window) || Notification.permission !== "granted")
       return { requested: false };
-    await browserPlatform.notify(input.title, input.message);
+    await getBrowserProfileLock().withAccess(scope.userId, () =>
+      browserPlatform.notify(input.title, input.message),
+    );
     return { requested: true };
   }
   throw new HostCapabilityError(

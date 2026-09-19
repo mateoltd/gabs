@@ -29,6 +29,24 @@ export function beginProfileSignIn(profileId?: string) {
 export function finishProfileSignIn(attempt: ProfileSignIn) {
   if (profileSignIn()?.token === attempt.token) sessionStorage.removeItem(key);
 }
+/** Reject a provider account mismatch before the host changes its active surface. */
+export async function validateProfileSignIn(
+  client: SuiteClient,
+  identity: { user: { id: string }; csrfToken?: string },
+  attempt = profileSignIn(),
+) {
+  if (!attempt?.profileId || identity.user.id === attempt.profileId) return;
+  const record = await rememberSignOut(identity.user.id, identity.csrfToken);
+  await terminateSession(client, identity.user.id, !window.suiteDesktop);
+  if (window.suiteDesktop) await window.suiteDesktop.logout();
+  acknowledgeSignOut(record);
+  finishProfileSignIn(attempt);
+  throw new ApiError(
+    401,
+    "PROFILE_MISMATCH",
+    "The provider signed in a different account. Choose your saved profile and try again.",
+  );
+}
 
 const chooserKey = "suite-profile-chooser";
 export function requestProfileChooser() {
@@ -39,3 +57,9 @@ export function takeProfileChooser() {
   sessionStorage.removeItem(chooserKey);
   return open;
 }
+import { ApiError, type SuiteClient } from "@suite/client/api";
+import {
+  rememberSignOut,
+  terminateSession,
+  acknowledgeSignOut,
+} from "./signout";

@@ -1,9 +1,10 @@
-import { NativeProfileGate } from "../features/identity/profile-lock";
+import { ProfileGate } from "../features/identity/profile-lock";
 import { BackgroundPrivacy } from "../features/identity/background-privacy";
 import { rememberOnlineProfile } from "@suite/client/online-profile-store";
 import {
   profileSignIn,
   finishProfileSignIn,
+  validateProfileSignIn,
 } from "../features/identity/profile-signin";
 import { type RememberedIdentity } from "@suite/client";
 import {
@@ -109,18 +110,7 @@ function Session() {
           "A newer sign-in superseded this request.",
           "AbortError",
         );
-      if (attempt?.profileId && result.user.id !== attempt.profileId) {
-        const record = await rememberSignOut(result.user.id, result.csrfToken);
-        await terminateSession(client, result.user.id, !window.suiteDesktop);
-        if (window.suiteDesktop) await window.suiteDesktop.logout();
-        acknowledgeSignOut(record);
-        finishProfileSignIn(attempt);
-        throw new ApiError(
-          401,
-          "PROFILE_MISMATCH",
-          "The provider signed in a different account. Choose your saved profile and try again.",
-        );
-      }
+      await validateProfileSignIn(client, result, attempt);
       await reconcileSignOut(client, result);
       await rememberAuthenticatedSession(result, signal);
       await navigator.locks.request("suite-remembered-identity", async () => {
@@ -353,7 +343,7 @@ function Session() {
         />
       </main>
     );
-  return (
+  const workspace = (
     <Workspace
       key={user.id + selected}
       user={user}
@@ -366,6 +356,13 @@ function Session() {
       invitations={me.data?.invitations ?? []}
     />
   );
+  return window.suiteDesktop ? (
+    workspace
+  ) : (
+    <FeedbackProvider key={user.id} label="Workspace notifications">
+      {workspace}
+    </FeedbackProvider>
+  );
 }
 export function App({ composition }: { composition: ShellComposition }) {
   const Router = window.suiteDesktop ? HashRouter : BrowserRouter;
@@ -375,11 +372,11 @@ export function App({ composition }: { composition: ShellComposition }) {
       <link rel="icon" type="image/png" href={brandIconUrl} />
       <ShellCompositionProvider value={composition}>
         <Router>
-          <NativeProfileGate>
+          <ProfileGate>
             <FeedbackProvider>
               <Session />
             </FeedbackProvider>
-          </NativeProfileGate>
+          </ProfileGate>
         </Router>
       </ShellCompositionProvider>
     </QueryClientProvider>

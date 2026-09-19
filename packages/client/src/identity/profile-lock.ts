@@ -1,4 +1,4 @@
-/** Portable state exposed by a native profile-lock adapter. */
+/** Portable state exposed by a profile-lock adapter. */
 export interface ProfileLockStatus {
   revision: number;
   userId?: string;
@@ -13,7 +13,7 @@ export interface ProfileLockStatus {
   error?: string;
 }
 
-/** Renderer-facing contract; native policy and credential work remains in the host. */
+/** Shared UI contract; each platform adapter owns persistence and credential handling. */
 export interface ProfileLockBridge {
   profileLockStatus(): Promise<ProfileLockStatus>;
   onProfileLock(callback: (status: ProfileLockStatus) => void): () => void;

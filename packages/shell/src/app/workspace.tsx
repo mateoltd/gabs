@@ -84,7 +84,12 @@ import {
 import { useShellComposition } from "./composition";
 import { FeatureBoundary } from "./feature-boundary";
 import { MotionRoutes, RouteRedirect } from "./routes";
-import { client as sessionClient, platform } from "./runtime";
+import {
+  client as sessionClient,
+  platform,
+  profileLock as profileLockCapability,
+  browserProfileLock,
+} from "./runtime";
 import { AppUpdate } from "./update";
 import {
   useLocalNetwork,
@@ -612,7 +617,13 @@ export function Workspace({
     if (previous)
       for (const n of inbox.data)
         if (!n.read && !previous.has(n.id))
-          void platform.notify(n.title, n.message).catch(() => undefined);
+          void (
+            browserProfileLock
+              ? browserProfileLock.withAccess(user.id, () =>
+                  platform.notify(n.title, n.message),
+                )
+              : platform.notify(n.title, n.message)
+          ).catch(() => undefined);
   }, [inbox.data]);
   useEffect(() => {
     const appearance = catalog.data?.settings.find(
@@ -1090,8 +1101,8 @@ export function Workspace({
                       {
                         label: "Lock profile",
                         onSelect: () => {
-                          void window
-                            .suiteDesktop!.lockProfile()
+                          void profileLockCapability
+                            .lockProfile()
                             .catch(setError);
                         },
                       },

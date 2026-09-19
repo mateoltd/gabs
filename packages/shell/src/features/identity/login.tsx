@@ -15,7 +15,15 @@ import {
   finishProfileSignIn,
   type ProfileSignIn,
 } from "./profile-signin";
-export function Login({ failure }: { failure?: unknown }) {
+export function Login({
+  failure,
+  beforeSignIn,
+  onSignedIn,
+}: {
+  failure?: unknown;
+  beforeSignIn?(): Promise<void>;
+  onSignedIn?(): Promise<void>;
+}) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"development" | "oidc" | "unconfigured">();
   const [account, setAccount] = useState("owner@demo.local");
@@ -57,6 +65,7 @@ export function Login({ failure }: { failure?: unknown }) {
     let attempt: ProfileSignIn | undefined;
     try {
       await navigator.locks.request(sessionTransitionLock, async () => {
+        await beforeSignIn?.();
         attempt = beginProfileSignIn(profileId);
         if (window.suiteDesktop) await window.suiteDesktop.login(options);
         else if (mode === "development") {
@@ -74,6 +83,7 @@ export function Login({ failure }: { failure?: unknown }) {
           return;
         }
         localStorage.removeItem("suite-logout-pending");
+        await onSignedIn?.();
       });
       if (redirecting) return;
       await queryClient.invalidateQueries({ queryKey: ["me"] });

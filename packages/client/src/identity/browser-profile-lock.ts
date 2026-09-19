@@ -131,6 +131,38 @@ export class BrowserProfileLock implements ProfileLockBridge {
   private recoverySession?: string;
   private listeners = new Set<(status: ProfileLockStatus) => void>();
   constructor(private host: BrowserLockStorage) {}
+  currentAccount() {
+    return this.account;
+  }
+  /** Even an identity-control response must not outlive a local lock or account change. */
+  fence() {
+    const generation = this.generation;
+    return async () => {
+      if (generation !== this.generation) throw new BrowserProfileLocked();
+    };
+  }
+  /** Serialize short local effects with cross-tab policy changes. Never hold this across network calls. */
+  async withAccess<T>(account: string, task: () => Promise<T>): Promise<T> {
+    const generation = this.generation;
+    return this.host.exclusive(account, async () => {
+      this.current(account, generation);
+      let value: BrowserLockRecord;
+      try {
+        value = record(await this.host.read(account));
+      } catch (error) {
+        if (account === this.account && generation === this.generation)
+          this.fail(error);
+        throw new BrowserProfileLocked(unreadable().message);
+      }
+      this.current(account, generation);
+      this.apply(account, value);
+      this.current(account, generation);
+      this.requireGrant(value);
+      const result = await task();
+      this.current(account, generation);
+      return result;
+    });
+  }
   private now() {
     return this.host.now?.() ?? Date.now();
   }
@@ -422,6 +454,8 @@ export class BrowserProfileLock implements ProfileLockBridge {
   }
   /** Call before starting fresh authentication; persist this non-secret challenge through redirects. */
   async beginRecovery(): Promise<BrowserRecoveryChallenge> {
+    // A new sign-in intent supersedes any recovery still awaiting a response.
+    this.generation++;
     const account = this.requireAccount(),
       generation = this.generation,
       startedAt = this.now();
@@ -468,7 +502,10 @@ export class BrowserProfileLock implements ProfileLockBridge {
       throw Error("Sign in online again before recovering this profile.");
     return proof;
   }
-  async completeRecovery(challenge: BrowserRecoveryChallenge) {
+  async completeRecovery(
+    challenge: BrowserRecoveryChallenge,
+    beforeUnlock?: (account: string) => Promise<void>,
+  ) {
     const account = this.requireAccount(),
       generation = this.generation;
     if (
@@ -495,6 +532,9 @@ export class BrowserProfileLock implements ProfileLockBridge {
       Date.parse(proof.authenticatedAt) < challenge.startedAt
     )
       throw Error("Sign in again with this profile before recovering access.");
+    // Adopt fresh host credentials before publishing unlocked access.
+    // Recheck the durable policy after network work, outside the storage lock.
+    await beforeUnlock?.(account);
     await this.mutation(account, async () => {
       this.current(account, generation);
       const raw = await this.host.read(account);
