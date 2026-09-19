@@ -1,0 +1,28 @@
+.background-privacy {
+  display: none;
+}
+html[data-background-privacy] body > :not([data-background-cover]) {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: none !important;
+  animation: none !important;
+}
+html[data-background-privacy] .background-privacy {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+}
+.background-privacy p {
+  max-width: 32ch;
+  margin: 0;
+}

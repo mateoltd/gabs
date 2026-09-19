@@ -1,3 +1,4 @@
+import { BackgroundPrivacy } from "../features/identity/background-privacy";
 import { rememberOnlineProfile } from "@suite/client/online-profile-store";
 import {
   profileSignIn,
@@ -369,6 +370,7 @@ export function App({ composition }: { composition: ShellComposition }) {
   const Router = window.suiteDesktop ? HashRouter : BrowserRouter;
   return (
     <QueryClientProvider client={queryClient}>
+      <BackgroundPrivacy />
       <link rel="icon" type="image/png" href={brandIconUrl} />
       <ShellCompositionProvider value={composition}>
         <FeedbackProvider>

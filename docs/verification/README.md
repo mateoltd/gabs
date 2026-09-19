@@ -936,3 +936,7 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — architecture and saved online profile checkpoint
 
 Checkpoint `1522b55` preserves unfinished profile and collision work. The requested Sol xhigh delegation and parent review retained the existing ownership layout, corrected package-export pattern resolution, and completed scoped browser review of saved profiles. See [architecture review](architecture/README.md#saved-online-profile-checkpoint-review-19-september-2026) and [ID-01-SAVED evidence](online-profiles/README.md). Fourteen architecture fixtures plus four directory tests, strict environment checks, four fresh builds and all 688 unit/PostgreSQL tests passed. Browser and native acceptance limits are recorded in those reports; full parity and later UI refinement remain open.
+
+## 19 September 2026 — Background screen privacy
+
+[ID-01-PRIVACY](background-privacy/README.md) adds synchronous foreground/background concealment without unmounting corporate editors or discarding pending work. Final checks passed: strict type/environment and boundary/copy checks, four fresh builds, 688 unit/PostgreSQL tests, seven headless browser journeys and one hidden/minimized native journey. Five additional identity journeys passed before the final immediate-transition correction. Captures were visually inspected. The record explicitly leaves physical OS lifecycle and credential-based unlock acceptance open; controlled renderer signals do not establish those gates.
