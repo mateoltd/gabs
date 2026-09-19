@@ -1,3 +1,4 @@
+import { NativeProfileLock } from "./identity/profile-lock";
 import { NativeInputRecovery } from "./input-recovery";
 import { validateRecoveryInput } from "@suite/client/input-recovery";
 import { assertWorkspacePurgeable } from "@suite/client/storage-retention";
@@ -34,6 +35,8 @@ import {
   net,
   ipcMain,
   safeStorage,
+  systemPreferences,
+  powerMonitor,
   shell,
   dialog,
   Notification,
@@ -41,7 +44,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { readFile, writeFile, rename, mkdir, rm } from "node:fs/promises";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { resolve, sep, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { NativeCredentials } from "./identity/credentials";
@@ -139,6 +142,48 @@ const onlineProfiles = new OnlineProfileDirectory({
     const pending = profileWrites.catch(() => {}).then(run);
     profileWrites = pending;
     return pending;
+  },
+});
+const unlockKey = (account: string) =>
+  `profile-lock-${createHash("sha256")
+    .update(JSON.stringify([config.apiOrigin, account]))
+    .digest("hex")}`;
+const profileLock = new NativeProfileLock({
+  read: async (account) => {
+    const key = unlockKey(account);
+    if (!existsSync(resolve(root(), key + ".bin"))) return;
+    if (!secureAvailable())
+      throw Error(
+        "Protected storage is unavailable. Sign in online to recover access.",
+      );
+    return readSecure(key);
+  },
+  write: async (account, value) => {
+    if (!secureAvailable())
+      throw Error(
+        "Protected storage is unavailable. Device unlock was not changed.",
+      );
+    const key = unlockKey(account);
+    if (value === undefined)
+      await rm(resolve(root(), key + ".bin"), { force: true });
+    else if (!(await writeSecure(key, value)))
+      throw Error("Device unlock settings could not be saved.");
+  },
+  available: () => secureAvailable(),
+  biometricAvailable: () =>
+    process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+  biometric: () =>
+    systemPreferences.promptTouchID("unlock your Common profile"),
+  changed: (status) =>
+    win?.webContents.send("suite:profile-lock-changed", status),
+  onLock: () => {
+    moduleHosts.clear();
+    localDeviceHosts.clear();
+    nativeAuthority.clear();
+    inputRecovery.clear();
+    lanRecovery.invalidate();
+    lanPackages.invalidate();
+    void lan.stop().catch(() => {});
   },
 });
 protocol.registerSchemesAsPrivileged([
@@ -388,7 +433,7 @@ const authorityHost: ConstructorParameters<
 const nativeAuthority = new NativeCapabilityAuthority(authorityHost);
 const inputRecovery = new NativeInputRecovery(authorityHost);
 
-function sender(event: IpcMainInvokeEvent) {
+function sender(event: IpcMainInvokeEvent, allowLocked = false) {
   if (
     event.sender !== win?.webContents ||
     !event.senderFrame ||
@@ -396,6 +441,7 @@ function sender(event: IpcMainInvokeEvent) {
     !trustedSender(event.senderFrame.url)
   )
     throw Error("Untrusted sender");
+  if (!allowLocked) profileLock.assertUnlocked();
 }
 function cacheKey(scope: Scope, key: CacheKey) {
   validateScope(scope, userId);
@@ -426,23 +472,45 @@ async function client() {
 async function ensureToken() {
   if (!devAuth) await credentials.ensure();
 }
-async function execute(raw: OperationRequest, timeoutMs?: number) {
+async function execute(
+  raw: OperationRequest,
+  timeoutMs?: number,
+  authenticating = false,
+) {
   const actor = userId;
   const validated = validateOperation(raw);
+  const lockEpoch = profileLock.epoch;
+  const lockFailure = () => ({
+    status: 423,
+    body: {
+      code: "PROFILE_LOCKED",
+      message: "Unlock this profile to continue.",
+    },
+  });
+  if (
+    !authenticating &&
+    profileLock.locked &&
+    validated.operation !== "connection"
+  )
+    return lockFailure();
   const epoch = identityEpoch;
   const sequence =
     validated.operation === "me" ? ++identitySequence : undefined;
   const current = () =>
     validated.operation === "connection" ||
     (epoch === identityEpoch &&
+      (authenticating || lockEpoch === profileLock.epoch) &&
       (sequence === undefined || sequence === identitySequence));
-  const stale = () => ({
-    status: 401,
-    body: {
-      code: "PROFILE_CHANGED",
-      message: "The profile changed while this request was running.",
-    },
-  });
+  const stale = () =>
+    lockEpoch !== profileLock.epoch
+      ? lockFailure()
+      : {
+          status: 401,
+          body: {
+            code: "PROFILE_CHANGED",
+            message: "The profile changed while this request was running.",
+          },
+        };
   const request = {
     ...validated,
     expectedUserId:
@@ -550,6 +618,9 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     if (userId !== user.id) identityEpoch++;
     userId = user.id;
     onlineProfileUser = { id: user.id, name: user.name, email: user.email };
+    if (authenticating || profileLock.status().userId !== user.id)
+      await profileLock.activate(user.id, authenticating);
+    if (profileLock.locked && !authenticating) return lockFailure();
     csrfToken = body.csrfToken as string | undefined;
   }
   if (actor && actor === userId && secureAvailable()) {
@@ -629,7 +700,7 @@ async function login(options: LoginOptions, signal: AbortSignal) {
         throw Error(
           "The local API did not create a session. Try signing in again.",
         );
-      const me = await execute({ operation: "me" });
+      const me = await execute({ operation: "me" }, undefined, true);
       if (me.status === 200) ownedEpoch = identityEpoch;
       signal.throwIfAborted();
       if (me.status !== 200)
@@ -657,7 +728,7 @@ async function login(options: LoginOptions, signal: AbortSignal) {
         signal.throwIfAborted();
         await credentials.commit(tokens, epoch, "login", signal);
         signal.throwIfAborted();
-        const result = await execute({ operation: "me" });
+        const result = await execute({ operation: "me" }, undefined, true);
         if (result.status === 200) ownedEpoch = identityEpoch;
         signal.throwIfAborted();
         if (result.status !== 200)
@@ -668,9 +739,9 @@ async function login(options: LoginOptions, signal: AbortSignal) {
         signal.throwIfAborted();
         const url = oidc.buildAuthorizationUrl(c, {
           ...(options.loginHint ? { login_hint: options.loginHint } : {}),
-          ...(options.screenHint
-            ? { screen_hint: options.screenHint, prompt: "login" }
-            : {}),
+          ...(options.screenHint ? { screen_hint: options.screenHint } : {}),
+          prompt: "login",
+          max_age: "0",
           redirect_uri: config.callback,
           scope: "openid profile email offline_access",
           audience: config.audience,
@@ -703,9 +774,49 @@ async function login(options: LoginOptions, signal: AbortSignal) {
   }
 }
 
+async function profileAction(run: () => void | Promise<void>) {
+  try {
+    await run();
+    return { ok: true, result: undefined };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Device unlock could not be changed.",
+    };
+  }
+}
 function handlers() {
-  ipcMain.handle("suite:online-profiles", (event) => {
+  ipcMain.handle("suite:profile-lock-status", (event) => {
+    sender(event, true);
+    return profileLock.status();
+  });
+  ipcMain.handle("suite:profile-lock", (event) => {
+    sender(event, true);
+    return profileAction(() => profileLock.lock());
+  });
+  ipcMain.handle("suite:profile-unlock", (event, method, pin) => {
+    sender(event, true);
+    return profileAction(() => profileLock.unlock(method, pin));
+  });
+  ipcMain.handle(
+    "suite:profile-lock-configure",
+    (event, pin, biometric, previousPin) => {
+      sender(event);
+      return profileAction(() =>
+        profileLock.configure(pin, biometric, previousPin),
+      );
+    },
+  );
+  ipcMain.handle("suite:profile-lock-remove", (event, pin, recover = false) => {
     sender(event);
+    if (typeof recover !== "boolean") throw Error("Invalid recovery request.");
+    return profileAction(() => profileLock.remove(pin, recover));
+  });
+  ipcMain.handle("suite:online-profiles", (event) => {
+    sender(event, true);
     return onlineProfiles.list();
   });
   ipcMain.handle("suite:online-profile-remember", (event, explicit) => {
@@ -725,10 +836,10 @@ function handlers() {
     );
   });
   ipcMain.handle("suite:online-profile-forget", (event, id) => {
-    sender(event);
+    sender(event, true);
     return onlineProfiles.forget(id);
   });
-  localDeviceHosts.register(sender);
+  localDeviceHosts.register((event) => sender(event, true));
   ipcMain.handle(
     "suite:module-offline",
     async (
@@ -935,17 +1046,17 @@ function handlers() {
     },
   );
   ipcMain.handle("suite:auth-status", (event) => {
-    sender(event);
+    sender(event, true);
     return {
       mode: devAuth ? "development" : oidcConfigured ? "oidc" : "unconfigured",
     };
   });
   ipcMain.handle("suite:execute", (event, request) => {
-    sender(event);
+    sender(event, true);
     return execute(request);
   });
   ipcMain.handle("suite:login", (event, value) => {
-    sender(event);
+    sender(event, true);
     const options = validateLogin(value);
     return signInRequests.run(async (signal) => {
       await logoutPromise;
@@ -959,10 +1070,11 @@ function handlers() {
       await lan.stop();
       signal.throwIfAborted();
       await login(options, signal);
+      signal.throwIfAborted();
     });
   });
   ipcMain.handle("suite:logout", (event) => {
-    sender(event);
+    sender(event, true);
     return (logoutPromise ??= (async () => {
       identityEpoch++;
       signInRequests.cancel();
@@ -971,6 +1083,7 @@ function handlers() {
       const token = credentials.refreshToken,
         previousUser = userId;
       userId = undefined;
+      await profileLock.activate();
       onlineProfileUser = undefined;
       devCookie = csrfToken = undefined;
       // Clear memory immediately; serialize durable deletion behind earlier writes.
@@ -1013,9 +1126,14 @@ function handlers() {
       (await readSecure<string>(`${accountId}/account-revision`)) ?? "initial"
     );
   });
-  ipcMain.handle("suite:cache-read", (event, scope, key) => {
+  ipcMain.handle("suite:cache-read", async (event, scope, key) => {
     sender(event);
-    return readSecure(cacheKey(scope, key));
+    const epoch = profileLock.epoch;
+    const value = await readSecure(cacheKey(scope, key));
+    profileLock.assertUnlocked();
+    if (epoch !== profileLock.epoch)
+      throw Error("The profile lock changed during this read.");
+    return value;
   });
   ipcMain.handle("suite:cache-write", async (event, scope, key, value) => {
     sender(event);
@@ -1178,7 +1296,7 @@ function handlers() {
       new Notification({ title, body: message }).show();
   });
   ipcMain.handle("suite:security-status", (event) => {
-    sender(event);
+    sender(event, true);
     return {
       persistentStorage: secureAvailable(),
       updateRequired,
@@ -1211,6 +1329,9 @@ async function start() {
   } catch {
     /* A locked keychain leaves sign-in available without leaking plaintext. */
   }
+  await profileLock.activate(userId);
+  powerMonitor.on("lock-screen", () => profileLock.lock());
+  powerMonitor.on("suspend", () => profileLock.lock());
   const assetRoot = resolve(__dirname, "renderer");
   protocol.handle("suite", (request) => {
     const url = new URL(request.url);

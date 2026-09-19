@@ -17,6 +17,23 @@ async function recover<Result>(
   return response.result;
 }
 const bridge: DesktopBridge = {
+  profileLockStatus: () => ipcRenderer.invoke("suite:profile-lock-status"),
+  onProfileLock: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      status: import("@suite/client").ProfileLockStatus,
+    ) => callback(status);
+    ipcRenderer.on("suite:profile-lock-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("suite:profile-lock-changed", listener);
+    };
+  },
+  lockProfile: () => recover("suite:profile-lock"),
+  unlockProfile: (method, pin) => recover("suite:profile-unlock", method, pin),
+  configureProfileLock: (pin, biometric, previousPin) =>
+    recover("suite:profile-lock-configure", pin, biometric, previousPin),
+  removeProfileLock: (pin, recovery) =>
+    recover("suite:profile-lock-remove", pin, recovery),
   onlineProfiles: () => ipcRenderer.invoke("suite:online-profiles"),
   rememberOnlineProfile: (explicit) =>
     ipcRenderer.invoke("suite:online-profile-remember", explicit),

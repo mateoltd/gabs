@@ -1,3 +1,4 @@
+import { ProfileLockSettings } from "../identity/profile-lock";
 import { type FeatureProps } from "@suite/client";
 import {
   Button,
@@ -194,6 +195,7 @@ export function Settings(
             </form>
           </section>
         )}
+        <ProfileLockSettings />
         {props.children}
       </div>
       <ErrorMessage error={error} />

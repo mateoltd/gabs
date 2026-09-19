@@ -107,7 +107,30 @@ export interface LanReceipt {
   dependencies?: number;
   message: string;
 }
+export interface ProfileLockStatus {
+  revision: number;
+  userId?: string;
+  enabled: boolean;
+  locked: boolean;
+  available: boolean;
+  biometric: boolean;
+  biometricAvailable: boolean;
+  retryAt: number;
+  canRecover: boolean;
+  error?: string;
+}
 export interface DesktopBridge {
+  profileLockStatus(): Promise<ProfileLockStatus>;
+  onProfileLock(callback: (status: ProfileLockStatus) => void): () => void;
+  lockProfile(): Promise<void>;
+  unlockProfile(method: "pin" | "biometric", pin?: string): Promise<void>;
+  configureProfileLock(
+    pin: string,
+    biometric: boolean,
+    previousPin?: string,
+  ): Promise<void>;
+  removeProfileLock(pin?: string, recover?: boolean): Promise<void>;
+
   onlineProfiles(): Promise<
     import("./identity/online-profiles").OnlineProfile[]
   >;

@@ -1,3 +1,4 @@
+import { NativeProfileGate } from "../features/identity/profile-lock";
 import { BackgroundPrivacy } from "../features/identity/background-privacy";
 import { rememberOnlineProfile } from "@suite/client/online-profile-store";
 import {
@@ -375,7 +376,9 @@ export function App({ composition }: { composition: ShellComposition }) {
       <ShellCompositionProvider value={composition}>
         <FeedbackProvider>
           <Router>
-            <Session />
+            <NativeProfileGate>
+              <Session />
+            </NativeProfileGate>
           </Router>
         </FeedbackProvider>
       </ShellCompositionProvider>

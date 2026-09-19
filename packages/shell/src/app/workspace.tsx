@@ -1,3 +1,4 @@
+import { useProfileLock } from "../features/identity/profile-lock";
 import { requestProfileChooser } from "../features/identity/profile-signin";
 import { useWorkspaceSynchronization } from "../features/modules/synchronization";
 import {
@@ -144,6 +145,7 @@ export function Workspace({
     expiresAt: string;
   }[];
 }) {
+  const profileLock = useProfileLock();
   const { catalog: moduleCatalog } = useShellComposition();
   const scope = useMemo(
     () => ({ userId: user.id, workspaceId }),
@@ -1083,6 +1085,18 @@ export function Workspace({
                   onSelect: () =>
                     window.dispatchEvent(new Event("suite-local-mode")),
                 },
+                ...(profileLock?.enabled
+                  ? [
+                      {
+                        label: "Lock profile",
+                        onSelect: () => {
+                          void window
+                            .suiteDesktop!.lockProfile()
+                            .catch(setError);
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   label: "Switch profile",
                   onSelect: () => {
