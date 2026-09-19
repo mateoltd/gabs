@@ -106,8 +106,11 @@ export function simulateQueuedOperations(
         if (
           old &&
           (canonical(old.call) !== canonical(call) ||
-            canonical(old.requestedDependencies ?? old.dependencies) !==
-              canonical(dependencies))
+            canonical(
+              old.captureDependencies ??
+                old.requestedDependencies ??
+                old.dependencies,
+            ) !== canonical(dependencies))
         )
           throw Error(
             "This retry identity already belongs to different input or prerequisites.",
@@ -119,6 +122,7 @@ export function simulateQueuedOperations(
             call: structuredClone(call),
             dependencies: [...dependencies],
             requestedDependencies: [...dependencies],
+            captureDependencies: [...dependencies],
             state: "pending",
             delivery: "unsubmitted",
             createdAt: Date.now(),
@@ -157,7 +161,11 @@ export function simulateQueuedOperations(
       if (
         old &&
         (canonical(old.call) !== canonical(call) ||
-          canonical(old.dependencies) !== canonical(dependencies))
+          canonical(
+            old.captureDependencies ??
+              old.requestedDependencies ??
+              old.dependencies,
+          ) !== canonical(dependencies))
       )
         throw Error(
           "This retry identity already belongs to different input or prerequisites.",
@@ -168,6 +176,8 @@ export function simulateQueuedOperations(
           ...identity,
           call: structuredClone(call),
           dependencies: [...dependencies],
+          requestedDependencies: [...dependencies],
+          captureDependencies: [...dependencies],
           state: "pending",
           delivery: "unsubmitted",
           createdAt: Date.now(),

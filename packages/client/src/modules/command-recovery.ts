@@ -369,6 +369,9 @@ export async function replaceCommand(
           requestedDependencies: [
             ...(current.requestedDependencies ?? current.dependencies),
           ],
+          captureDependencies: [
+            ...(current.requestedDependencies ?? current.dependencies),
+          ],
           state: "pending",
           delivery: "unsubmitted",
           createdAt: Date.now(),
@@ -382,10 +385,13 @@ export async function replaceCommand(
             dependency === id ? key : dependency,
           );
           // Explicit prerequisites change only after the user's approval; original request bodies stay exact.
-          if (child.requestedDependencies)
+          if (child.requestedDependencies) {
+            // Upgrade known legacy capture metadata before changing execution order.
+            child.captureDependencies ??= [...child.requestedDependencies];
             child.requestedDependencies = child.requestedDependencies.map(
               (dependency) => (dependency === id ? key : dependency),
             );
+          }
         }
         (stored.responseContracts ??= {})[responseContractKey(call)] =
           nextContract.contract;

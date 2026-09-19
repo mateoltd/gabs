@@ -10,6 +10,7 @@ export default defineView(module, function Notes({ client, hasPermission }) {
   const [saved, setSaved] = useState("");
   const [parent, setParent] = useState<string>();
   const [recordId, setRecordId] = useState("");
+  const [retryKey, setRetryKey] = useState("");
   const [base, setBase] = useState<ResourceRecord<{ name: string }>>();
   const load = async () => {
     setError(undefined);
@@ -36,6 +37,45 @@ export default defineView(module, function Notes({ client, hasPermission }) {
       setSaved(`Saved provisionally: ${receipt.key}`);
       setName("");
       setBase(undefined);
+    } catch (error) {
+      setError(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const retry = async (action: "create" | "update" | "archive") => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const queue = client.resource("notes").queue;
+      const saved = await queue.get(action, retryKey);
+      if (!saved) throw Error("Saved write not found");
+      const options = { key: saved.key, dependencies: parent ? [parent] : [] };
+      const receipt =
+        saved.action === "create"
+          ? await queue.create(saved.input.data, {
+              ...options,
+              id: saved.input.id,
+            })
+          : saved.action === "update"
+            ? await queue.update(
+                saved.input.id,
+                saved.input.data,
+                {
+                  id: saved.input.id,
+                  data: saved.input.baseData,
+                  version: saved.input.baseVersion,
+                  archived: false,
+                  updatedAt: new Date().toISOString(),
+                },
+                options,
+              )
+            : await queue.archive(
+                saved.input.id,
+                saved.input.baseVersion,
+                options,
+              );
+      setSaved(`Retried ${receipt.state}: ${receipt.key}`);
     } catch (error) {
       setError(error);
     } finally {
@@ -132,6 +172,23 @@ export default defineView(module, function Notes({ client, hasPermission }) {
         >
           Save pending archive
         </Button>
+        <Field label="Saved write identity">
+          <Input
+            value={retryKey}
+            onChange={(event) => setRetryKey(event.target.value)}
+          />
+        </Field>
+        {(["create", "update", "archive"] as const).map((action) => (
+          <Button
+            key={action}
+            disabled={
+              busy || !retryKey || !hasPermission("custom-notes.notes.write")
+            }
+            onClick={() => void retry(action)}
+          >
+            Retry saved {action}
+          </Button>
+        ))}
         <ErrorMessage error={error} />
         <p role="status">{saved}</p>
       </form>

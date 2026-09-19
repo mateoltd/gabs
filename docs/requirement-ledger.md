@@ -249,3 +249,8 @@ CORE-003 and UI-003 gain [scoped OFF-01-RESOURCE evidence](verification/resource
 ## Removed-field review recovery, 19 September 2026
 
 CORE-003 and UI-003 gain [scoped OFF-01-SCHEMA evidence](verification/command-schema-review/README.md): a saved review can recover across three signed releases after top-level and nested fields are removed. Values remain visible until explicitly removed from a draft; unsaved changes do not overwrite the complete saved review. Real offline restart, current-schema validation, original/current permissions, authoritative replacement and duplicate-free dependent continuation pass in web/native clients. Final evidence includes 554 unit/PostgreSQL tests, four fresh builds, eight headless browser and three hidden native journeys. This does not close broader schema/legacy, descendant, profile or release requirements.
+
+
+## Reviewed resource descendants, 19 September 2026
+
+CORE-003 and UI-003 gain [scoped OFF-01-DESC evidence](verification/resource-descendants/README.md): original SDK capture retries survive explicit dependency remapping; command-to-update/archive reviews preserve target/base/input through offline restart, current-authority checks and selected-only duplicate-free effects. Recovery exports retain the optional original capture list separately from current prerequisites. Final evidence includes all 563 tests passing across two runs after an integration setup connection timeout, strict checks/four fresh builds, five browser and five hidden native journeys. Submitted-child outcome recovery, missing legacy history, profile and broader release gates remain required; no original requirement is broadly closed.

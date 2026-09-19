@@ -1,3 +1,5 @@
+import { createModuleClient } from "@suite/module-sdk";
+import { createModuleQueue } from "../../packages/client/src/modules/queued";
 import { afterEach, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import {
@@ -744,4 +746,142 @@ it("recovers retired unsubmitted, rejected and conflicting commands without repl
       else expect(stored.journal[0].settlement).toBe("cancelled");
     }
   }
+});
+
+it.each(
+  (["operation", "create", "update", "archive"] as const).flatMap((action) =>
+    [false, true].map((legacy) => ({ action, legacy })),
+  ),
+)(
+  "preserves original SDK capture after $action continuation (legacy metadata: $legacy)",
+  async ({ action, legacy }) => {
+    const { platform, read } = await setup();
+    const client = createModuleClient(
+      module,
+      async () => {
+        throw Error("Queued capture must not execute transport");
+      },
+      createModuleQueue(platform, scope, yes),
+    );
+    const options = { key: "continued-child", dependencies: ["original-key"] };
+    const id = crypto.randomUUID();
+    const data = { name: "Original child input" };
+    const base = {
+      id,
+      data: { name: "Original server record" },
+      version: 1,
+      archived: false,
+      updatedAt: new Date().toISOString(),
+    };
+    const capture = () =>
+      action === "operation"
+        ? client.queue("capture", data, options)
+        : action === "create"
+          ? client.resource("notes").queue.create(data, { ...options, id })
+          : action === "update"
+            ? client.resource("notes").queue.update(id, data, base, options)
+            : client.resource("notes").queue.archive(id, base.version, options);
+    const first = await capture();
+    if (legacy)
+      await changeModuleStorage(platform, scope, (state) => {
+        for (const entry of state.journal) delete entry.captureDependencies;
+      });
+    const choice = commandContinuation((await read()).journal[1]);
+    const review = await saveCommandReview(
+      platform,
+      scope,
+      "original-key",
+      module.version,
+      { name: "Corrected parent" },
+      0,
+      yes,
+      [choice],
+    );
+    await replaceCommand(
+      platform,
+      scope,
+      "original-key",
+      review.revision,
+      "replacement-key",
+      [choice],
+      async () => ({ key: "original-key", outcome: "cancelled" }),
+      yes,
+    );
+    const beforeRetry = await read();
+    expect(beforeRetry.journal[1].dependencies).toEqual(["replacement-key"]);
+    const retry = await capture();
+    expect(retry.key).toBe(first.key);
+    expect(retry.input).toEqual(first.input);
+    expect(retry.dependencies).toEqual(["replacement-key"]);
+    expect(retry.state).toBe("pending");
+    expect((await read()).journal).toEqual(beforeRetry.journal);
+    options.dependencies = ["replacement-key"];
+    await expect(capture()).rejects.toThrow("different prerequisites");
+  },
+);
+
+it("uses approved execution prerequisites when a continued child later needs its own correction", async () => {
+  const { platform, read } = await setup();
+  await enqueue(platform, scope, makeCall("child-key", { name: "Child" }), [
+    "original-key",
+  ]);
+  const choice = commandContinuation((await read()).journal[1]);
+  const parentReview = await saveCommandReview(
+    platform,
+    scope,
+    "original-key",
+    module.version,
+    { name: "Corrected parent" },
+    0,
+    yes,
+    [choice],
+  );
+  await replaceCommand(
+    platform,
+    scope,
+    "original-key",
+    parentReview.revision,
+    "replacement-key",
+    [choice],
+    async () => ({ key: "original-key", outcome: "cancelled" }),
+    yes,
+  );
+  await changeModuleStorage(platform, scope, (state) => {
+    const child = state.journal.find((entry) => entry.id === "child-key")!;
+    child.state = "rejected";
+    delete child.delivery;
+  });
+  const childReview = await saveCommandReview(
+    platform,
+    scope,
+    "child-key",
+    module.version,
+    { name: "Corrected child" },
+    0,
+    yes,
+  );
+  await replaceCommand(
+    platform,
+    scope,
+    "child-key",
+    childReview.revision,
+    "corrected-child-key",
+    [],
+    async () => ({ key: "child-key", outcome: "cancelled" }),
+    yes,
+  );
+  const state = await read();
+  expect(state.journal.find((entry) => entry.id === "child-key")).toMatchObject(
+    {
+      captureDependencies: ["original-key"],
+      requestedDependencies: ["replacement-key"],
+    },
+  );
+  expect(
+    state.journal.find((entry) => entry.id === "corrected-child-key"),
+  ).toMatchObject({
+    dependencies: ["replacement-key"],
+    requestedDependencies: ["replacement-key"],
+    captureDependencies: ["replacement-key"],
+  });
 });

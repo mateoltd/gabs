@@ -319,9 +319,14 @@ export async function enqueue(
     if (
       existing &&
       (call.action === "operation" ||
-        existing.requestedDependencies !== undefined) &&
+        existing.requestedDependencies !== undefined ||
+        existing.captureDependencies !== undefined) &&
       canonical(
-        [...(existing.requestedDependencies ?? existing.dependencies)].sort(),
+        [
+          ...(existing.captureDependencies ??
+            existing.requestedDependencies ??
+            existing.dependencies),
+        ].sort(),
       ) !== canonical([...dependencies].sort())
     )
       throw new JournalConflictError(
@@ -397,6 +402,7 @@ export async function enqueue(
           dependencies,
         );
       }
+      entry.captureDependencies = [...dependencies];
       entry.requestedDependencies = [...dependencies];
       const schema =
         call.action === "operation"

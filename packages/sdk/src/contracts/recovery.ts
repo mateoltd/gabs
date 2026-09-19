@@ -37,6 +37,7 @@ const journal = Type.Object(
     call,
     dependencies: Type.Array(id),
     requestedDependencies: Type.Optional(Type.Array(id)),
+    captureDependencies: Type.Optional(Type.Array(id)),
     state: Type.Union([
       Type.Literal("pending"),
       Type.Literal("accepted"),

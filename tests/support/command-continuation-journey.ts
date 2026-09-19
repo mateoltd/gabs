@@ -1,3 +1,7 @@
+import {
+  captureResourceDependents,
+  verifyResourceDependents,
+} from "./resource-descendants";
 import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -12,13 +16,24 @@ export async function commandContinuationJourney(
 ) {
   let page = options.page;
   const { api, pool } = options;
-  const resourceChild = options.mode === "command-resource";
-  const childChoice = resourceChild
-    ? "Continue Create Notes"
+  const resourceAction =
+    options.mode === "command-resource"
+      ? "create"
+      : options.mode === "command-update"
+        ? "update"
+        : options.mode === "command-archive"
+          ? "archive"
+          : undefined;
+  const resourceChild = resourceAction !== undefined;
+  const childChoice = resourceAction
+    ? `Continue ${resourceAction[0].toUpperCase()}${resourceAction.slice(1)} Notes`
     : "Continue Save note";
-  const evidence = resourceChild
-    ? "resource-continuation"
-    : "command-continuation";
+  const evidence =
+    resourceAction === "update" || resourceAction === "archive"
+      ? `resource-${resourceAction}-continuation`
+      : resourceChild
+        ? "resource-continuation"
+        : "command-continuation";
   const modules = ["parent", "child"].map((name) => ({
     id: `continue-${name}-${randomUUID().slice(0, 8)}`,
     name: `Continuation ${name} notes`,
@@ -128,8 +143,23 @@ export async function commandContinuationJourney(
   await page
     .getByLabel("Prerequisite identity", { exact: true })
     .fill(original.id);
-  await capture("Selected foreign command", true);
-  await capture("Unselected foreign command", true);
+  const existingTargets =
+    resourceAction === "update" || resourceAction === "archive"
+      ? await captureResourceDependents({
+          options,
+          page,
+          scope,
+          headers,
+          moduleId: modules[1].id,
+          action: resourceAction,
+          parent: original.id,
+          open: () => open(1),
+        })
+      : undefined;
+  if (!existingTargets) {
+    await capture("Selected foreign command", true);
+    await capture("Unselected foreign command", true);
+  }
   const before = (await stored()).journal;
   expect(before.slice(1).map((entry) => entry.dependencies)).toEqual([
     [original.id],
@@ -194,10 +224,20 @@ export async function commandContinuationJourney(
     .locator("details.resource-value > summary");
   for (const summary of await dependentInput.all()) await summary.click();
   await expect(
-    review.getByText("Selected foreign command", { exact: true }),
+    review.getByText(
+      resourceAction === "archive"
+        ? existingTargets![0]
+        : "Selected foreign command",
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(
-    review.getByText("Unselected foreign command", { exact: true }),
+    review.getByText(
+      resourceAction === "archive"
+        ? existingTargets![1]
+        : "Unselected foreign command",
+      { exact: true },
+    ),
   ).toBeVisible();
   await mkdir(`docs/verification/${evidence}`, { recursive: true });
   const screenshot = (name: string) =>
@@ -360,26 +400,71 @@ export async function commandContinuationJourney(
     );
     expect(repeat.ok(), await repeat.text()).toBe(true);
   }
-  expect(
-    (
-      await pool.query(
-        "select module_id, data->>'name' as name from suite.module_records where workspace_id=$1 order by name",
-        [scope.workspaceId],
-      )
-    ).rows,
-  ).toEqual([
-    { module_id: modules[0].id, name: "Corrected parent" },
-    { module_id: modules[1].id, name: "Selected foreign command" },
-  ]);
-  expect(
-    (
-      await pool.query(
-        "select count(*)::int n from suite.audit where workspace_id=$1 and action=any($2::text[])",
-        [scope.workspaceId, modules.map((m) => `${m.id}.notes.create`)],
-      )
-    ).rows[0].n,
-  ).toBe(2);
+  if (existingTargets) {
+    await verifyResourceDependents({
+      options,
+      scope,
+      parentModuleId: modules[0].id,
+      moduleId: modules[1].id,
+      action: resourceAction as "update" | "archive",
+      targets: existingTargets,
+    });
+  } else {
+    expect(
+      (
+        await pool.query(
+          "select module_id, data->>'name' as name from suite.module_records where workspace_id=$1 order by name",
+          [scope.workspaceId],
+        )
+      ).rows,
+    ).toEqual([
+      { module_id: modules[0].id, name: "Corrected parent" },
+      { module_id: modules[1].id, name: "Selected foreign command" },
+    ]);
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from suite.audit where workspace_id=$1 and action=any($2::text[])",
+          [scope.workspaceId, modules.map((m) => `${m.id}.notes.create`)],
+        )
+      ).rows[0].n,
+    ).toBe(2);
+  }
   await expect(review).toHaveCount(0);
+  if (resourceAction) {
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "Saved commands", exact: true }),
+    ).toHaveCount(0);
+    await open(1);
+    await page
+      .getByLabel("Prerequisite identity", { exact: true })
+      .fill(original.id);
+    await page
+      .getByLabel("Saved write identity", { exact: true })
+      .fill(final[1].id);
+    await page
+      .getByRole("button", {
+        name: `Retry saved ${resourceAction}`,
+        exact: true,
+      })
+      .click();
+    await expect(page.getByRole("status")).toHaveText(
+      `Retried accepted: ${final[1].id}`,
+    );
+    expect((await stored()).journal).toEqual(final);
+    if (existingTargets) {
+      await verifyResourceDependents({
+        options,
+        scope,
+        parentModuleId: modules[0].id,
+        moduleId: modules[1].id,
+        action: resourceAction as "update" | "archive",
+        targets: existingTargets,
+      });
+      return;
+    }
+  }
   if (resourceChild) {
     await page.keyboard.press("Escape");
     await expect(

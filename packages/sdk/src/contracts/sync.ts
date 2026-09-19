@@ -6,8 +6,10 @@ export interface JournalEntry {
   workspaceId: string;
   call: ModuleCall;
   dependencies: string[];
-  /** Explicit command prerequisites before schema-derived resource references are added. */
+  /** Current explicit execution prerequisites, remapped only by an approved continuation. */
   requestedDependencies?: string[];
+  /** Immutable SDK capture prerequisites for exact retries; absent on older journals. */
+  captureDependencies?: string[];
   state: JournalState;
   createdAt: number;
   attempts: number;

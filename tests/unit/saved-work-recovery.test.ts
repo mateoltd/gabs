@@ -28,6 +28,8 @@ function fixture() {
     ...scope,
     call,
     dependencies: ["prior-request"],
+    requestedDependencies: ["prior-request"],
+    captureDependencies: ["captured-parent"],
     state: "conflict" as const,
     attempts: 1,
     createdAt: 42,

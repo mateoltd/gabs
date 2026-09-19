@@ -805,3 +805,10 @@ Checkpoint `c43e7de` precedes the requested Sol xhigh [architecture review](arch
 [OFF-01-SCHEMA acceptance](command-schema-review/README.md) closes a reproduced form dead end: obsolete saved fields were retained but hidden, preventing a valid correction. Shared forms now display those fields with explicit draft-only removal, including nested objects. Original requests and unsaved prior reviews remain intact; explicit saves and final corrections survive real browser/native restarts and retain server authority.
 
 Final-source verification passed 554 unit/PostgreSQL tests across 89 files, strict checks/four fresh builds, eight headless browser and three hidden/minimized native journeys. Scoped Axe/overflow checks passed and eight final captures were inspected. The record distinguishes the initial rollout-version harness correction from the failing product baseline. Broader OFF-01, profile/provider/release and final UI gates remain open.
+
+
+## Reviewed resource descendants, 19 September 2026
+
+[OFF-01-DESC acceptance](resource-descendants/README.md) fixes original SDK capture retries after reviewed dependency remapping and verifies real command-to-update/archive continuation. Original input, target, base version and identity remain exact; only selected unsent work resumes, under current authority. Recovery exports preserve both original capture and current scheduling prerequisites. Missing legacy history is not reconstructed.
+
+Strict checks and four fresh builds passed. The full regression passed 543 tests; a setup connection timeout prevented 20 integration tests from running, and the exact integration suite subsequently passed all 20. All 563 distinct tests across 89 files therefore passed across two runs. Final acceptance passed five headless browser and five hidden/minimized Electron journeys, with scoped Axe/overflow assertions and eight inspected captures. Production styling is unchanged. Real submitted-child outcomes, other OFF-01 work, profile/provider/release gates and final UI refinement remain open.
