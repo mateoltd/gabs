@@ -213,7 +213,7 @@ export function Login({ failure }: { failure?: unknown }) {
                 Try again
               </Button>
             )}
-            <div className="login-local-access">
+            <div className="login-local-access form-stack">
               <SavedProfiles
                 busy={busy}
                 onSignIn={(profile) =>

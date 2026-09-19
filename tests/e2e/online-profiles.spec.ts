@@ -16,10 +16,12 @@ async function savedProfiles(page: Page) {
     name: "Saved online profiles",
     exact: true,
   });
-  if (!(await dialog.isVisible()))
-    await page
-      .getByRole("button", { name: "Saved online profiles", exact: true })
-      .click();
+  const trigger = page.getByRole("button", {
+    name: "Saved online profiles",
+    exact: true,
+  });
+  await expect(dialog.or(trigger).first()).toBeVisible();
+  if (!(await dialog.isVisible())) await trigger.click();
   await expect(
     dialog.getByRole("combobox", { name: "Saved account", exact: true }),
   ).toBeVisible();
@@ -38,7 +40,9 @@ test("saved accounts switch with fresh authentication, retain original work and 
   await context.setOffline(false);
   await page.reload();
   let dialog = await savedProfiles(page);
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
   await selectValue(page, "Local demonstration account", "sales@demo.local");
   await page
     .getByRole("button", { name: "Open workspace", exact: true })
@@ -79,6 +83,19 @@ test("saved accounts switch with fresh authentication, retain original work and 
     id: original.id,
     call: original.call,
   });
+  const fresh = await (await page.request.get("/api/v1/me")).json();
+  const result = await page.request.post(f.records, {
+    headers: {
+      origin: "http://localhost:4300",
+      "x-csrf-token": fresh.csrfToken,
+      "x-module-version": original.call.moduleVersion!,
+    },
+    data: { resource: "contacts", action: "list", input: {} },
+  });
+  expect(result.ok(), await result.text()).toBe(true);
+  expect((await result.json()).items).toMatchObject([
+    { version: 2, data: { phone: "Saved offline" } },
+  ]);
   await switchProfile(page);
   dialog = await savedProfiles(page);
   await selectValue(page, "Saved account", f.scope.userId);
@@ -102,7 +119,9 @@ test("saved accounts switch with fresh authentication, retain original work and 
     dialog.getByRole("combobox", { name: "Saved account", exact: true }),
   ).toContainText("Sam Rivera");
   expect((await f.stored()).state.journal[0].id).toBe(original.id);
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
   await selectValue(page, "Local demonstration account", "owner@demo.local");
   await page
     .getByRole("button", { name: "Open workspace", exact: true })

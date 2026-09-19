@@ -68,90 +68,95 @@ export function SavedProfiles({
         title="Saved online profiles"
         description="Choose an account to sign in and verify its current access."
       >
-        <ErrorMessage error={error} />
-        {!profiles ? (
-          <Loading />
-        ) : !profiles.length ? (
-          <p>
-            No online profiles are saved on this device yet. Sign in to save
-            one.
-          </p>
-        ) : (
-          <>
-            <Field label="Saved account">
-              <Select
-                value={selected}
-                disabled={busy || removing}
-                onValueChange={(value) => {
-                  setSelected(value);
-                  setConfirm(false);
-                  setError(undefined);
-                }}
-              >
-                {profiles.map((profile) => (
-                  <SelectOption key={profile.id} value={profile.id}>
-                    {profile.name}
-                    {profile.email ? ` (${profile.email})` : ""}
-                  </SelectOption>
-                ))}
-              </Select>
-            </Field>
-            {confirm ? (
-              <>
-                <p>
-                  Remove this saved sign-in? Its downloaded records and
-                  unfinished work stay on this device. Signing in again can
-                  recover them under current permissions.
-                </p>
-                <div className="actions">
-                  <Button disabled={removing} onClick={() => setConfirm(false)}>
-                    Keep profile
-                  </Button>
-                  <Button
-                    disabled={removing || !profile}
-                    onClick={async () => {
-                      if (!profile) return;
-                      setRemoving(true);
-                      setError(undefined);
-                      try {
-                        await forgetOnlineProfile(profile.id);
-                        const next = await listOnlineProfiles();
-                        setProfiles(next);
-                        setSelected(next[0]?.id ?? "");
-                        setConfirm(false);
-                      } catch (error) {
-                        setError(error);
-                      } finally {
-                        setRemoving(false);
-                      }
-                    }}
-                  >
-                    Remove saved sign-in
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <div className="actions">
-                <Button
-                  disabled={busy || !profile}
-                  onClick={async () => {
-                    if (!profile) return;
-                    setOpen(false);
-                    await onSignIn(profile);
+        <div className="form-stack">
+          <ErrorMessage error={error} />
+          {!profiles ? (
+            <Loading />
+          ) : !profiles.length ? (
+            <p>
+              No online profiles are saved on this device yet. Sign in to save
+              one.
+            </p>
+          ) : (
+            <>
+              <Field label="Saved account">
+                <Select
+                  value={selected}
+                  disabled={busy || removing}
+                  onValueChange={(value) => {
+                    setSelected(value);
+                    setConfirm(false);
+                    setError(undefined);
                   }}
                 >
-                  Continue with this account
-                </Button>
-                <Button
-                  disabled={busy || !profile}
-                  onClick={() => setConfirm(true)}
-                >
-                  Forget this profile
-                </Button>
-              </div>
-            )}
-          </>
-        )}
+                  {profiles.map((profile) => (
+                    <SelectOption key={profile.id} value={profile.id}>
+                      {profile.name}
+                      {profile.email ? ` (${profile.email})` : ""}
+                    </SelectOption>
+                  ))}
+                </Select>
+              </Field>
+              {confirm ? (
+                <>
+                  <p>
+                    Remove this saved sign-in? Its downloaded records and
+                    unfinished work stay on this device. Signing in again can
+                    recover them under current permissions.
+                  </p>
+                  <div className="actions">
+                    <Button
+                      disabled={removing}
+                      onClick={() => setConfirm(false)}
+                    >
+                      Keep profile
+                    </Button>
+                    <Button
+                      disabled={removing || !profile}
+                      onClick={async () => {
+                        if (!profile) return;
+                        setRemoving(true);
+                        setError(undefined);
+                        try {
+                          await forgetOnlineProfile(profile.id);
+                          const next = await listOnlineProfiles();
+                          setProfiles(next);
+                          setSelected(next[0]?.id ?? "");
+                          setConfirm(false);
+                        } catch (error) {
+                          setError(error);
+                        } finally {
+                          setRemoving(false);
+                        }
+                      }}
+                    >
+                      Remove saved sign-in
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="actions">
+                  <Button
+                    disabled={busy || !profile}
+                    onClick={async () => {
+                      if (!profile) return;
+                      setOpen(false);
+                      await onSignIn(profile);
+                    }}
+                  >
+                    Continue with this account
+                  </Button>
+                  <Button
+                    disabled={busy || !profile}
+                    onClick={() => setConfirm(true)}
+                  >
+                    Forget this profile
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </Modal>
     </>
   );

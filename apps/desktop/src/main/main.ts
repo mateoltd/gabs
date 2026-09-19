@@ -716,7 +716,13 @@ function handlers() {
       onlineProfileUser.id !== userId
     )
       throw Error("Sign in before saving this profile.");
-    return onlineProfiles.remember(onlineProfileUser, explicit);
+    const profile = onlineProfileUser;
+    const epoch = identityEpoch;
+    return onlineProfiles.remember(
+      profile,
+      explicit,
+      () => epoch === identityEpoch && profile.id === userId,
+    );
   });
   ipcMain.handle("suite:online-profile-forget", (event, id) => {
     sender(event);

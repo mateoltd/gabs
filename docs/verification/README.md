@@ -932,3 +932,7 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Native authentication ownership
 
 [OFF-03-CREDENTIALS](native-authentication/README.md) records 12 focused credential/sign-in/listener cases, full isolated regression and strict checks/four successful build tasks. The desktop bundle rebuilt; unchanged tasks used cache. These are production-logic and real-loopback tests with controlled provider/storage responses, not provider/Keychain acceptance. No UI source changed or browser/native window was opened.
+
+## 19 September 2026 — architecture and saved online profile checkpoint
+
+Checkpoint `1522b55` preserves unfinished profile and collision work. The requested Sol xhigh delegation and parent review retained the existing ownership layout, corrected package-export pattern resolution, and completed scoped browser review of saved profiles. See [architecture review](architecture/README.md#saved-online-profile-checkpoint-review-19-september-2026) and [ID-01-SAVED evidence](online-profiles/README.md). Fourteen architecture fixtures plus four directory tests, strict environment checks, four fresh builds and all 688 unit/PostgreSQL tests passed. Browser and native acceptance limits are recorded in those reports; full parity and later UI refinement remain open.

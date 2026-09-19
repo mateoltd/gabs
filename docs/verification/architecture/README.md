@@ -183,3 +183,22 @@ Changed-source formatting, the final fixture TypeScript check and diff checks pa
 Checkpoint `8602fbd0bf99c03cee8329eac697e43232aa5f2a` on `checkpoint/architecture-profile-review-d82129a` preserves the unfinished checkout without changing its index. The explicitly requested `gpt-5.6-sol` subagent at `xhigh` and parent review confirmed the existing package/subsystem layout; no repeat directory migration or public package rename was justified.
 
 The bounded correction makes session ownership explicit: encrypted storage and transactional revisions remain in the client identity layer; the shell owns the displayed session and closes late unlocks after navigation. Parent review additionally fenced an older unlock racing a newly restored profile. No style or signed release changed. [The profile recovery record](../profile-removal/README.md) contains the concrete findings, failing-before/passing-after regression, nine architecture fixtures, strict builds, full tests and real headless/hidden-native evidence. This does not accept the unrelated collision work or complete overall parity or final UI refinement.
+
+## Saved online profile checkpoint review, 19 September 2026
+
+Checkpoint `1522b55`, pushed with tag `checkpoint/architecture-review-2026-09-19`, preserves the unfinished profile and collision checkout. The explicitly requested `gpt-5.6-sol` subagent at `xhigh` audited the current physical architecture and implemented the scoped boundary-checker correction. Parent review inspected its diff and requested additional matching edge cases before validation.
+
+The existing `sdk`, `shell`, `client`, `server`, `ui/web` and `ui/tokens` paths already implement the intended responsibility-based organization. Profile metadata persistence belongs to the client identity layer; native protected adapters belong to Electron main; account-selection state and UI belong to the shell. No further directory move or public package rename was justified.
+
+The checker previously chose the first matching wildcard export in manifest order. It now selects the most-specific static prefix and then longest key, preserves exact and null exclusions, and rejects empty, overlapping or multiple-star captures. Standalone Node resolution probes confirmed the expected behavior. Five additional adversarial fixtures bring the architecture suite to 14 cases.
+
+Parent review also added the missing identity-generation check to native profile metadata writes. The checkpoint's new browser acceptance fixture now waits for either the automatic chooser or its trigger, uses the actual close-button name, and verifies the accepted contact's authoritative version. Screenshot inspection found touching sign-in links and cramped dialog controls; existing form-stack layout classes correct these without changing styles or the visual system. [Saved-profile evidence](../online-profiles/README.md) records the behavior and limits.
+
+Verification on the final source:
+
+- Focused architecture/profile-directory tests: 18 passed.
+- Strict root, browser, Node, preload and worker type checks; boundary/copy checks; all four application builds passed with no cached builds.
+- Isolated unit/PostgreSQL regression: 688 tests across 101 files passed; the disposable database was removed.
+- Browser acceptance: eight existing sign-out/profile-authority journeys passed; both new saved-profile journeys passed again on the final build with authoritative version-2 readback. Final 1440 × 1000 and 390 × 844 captures were visually inspected; no horizontal overflow. The initial new-fixture failures and their correction are recorded separately.
+
+Package identities, signed artifacts, API schemas, tokens and styles are unchanged. The checkpoint's unrelated collision source and captures are preserved. macOS still reports the screen locked; native/provider acceptance remains required, and no foreground desktop test or protected-storage bypass was attempted. This review does not complete ID-01, overall functionality parity or later UI refinement.
