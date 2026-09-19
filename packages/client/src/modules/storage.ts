@@ -211,7 +211,10 @@ export async function saveResourceDraft(
         throw new JournalConflictError(
           "This review no longer belongs to an editable pending change. Refresh pending changes.",
         );
-      if (canonical(review.createRecovery ?? []) !== canonical(entry.createRecovery ?? []))
+      if (
+        canonical(review.createRecovery ?? []) !==
+        canonical(entry.createRecovery ?? [])
+      )
         throw new JournalConflictError(
           "A prerequisite record changed. Reopen the current recovery details before saving this review.",
         );
@@ -391,17 +394,33 @@ export async function enqueue(
         "Wait for prerequisite changes before reviewing this saved edit.",
       );
     if (replaced?.createRecovery?.length) {
-      if (replaced.settlement !== "cancelled" ||
-          canonical(recovery?.createRecovery ?? []) !== canonical(replaced.createRecovery))
+      if (
+        replaced.settlement !== "cancelled" ||
+        canonical(recovery?.createRecovery ?? []) !==
+          canonical(replaced.createRecovery)
+      )
         throw new JournalConflictError(
           "A prerequisite record changed. Reopen and save the current review before submitting this change.",
         );
-      if (s.journal.some((child) =>
-        child.userId === scope.userId && child.workspaceId === scope.workspaceId &&
-        !child.supersededBy && child.state !== "accepted" && child.dependencies.includes(replaced.id) &&
-        !(child.delivery === "unsubmitted" && child.attempts === 0) &&
-        !(child.state === "conflict" && child.createRecovery?.length && child.settlement === "cancelled")))
-        throw new JournalConflictError("Recover dependent outcomes before replacing this saved change.");
+      if (
+        s.journal.some(
+          (child) =>
+            child.userId === scope.userId &&
+            child.workspaceId === scope.workspaceId &&
+            !child.supersededBy &&
+            child.state !== "accepted" &&
+            child.dependencies.includes(replaced.id) &&
+            !(child.delivery === "unsubmitted" && child.attempts === 0) &&
+            !(
+              child.state === "conflict" &&
+              child.createRecovery?.length &&
+              child.settlement === "cancelled"
+            ),
+        )
+      )
+        throw new JournalConflictError(
+          "Recover dependent outcomes before replacing this saved change.",
+        );
     }
     if (!s.journal.some((e) => e.id === entry.id)) {
       const { contract, module } = await responseContract(s, call);
@@ -465,7 +484,10 @@ export async function enqueue(
       } else removeResourceDraft(s, recovery.draftKey);
       if (recovery.supersedes)
         s.journal = s.journal.map((e) =>
-          e.userId !== scope.userId || e.workspaceId !== scope.workspaceId || e.state === "accepted" || e.supersededBy
+          e.userId !== scope.userId ||
+          e.workspaceId !== scope.workspaceId ||
+          e.state === "accepted" ||
+          e.supersededBy
             ? e
             : e.id === recovery.supersedes
               ? { ...e, supersededBy: entry.id }

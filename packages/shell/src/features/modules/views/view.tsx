@@ -7,6 +7,7 @@ import {
 } from "../recovery/continuation";
 import { replaceArchive } from "@suite/client/archive-recovery";
 import { ArchiveReview } from "./archive-review";
+import { CreateRecoveryNotice } from "./create-recovery-notice";
 import { synchronizeWorkspace } from "../synchronization/host";
 import { sendModuleCall } from "@suite/client/module-transport";
 import { exportRecoveryInput } from "@suite/client/browser";
@@ -651,6 +652,74 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         stored.drafts[key] = data;
         (stored.draftTargets ??= {})[key] = target;
       }
+      if (
+        review &&
+        entry &&
+        canonical(review.createRecovery ?? []) !==
+          canonical(entry.createRecovery ?? [])
+      ) {
+        if (
+          !online ||
+          entry.dependencies.some(
+            (id) =>
+              !stored.journal.some(
+                (candidate) =>
+                  candidate.id === id &&
+                  candidate.userId === scope.userId &&
+                  candidate.workspaceId === scope.workspaceId &&
+                  candidate.state === "accepted",
+              ),
+          )
+        )
+          throw Error(
+            "Connect after prerequisite changes are accepted to refresh this saved review.",
+          );
+        const command = entry.call.input as {
+          id?: string;
+          data?: Record<string, unknown>;
+          baseData?: Record<string, unknown>;
+          baseVersion?: number;
+        };
+        const target =
+          entry.call.action === "update"
+            ? ((await send({
+                moduleId: entry.call.moduleId,
+                moduleVersion: module.version,
+                resource: entry.call.resource,
+                action: "get",
+                input: {
+                  id: entry.recordRecovery?.targetId ?? command.id,
+                },
+              })) as ResourceRecord)
+            : null;
+        const comparison =
+          target && !target.archived
+            ? reviewFields(command.baseData, stored.drafts[key], target.data)
+            : undefined;
+        review = {
+          ...review,
+          createRecovery: entry.createRecovery
+            ? structuredClone(entry.createRecovery)
+            : undefined,
+          comparison: comparison?.review,
+          recoveryInput: target?.archived
+            ? {
+                moduleVersion: entry.call.moduleVersion ?? module.version,
+                baseVersion: command.baseVersion,
+                ...(entry.recordRecovery ? { recordId: command.id } : {}),
+              }
+            : undefined,
+        };
+        const refreshed = comparison?.data ?? stored.drafts[key];
+        await saveResourceDraft(platform, scope, moduleId, resource, {
+          data: refreshed,
+          target,
+          review,
+          moduleVersion: module.version,
+        });
+        stored.drafts[key] = refreshed;
+        (stored.draftTargets ??= {})[key] = target;
+      }
       draftGeneration.current = {
         key,
         value: stored.draftGenerations?.[key] ?? 0,
@@ -1015,6 +1084,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         await enqueue(platform, scope, call, [], {
           draftKey,
           supersedes: reviewId,
+          createRecovery: reviewSession?.createRecovery,
           generation:
             draftGeneration.current?.key === draftKey
               ? draftGeneration.current.value
@@ -1453,7 +1523,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       busy ||
                       entry.state === "pending" ||
                       !!(
-                        entry.recordRecovery &&
+                        (entry.recordRecovery ||
+                          entry.createRecovery?.length) &&
                         entry.dependencies.some(
                           (id) =>
                             !storage?.journal.some(
@@ -1506,6 +1577,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                             : undefined;
                         const session = {
                           entryId: entry.id,
+                          ...(entry.createRecovery
+                            ? {
+                                createRecovery: structuredClone(
+                                  entry.createRecovery,
+                                ),
+                              }
+                            : {}),
                           comparison: comparison?.review,
                           ...(current?.archived
                             ? {
@@ -1628,7 +1706,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               }
             }
           }}
-          submit={async (call) => {
+          submit={async (call, context) => {
             setBusy(true);
             try {
               await replaceArchive(
@@ -1638,6 +1716,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 call,
                 settlementTransport,
                 canRecoverCall,
+                context,
               );
               setArchiveReviewId(undefined);
               await synchronize();
@@ -1880,6 +1959,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               )}
             </section>
           )}
+          <CreateRecoveryNotice context={reviewSession?.createRecovery} />
           {reviewSession?.comparison && editing && (
             <ConflictReview
               review={reviewSession.comparison}

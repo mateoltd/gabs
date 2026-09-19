@@ -23,7 +23,7 @@ export interface JournalEntry {
   delivery?: "unsubmitted" | "uncertain";
   /** Local scheduling repair only; never part of the original server request. */
   orderingRecovery?: "outcome" | "waiting";
-  /** A never-submitted collision descendant awaiting explicit review against this target. */
+  /** An unsubmitted or server-cancelled collision descendant awaiting review against this target. */
   recordRecovery?: { targetId: string; destination: "separate" | "existing" };
   /** Original input is retained while replaced create references await explicit review. */
   createRecovery?: CreateRecovery[];

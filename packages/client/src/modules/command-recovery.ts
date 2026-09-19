@@ -209,7 +209,8 @@ export function commandDependents(
       entry.dependencies.includes(id) &&
       !entry.supersededBy &&
       (entry.state === "pending" ||
-        (entry.state === "conflict" && !!(entry.createRecovery?.length || entry.recordRecovery))) &&
+        (entry.state === "conflict" &&
+          !!(entry.createRecovery?.length || entry.recordRecovery))) &&
       ((entry.delivery === "unsubmitted" && entry.attempts === 0) ||
         (entry.state === "conflict" &&
           !!entry.createRecovery?.length &&

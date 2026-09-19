@@ -1,6 +1,6 @@
 # Submitted work after create collisions
 
-OFF-01-COLLISION-OUTCOME, 19 September 2026. The command-outcome milestone has scoped local acceptance. The tracker item remains active for cancelled resource descendants and wider mixed-graph acceptance.
+OFF-01-COLLISION-OUTCOME, 19 September 2026. The command-outcome milestone has scoped local acceptance. The tracker item remains active for broader cancelled resource and mixed-graph acceptance. The follow-up below adds cancelled-archive browser/native evidence.
 
 ## Behavior
 
@@ -39,3 +39,14 @@ Eight hidden/minimized, unfocused Electron journeys passed in `/tmp/gabs-collisi
 Review checked accepted branch traversal, malformed receipt rejection, original-contract retention and pruning, permanent cancellation before held continuation, unchanged request/capture identities, individual command-chain review and current authorization checks. Changed-source formatting and diff checks passed. Historical captures overwritten by the regressions were restored.
 
 Full parity, broader OFF-01 recovery, production release acceptance and the later UI-refinement goal remain open.
+
+
+## Cancelled resource review follow-up
+
+The [delegated architecture review](../architecture/README.md#resource-recovery-checkpoint-review-19-september-2026) completed the checkpoint's resource-review contract. Server-cancelled create/update/archive descendants retain their original requests and identifiers, reconnect prerequisites and remain held for explicit review. Review snapshots include the original/separate record context; stale snapshots cannot be saved or submitted. Resuming a changed context requires accepted prerequisites and a refreshed selected record/comparison while retaining saved user input. Portable draft exports retain their own review snapshot. Accepted child entries remain unchanged when a reviewed resource is replaced; unknown child outcomes block replacement.
+
+The new real browser/native archive journey obtains a permanent cancellation from the API, seeds only the corresponding legacy client delivery state, and then uses the normal UI for failed-parent replacement and explicit archive review. It covers separate-target selection, unchanged original archive input, offline process/page restart, a lost settlement reply, exact cancelled-key 409 responses, accepted-key replay, one archive audit entry, the unchanged existing corporate record and the visible archived separate record. It does not claim the current scheduler sends children behind a failed create, or that the seeded state tests the entire initial Settings settlement flow.
+
+Final verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict environment/boundary checks and four fresh builds. Seven distinct browser and seven hidden/minimized native collision journeys passed. The architecture record lists exact logs, corrected fixture failures and run ordering. Wide and narrow review dialogs passed scoped Axe/overflow checks. Six captures per client are retained in [archive-cancelled](archive-cancelled/), covering choices, review, accepted records and narrow navigation. Existing visual design is preserved; these checks do not establish full-product accessibility or final UI approval.
+
+Remaining acceptance: cancelled create/update in the real clients, repeated parent collisions while a resource review is saved/open, accepted resource effects in the real clients and wider mixed graphs. The additional resource correction/export checks are unit-level evidence. OFF-01-COLLISION-OUTCOME remains active.

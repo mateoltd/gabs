@@ -850,3 +850,10 @@ The requested Sol xhigh audit and independent parent review confirmed the existi
 ## Submitted collision commands, 19 September 2026
 
 [The outcome-recovery record](collision-outcomes/README.md) documents partial OFF-01-COLLISION-OUTCOME acceptance. Accepted branches remain unchanged, and cancelled custom commands require explicit review before a fresh request. Final verification passed 598 unit/PostgreSQL tests across 89 files, strict environment/boundary checks, four fresh builds, eight distinct headless browser and eight hidden/minimized native journeys. Twelve final screenshots were inspected. The record distinguishes corrected fixture failures, seeded legacy delivery metadata, real server outcomes and unit-only resource coverage. Cancelled resource continuation and broader mixed-resource acceptance remain open.
+
+
+## Resource recovery architecture review, 19 September 2026
+
+[The requested Sol xhigh audit and parent review](architecture/README.md#resource-recovery-checkpoint-review-19-september-2026) preserved checkpoint `2b282c1`, confirmed the existing physical package migration and corrected missing resource/archive review-context plumbing. The shared recovery notice stays in the shell; durable guards remain in the client; portable metadata stays in the SDK. No stylesheet changed.
+
+Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict environment/boundary checks, four fresh builds, seven distinct headless browser cases and seven hidden/minimized native cases. The linked record distinguishes the corrected screenshot-selector failure, the narrow archive recheck and inspected captures. [Cancelled archive acceptance](collision-outcomes/README.md#cancelled-resource-review-follow-up) extends OFF-01 without closing its create/update, repeated-collision review or wider mixed-graph gates. Full parity and final UI refinement remain unfinished.

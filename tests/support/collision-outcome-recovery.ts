@@ -41,49 +41,7 @@ export async function recoverCollisionCommandOutcome({
   saved.attempts = 1;
   // The current scheduler correctly holds this request behind the failed create.
   // Seed only old delivery metadata; never invent a server receipt or outcome.
-  await page.evaluate(
-    async ({ scope, stored, kind }) => {
-      await navigator.locks.request(
-        `suite-sync:${scope.userId}:${scope.workspaceId}`,
-        () =>
-          navigator.locks.request(
-            `suite-modules:${scope.userId}:${scope.workspaceId}`,
-            async () => {
-              if (kind === "native") {
-                await window.suiteDesktop!.cacheWrite(
-                  scope,
-                  "module-state",
-                  stored,
-                );
-                return;
-              }
-              const db = await new Promise<IDBDatabase>((resolve, reject) => {
-                const request = indexedDB.open("suite-offline-v1");
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-              });
-              try {
-                await new Promise<void>((resolve, reject) => {
-                  const transaction = db.transaction("records", "readwrite");
-                  transaction
-                    .objectStore("records")
-                    .put(
-                      stored,
-                      `${scope.userId}/${scope.workspaceId}/module-state`,
-                    );
-                  transaction.oncomplete = () => resolve();
-                  transaction.onerror = () => reject(transaction.error);
-                  transaction.onabort = () => reject(transaction.error);
-                });
-              } finally {
-                db.close();
-              }
-            },
-          ),
-      );
-    },
-    { scope, stored, kind: options.kind },
-  );
+  await writeLegacyCollisionState(options, page, scope, stored);
   page = await options.restartOffline();
   await options.reconnect();
   await page.getByRole("link", { name, exact: true }).click();
@@ -206,4 +164,56 @@ export async function recoverCollisionCommandOutcome({
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
   return page;
+}
+
+/** Seed legacy client state only; outcomes must come from the real server. */
+export async function writeLegacyCollisionState(
+  options: CommandCorrectionOptions,
+  page: Page,
+  scope: { userId: string; workspaceId: string },
+  stored: Awaited<ReturnType<CommandCorrectionOptions["storage"]>>,
+) {
+  await page.evaluate(
+    async ({ scope, stored, kind }) => {
+      await navigator.locks.request(
+        `suite-sync:${scope.userId}:${scope.workspaceId}`,
+        () =>
+          navigator.locks.request(
+            `suite-modules:${scope.userId}:${scope.workspaceId}`,
+            async () => {
+              if (kind === "native") {
+                await window.suiteDesktop!.cacheWrite(
+                  scope,
+                  "module-state",
+                  stored,
+                );
+                return;
+              }
+              const db = await new Promise<IDBDatabase>((resolve, reject) => {
+                const request = indexedDB.open("suite-offline-v1");
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+              });
+              try {
+                await new Promise<void>((resolve, reject) => {
+                  const transaction = db.transaction("records", "readwrite");
+                  transaction
+                    .objectStore("records")
+                    .put(
+                      stored,
+                      `${scope.userId}/${scope.workspaceId}/module-state`,
+                    );
+                  transaction.oncomplete = () => resolve();
+                  transaction.onerror = () => reject(transaction.error);
+                  transaction.onabort = () => reject(transaction.error);
+                });
+              } finally {
+                db.close();
+              }
+            },
+          ),
+      );
+    },
+    { scope, stored, kind: options.kind },
+  );
 }

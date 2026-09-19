@@ -5,6 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { publishExecutableFixture } from "./executable-fixture";
 import { selectValue } from "../e2e/controls.helpers";
 import type { CommandCorrectionOptions } from "./command-correction-journey";
+import { writeLegacyCollisionState } from "./collision-outcome-recovery";
 import module from "../fixtures/queued-resources/module";
 
 export async function collisionArchiveJourney(
@@ -12,6 +13,7 @@ export async function collisionArchiveJourney(
 ) {
   let page = options.page;
   const { api, pool } = options;
+  const cancelled = options.mode === "collision-archive-cancelled";
   const destination =
     options.mode === "collision-archive-existing" ? "existing" : "separate";
   const id = `archive-collision-${randomUUID().slice(0, 8)}`;
@@ -131,6 +133,41 @@ export async function collisionArchiveJourney(
   await expect
     .poll(async () => (await read()).journal.map((e) => e.state))
     .toEqual(["conflict", "pending"]);
+  if (cancelled) {
+    await options.offline(true);
+    const child = before[1];
+    const response = await api.post(
+      `/api/v1/module/${id}/workspaces/${scope.workspaceId}/attempts/settle`,
+      {
+        headers: { ...headers, "x-module-version": child.call.moduleVersion! },
+        data: {
+          key: child.id,
+          call: {
+            action: "archive",
+            resource: "notes",
+            input: child.call.input,
+          },
+        },
+      },
+    );
+    expect(response.ok(), await response.text()).toBe(true);
+    expect(await response.json()).toEqual({
+      key: child.id,
+      outcome: "cancelled",
+    });
+    // Reproduce a legacy attempted descendant with a real permanent server fence.
+    // Normal current scheduling never submits it behind the failed create.
+    const stored = await read();
+    Object.assign(stored.journal[1], {
+      state: "rejected",
+      settlement: "cancelled",
+      attempts: 1,
+    });
+    delete stored.journal[1].delivery;
+    await writeLegacyCollisionState(options, page, scope, stored);
+    page = await options.restartOffline();
+    await options.reconnect();
+  }
   const next = await publishExecutableFixture({
     id,
     name,
@@ -186,9 +223,16 @@ export async function collisionArchiveJourney(
   await selectValue(page, "Record for later archive 1", destination);
   await choice.getByText("View archive target", { exact: true }).click();
   await expect(choice).toContainText(originalTarget);
-  const evidence = `docs/verification/collision-archives/${destination}`;
+  const evidence = cancelled
+    ? "docs/verification/collision-outcomes/archive-cancelled"
+    : `docs/verification/collision-archives/${destination}`;
   await mkdir(evidence, { recursive: true });
   const capture = async (label: string) => {
+    const dialog = page.locator('.t-modal[role="dialog"]').last();
+    if (options.kind === "web" && (await dialog.count())) {
+      await expect(dialog).toHaveClass(/is-open/);
+      await expect(dialog).toHaveCSS("opacity", "1");
+    }
     await page.mouse.move(200, 60);
     await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
     return page.screenshot({
@@ -248,17 +292,25 @@ export async function collisionArchiveJourney(
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect
     .poll(async () => (await read()).journal.map((e) => e.state))
-    .toEqual(["conflict", "pending", "accepted", "conflict"]);
+    .toEqual(
+      cancelled
+        ? ["conflict", "conflict", "accepted"]
+        : ["conflict", "pending", "accepted", "conflict"],
+    );
   const remapped = (await read()).journal;
   const separateTarget = (remapped[2].call.input as { id: string }).id;
   const target = destination === "separate" ? separateTarget : originalTarget;
   expect(remapped[1].call).toEqual(before[1].call);
-  expect(remapped[3]).toMatchObject({
+  const heldIndex = cancelled ? 1 : 3;
+  const replacementIndex = cancelled ? 3 : 4;
+  expect(remapped[heldIndex]).toMatchObject({
     state: "conflict",
-    delivery: "unsubmitted",
+    ...(cancelled
+      ? { settlement: "cancelled", attempts: 1 }
+      : { delivery: "unsubmitted" }),
     recordRecovery: { targetId: target, destination },
   });
-  expect(remapped[3].call.input).toEqual(before[1].call.input);
+  expect(remapped[heldIndex].call.input).toEqual(before[1].call.input);
   const rows = () =>
     pool.query(
       "select id,data,version,archived from suite.module_records where workspace_id=$1 and module_id=$2 order by id",
@@ -291,7 +343,27 @@ export async function collisionArchiveJourney(
       { exact: true },
     ),
   ).toBeVisible();
+  if (cancelled) {
+    await expect(review).toContainText(`Original record: ${originalTarget}`);
+    await expect(review).toContainText(`Separate record: ${separateTarget}`);
+  }
   await capture("review");
+  if (cancelled) {
+    await options.narrow();
+    expect(
+      await review.evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .setLegacyMode(options.kind === "native")
+          .include('[role="dialog"]')
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+    await capture("review-narrow");
+    await options.wide();
+  }
   await options.loseSettlementReply();
   await review
     .getByRole("button", { name: "Confirm reviewed archive", exact: true })
@@ -315,14 +387,21 @@ export async function collisionArchiveJourney(
     .click();
   await expect(review).toHaveCount(0);
   await expect
-    .poll(async () => (await read()).journal[4]?.state)
+    .poll(async () => (await read()).journal[replacementIndex]?.state)
     .toBe("accepted");
   const final = (await read()).journal;
   expect(final[0].call).toEqual(before[0].call);
   expect(final[1].call).toEqual(before[1].call);
-  expect(final[3].call).toEqual(remapped[3].call);
-  expect(final[4].call.input).toEqual({ id: target, baseVersion: 1 });
-  for (const entry of [before[0], remapped[3], final[4]]) {
+  expect(final[heldIndex].call).toEqual(remapped[heldIndex].call);
+  expect(final[replacementIndex].call.input).toEqual({
+    id: target,
+    baseVersion: 1,
+  });
+  for (const entry of [
+    before[0],
+    remapped[heldIndex],
+    final[replacementIndex],
+  ]) {
     const reply = await api.post(
       `/api/v1/module/${id}/workspaces/${scope.workspaceId}/records`,
       {
@@ -338,8 +417,8 @@ export async function collisionArchiveJourney(
         },
       },
     );
-    expect(reply.status()).toBe(entry === final[4] ? 200 : 409);
-    if (entry !== final[4])
+    expect(reply.status()).toBe(entry === final[replacementIndex] ? 200 : 409);
+    if (entry !== final[replacementIndex])
       expect(await reply.json()).toMatchObject({ code: "ATTEMPT_CANCELLED" });
   }
   const stored = (await rows()).rows;

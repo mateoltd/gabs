@@ -155,3 +155,24 @@ Fresh verification on unchanged product source passed:
 - Strict root/browser/Node/preload/worker type checks, dependency/copy checks and four successful production build targets, all reusing valid Turbo cache entries: `/tmp/gabs-architecture-collision-review-build.log`. Existing bundle-size warnings remain.
 
 No browser or desktop process was launched. This is structural and focused regression evidence, not a fresh full-suite or visual acceptance run. The preceding [collision-command acceptance](../collision-commands/README.md) records the existing web/native and visual evidence. Already-submitted collision descendants remain open under OFF-01-COLLISION-OUTCOME; full parity and the later UI-refinement goal remain incomplete.
+
+
+## Resource recovery checkpoint review, 19 September 2026
+
+Checkpoint `2b282c1` and the pushed annotated tag `checkpoint/architecture-recovery-2b282c1` preserve the unfinished recovery edits present when the user requested delegation. The explicitly requested `gpt-5.6-sol` subagent at `xhigh` reviewed the layout and completed a bounded correction; the parent independently reviewed the full diff before acceptance.
+
+The physical migration was already present: `sdk`, `client`, `server`, `shell`, `ui/web` and `ui/tokens`, with subsystem directories and outermost product composition. No additional directory move or public identifier change was justified. SDK contracts remain portable; durable recovery and transaction guards stay in the client; React state and review presentation stay in the shell. One shared `CreateRecoveryNotice` now serves command, resource and archive reviews. No stylesheet or signed historical release changed. The large generated resource-view orchestrator remains maintainability debt; this review is not a claim that every file is ideally sized.
+
+The checkpoint enabled cancelled resource descendants without completing the editor contract. The subagent connected exact recovery snapshots to draft persistence, enqueue and archive replacement. Parent review caught an unsafe first draft of resume behavior: copying current metadata while keeping a stale target/comparison. Resumption now reloads the selected record online after prerequisites settle, rebuilds the comparison from original provenance and saved input, and persists the new context before use. Stale open editors fail the durable context check. Parent regression coverage also verifies that an unknown child blocks replacement and an accepted child remains byte-exact through a resource correction.
+
+Final verification:
+
+- 99 focused architecture/storage/export tests passed in `/tmp/gabs-architecture-recovery-parent-tests.log`; the subagent separately passed 90 storage/export tests. Initial fixture assertions were corrected for an additional legitimate same-record dependency, and a parent test's missing UUID qualifier was fixed.
+- The isolated full unit/PostgreSQL suite passed 600 tests across 89 files in `/tmp/gabs-architecture-recovery-regression.log`.
+- Strict root/browser/Node/preload/worker checks, dependency/copy checks and four fresh production builds passed in `/tmp/gabs-architecture-recovery-final-build.log`. Existing bundle-size warnings remain.
+- Seven distinct headless browser journeys passed: four command cases in `/tmp/gabs-architecture-recovery-web.log` and three archive cases in `/tmp/gabs-architecture-recovery-web-archives.log`. The first run's archive failures were a screenshot-helper selector incorrectly requiring a modal class on the navigation drawer, after the business assertions had passed. The corrected helper targets actual modals. The cancelled archive passed again with narrow review accessibility/overflow checks in `/tmp/gabs-architecture-recovery-web-narrow.log`.
+- All seven hidden/minimized, unfocused native journeys passed in `/tmp/gabs-architecture-recovery-native.log`. New wide/narrow archive choice/review, accepted-table and navigation captures were inspected under [archive-cancelled](../collision-outcomes/archive-cancelled/). Historical captures overwritten by regressions were restored.
+
+Changed-source formatting, the final fixture TypeScript check and diff checks passed. All local links in the six changed documents resolve, and all 29 original requirement IDs remain present. Forty-three overwritten historical captures were restored.
+
+[The outcome record](../collision-outcomes/README.md#cancelled-resource-review-follow-up) describes the real server fence and scoped archive acceptance. Cancelled create/update and broader mixed-resource UI acceptance, repeated-collision saved-review UI recovery, full OFF-01 and overall parity remain open. The later UI-refinement goal has not started.

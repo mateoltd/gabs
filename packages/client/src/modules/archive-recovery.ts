@@ -67,8 +67,13 @@ export async function replaceArchive(
       );
     if (!authorized(entry.call) || !authorized(call))
       throw Error("Current access does not allow reviewing this archive.");
-    if (canonical(expectedCreateRecovery ?? []) !== canonical(entry.createRecovery ?? []))
-      throw new JournalConflictError("A prerequisite record changed. Refresh the archive review before confirming.");
+    if (
+      canonical(expectedCreateRecovery ?? []) !==
+      canonical(entry.createRecovery ?? [])
+    )
+      throw new JournalConflictError(
+        "A prerequisite record changed. Refresh the archive review before confirming.",
+      );
     if (
       (entry.recordRecovery || entry.createRecovery?.length) &&
       entry.dependencies.some(
@@ -93,10 +98,15 @@ export async function replaceArchive(
       state.journal.some(
         (e) =>
           e.dependencies.includes(id) &&
-          e.userId === scope.userId && e.workspaceId === scope.workspaceId &&
+          e.userId === scope.userId &&
+          e.workspaceId === scope.workspaceId &&
           !e.supersededBy &&
           e.state !== "accepted" &&
-          !(e.state === "conflict" && e.createRecovery?.length && e.settlement === "cancelled") &&
+          !(
+            e.state === "conflict" &&
+            e.createRecovery?.length &&
+            e.settlement === "cancelled"
+          ) &&
           ((e.state !== "pending" &&
             !(
               e.state === "conflict" &&

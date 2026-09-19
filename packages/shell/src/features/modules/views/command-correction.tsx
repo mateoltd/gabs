@@ -8,6 +8,7 @@ import {
   type CommandReview,
 } from "@suite/client/command-recovery";
 import { canonical } from "@suite/module-sdk/registry";
+import { CreateRecoveryNotice } from "./create-recovery-notice";
 
 export function CommandCorrection({
   entry,
@@ -106,27 +107,7 @@ export function CommandCorrection({
             and has not been submitted.
           </p>
         )}
-        {!!entry.createRecovery?.length && (
-          <div role="status">
-            <p>
-              A prerequisite record was replaced. Review which references should
-              use the separate record. Original command input is unchanged.
-            </p>
-            <ul>
-              {entry.createRecovery.map((recovery) => (
-                <li
-                  key={`${recovery.moduleId}/${recovery.resource}/${recovery.originalId}`}
-                >
-                  <p>
-                    {recovery.moduleId}: {recovery.resource}
-                  </p>
-                  <p>Original record: {recovery.originalId}</p>
-                  <p>Separate record: {recovery.replacementId}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <CreateRecoveryNotice context={entry.createRecovery} />
         <details>
           <summary>Original saved input</summary>
           <ui.ResourceValue
@@ -169,10 +150,15 @@ export function CommandCorrection({
             {dependents.map(({ entry: child, module: original }) => (
               <div key={child.id}>
                 <p>{original.name}</p>
-                {!!child.createRecovery?.length && (
+                {!!(child.createRecovery?.length || child.recordRecovery) && (
                   <p>
-                    This command will keep waiting for its own explicit review.
+                    This change will keep waiting for its own explicit review.
                     Selecting it updates its prerequisite without submitting it.
+                  </p>
+                )}
+                {child.recordRecovery && (
+                  <p>
+                    Selected recovery target: {child.recordRecovery.targetId}.
                   </p>
                 )}
                 <label>

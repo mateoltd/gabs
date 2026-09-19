@@ -43,6 +43,7 @@ for (const mode of [
   "collision-command-cancelled",
   "collision-command-separate",
   "collision-command-existing",
+  "collision-archive-cancelled",
   "collision-archive-separate",
   "collision-archive-existing",
   "archive-review",

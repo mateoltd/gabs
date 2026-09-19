@@ -1278,6 +1278,7 @@ it("rejects malformed settlement and post-response revocation without replacing 
 });
 it.each([
   "uncertain",
+  "attempted",
   "legacy",
   "accepted",
   "draft",
@@ -1293,6 +1294,7 @@ it.each([
     await changeModuleStorage(platform, scope, (s) => {
       const child = s.journal[1];
       if (problem === "uncertain") child.delivery = "uncertain";
+      if (problem === "attempted") child.attempts = 1;
       if (problem === "legacy") delete child.delivery;
       if (problem === "accepted") child.state = "accepted";
       if (problem === "draft")
@@ -3047,6 +3049,155 @@ it("continues two collision archive reviews in order without automatically execu
     { id: separateId, baseVersion: 1 },
     { id: collisionId, baseVersion: 1 },
   ]);
+});
+
+it("binds a cancelled resource review to its current create-recovery context", async () => {
+  const { platform } = await collisionStorage();
+  const original: ModuleCall = {
+    ...call("cancelled-note"),
+    resource: "notes",
+    input: {
+      id: childId,
+      data: { contactId: collisionId, text: "Original note" },
+    },
+  };
+  await enqueue(platform, scope, original, ["original-create"]);
+  await changeModuleStorage(platform, scope, (state) => {
+    const entry = state.journal.find((item) => item.id === original.key)!;
+    entry.delivery = "uncertain";
+    entry.attempts = 1;
+  });
+  await settleJournalEntry(
+    platform,
+    scope,
+    original.key!,
+    async () => ({ key: original.key, outcome: "cancelled" }),
+    () => true,
+    "saved-resource",
+  );
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+  );
+  const send = vi.fn(async (request: ModuleCall) => {
+    const input = request.input as {
+      id: string;
+      data: Record<string, unknown>;
+    };
+    return {
+      ...row,
+      id: input.id,
+      data: input.data,
+    };
+  });
+  await syncModuleStorage(platform, scope, send, () => true);
+  let state = await readModuleStorage(platform, scope);
+  const held = state.journal.find((entry) => entry.id === original.key)!;
+  expect(held).toMatchObject({
+    call: original,
+    state: "conflict",
+    settlement: "cancelled",
+    dependencies: expect.arrayContaining(["separate-create"]),
+  });
+  expect(held.createRecovery).toEqual([
+    {
+      moduleId: "contacts",
+      resource: "contacts",
+      originalId: collisionId,
+      replacementId: separateId,
+    },
+  ]);
+  const corrected = { contactId: separateId, text: "Reviewed note" };
+  const review = {
+    entryId: held.id,
+    createRecovery: structuredClone(held.createRecovery),
+  };
+  const draftKey = resourceDraftKey("contacts", "notes", review);
+  await expect(
+    saveResourceDraft(platform, scope, "contacts", "notes", {
+      data: corrected,
+      target: null,
+      review: { entryId: held.id },
+    }),
+  ).rejects.toThrow("prerequisite record changed");
+  await saveResourceDraft(platform, scope, "contacts", "notes", {
+    data: corrected,
+    target: null,
+    review,
+  });
+  state = await readModuleStorage(platform, scope);
+  expect(state.draftReviews?.[draftKey]).toEqual(review);
+  expect(state.drafts[draftKey]).toEqual(corrected);
+  const replacement: ModuleCall = {
+    ...original,
+    key: "reviewed-cancelled-note",
+    input: { id: childId, data: corrected },
+  };
+  await expect(
+    enqueue(platform, scope, replacement, [], {
+      draftKey,
+      supersedes: held.id,
+    }),
+  ).rejects.toThrow("Reopen and save the current review");
+  const dependent: ModuleCall = {
+    ...original,
+    key: "later-dependent-note",
+    input: { id: crypto.randomUUID(), data: corrected },
+  };
+  await enqueue(platform, scope, dependent, [held.id]);
+  await changeModuleStorage(platform, scope, (stored) => {
+    const child = stored.journal.find((entry) => entry.id === dependent.key)!;
+    child.delivery = "uncertain";
+    child.attempts = 1;
+  });
+  await expect(
+    enqueue(platform, scope, replacement, [], {
+      draftKey,
+      supersedes: held.id,
+      createRecovery: review.createRecovery,
+    }),
+  ).rejects.toThrow("Recover dependent outcomes");
+  await changeModuleStorage(platform, scope, (stored) => {
+    const child = stored.journal.find((entry) => entry.id === dependent.key)!;
+    child.state = "accepted";
+    child.result = {
+      ...row,
+      ...(dependent.input as { id: string; data: unknown }),
+    };
+    delete child.delivery;
+  });
+  const accepted = structuredClone(
+    (await readModuleStorage(platform, scope)).journal.find(
+      (entry) => entry.id === dependent.key,
+    ),
+  );
+  await enqueue(platform, scope, replacement, [], {
+    draftKey,
+    supersedes: held.id,
+    createRecovery: review.createRecovery,
+  });
+  await syncModuleStorage(platform, scope, send, () => true);
+  state = await readModuleStorage(platform, scope);
+  expect(state.journal.find((entry) => entry.id === held.id)).toMatchObject({
+    call: original,
+    supersededBy: replacement.key,
+  });
+  expect(
+    state.journal.find((entry) => entry.id === replacement.key),
+  ).toMatchObject({
+    call: replacement,
+    state: "accepted",
+  });
+  expect(state.journal.find((entry) => entry.id === dependent.key)).toEqual(
+    accepted,
+  );
+  expect(
+    send.mock.calls.filter(([request]) => request.key === replacement.key),
+  ).toHaveLength(1);
 });
 
 async function collisionCommandStorage() {

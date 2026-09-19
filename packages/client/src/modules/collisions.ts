@@ -244,7 +244,11 @@ export async function prepareCreateReplacement(
     if (
       key === ownDraft ||
       state.draftReviews?.[key]?.entryId === originalId ||
-      children.some((entry) => entry.settlement === "cancelled" && entry.id === state.draftReviews?.[key]?.entryId) ||
+      children.some(
+        (entry) =>
+          entry.settlement === "cancelled" &&
+          entry.id === state.draftReviews?.[key]?.entryId,
+      ) ||
       drafts.some((draft) => draft.key === key) ||
       key.split("/").length === 2
     )
@@ -290,23 +294,29 @@ export async function prepareCreateReplacement(
           destination: targets[prior.id]!,
         }
       : prior.recordRecovery;
-    if (prior !== original && (call.action === "operation" || prior.settlement === "cancelled")) {
+    if (
+      prior !== original &&
+      (call.action === "operation" || prior.settlement === "cancelled")
+    ) {
       const operation = call.operation && module.operations[call.operation];
       if (
         call.action === "operation"
-          ? !operation || operation.policy !== "queued" || operation.kind === "query" || operation.serviceOnly
+          ? !operation ||
+            operation.policy !== "queued" ||
+            operation.kind === "query" ||
+            operation.serviceOnly
           : module.resources[call.resource!]?.policy !== "queued"
       )
         throw new JournalConflictError(
           "Only public queued changes can be reviewed after a create collision.",
         );
-      const command = result.journal.find(
+      const held = result.journal.find(
         (entry) =>
           entry.id === prior.id &&
           entry.userId === scope.userId &&
           entry.workspaceId === scope.workspaceId,
       )!;
-      const recoveries = (command.createRecovery ??= []);
+      const recoveries = (held.createRecovery ??= []);
       const previous = recoveries.find(
         (recovery) =>
           recovery.moduleId === from.moduleId &&
@@ -321,18 +331,16 @@ export async function prepareCreateReplacement(
           originalId: fromId,
           replacementId: toId,
         });
-      command.captureDependencies ??= [
-        ...(command.requestedDependencies ?? command.dependencies),
+      held.captureDependencies ??= [
+        ...(held.requestedDependencies ?? held.dependencies),
       ];
-      command.requestedDependencies = (
-        command.requestedDependencies ?? command.dependencies
+      held.requestedDependencies = (
+        held.requestedDependencies ?? held.dependencies
       ).map((id) => keys.get(id) ?? id);
-      command.dependencies = command.dependencies.map(
-        (id) => keys.get(id) ?? id,
-      );
-      command.state = "conflict";
-      if (recovery) command.recordRecovery = recovery;
-      command.error =
+      held.dependencies = held.dependencies.map((id) => keys.get(id) ?? id);
+      held.state = "conflict";
+      if (recovery) held.recordRecovery = recovery;
+      held.error =
         "A prerequisite record was replaced. Review this change before submitting it. Its original input is preserved.";
       continue;
     }

@@ -31,7 +31,10 @@ export function ArchiveReview({
   allowed: boolean;
   busy: boolean;
   load(call: ModuleCall): Promise<ResourceRecord>;
-  submit(call: ModuleCall, context?: JournalEntry["createRecovery"]): Promise<void>;
+  submit(
+    call: ModuleCall,
+    context?: JournalEntry["createRecovery"],
+  ): Promise<void>;
   resolve(): Promise<void>;
   close(): void;
 }) {
@@ -78,17 +81,27 @@ export function ArchiveReview({
     };
   }, [allowed, module.version, target, recoveryContext]);
   const confirm = async () => {
-    if (!record || record.archived || !latest.current.allowed || busy || reviewContext !== recoveryContext) return;
+    if (
+      !record ||
+      record.archived ||
+      !latest.current.allowed ||
+      busy ||
+      reviewContext !== recoveryContext
+    )
+      return;
     setError(undefined);
     try {
-      await latest.current.submit({
-        moduleId: module.id,
-        moduleVersion: module.version,
-        resource: entry.call.resource,
-        action: "archive",
-        key: crypto.randomUUID(),
-        input: { id: record.id, baseVersion: record.version },
-      }, entry.createRecovery);
+      await latest.current.submit(
+        {
+          moduleId: module.id,
+          moduleVersion: module.version,
+          resource: entry.call.resource,
+          action: "archive",
+          key: crypto.randomUUID(),
+          input: { id: record.id, baseVersion: record.version },
+        },
+        entry.createRecovery,
+      );
     } catch (error) {
       if (latest.current.allowed) setError(error);
     }
@@ -158,7 +171,13 @@ export function ArchiveReview({
               Refresh current record
             </Button>
             <Button
-              disabled={busy || loading || !record || record.archived || reviewContext !== recoveryContext}
+              disabled={
+                busy ||
+                loading ||
+                !record ||
+                record.archived ||
+                reviewContext !== recoveryContext
+              }
               onClick={() => void confirm()}
             >
               Confirm reviewed archive

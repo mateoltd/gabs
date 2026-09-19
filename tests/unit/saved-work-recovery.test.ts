@@ -165,6 +165,14 @@ it("preserves archived collision input and both record snapshots without treatin
   f.state.draftReviews = {
     [key]: {
       entryId: call.key,
+      createRecovery: [
+        {
+          moduleId: module.id,
+          resource: "notes",
+          originalId: randomUUID(),
+          replacementId: randomUUID(),
+        },
+      ],
       recoveryInput: {
         recordId: record.id,
         moduleVersion: module.version,
