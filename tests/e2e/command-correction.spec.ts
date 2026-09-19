@@ -7,6 +7,13 @@ import { commandCorrectionJourney } from "../support/command-correction-journey"
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 test.use({ actionTimeout: 15000 });
 for (const mode of [
+  "collision-resource-create-accepted",
+  "collision-resource-create-cancelled",
+  "collision-resource-update-accepted",
+  "collision-resource-update-cancelled",
+  "collision-resource-archive-accepted",
+  "collision-resource-archive-cancelled",
+
   "submitted-command-accepted",
   "submitted-command-cancelled",
   "submitted-create-accepted",
@@ -79,6 +86,13 @@ for (const mode of [
         api,
         pool,
         kind: "web",
+        openPeer: async () => {
+          const peer = await context.newPage();
+          await peer.emulateMedia({ reducedMotion: "reduce" });
+          await peer.setViewportSize({ width: 1440, height: 1000 });
+          await peer.goto(page.url());
+          return peer;
+        },
         rejectExport: async (button, moduleId, during) => {
           let downloads = 0;
           const observed = () => {

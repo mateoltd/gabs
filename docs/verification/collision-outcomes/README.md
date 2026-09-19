@@ -1,6 +1,6 @@
 # Submitted work after create collisions
 
-OFF-01-COLLISION-OUTCOME, 19 September 2026. The command-outcome milestone has scoped local acceptance. The tracker item remains active for broader cancelled resource and mixed-graph acceptance. The follow-up below adds cancelled-archive browser/native evidence.
+OFF-01-COLLISION-OUTCOME, 19 September 2026. Command and resource recovery evidence is recorded below in delivery order. The real two-tab stale-review journey now passes. The tracker item remains active for final desktop resource acceptance, currently awaiting available OS-protected storage on an unlocked Mac.
 
 ## Behavior
 
@@ -50,3 +50,40 @@ The new real browser/native archive journey obtains a permanent cancellation fro
 Final verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict environment/boundary checks and four fresh builds. Seven distinct browser and seven hidden/minimized native collision journeys passed. The architecture record lists exact logs, corrected fixture failures and run ordering. Wide and narrow review dialogs passed scoped Axe/overflow checks. Six captures per client are retained in [archive-cancelled](archive-cancelled/), covering choices, review, accepted records and narrow navigation. Existing visual design is preserved; these checks do not establish full-product accessibility or final UI approval.
 
 Remaining acceptance: cancelled create/update in the real clients, repeated parent collisions while a resource review is saved/open, accepted resource effects in the real clients and wider mixed graphs. The additional resource correction/export checks are unit-level evidence. OFF-01-COLLISION-OUTCOME remains active.
+
+## Resource outcomes and saved reviews
+
+The follow-up adds six resource journeys through the public SDK, signed releases, generated views and Settings recovery: accepted and cancelled create, update and archive. It changes acceptance fixtures only; production code remains at `ae0740a`.
+
+Each journey captures a failed parent create, a dependent resource write and independent work. Unknown descendant outcomes block parent replacement. Actual API execution or permanent cancellation establishes the outcome, and a lost settlement reply plus offline restart requires explicit recovery from Settings. Accepted requests, receipts, dependencies and effects remain unchanged. Cancelled originals retain their exact requests and permanent fences while explicitly reviewed replacements use fresh identities. Original-key and replacement-key retries check duplicate-free effects and audit counts.
+
+Cancelled create and update save a review before the parent changes. The update case combines an accepted create sibling with a cancelled update, forces a second collision against a real server record, and restarts before recovering again. Both parent replacements preserve the saved review and accepted sibling. Resuming rebuilds the comparison against the final chosen record; the saved local value remains visible. The final user choice is saved, resumed offline and explicitly submitted after reconnecting. The existing corporate record and competing record stay unchanged, and unrelated work progresses.
+
+These journeys seed only legacy client delivery metadata under the normal storage locks. Server effects, cancellation fences and receipts come from the real API and isolated PostgreSQL database. They do not claim that the current scheduler submits children behind a failed create. Temporary control of two generated UUIDs makes the second real collision deterministic; it does not fabricate a server error or accepted result.
+
+Verification is being finalized for the corrected desktop fixture. The browser's final six resource cases passed after correcting the capture helper to await a visible dialog. An earlier eight-case browser pass also includes the existing accepted/cancelled command regressions. The initial desktop run passed six cases and failed two during fixture setup: it entered the next note before the previous capture callback cleared the form. The fixture now awaits the completed form reset and durable independent capture before reconnecting. This is separate from the earlier fixture corrections for self-reference metadata, the edit-target label and the generated reference combobox.
+
+Logs: `/tmp/gabs-collision-resource-web-final.log` records eight passing browser cases; `/tmp/gabs-collision-resource-web-capture.log` records the six resource cases after form/capture waits. `/tmp/gabs-collision-resource-native.log` records the first desktop run (six passed, two setup failures). `/tmp/gabs-collision-resource-native-final.log` records the incomplete corrected run: two passed, window-closure and selector failures, then authentication timeout/failure as the runtime stopped responding. A direct PostgreSQL connection timed out and `docker compose ps` hung. The helper is still waiting to drop isolated database `suite_host_ui_1789807465682`; cleanup is not complete. Restarting the shared OrbStack runtime awaits user approval. A stronger saved-field assertion was added after these runs and still needs its two browser cases plus the final six desktop cases. Root TypeScript, changed-test formatting, boundaries/copy and diff checks passed; the previous architecture review's full unit suite/builds are historical evidence on unchanged production code.
+
+The remaining interface gates are the final desktop resource run and a resource review left open while another recovery changes its context. Existing durable guards reject stale saves/submissions, but these saved-and-reopened journeys do not establish concurrent open-editor behavior. Broader OFF-01, release acceptance and final UI refinement remain unfinished.
+
+
+### Runtime-blocked follow-up
+
+The database still timed out on recheck, and the same isolated helper remains live in its cleanup query. No OrbStack restart has been performed. The native fixture now attaches non-secret lifecycle events on failure (launch, page close/crash, process exit code/signal and whether closure was expected) and includes the development-authentication HTTP status. These diagnostics do not weaken failure assertions.
+
+The repeated-update browser fixture now opens a real second tab before parent recovery, keeps its resource review open across the two parent replacements, and asserts that stale autosave and submission fail without replacing the saved draft or losing the open input. This addition is not yet accepted: TypeScript passes, but execution awaits database recovery. Desktop sender validation in `apps/desktop/src/main/main.ts` accepts only the main window; adding an unsupported second native renderer would misrepresent that client. Its supported single-window flows still need the final six-case run, alongside the previously verified durable context checks.
+
+
+The third consecutive goal-turn recheck still timed out connecting to PostgreSQL. The isolated helper was confirmed live as PID `53773` / executor session `50773`, with test execution finished and database cleanup pending. Goal continuation is blocked on runtime recovery rather than marked complete. No new acceptance run, OrbStack restart or commit was performed.
+
+
+### Resumed browser acceptance and desktop storage dependency
+
+PostgreSQL recovered before the resumed turn. The old helper terminated, its log confirmed cleanup, and a catalog query confirmed the isolated database was absent. No assistant-initiated OrbStack restart occurred.
+
+The stronger cancelled-create saved-input case passed in `/tmp/gabs-collision-resource-web-resumed.log`. The new two-tab update case initially expected the context guard's message, but the earlier record-target guard correctly rejected the stale target. Its exact expectations were corrected without changing the product or relaxing the no-write/preserved-input assertions. The complete repeated-update/two-tab journey then passed in `/tmp/gabs-collision-resource-web-peer.log`; [the stale editor capture](resources/update-cancelled/web-open-stale-review.png) was inspected.
+
+The six-case desktop rerun (`/tmp/gabs-collision-resource-native-resumed.log`) was interrupted after repeated missing-form failures. A single-case diagnostic (`/tmp/gabs-collision-resource-native-diagnostic.log`) reproduced the failure and captured [protected storage unavailable](resources/protected-storage-unavailable/native.png). macOS reported `CGSSessionScreenIsLocked: true`, and Keychain returned “User interaction is not allowed.” The application refused protected installation/offline storage; this is not accepted as successful recovery behavior. A native preflight now reports unavailable OS-protected storage before the journey, and failure attachments preserve the real screen and lifecycle events. No credential protection is mocked or bypassed.
+
+The final six minimized desktop cases require an unlocked Mac/login keychain and remain pending. Earlier window/selector failures during the database outage are not assigned a proven common cause. Browser acceptance and unchanged production-code unit/build evidence do not substitute for this desktop gate.

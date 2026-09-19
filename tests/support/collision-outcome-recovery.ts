@@ -1,11 +1,12 @@
 import { expect, type Page } from "@playwright/test";
+import { selectValue } from "../e2e/controls.helpers";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
 import type { JournalEntry } from "@suite/module-sdk/sync";
 import type { CommandCorrectionOptions } from "./command-correction-journey";
 
 /** Legacy/out-of-order envelope setup, with real authoritative effects and settlement. */
-export async function recoverCollisionCommandOutcome({
+export async function recoverCollisionOutcome({
   options,
   page,
   scope,
@@ -13,6 +14,8 @@ export async function recoverCollisionCommandOutcome({
   name,
   child,
   outcome,
+  targetChoice,
+  checkParent = true,
 }: {
   options: CommandCorrectionOptions;
   page: Page;
@@ -21,8 +24,18 @@ export async function recoverCollisionCommandOutcome({
   name: string;
   child: JournalEntry;
   outcome: "accepted" | "cancelled";
+  targetChoice?: "existing" | "separate";
+  checkParent?: boolean;
 }) {
-  const endpoint = `/api/v1/module/${child.call.moduleId}/workspaces/${scope.workspaceId}/operations/capture`;
+  const command = child.call.action === "operation";
+  const endpoint = `/api/v1/module/${child.call.moduleId}/workspaces/${scope.workspaceId}/${command ? `operations/${child.call.operation}` : "records"}`;
+  const body = command
+    ? child.call.input
+    : {
+        action: child.call.action,
+        resource: child.call.resource,
+        input: child.call.input,
+      };
   if (outcome === "accepted") {
     const response = await options.api.post(endpoint, {
       headers: {
@@ -30,12 +43,13 @@ export async function recoverCollisionCommandOutcome({
         "idempotency-key": child.id,
         "x-module-version": child.call.moduleVersion!,
       },
-      data: child.call.input,
+      data: body,
     });
     expect(response.ok(), await response.text()).toBe(true);
   }
   await options.offline(true);
   const stored = await options.storage(page, scope);
+  const initialSize = stored.journal.length;
   const saved = stored.journal.find((entry) => entry.id === child.id)!;
   saved.delivery = "uncertain";
   saved.attempts = 1;
@@ -45,37 +59,47 @@ export async function recoverCollisionCommandOutcome({
   page = await options.restartOffline();
   await options.reconnect();
   await page.getByRole("link", { name, exact: true }).click();
-  await page
-    .getByRole("group", {
-      name: "Pending create: Separate recovered record",
+  if (checkParent) {
+    await page
+      .getByRole("group", {
+        name: "Pending create: Separate recovered record",
+        exact: true,
+      })
+      .getByRole("button", { name: "Review", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Create separate record", exact: true })
+      .click();
+    const parent = page.getByRole("dialog", {
+      name: "Create a separate record",
       exact: true,
-    })
-    .getByRole("button", { name: "Review", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Create separate record", exact: true })
-    .click();
-  const parent = page.getByRole("dialog", {
-    name: "Create a separate record",
-    exact: true,
-  });
-  await parent
-    .getByRole("button", {
-      name: "Check and create separate record",
-      exact: true,
-    })
-    .click();
-  await expect(parent).toContainText(
-    "Recover its outcome before changing this record identity",
-  );
-  expect((await options.storage(page, scope)).journal).toHaveLength(2);
-  await parent
-    .getByRole("button", { name: "Close dialog", exact: true })
-    .click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close dialog", exact: true })
-    .click();
+    });
+    if (targetChoice)
+      await selectValue(
+        page,
+        `Record for later ${child.call.action === "archive" ? "archive" : "edit"} 1`,
+        targetChoice,
+      );
+    await parent
+      .getByRole("button", {
+        name: "Check and create separate record",
+        exact: true,
+      })
+      .click();
+    await expect(parent).toContainText(
+      "Recover its outcome before changing this record identity",
+    );
+    expect((await options.storage(page, scope)).journal).toHaveLength(
+      initialSize,
+    );
+    await parent
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+  }
   const inbox = async () => {
     await page
       .getByRole("navigation", { name: "Preferences", exact: true })
@@ -83,21 +107,36 @@ export async function recoverCollisionCommandOutcome({
       .click();
     await page
       .getByRole("region", { name: `${name} saved work`, exact: true })
-      .getByRole("button", { name: /^Saved commands/ })
+      .getByRole("button", {
+        name: command ? /^Saved commands/ : /^Saved records and drafts/,
+      })
       .click();
-    return page.getByRole("dialog", { name: "Saved commands", exact: true });
+    return page.getByRole("dialog", {
+      name: command ? "Saved commands" : "Records and drafts",
+      exact: true,
+    });
   };
   let dialog = await inbox();
   await expect(dialog).toContainText("Outcome unknown");
   await options.loseSettlementReply();
   const resolve = async () => {
     await dialog
-      .getByRole("button", { name: "Resolve outcome", exact: true })
+      .getByRole("listitem")
+      .filter({ hasText: child.id })
+      .getByRole("button", {
+        name: command ? "Resolve outcome" : "Resolve record outcome",
+        exact: true,
+      })
       .click();
     await page
-      .getByRole("dialog", { name: "Resolve command outcome", exact: true })
+      .getByRole("dialog", {
+        name: command ? "Resolve command outcome" : "Resolve record outcome",
+        exact: true,
+      })
       .getByRole("button", {
-        name: "Recover result or stop retries",
+        name: command
+          ? "Recover result or stop retries"
+          : "Recover record result or stop retries",
         exact: true,
       })
       .click();
@@ -122,7 +161,11 @@ export async function recoverCollisionCommandOutcome({
         ).rows[0]?.outcome,
     )
     .toBe(outcome);
-  expect((await options.storage(page, scope)).journal[1]).toMatchObject({
+  expect(
+    (await options.storage(page, scope)).journal.find(
+      (entry) => entry.id === child.id,
+    )!,
+  ).toMatchObject({
     state: "pending",
     delivery: "uncertain",
     call: child.call,
@@ -132,16 +175,26 @@ export async function recoverCollisionCommandOutcome({
   dialog = await inbox();
   await expect(dialog).toContainText("Outcome unknown");
   await expect(
-    dialog.getByRole("button", { name: "Resolve outcome", exact: true }),
+    dialog
+      .getByRole("listitem")
+      .filter({ hasText: child.id })
+      .getByRole("button", {
+        name: command ? "Resolve outcome" : "Resolve record outcome",
+        exact: true,
+      }),
   ).toBeDisabled();
-  const evidence = `docs/verification/collision-outcomes/command-${outcome}`;
+  const evidence = command
+    ? `docs/verification/collision-outcomes/command-${outcome}`
+    : `docs/verification/collision-outcomes/resources/${options.mode.replace("collision-resource-", "")}`;
   await mkdir(evidence, { recursive: true });
   await expect(dialog).toBeVisible();
   if (options.kind === "web") {
     await expect(dialog).toHaveClass(/is-open/);
     await expect(dialog).toHaveCSS("opacity", "1");
   }
-  await page.screenshot({ path: `${evidence}/${options.kind}-unknown.png` });
+  await page.screenshot({
+    path: `${evidence}/${options.kind}-unknown${command ? "" : `-${child.call.action}`}.png`,
+  });
   expect(
     (
       await new AxeBuilder({ page })
@@ -155,11 +208,18 @@ export async function recoverCollisionCommandOutcome({
   dialog = await inbox();
   await resolve();
   await expect
-    .poll(async () => (await options.storage(page, scope)).journal[1].state)
+    .poll(
+      async () =>
+        (await options.storage(page, scope)).journal.find(
+          (entry) => entry.id === child.id,
+        )!.state,
+    )
     .toBe(outcome === "accepted" ? "accepted" : "rejected");
-  expect((await options.storage(page, scope)).journal[1].call).toEqual(
-    child.call,
-  );
+  expect(
+    (await options.storage(page, scope)).journal.find(
+      (entry) => entry.id === child.id,
+    )!.call,
+  ).toEqual(child.call);
   await dialog
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();

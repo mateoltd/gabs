@@ -46,6 +46,10 @@ import { resolve, sep, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { NativeCredentials } from "./identity/credentials";
 import { nativeLoginCallback } from "./identity/callback";
+import {
+  OnlineProfileDirectory,
+  type OnlineProfile,
+} from "@suite/client/online-profiles";
 import { NativeSignIn } from "./identity/sign-in";
 import { randomUUID } from "node:crypto";
 import * as oidc from "openid-client";
@@ -115,6 +119,28 @@ const credentials = new NativeCredentials({
   renew: async (token) => oidc.refreshTokenGrant(await client(), token),
 });
 const volatile = new Map<string, unknown>();
+let onlineProfileUser: Pick<OnlineProfile, "id" | "name" | "email"> | undefined;
+let profileWrites: Promise<unknown> = Promise.resolve();
+const onlineProfileKey = `online-profiles-${createHash("sha256").update(config.apiOrigin).digest("hex").slice(0, 24)}`;
+const onlineProfiles = new OnlineProfileDirectory({
+  read: () => {
+    if (!secureAvailable())
+      throw Error("Unlock protected storage to open saved online profiles.");
+    return readSecure(onlineProfileKey);
+  },
+  write: async (value) => {
+    if (!secureAvailable())
+      throw Error(
+        "Unlock protected storage to save or remove online profiles.",
+      );
+    await writeSecure(onlineProfileKey, value);
+  },
+  exclusive: (run) => {
+    const pending = profileWrites.catch(() => {}).then(run);
+    profileWrites = pending;
+    return pending;
+  },
+});
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "suite",
@@ -512,7 +538,7 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
   }
   if (res.status === 426) updateRequired = true;
   if (request.operation === "me" && res.ok) {
-    const user = body.user as { id: string };
+    const user = body.user as { id: string; name: string; email: string };
     if (!authenticatedActor || user.id !== authenticatedActor) return stale();
     if (userId && userId !== user.id) {
       await writeSecure(`${userId}/account-revision`, randomUUID());
@@ -523,6 +549,7 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     if (!current()) return stale();
     if (userId !== user.id) identityEpoch++;
     userId = user.id;
+    onlineProfileUser = { id: user.id, name: user.name, email: user.email };
     csrfToken = body.csrfToken as string | undefined;
   }
   if (actor && actor === userId && secureAvailable()) {
@@ -571,6 +598,7 @@ async function login(options: LoginOptions, signal: AbortSignal) {
   let ownedEpoch = epoch;
   const previousUser = userId;
   userId = undefined;
+  onlineProfileUser = undefined;
   devCookie = csrfToken = undefined;
   try {
     await credentials.clear();
@@ -667,6 +695,7 @@ async function login(options: LoginOptions, signal: AbortSignal) {
     if (ownedEpoch === identityEpoch) {
       identityEpoch++;
       userId = undefined;
+      onlineProfileUser = undefined;
       devCookie = csrfToken = undefined;
       await credentials.clear();
     }
@@ -675,6 +704,24 @@ async function login(options: LoginOptions, signal: AbortSignal) {
 }
 
 function handlers() {
+  ipcMain.handle("suite:online-profiles", (event) => {
+    sender(event);
+    return onlineProfiles.list();
+  });
+  ipcMain.handle("suite:online-profile-remember", (event, explicit) => {
+    sender(event);
+    if (
+      typeof explicit !== "boolean" ||
+      !onlineProfileUser ||
+      onlineProfileUser.id !== userId
+    )
+      throw Error("Sign in before saving this profile.");
+    return onlineProfiles.remember(onlineProfileUser, explicit);
+  });
+  ipcMain.handle("suite:online-profile-forget", (event, id) => {
+    sender(event);
+    return onlineProfiles.forget(id);
+  });
   localDeviceHosts.register(sender);
   ipcMain.handle(
     "suite:module-offline",
@@ -918,6 +965,7 @@ function handlers() {
       const token = credentials.refreshToken,
         previousUser = userId;
       userId = undefined;
+      onlineProfileUser = undefined;
       devCookie = csrfToken = undefined;
       // Clear memory immediately; serialize durable deletion behind earlier writes.
       const clearingCredentials = credentials.clear();

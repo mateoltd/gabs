@@ -6,7 +6,7 @@ import { publishExecutableFixture } from "./executable-fixture";
 import { selectValue } from "../e2e/controls.helpers";
 import type { CommandCorrectionOptions } from "./command-correction-journey";
 import module from "../fixtures/queued-resources/module";
-import { recoverCollisionCommandOutcome } from "./collision-outcome-recovery";
+import { recoverCollisionOutcome } from "./collision-outcome-recovery";
 
 export async function collisionCommandJourney(
   options: CommandCorrectionOptions,
@@ -27,7 +27,7 @@ export async function collisionCommandJourney(
     if (file === "module.ts")
       return source.replace(
         "{ name: Type.String({ minLength: 1 }) }",
-        '{ name: Type.String({ minLength: 1 }), targetId: field.reference("custom-notes", "notes") }',
+        `{ name: Type.String({ minLength: 1 }), targetId: field.reference("${id}", "notes") }`,
       );
     if (file === "module-server.ts")
       return source.replace(
@@ -195,7 +195,7 @@ export async function collisionCommandJourney(
   await expect(card).toContainText(`Installed ${next.version}`);
   await page.getByRole("link", { name, exact: true }).click();
   if (outcome) {
-    page = await recoverCollisionCommandOutcome({
+    page = await recoverCollisionOutcome({
       options,
       page,
       scope,

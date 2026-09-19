@@ -279,6 +279,11 @@ CORE-003/UI-003 now include [OFF-01-COLLISION-COMMAND](verification/collision-co
 CORE-003/UI-003 gain partial [OFF-01-COLLISION-OUTCOME evidence](verification/collision-outcomes/README.md): accepted branches keep exact requests, receipts and effects; server-cancelled custom commands require individual reviews before new requests. Lost settlement replies, offline restarts and duplicate-free recovery pass in web and hidden/minimized Electron. Verification includes 598 unit/PostgreSQL tests, strict checks/four fresh builds, eight distinct journeys per client and twelve inspected captures. Accepted resource branches have focused storage evidence; cancelled create/update/archive continuation and mixed-resource browser/native acceptance remain required. No original requirement is broadly marked complete.
 
 
+## Resource-outcome acceptance in progress, 19 September 2026
+
+CORE-003/UI-003 gain [browser resource-outcome evidence](verification/collision-outcomes/README.md#resource-outcomes-and-saved-reviews): real accepted/cancelled create, update and archive recovery, exact original requests, independent work, and saved review recovery through two parent collisions with an accepted sibling. Desktop acceptance remains incomplete after fixture and runtime failures. The PostgreSQL outage and isolated-database cleanup are resolved. The saved-input and real two-tab browser cases now pass. Final desktop acceptance is awaiting an unlocked Mac/login keychain after captured protected-storage refusal. No requirement status is promoted. Browser concurrent open-editor recovery is verified; final native outcome acceptance, full OFF-01 and overall parity remain open.
+
+
 ## Shared simulation scheduling, 19 September 2026
 
 CORE-003 and SDK developer experience gain [OFF-01-SIM evidence](verification/simulation-order/README.md): typed/preview captures share the host’s same-record and nested-reference prerequisites, reject cycles before mutation and preserve retry identity when prerequisite order changes. Five failing-before cases, 109 focused tests, 605 isolated tests, strict checks/four fresh builds and four headless preview/host journeys passed. This is scoped simulation acceptance; historical recovery, native collision outcomes and full OFF-01 remain open.

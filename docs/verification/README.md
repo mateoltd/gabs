@@ -859,6 +859,11 @@ The requested Sol xhigh audit and independent parent review confirmed the existi
 Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict environment/boundary checks, four fresh builds, seven distinct headless browser cases and seven hidden/minimized native cases. The linked record distinguishes the corrected screenshot-selector failure, the narrow archive recheck and inspected captures. [Cancelled archive acceptance](collision-outcomes/README.md#cancelled-resource-review-follow-up) extends OFF-01 without closing its create/update, repeated-collision review or wider mixed-graph gates. Full parity and final UI refinement remain unfinished.
 
 
+## Resource outcomes and saved reviews in progress, 19 September 2026
+
+[The new resource journeys](collision-outcomes/README.md#resource-outcomes-and-saved-reviews) add real SDK/API/Settings recovery for accepted and cancelled create/update/archive, independent work and repeated parent collisions with a saved update and accepted sibling. Six browser resource cases and two command regressions passed. The stronger saved-input assertions and real two-tab stale-review case now pass. PostgreSQL recovered and cleanup completed. Desktop acceptance is unfinished: a captured installation failure and OS checks identify unavailable protected storage while the Mac is locked. No new production code has changed since `ae0740a`. The evidence record identifies the logs and pending reruns. Full parity remains open.
+
+
 ## Shared simulation scheduling, 19 September 2026
 
 [OFF-01-SIM](simulation-order/README.md) now verifies host-equivalent same-record/reference ordering for typed captures and the development preview, atomic cycle rejection and exact retries independent of prerequisite order. Five original failures now pass; verification includes 109 focused tests, 605 isolated unit/PostgreSQL tests, strict checks/four fresh bundles, two preview and two real-host headless journeys. No layout changed. Native collision acceptance and broader offline/profile recovery remain required.

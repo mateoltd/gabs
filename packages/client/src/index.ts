@@ -108,6 +108,11 @@ export interface LanReceipt {
   message: string;
 }
 export interface DesktopBridge {
+  onlineProfiles(): Promise<
+    import("./identity/online-profiles").OnlineProfile[]
+  >;
+  rememberOnlineProfile(explicit: boolean): Promise<void>;
+  forgetOnlineProfile(id: string): Promise<void>;
   lanArchive(scope: Scope): Promise<LanArchiveState>;
   archiveLanReceipt(
     scope: Scope,

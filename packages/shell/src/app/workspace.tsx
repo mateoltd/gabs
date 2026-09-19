@@ -1,3 +1,4 @@
+import { requestProfileChooser } from "../features/identity/profile-signin";
 import { useWorkspaceSynchronization } from "../features/modules/synchronization";
 import {
   canReadSnapshot,
@@ -1081,6 +1082,13 @@ export function Workspace({
                   label: "Local profiles",
                   onSelect: () =>
                     window.dispatchEvent(new Event("suite-local-mode")),
+                },
+                {
+                  label: "Switch profile",
+                  onSelect: () => {
+                    requestProfileChooser();
+                    void onLogout().catch(setError);
+                  },
                 },
                 {
                   label: "Sign out",

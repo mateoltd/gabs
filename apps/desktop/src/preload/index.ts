@@ -17,6 +17,11 @@ async function recover<Result>(
   return response.result;
 }
 const bridge: DesktopBridge = {
+  onlineProfiles: () => ipcRenderer.invoke("suite:online-profiles"),
+  rememberOnlineProfile: (explicit) =>
+    ipcRenderer.invoke("suite:online-profile-remember", explicit),
+  forgetOnlineProfile: (id) =>
+    ipcRenderer.invoke("suite:online-profile-forget", id),
   lanArchive: (scope) => recover("suite:lan-archive", scope),
   archiveLanReceipt: (scope, selection) =>
     recover("suite:lan-receipt-archive", scope, selection),

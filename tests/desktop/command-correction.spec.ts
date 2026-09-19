@@ -31,6 +31,13 @@ type CaptureState = typeof globalThis & {
 };
 test.use({ actionTimeout: 15000 });
 for (const mode of [
+  "collision-resource-create-accepted",
+  "collision-resource-create-cancelled",
+  "collision-resource-update-accepted",
+  "collision-resource-update-cancelled",
+  "collision-resource-archive-accepted",
+  "collision-resource-archive-cancelled",
+
   "submitted-command-accepted",
   "submitted-command-cancelled",
   "submitted-create-accepted",
@@ -67,7 +74,7 @@ for (const mode of [
   "resource-uninstalled",
   "resource-stale-metadata",
 ] as const)
-  test(`native command correction preserves review after ${mode} original`, async () => {
+  test(`native command correction preserves review after ${mode} original`, async ({}, testInfo) => {
     test.setTimeout(180000);
     const pool = new Pool({
       connectionString: process.env.MIGRATION_DATABASE_URL,
@@ -75,6 +82,15 @@ for (const mode of [
     const api = await request.newContext({ baseURL: "http://localhost:4310" });
     const profile = await mkdtemp(resolve(tmpdir(), "suite-cross-capture-"));
     let app!: ElectronApplication, page!: Page;
+    const expectedCloses = new WeakSet<ElectronApplication>();
+    const lifecycle: {
+      event: string;
+      at: string;
+      pid?: number;
+      expected?: boolean;
+      code?: number | null;
+      signal?: string | null;
+    }[] = [];
     let interruptedCall: CaptureState["interruptedCall"];
     const launch = async (offline: boolean) => {
       const entry = resolve(profile, "capture-entry.cjs");
@@ -112,7 +128,39 @@ globalThis.fetch=async(...args)=>{
           SUITE_DESKTOP_TEST_MINIMIZED: "1",
         },
       });
+      const launched = app;
+      const pid = launched.process().pid;
+      lifecycle.push({ event: "launch", at: new Date().toISOString(), pid });
+      launched.process().once("exit", (code, signal) => {
+        lifecycle.push({
+          event: "process exit",
+          at: new Date().toISOString(),
+          pid,
+          expected: expectedCloses.has(launched),
+          code,
+          signal,
+        });
+      });
       page = await app.firstWindow();
+      expect(
+        await app.evaluate(
+          ({ safeStorage }) =>
+            safeStorage.isEncryptionAvailable() &&
+            (process.platform !== "linux" ||
+              safeStorage.getSelectedStorageBackend() !== "basic_text"),
+        ),
+        "Native acceptance requires available OS-protected storage. Unlock or enable the operating system credential store before running this journey.",
+      ).toBe(true);
+      const recordPageEvent = (event: "crash" | "close") => {
+        lifecycle.push({
+          event: `page ${event}`,
+          at: new Date().toISOString(),
+          pid,
+          expected: expectedCloses.has(launched),
+        });
+      };
+      page.once("crash", () => recordPageEvent("crash"));
+      page.once("close", () => recordPageEvent("close"));
       await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()[0].setSize(1440, 1000),
       );
@@ -140,13 +188,13 @@ globalThis.fetch=async(...args)=>{
       }, value);
     };
     try {
+      const login = await api.post("/auth/development", {
+        headers: { origin: "http://localhost:4300" },
+        data: { email: "owner@demo.local" },
+      });
       expect(
-        (
-          await api.post("/auth/development", {
-            headers: { origin: "http://localhost:4300" },
-            data: { email: "owner@demo.local" },
-          })
-        ).ok(),
+        login.ok(),
+        `Development login returned HTTP ${login.status()}`,
       ).toBe(true);
       await launch(false);
       await commandCorrectionJourney({
@@ -237,6 +285,7 @@ globalThis.fetch=async(...args)=>{
         mode,
         offline,
         restartOffline: async () => {
+          expectedCloses.add(app);
           await app.close();
           await launch(true);
           await offline(true);
@@ -362,7 +411,24 @@ globalThis.fetch=async(...args)=>{
           ),
         ),
       ).toBe(true);
+    } catch (error) {
+      if (page && !page.isClosed()) {
+        const screenshot = await page
+          .screenshot({ timeout: 5000 })
+          .catch(() => null);
+        if (screenshot)
+          await testInfo.attach("native-failure", {
+            body: screenshot,
+            contentType: "image/png",
+          });
+      }
+      await testInfo.attach("native-lifecycle", {
+        body: JSON.stringify(lifecycle, null, 2),
+        contentType: "application/json",
+      });
+      throw error;
     } finally {
+      if (app) expectedCloses.add(app);
       await app?.close();
       await api.dispose();
       await pool.end();

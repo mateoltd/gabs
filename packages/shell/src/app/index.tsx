@@ -1,10 +1,21 @@
+import { rememberOnlineProfile } from "@suite/client/online-profile-store";
+import {
+  profileSignIn,
+  finishProfileSignIn,
+} from "../features/identity/profile-signin";
 import { type RememberedIdentity } from "@suite/client";
 import {
   invalidateBrowserAccount,
   subscribeBrowserAccount,
 } from "@suite/client/browser";
 import { ApiError } from "@suite/client/api";
-import { Button, Empty, FeedbackProvider, Loading } from "@suite/ui-web";
+import {
+  Button,
+  Empty,
+  FeedbackProvider,
+  Loading,
+  useToast,
+} from "@suite/ui-web";
 import {
   QueryClientProvider,
   useQuery,
@@ -30,6 +41,7 @@ import { Workspace } from "./workspace";
 export type { ShellComposition } from "./composition";
 
 function Session() {
+  const toast = useToast();
   const [localMode, setLocalMode] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
   useEffect(() => {
@@ -69,6 +81,7 @@ function Session() {
   const me = useQuery({
     queryKey: ["me"],
     queryFn: async ({ signal }) => {
+      const attempt = profileSignIn();
       const result = await client
         .request({ operation: "me" }, { signal })
         .catch(async (error: unknown) => {
@@ -88,6 +101,24 @@ function Session() {
           }
           throw error;
         });
+      signal.throwIfAborted();
+      if (profileSignIn()?.token !== attempt?.token)
+        throw new DOMException(
+          "A newer sign-in superseded this request.",
+          "AbortError",
+        );
+      if (attempt?.profileId && result.user.id !== attempt.profileId) {
+        const record = await rememberSignOut(result.user.id, result.csrfToken);
+        await terminateSession(client, result.user.id, !window.suiteDesktop);
+        if (window.suiteDesktop) await window.suiteDesktop.logout();
+        acknowledgeSignOut(record);
+        finishProfileSignIn(attempt);
+        throw new ApiError(
+          401,
+          "PROFILE_MISMATCH",
+          "The provider signed in a different account. Choose your saved profile and try again.",
+        );
+      }
       await reconcileSignOut(client, result);
       await rememberAuthenticatedSession(result, signal);
       await navigator.locks.request("suite-remembered-identity", async () => {
@@ -111,6 +142,26 @@ function Session() {
           "A newer profile superseded this identity.",
           "AbortError",
         );
+      try {
+        await rememberOnlineProfile(
+          result.user,
+          !!attempt,
+          () =>
+            !signal.aborted &&
+            client.isCurrentUser(result.user.id) &&
+            profileSignIn()?.token === attempt?.token,
+        );
+      } catch {
+        toast.add({
+          title: "Profile was not saved",
+          description:
+            "You are signed in. Device storage could not save this account for later selection.",
+        });
+      }
+      signal.throwIfAborted();
+      if (!client.isCurrentUser(result.user.id))
+        throw new DOMException("The active profile changed.", "AbortError");
+      if (attempt) finishProfileSignIn(attempt);
       return result;
     },
     enabled: online,
@@ -247,7 +298,13 @@ function Session() {
     !client.isCurrentUser(invalidUser)
   )
     return online ? (
-      <Login />
+      <Login
+        failure={
+          me.error instanceof ApiError && me.error.code === "PROFILE_MISMATCH"
+            ? me.error
+            : undefined
+        }
+      />
     ) : (
       <main className="offline-start">
         <Empty
@@ -256,7 +313,16 @@ function Session() {
         />
       </main>
     );
-  if (online && !me.data && !me.isLoading) return <Login />;
+  if (online && !me.data && !me.isLoading)
+    return (
+      <Login
+        failure={
+          me.error instanceof ApiError && me.error.code === "PROFILE_MISMATCH"
+            ? me.error
+            : undefined
+        }
+      />
+    );
   if (!online && !identityLoaded) return <Loading />;
   const user =
     me.data?.user ??
@@ -265,7 +331,13 @@ function Session() {
       : undefined);
   if (!user || !selected)
     return online ? (
-      <Login />
+      <Login
+        failure={
+          me.error instanceof ApiError && me.error.code === "PROFILE_MISMATCH"
+            ? me.error
+            : undefined
+        }
+      />
     ) : (
       <main className="offline-start">
         <Empty

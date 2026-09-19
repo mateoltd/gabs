@@ -1,3 +1,4 @@
+import { collisionResourceJourney } from "./collision-resource-journey";
 import { collisionCommandJourney } from "./collision-command-journey";
 import { collisionArchiveJourney } from "./collision-archive-journey";
 import { commandSchemaTransition } from "./command-schema-transition";
@@ -23,7 +24,9 @@ export type CommandCorrectionOptions = {
   api: APIRequestContext;
   pool: Pool;
   kind: "web" | "native";
+  openPeer?(): Promise<Page>;
   mode:
+    | `collision-resource-${"create" | "update" | "archive"}-${"accepted" | "cancelled"}`
     | `submitted-${"command" | "create" | "update" | "archive"}-${"accepted" | "cancelled"}`
     | "collision-command-accepted"
     | "collision-command-cancelled"
@@ -83,6 +86,8 @@ export type CommandCorrectionOptions = {
 export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
+  if (options.mode.startsWith("collision-resource-"))
+    return collisionResourceJourney(options);
   if (options.mode.startsWith("collision-command-"))
     return collisionCommandJourney(options);
   if (options.mode.startsWith("collision-archive-"))

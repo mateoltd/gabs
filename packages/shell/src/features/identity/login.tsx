@@ -9,7 +9,13 @@ import { sessionTransitionLock } from "./signout";
 import { AppUpdate } from "../../app/update";
 import { BrandIcon } from "../../app/brand";
 
-export function Login() {
+import { SavedProfiles } from "./saved-profiles";
+import {
+  beginProfileSignIn,
+  finishProfileSignIn,
+  type ProfileSignIn,
+} from "./profile-signin";
+export function Login({ failure }: { failure?: unknown }) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"development" | "oidc" | "unconfigured">();
   const [account, setAccount] = useState("owner@demo.local");
@@ -43,20 +49,22 @@ export function Login() {
     };
   }, []);
 
-  async function signIn(options: LoginOptions = {}) {
+  async function signIn(options: LoginOptions = {}, profileId?: string) {
     if (busy) return;
     setBusy(true);
     setError(undefined);
     let redirecting = false;
+    let attempt: ProfileSignIn | undefined;
     try {
       await navigator.locks.request(sessionTransitionLock, async () => {
+        attempt = beginProfileSignIn(profileId);
         if (window.suiteDesktop) await window.suiteDesktop.login(options);
         else if (mode === "development") {
           const response = await fetch("/auth/development", {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: account }),
+            body: JSON.stringify({ email: options.loginHint ?? account }),
           });
           if (!response.ok) throw Error((await response.json()).message);
         } else {
@@ -72,6 +80,7 @@ export function Login() {
       if (!window.suiteDesktop)
         localStorage.setItem("suite-session-change", crypto.randomUUID());
     } catch (value) {
+      if (attempt) finishProfileSignIn(attempt);
       setError(value);
     } finally {
       if (!redirecting) setBusy(false);
@@ -86,7 +95,7 @@ export function Login() {
           <div className="login-form-inner" aria-busy={busy}>
             <BrandIcon size={32} />
             <h1 id="login-heading">Sign in to Common</h1>
-            <ErrorMessage error={error} />
+            <ErrorMessage error={error ?? (!busy ? failure : undefined)} />
             {mode === "unconfigured" ? (
               <div className="notice" role="status">
                 <strong>Desktop sign-in is not configured</strong>
@@ -205,6 +214,15 @@ export function Login() {
               </Button>
             )}
             <div className="login-local-access">
+              <SavedProfiles
+                busy={busy}
+                onSignIn={(profile) =>
+                  signIn(
+                    profile.email ? { loginHint: profile.email } : {},
+                    profile.id,
+                  )
+                }
+              />
               <button
                 type="button"
                 className="text-link"
