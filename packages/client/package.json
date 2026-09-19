@@ -29,6 +29,7 @@
     "./reference-reads": "./src/modules/reference-reads.ts",
     "./storage-retention": "./src/offline/storage-retention.ts",
     "./profile-lock": "./src/identity/profile-lock.ts",
+    "./browser-profile-lock": "./src/adapters/browser-profile-lock.ts",
     "./online-profiles": "./src/identity/online-profiles.ts",
     "./online-profile-store": "./src/adapters/online-profiles.ts"
   },

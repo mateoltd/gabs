@@ -950,3 +950,7 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## 19 September 2026 — Recovery-session authority
 
 [ID-02-RECOVERY](recovery-session/README.md) records five focused server/protocol cases, strict checks/four fresh builds, 704 unit/PostgreSQL tests, ten headless browser journeys and two hidden/minimized native journeys. One protected-storage PIN/restart test remains skipped. The new typed server contract supplies stable recent-session evidence; both OIDC code exchanges check the requested authentication age. The report distinguishes controlled provider transport from real-provider acceptance and leaves browser PIN/UI implementation explicitly open. No UI source or style changed.
+
+## 19 September 2026: browser profile-lock foundation
+
+[ID-02 browser foundation](browser-profile-lock/README.md) adds a portable PIN policy engine and a real IndexedDB/Web Locks/BroadcastChannel adapter. Twelve focused checks include actual WebCrypto, headless Chromium reloads and cross-tab notifications, concurrent attempt limits, corrupt-policy preservation and fresh-session recovery. A repeated-fault recovery race was reproduced and corrected. Final-source verification passed 716 tests across 106 files, strict checks and all four fresh builds. Corporate request/cache enforcement, the shared UI and real locked-profile journeys remain open; no user-facing browser lock is claimed yet. No styles or Electron source changed.
