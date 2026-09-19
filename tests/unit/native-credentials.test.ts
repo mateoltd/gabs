@@ -167,30 +167,36 @@ it("cancellation rejects a queued login before it can persist credentials", asyn
   expect(f.host.save).not.toHaveBeenCalled();
 });
 
-it("a cancelled sign-in cannot delay or detach its replacement", async () => {
-  const { NativeSignIn } =
-    await import("../../apps/desktop/src/main/identity/sign-in");
-  const sessions = new NativeSignIn(),
-    old = gate<void>(),
-    fresh = gate<void>();
-  const first = sessions.run(async (signal) => {
-    await old.promise;
-    signal.throwIfAborted();
-  });
-  const rejected = expect(first).rejects.toThrow("cancelled");
-  await Promise.resolve();
-  sessions.cancel();
-  const start = vi.fn(async () => {
-    await fresh.promise;
-  });
-  const replacement = sessions.run(start);
-  old.resolve();
-  await rejected;
-  expect(sessions.run(start)).toBe(replacement);
-  expect(start).toHaveBeenCalledTimes(1);
-  fresh.resolve();
-  await replacement;
-});
+it.each([
+  "Sign-in cancelled by sign-out.",
+  "Sign-in cancelled because the profile was locked.",
+])(
+  "a cancelled sign-in cannot delay or detach its replacement: %s",
+  async (reason) => {
+    const { NativeSignIn } =
+      await import("../../apps/desktop/src/main/identity/sign-in");
+    const sessions = new NativeSignIn(),
+      old = gate<void>(),
+      fresh = gate<void>();
+    const first = sessions.run(async (signal) => {
+      await old.promise;
+      signal.throwIfAborted();
+    });
+    const rejected = expect(first).rejects.toThrow(reason);
+    await Promise.resolve();
+    sessions.cancel(reason);
+    const start = vi.fn(async () => {
+      await fresh.promise;
+    });
+    const replacement = sessions.run(start);
+    old.resolve();
+    await rejected;
+    expect(sessions.run(start)).toBe(replacement);
+    expect(start).toHaveBeenCalledTimes(1);
+    fresh.resolve();
+    await replacement;
+  },
+);
 it("sign-out before queued sign-in begins prevents its setup side effects", async () => {
   const { NativeSignIn } =
     await import("../../apps/desktop/src/main/identity/sign-in");

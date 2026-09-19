@@ -6,6 +6,11 @@ import type {
   OperationRequest,
   LoginOptions,
 } from "@suite/contracts";
+import type { ProfileLockBridge } from "./identity/profile-lock";
+export type {
+  ProfileLockBridge,
+  ProfileLockStatus,
+} from "./identity/profile-lock";
 export interface Scope {
   userId: string;
   workspaceId: string;
@@ -107,30 +112,7 @@ export interface LanReceipt {
   dependencies?: number;
   message: string;
 }
-export interface ProfileLockStatus {
-  revision: number;
-  userId?: string;
-  enabled: boolean;
-  locked: boolean;
-  available: boolean;
-  biometric: boolean;
-  biometricAvailable: boolean;
-  retryAt: number;
-  canRecover: boolean;
-  error?: string;
-}
-export interface DesktopBridge {
-  profileLockStatus(): Promise<ProfileLockStatus>;
-  onProfileLock(callback: (status: ProfileLockStatus) => void): () => void;
-  lockProfile(): Promise<void>;
-  unlockProfile(method: "pin" | "biometric", pin?: string): Promise<void>;
-  configureProfileLock(
-    pin: string,
-    biometric: boolean,
-    previousPin?: string,
-  ): Promise<void>;
-  removeProfileLock(pin?: string, recover?: boolean): Promise<void>;
-
+export interface DesktopBridge extends ProfileLockBridge {
   onlineProfiles(): Promise<
     import("./identity/online-profiles").OnlineProfile[]
   >;

@@ -77,6 +77,19 @@ test("native device unlock reports protected-storage readiness without enabling 
         page.getByRole("button", { name: "Enable device unlock", exact: true }),
       ).toBeEnabled();
     await mkdir("docs/verification/profile-unlock", { recursive: true });
+    for (const dismiss of await page
+      .getByRole("button", { name: "Dismiss notification", exact: true })
+      .all())
+      await dismiss.click();
+    await expect(page.locator(".toast:visible")).toHaveCount(0);
+    const unlockSettings = page.locator("section.panel").filter({
+      has: page.getByRole("heading", { name: "Device unlock", exact: true }),
+    });
+    await unlockSettings.scrollIntoViewIfNeeded();
+    await unlockSettings.screenshot({
+      path: "docs/verification/profile-unlock/native-settings.png",
+      animations: "disabled",
+    });
     await page.screenshot({
       path: "docs/verification/profile-unlock/native-readiness.png",
       animations: "disabled",
@@ -280,6 +293,7 @@ test("unreadable native lock policy blocks privileged access and offers real onl
       }
     }, initial.userId);
     expect(refusal).toContain("Unlock");
+    await expect(page.locator(".toast-viewport:visible")).toHaveCount(0);
     await mkdir("docs/verification/profile-unlock", { recursive: true });
     await page.screenshot({
       path: "docs/verification/profile-unlock/native-locked.png",
@@ -305,6 +319,40 @@ test("unreadable native lock policy blocks privileged access and offers real onl
       enabled: true,
       canRecover: true,
     });
+    // Exercise the production main-process listener without suspending the OS
+    // or taking focus. Physical suspend/lock acceptance remains separate.
+    await app.evaluate(({ powerMonitor }) => powerMonitor.emit("suspend"));
+    await expect(
+      page.getByRole("heading", { name: "Unlock your profile", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Open local profiles", exact: true })
+      .click();
+    await page
+      .getByLabel("Profile name", { exact: true })
+      .fill("Independent personal work");
+    await page
+      .getByLabel("Passphrase", { exact: true })
+      .fill("correct horse battery staple");
+    await page
+      .getByRole("button", { name: "Create profile", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Independent personal work",
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(
+      (
+        await page.evaluate(() =>
+          window.suiteDesktop!.execute({ operation: "me" }),
+        )
+      ).status,
+    ).toBe(423);
+    expect(
+      await page.evaluate(() => window.suiteDesktop!.profileLockStatus()),
+    ).toMatchObject({ userId: initial.userId, locked: true });
     await hidden(app);
   } finally {
     await app.close();

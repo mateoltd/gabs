@@ -57,6 +57,7 @@ export function isDefinitiveRejection(
     ![
       "MEMBERSHIP_REVOKED",
       "MFA_REQUIRED",
+      "PROFILE_LOCKED",
       "INVALID_RESOURCE_RESPONSE",
       "MODULE_RESPONSE_CONTRACT_UNAVAILABLE",
     ].includes(code ?? "")
@@ -133,15 +134,18 @@ export async function flushJournal(
           e.status === 429 ||
           e.status === 401 ||
           e.code === "MEMBERSHIP_REVOKED" ||
-          e.code === "MFA_REQUIRED";
+          e.code === "MFA_REQUIRED" ||
+          e.code === "PROFILE_LOCKED";
         // A single request's transport/server failure cannot starve unrelated
-        // work. Shared authentication and rate limits still stop this pass;
-        // connectivity, cancellation and authority are rechecked before each send.
+        // work. Shared authentication, profile locks and rate limits still stop
+        // this pass; connectivity, cancellation and authority are rechecked
+        // before each send.
         stop =
           e.status === 401 ||
           e.status === 429 ||
           e.code === "MEMBERSHIP_REVOKED" ||
-          e.code === "MFA_REQUIRED";
+          e.code === "MFA_REQUIRED" ||
+          e.code === "PROFILE_LOCKED";
         if (uncertain || ambiguous) {
           delete entry.result;
           entry.error =

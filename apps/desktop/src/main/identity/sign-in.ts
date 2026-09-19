@@ -24,8 +24,8 @@ export class NativeSignIn {
     this.current = attempt;
     return attempt.promise;
   }
-  cancel() {
-    this.current?.controller.abort(Error("Sign-in cancelled by sign-out."));
+  cancel(reason = "Sign-in cancelled by sign-out.") {
+    this.current?.controller.abort(Error(reason));
     this.current = undefined;
   }
 }

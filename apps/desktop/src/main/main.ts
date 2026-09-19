@@ -177,6 +177,7 @@ const profileLock = new NativeProfileLock({
   changed: (status) =>
     win?.webContents.send("suite:profile-lock-changed", status),
   onLock: () => {
+    signInRequests.cancel("Sign-in cancelled because the profile was locked.");
     moduleHosts.clear();
     localDeviceHosts.clear();
     nativeAuthority.clear();
@@ -443,6 +444,16 @@ function sender(event: IpcMainInvokeEvent, allowLocked = false) {
     throw Error("Untrusted sender");
   if (!allowLocked) profileLock.assertUnlocked();
 }
+async function profileRead<T>(read: () => Promise<T>): Promise<T> {
+  const epoch = profileLock.epoch;
+  const identity = identityEpoch;
+  profileLock.assertUnlocked();
+  const value = await read();
+  profileLock.assertUnlocked();
+  if (epoch !== profileLock.epoch || identity !== identityEpoch)
+    throw Error("The profile or its lock changed during this read.");
+  return value;
+}
 function cacheKey(scope: Scope, key: CacheKey) {
   validateScope(scope, userId);
   if (
@@ -479,7 +490,7 @@ async function execute(
 ) {
   const actor = userId;
   const validated = validateOperation(raw);
-  const lockEpoch = profileLock.epoch;
+  let lockEpoch = profileLock.epoch;
   const lockFailure = () => ({
     status: 423,
     body: {
@@ -493,13 +504,13 @@ async function execute(
     validated.operation !== "connection"
   )
     return lockFailure();
-  const epoch = identityEpoch;
+  let epoch = identityEpoch;
   const sequence =
     validated.operation === "me" ? ++identitySequence : undefined;
   const current = () =>
     validated.operation === "connection" ||
     (epoch === identityEpoch &&
-      (authenticating || lockEpoch === profileLock.epoch) &&
+      lockEpoch === profileLock.epoch &&
       (sequence === undefined || sequence === identitySequence));
   const stale = () =>
     lockEpoch !== profileLock.epoch
@@ -615,14 +626,19 @@ async function execute(
       void lan.stop().catch(() => {});
     }
     if (!current()) return stale();
-    if (userId !== user.id) identityEpoch++;
+    if (userId !== user.id) {
+      identityEpoch++;
+      epoch = identityEpoch;
+    }
     userId = user.id;
     onlineProfileUser = { id: user.id, name: user.name, email: user.email };
     if (authenticating || profileLock.status().userId !== user.id)
       await profileLock.activate(user.id, authenticating);
+    lockEpoch = profileLock.epoch;
     if (profileLock.locked && !authenticating) return lockFailure();
     csrfToken = body.csrfToken as string | undefined;
   }
+  if (!current()) return stale();
   if (actor && actor === userId && secureAvailable()) {
     const workspaceId = request.params?.workspaceId;
     if (workspaceId) {
@@ -630,17 +646,22 @@ async function execute(
       try {
         if (res.ok && request.operation === "bootstrap") {
           await nativeAuthority.observe(scope, body);
+          if (!current()) return stale();
           lan.observe(scope, body);
         } else if (res.ok && request.operation === "workspacePolicy") {
           await nativeAuthority.observe(scope, body.bootstrap);
+          if (!current()) return stale();
           lan.observe(scope, body.bootstrap);
         } else if ([401, 403, 426].includes(res.status)) {
           void lan.stop(scope).catch(() => {});
           await nativeAuthority.revoke(scope);
+          if (!current()) return stale();
         }
       } catch {
+        if (!current()) return stale();
         void lan.stop(scope).catch(() => {});
         await nativeAuthority.revoke(scope).catch(() => {});
+        if (!current()) return stale();
       }
       // Recovery owns its metadata ordering; genuine server denial still revokes access.
       await inputRecovery.observeResponse(
@@ -649,6 +670,7 @@ async function execute(
         { status: res.status, body },
         recoveryRevision,
       );
+      if (!current()) return stale();
     }
     if (res.status === 401) {
       await writeSecure(`${actor}/account-revision`, randomUUID());
@@ -658,6 +680,7 @@ async function execute(
       await inputRecovery.purge({ userId: actor });
     }
   }
+  if (!current()) return stale();
   return {
     status: res.status,
     body,
@@ -993,7 +1016,7 @@ function handlers() {
     ) => {
       sender(event);
       validateScope(scope, userId);
-      return lanPackages.get(scope, selection);
+      return profileRead(() => lanPackages.get(scope, selection));
     },
   );
   ipcMain.handle(
@@ -1012,8 +1035,10 @@ function handlers() {
   ipcMain.handle("suite:lan-status", async (event, scope: Scope) => {
     sender(event);
     validateScope(scope, userId);
-    await lan.refresh(scope);
-    return lanStatus(scope);
+    return profileRead(async () => {
+      await lan.refresh(scope);
+      return lanStatus(scope);
+    });
   });
   ipcMain.handle(
     "suite:lan-set",
@@ -1122,18 +1147,15 @@ function handlers() {
   ipcMain.handle("suite:account-revision", async (event, accountId) => {
     sender(event);
     validateScope({ userId: accountId }, userId);
-    return (
-      (await readSecure<string>(`${accountId}/account-revision`)) ?? "initial"
+    return profileRead(
+      async () =>
+        (await readSecure<string>(`${accountId}/account-revision`)) ??
+        "initial",
     );
   });
   ipcMain.handle("suite:cache-read", async (event, scope, key) => {
     sender(event);
-    const epoch = profileLock.epoch;
-    const value = await readSecure(cacheKey(scope, key));
-    profileLock.assertUnlocked();
-    if (epoch !== profileLock.epoch)
-      throw Error("The profile lock changed during this read.");
-    return value;
+    return profileRead(() => readSecure(cacheKey(scope, key)));
   });
   ipcMain.handle("suite:cache-write", async (event, scope, key, value) => {
     sender(event);
@@ -1200,7 +1222,7 @@ function handlers() {
   });
   ipcMain.handle("suite:identity", (event) => {
     sender(event);
-    return readSecure<RememberedIdentity>("identity");
+    return profileRead(() => readSecure<RememberedIdentity>("identity"));
   });
   ipcMain.handle(
     "suite:remember",
@@ -1325,6 +1347,10 @@ async function start() {
   }
   try {
     await credentials.restore();
+  } catch {
+    /* Invalid or unavailable refresh state must not suppress offline identity. */
+  }
+  try {
     userId = (await readSecure<RememberedIdentity>("identity"))?.userId;
   } catch {
     /* A locked keychain leaves sign-in available without leaking plaintext. */

@@ -7,11 +7,12 @@ import {
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ProfileLockStatus } from "@suite/client";
+import type { ProfileLockStatus } from "@suite/client/profile-lock";
 import {
   Button,
   ErrorMessage,
   Field,
+  FeedbackProvider,
   Input,
   Loading,
   PreservedSurface,
@@ -112,9 +113,13 @@ export function NativeProfileGate({ children }: { children: ReactNode }) {
         </main>
       ) : status.locked ? (
         personal ? (
-          <LocalWorkspace onExit={() => setPersonal(false)} />
+          <FeedbackProvider>
+            <LocalWorkspace onExit={() => setPersonal(false)} />
+          </FeedbackProvider>
         ) : recover ? (
-          <Login />
+          <FeedbackProvider>
+            <Login />
+          </FeedbackProvider>
         ) : (
           <main className="local-workspace">
             <section
@@ -207,9 +212,21 @@ export function ProfileLockSettings() {
   const [biometric, setBiometric] = useState(false);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
+  const [recoveryNow, setRecoveryNow] = useState(() => Date.now());
   useEffect(() => {
     setBiometric(status?.biometric ?? false);
   }, [status?.biometric, status?.userId]);
+  useEffect(() => {
+    const expiresAt = status?.recoveryExpiresAt ?? 0;
+    setRecoveryNow(Date.now());
+    const delay = expiresAt - Date.now();
+    if (delay <= 0) return;
+    const timer = window.setTimeout(
+      () => setRecoveryNow(Date.now()),
+      Math.min(delay + 1, 2_147_483_647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [status?.recoveryExpiresAt, status?.userId]);
   if (!native || !status?.userId) return null;
   async function run(action: () => Promise<void>) {
     if (busy) return;
@@ -335,22 +352,24 @@ export function ProfileLockSettings() {
           )}
         </div>
       </form>
-      {status.enabled && status.canRecover && (
-        <div className="form-stack">
-          <p>
-            You recently signed in online. You can reset a forgotten device PIN
-            without deleting saved work.
-          </p>
-          <Button
-            disabled={busy || !status.available}
-            onClick={() =>
-              void run(() => native!.removeProfileLock(undefined, true))
-            }
-          >
-            Reset forgotten device PIN
-          </Button>
-        </div>
-      )}
+      {status.enabled &&
+        status.canRecover &&
+        status.recoveryExpiresAt > recoveryNow && (
+          <div className="form-stack">
+            <p>
+              You recently signed in online. You can reset a forgotten device
+              PIN without deleting saved work.
+            </p>
+            <Button
+              disabled={busy || !status.available}
+              onClick={() =>
+                void run(() => native!.removeProfileLock(undefined, true))
+              }
+            >
+              Reset forgotten device PIN
+            </Button>
+          </div>
+        )}
     </section>
   );
 }

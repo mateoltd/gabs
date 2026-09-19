@@ -940,3 +940,8 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## 19 September 2026 — Background screen privacy
 
 [ID-01-PRIVACY](background-privacy/README.md) adds synchronous foreground/background concealment without unmounting corporate editors or discarding pending work. Final checks passed: strict type/environment and boundary/copy checks, four fresh builds, 688 unit/PostgreSQL tests, seven headless browser journeys and one hidden/minimized native journey. Five additional identity journeys passed before the final immediate-transition correction. Captures were visually inspected. The record explicitly leaves physical OS lifecycle and credential-based unlock acceptance open; controlled renderer signals do not establish those gates.
+
+
+## 19 September 2026 — Native unlock architecture checkpoint
+
+[ID-02-NATIVE](profile-unlock/README.md) records the user-requested Sol xhigh implementation review and parent acceptance following checkpoint `be100d1`. The portable identity bridge, native protected policy and shell gate preserve subsystem ownership. Durable-write races, delayed profile responses, feedback containment and uncertain-request retry handling are covered by focused regressions and real headless/minimized journeys. The evidence retains the sleep-interrupted run and explicitly open protected-storage, physical hardware and provider gates. Full ID-02, feature parity and later UI refinement remain incomplete.

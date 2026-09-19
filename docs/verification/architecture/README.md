@@ -202,3 +202,12 @@ Verification on the final source:
 - Browser acceptance: eight existing sign-out/profile-authority journeys passed; both new saved-profile journeys passed again on the final build with authoritative version-2 readback. Final 1440 × 1000 and 390 × 844 captures were visually inspected; no horizontal overflow. The initial new-fixture failures and their correction are recorded separately.
 
 Package identities, signed artifacts, API schemas, tokens and styles are unchanged. The checkpoint's unrelated collision source and captures are preserved. macOS still reports the screen locked; native/provider acceptance remains required, and no foreground desktop test or protected-storage bypass was attempted. This review does not complete ID-01, overall functionality parity or later UI refinement.
+
+
+## Native unlock checkpoint review, 19 September 2026
+
+Checkpoint `be100d1`, with pushed tag `checkpoint/architecture-unlock-be100d1`, preserves the unfinished checkout. The user-requested `gpt-5.6-sol` agent at `xhigh` reviewed and corrected the implementation; the parent independently reviewed its diff and added adversarial acceptance coverage.
+
+The existing physical migration remains appropriate. Portable unlock types now live in `client/src/identity/profile-lock.ts`, composed into the root bridge with compatible exports. Privileged policy and durable state remain in Electron main; React state and presentation remain in shell identity. Corporate feedback is owned by the preserved account surface, while recovery/local profiles have separate providers. There is no directory churn, stylesheet change, public package rename or signed-artifact rewrite.
+
+Parent review reproduced a policy-write/lock race, checked durable retry-delay retention and corrected the journal classification of a withheld native response: local locking cannot establish server rejection. The native read wrapper also checks both identity and lock generations, and locking cancels the whole pending sign-in attempt. The [native unlock evidence](../profile-unlock/README.md) records the focused tests, builds, broad regression, headless browser and minimized native acceptance, inspected captures and external limits. This is acceptance of the scoped architecture/correctness pass, not completion of ID-02, feature parity or the later UI-refinement goal.

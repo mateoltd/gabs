@@ -179,3 +179,63 @@ it("changing or removing a configured PIN requires its current value", async () 
   await f.lock.remove("87654321");
   expect(f.lock.status()).toMatchObject({ locked: false, enabled: false });
 });
+
+it("a lock during the first policy write cannot leave a persisted PIN bypassed", async () => {
+  const f = fixture();
+  await f.lock.activate("account-a", true);
+  let release!: () => void, writing!: () => void;
+  const started = new Promise<void>((resolve) => {
+    writing = resolve;
+  });
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const write = f.host.write;
+  f.host.write = async (account, value) => {
+    writing();
+    await pending;
+    await write(account, value);
+  };
+  const configuring = f.lock.configure("12567890", false);
+  const settled = configuring.catch(() => {});
+  await started;
+  f.lock.lock();
+  release();
+  await settled;
+  expect(f.disk.has("account-a")).toBe(true);
+  expect(f.lock.status().locked).toBe(true);
+  expect(() => f.lock.assertUnlocked()).toThrow("Unlock");
+  await f.lock.activate("account-a");
+  await f.lock.unlock("pin", "12567890");
+  expect(f.lock.locked).toBe(false);
+});
+
+it("relocking while the retry delay is saved cannot discard the accepted delay", async () => {
+  const f = fixture();
+  await f.lock.activate("account-a", true);
+  await f.lock.configure("12567890", false);
+  f.lock.lock();
+  for (let attempt = 0; attempt < 4; attempt++)
+    await expect(f.lock.unlock("pin", "00000000")).rejects.toThrow("incorrect");
+  let release!: () => void, writing!: () => void;
+  const started = new Promise<void>((resolve) => {
+    writing = resolve;
+  });
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const write = f.host.write;
+  f.host.write = async (account, value) => {
+    writing();
+    await pending;
+    await write(account, value);
+  };
+  const attempting = f.lock.unlock("pin", "00000000").catch(() => {});
+  await started;
+  f.lock.lock();
+  release();
+  await attempting;
+  expect(f.lock.status().retryAt).toBeGreaterThan(100_000);
+  await expect(f.lock.unlock("pin", "12567890")).rejects.toThrow("Wait");
+  expect(f.lock.locked).toBe(true);
+});

@@ -1,5 +1,5 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import type { ProfileLockStatus } from "@suite/client";
+import type { ProfileLockStatus } from "@suite/client/profile-lock";
 
 interface Policy {
   version: 1;
@@ -56,6 +56,7 @@ export class NativeProfileLock {
   private revision = 0;
   private recoveredUntil = 0;
   private writes: Promise<unknown> = Promise.resolve();
+  private changing = 0;
   constructor(
     private host: {
       read(account: string): Promise<unknown>;
@@ -89,6 +90,7 @@ export class NativeProfileLock {
       retryAt: this.saved?.retryAt ?? 0,
       error: this.failure,
       canRecover: !this.blocked && this.recoveredUntil > this.now(),
+      recoveryExpiresAt: this.recoveredUntil,
     };
   }
   private changed() {
@@ -103,6 +105,28 @@ export class NativeProfileLock {
     const next = this.writes.catch(() => {}).then(run);
     this.writes = next;
     return next;
+  }
+  private change<T>(run: () => Promise<T>): Promise<T> {
+    this.changing++;
+    return this.exclusive(run).finally(() => {
+      this.changing--;
+    });
+  }
+  /** Publish a completed durable write before rejecting an invalidated caller. */
+  private persisted(
+    account: string,
+    generation: number,
+    durable: () => void,
+    current?: () => void,
+  ) {
+    if (account !== this.account) this.current(account, generation);
+    durable();
+    if (generation !== this.generation) {
+      this.changed();
+      this.current(account, generation);
+    }
+    current?.();
+    this.changed();
   }
   async activate(account?: string, authenticated = false) {
     const generation = ++this.generation;
@@ -137,7 +161,7 @@ export class NativeProfileLock {
   lock() {
     this.generation++;
     this.recoveredUntil = 0;
-    if (this.account && (this.saved || this.failure)) {
+    if (this.account && (this.saved || this.failure || this.changing > 0)) {
       this.blocked = true;
       this.host.onLock();
     }
@@ -163,9 +187,9 @@ export class NativeProfileLock {
           : this.now() + Math.min(900_000, 30_000 * 2 ** (failures - 5)),
     };
     await this.host.write(account, next);
-    this.current(account, generation);
-    this.saved = next;
-    this.changed();
+    this.persisted(account, generation, () => {
+      this.saved = next;
+    });
     throw Error("The device PIN is incorrect.");
   }
   async configure(pin: unknown, biometric: unknown, previousPin?: unknown) {
@@ -180,7 +204,7 @@ export class NativeProfileLock {
       throw Error("Unlock protected storage before enabling a device PIN.");
     if (biometric && !this.host.biometricAvailable())
       throw Error("Touch ID is unavailable. Use a device PIN.");
-    await this.exclusive(async () => {
+    await this.change(async () => {
       this.current(account, generation);
       this.assertUnlocked();
       if (this.saved) await this.verify(previousPin, account, generation);
@@ -198,10 +222,10 @@ export class NativeProfileLock {
         retryAt: 0,
       };
       await this.host.write(account, next);
-      this.current(account, generation);
-      this.saved = next;
-      this.failure = undefined;
-      this.changed();
+      this.persisted(account, generation, () => {
+        this.saved = next;
+        this.failure = undefined;
+      });
     });
   }
   async unlock(method: "pin" | "biometric", pin?: unknown) {
@@ -210,7 +234,7 @@ export class NativeProfileLock {
     const account = this.account,
       generation = this.generation;
     if (!account || !this.blocked) return;
-    await this.exclusive(async () => {
+    await this.change(async () => {
       this.current(account, generation);
       if (!this.host.available())
         throw Error(
@@ -232,10 +256,16 @@ export class NativeProfileLock {
         throw Error("Sign in online to recover device unlock settings.");
       const next = { ...this.saved, failures: 0, retryAt: 0 };
       await this.host.write(account, next);
-      this.current(account, generation);
-      this.saved = next;
-      this.blocked = false;
-      this.changed();
+      this.persisted(
+        account,
+        generation,
+        () => {
+          this.saved = next;
+        },
+        () => {
+          this.blocked = false;
+        },
+      );
     });
   }
   async remove(pin?: unknown, recover = false) {
@@ -243,7 +273,7 @@ export class NativeProfileLock {
       generation = this.generation;
     if (!account) throw Error("Sign in before changing device unlock.");
     this.assertUnlocked();
-    await this.exclusive(async () => {
+    await this.change(async () => {
       this.current(account, generation);
       if (recover) {
         if (this.recoveredUntil <= this.now())
@@ -252,10 +282,10 @@ export class NativeProfileLock {
           );
       } else await this.verify(pin, account, generation);
       await this.host.write(account, undefined);
-      this.current(account, generation);
-      this.saved = undefined;
-      this.failure = undefined;
-      this.changed();
+      this.persisted(account, generation, () => {
+        this.saved = undefined;
+        this.failure = undefined;
+      });
     });
   }
 }

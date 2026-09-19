@@ -21,7 +21,7 @@ const bridge: DesktopBridge = {
   onProfileLock: (callback) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
-      status: import("@suite/client").ProfileLockStatus,
+      status: import("@suite/client/profile-lock").ProfileLockStatus,
     ) => callback(status);
     ipcRenderer.on("suite:profile-lock-changed", listener);
     return () => {

@@ -1,5 +1,9 @@
 import { expect, it } from "vitest";
-import { flushJournal, type JournalEntry } from "@suite/module-sdk/sync";
+import {
+  flushJournal,
+  isDefinitiveRejection,
+  type JournalEntry,
+} from "@suite/module-sdk/sync";
 
 function fixture() {
   let entries: JournalEntry[] = ["original", "dependent", "independent"].map(
@@ -25,6 +29,48 @@ function fixture() {
   };
   return { store, entries: () => structuredClone(entries) };
 }
+
+it("retains a committed request whose reply is withheld by profile lock and resumes with its original identity", async () => {
+  const { store, entries } = fixture();
+  const effects = new Map<string, unknown>();
+  const locked = {
+    status: 423,
+    code: "PROFILE_LOCKED",
+    message: "Unlock this profile to continue.",
+  };
+  expect(isDefinitiveRejection(locked, false)).toBe(false);
+  const commit = (key: string) => {
+    if (!effects.has(key)) effects.set(key, { id: key });
+    return effects.get(key);
+  };
+  await flushJournal(
+    store,
+    async (call) => {
+      commit(call.key!);
+      throw locked;
+    },
+    () => true,
+  );
+  expect([...effects.keys()]).toEqual(["original"]);
+  expect(entries()[0]).toMatchObject({
+    state: "pending",
+    delivery: "uncertain",
+    attempts: 1,
+  });
+  expect(entries()[2]).toMatchObject({ delivery: "unsubmitted", attempts: 0 });
+  await flushJournal(
+    store,
+    async (call) => commit(call.key!),
+    () => true,
+  );
+  expect(entries().every((entry) => entry.state === "accepted")).toBe(true);
+  expect([...effects.keys()].sort()).toEqual([
+    "dependent",
+    "independent",
+    "original",
+  ]);
+  expect(entries()[0].attempts).toBe(2);
+});
 
 it("persists dispatch before effects and retains an uncertain identity through denial, then recovers its receipt", async () => {
   const { store, entries } = fixture();

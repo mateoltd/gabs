@@ -374,13 +374,13 @@ export function App({ composition }: { composition: ShellComposition }) {
       <BackgroundPrivacy />
       <link rel="icon" type="image/png" href={brandIconUrl} />
       <ShellCompositionProvider value={composition}>
-        <FeedbackProvider>
-          <Router>
-            <NativeProfileGate>
+        <Router>
+          <NativeProfileGate>
+            <FeedbackProvider>
               <Session />
-            </NativeProfileGate>
-          </Router>
-        </FeedbackProvider>
+            </FeedbackProvider>
+          </NativeProfileGate>
+        </Router>
       </ShellCompositionProvider>
     </QueryClientProvider>
   );
