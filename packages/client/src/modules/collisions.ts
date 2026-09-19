@@ -62,7 +62,7 @@ export function sameRecordCreateDependents(
   const id = input(original.call).id?.toLowerCase();
   return createDependents(scoped, originalId).filter(
     (entry) =>
-      entry.call.action === "update" &&
+      ["update", "archive"].includes(entry.call.action) &&
       entry.call.moduleId === original.call.moduleId &&
       entry.call.resource === original.call.resource &&
       typeof journalRecordId(entry) === "string" &&
@@ -136,7 +136,7 @@ export async function prepareCreateReplacement(
   if (
     children.some(
       (entry) =>
-        !["create", "update"].includes(entry.call.action) ||
+        !["create", "update", "archive"].includes(entry.call.action) ||
         !entry.call.resource,
     )
   )
@@ -232,7 +232,13 @@ export async function prepareCreateReplacement(
     const value = input(call);
     const { module, contract } = await responseContract(state, call);
     const schema = module.resources[call.resource!].schema;
-    if (!sameRecord.has(prior.id))
+    const recovery = sameRecord.has(prior.id)
+      ? {
+          targetId: targets[prior.id] === "separate" ? toId : fromId,
+          destination: targets[prior.id]!,
+        }
+      : prior.recordRecovery;
+    if (!recovery && call.action !== "archive")
       call.input = {
         ...value,
         data: remapResourceReferences(schema, value.data, from, toId),
@@ -246,14 +252,11 @@ export async function prepareCreateReplacement(
       dependencies: [
         ...new Set(prior.dependencies.map((id) => keys.get(id) ?? id)),
       ],
-      state: sameRecord.has(prior.id) ? "conflict" : "pending",
-      ...(sameRecord.has(prior.id)
+      state: recovery ? "conflict" : "pending",
+      ...(recovery
         ? {
-            recordRecovery: {
-              targetId: targets[prior.id] === "separate" ? toId : fromId,
-              destination: targets[prior.id]!,
-            },
-            error: `Review this saved edit on the ${targets[prior.id] === "separate" ? "separate record" : "existing corporate record"} before submitting it. Its original input is preserved.`,
+            recordRecovery: recovery,
+            error: `Review this saved ${call.action === "archive" ? "archive" : "edit"} on the ${recovery.destination === "separate" ? "separate record" : "existing corporate record"} before submitting it. Its original input is preserved.`,
           }
         : {}),
       createdAt: Date.now(),

@@ -65,6 +65,22 @@ export async function replaceArchive(
       );
     if (!authorized(entry.call) || !authorized(call))
       throw Error("Current access does not allow reviewing this archive.");
+    if (
+      entry.recordRecovery &&
+      entry.dependencies.some(
+        (id) =>
+          !state.journal.some(
+            (prior) =>
+              prior.id === id &&
+              prior.userId === scope.userId &&
+              prior.workspaceId === scope.workspaceId &&
+              prior.state === "accepted",
+          ),
+      )
+    )
+      throw new JournalConflictError(
+        "Wait for prerequisite changes before reviewing this saved archive.",
+      );
     if (state.installed[call.moduleId]?.version !== call.moduleVersion)
       throw new JournalConflictError(
         "The installed release changed. Review the archive again.",
@@ -74,7 +90,8 @@ export async function replaceArchive(
         (e) =>
           e.dependencies.includes(id) &&
           !e.supersededBy &&
-          (e.state !== "pending" ||
+          ((e.state !== "pending" &&
+            !(e.state === "conflict" && e.recordRecovery)) ||
             e.delivery !== "unsubmitted" ||
             e.attempts !== 0),
       )

@@ -2774,3 +2774,272 @@ it.each(["uncertain", "target", "child"])(
     expect(settle).not.toHaveBeenCalled();
   },
 );
+
+it.each(["separate", "existing"] as const)(
+  "keeps a collision archive inert until explicit %s-target review and authoritative replacement",
+  async (destination) => {
+    const { platform } = await collisionStorage();
+    const archive: ModuleCall = {
+      ...call("collision-archive"),
+      action: "archive",
+      input: { id: collisionId, baseVersion: 7 },
+    };
+    await enqueue(platform, scope, archive);
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+      { "collision-archive": destination },
+    );
+    let state = await readModuleStorage(platform, scope);
+    const retained = state.journal.find((e) => e.recordRecovery)!;
+    const target = destination === "separate" ? separateId : collisionId;
+    expect(retained.call.input).toEqual(archive.input);
+    expect(retained).toMatchObject({
+      state: "conflict",
+      delivery: "unsubmitted",
+      recordRecovery: { targetId: target, destination },
+    });
+    const reviewed = {
+      ...archive,
+      key: "reviewed-collision-archive",
+      input: { id: target, baseVersion: 1 },
+    };
+    const settle = vi.fn(async () => ({
+      key: retained.id,
+      outcome: "cancelled",
+    }));
+    await expect(
+      replaceArchive(
+        platform,
+        scope,
+        retained.id,
+        reviewed,
+        settle,
+        () => true,
+      ),
+    ).rejects.toThrow("prerequisite");
+    expect(settle).not.toHaveBeenCalled();
+    const send = vi.fn(async (request: ModuleCall) => ({
+      ...row,
+      id: (request.input as { id: string }).id,
+      archived: request.action === "archive",
+    }));
+    await syncModuleStorage(platform, scope, send, () => true);
+    expect(
+      send.mock.calls.every(([request]) => request.action === "create"),
+    ).toBe(true);
+    await replaceArchive(
+      platform,
+      scope,
+      retained.id,
+      reviewed,
+      settle,
+      () => true,
+    );
+    await syncModuleStorage(platform, scope, send, () => true);
+    expect(
+      send.mock.calls.filter(([request]) => request.action === "archive"),
+    ).toEqual([[reviewed]]);
+    state = await readModuleStorage(platform, scope);
+    expect(state.journal.find((e) => e.id === archive.key)?.call).toEqual(
+      archive,
+    );
+    expect(state.journal.find((e) => e.id === reviewed.key)?.state).toBe(
+      "accepted",
+    );
+  },
+);
+
+it("requires an explicit target for a same-record archive without rewriting original work", async () => {
+  const { platform } = await collisionStorage();
+  await enqueue(platform, scope, {
+    ...call("collision-archive"),
+    action: "archive",
+    input: { id: collisionId, baseVersion: 1 },
+  });
+  const before = await readModuleStorage(platform, scope);
+  await expect(
+    replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+    ),
+  ).rejects.toThrow("Choose where");
+  const after = await readModuleStorage(platform, scope);
+  expect(after.journal.map((e) => e.call)).toEqual(
+    before.journal.map((e) => e.call),
+  );
+  expect(after.journal.some((e) => e.supersededBy)).toBe(false);
+});
+
+it.each(["update", "archive"] as const)(
+  "preserves an existing-target %s review across a repeated parent collision",
+  async (action) => {
+    const { platform } = await collisionStorage();
+    const source: ModuleCall = {
+      ...call("existing-target-change"),
+      action,
+      input: {
+        id: collisionId,
+        baseVersion: 7,
+        ...(action === "update" ? { data, baseData: data } : {}),
+      },
+    };
+    await enqueue(platform, scope, source);
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "original-create",
+      collisionReplacement(),
+      async () => ({ key: "original-create", outcome: "cancelled" }),
+      () => true,
+      { [source.key!]: "existing" },
+    );
+    await changeModuleStorage(platform, scope, (s) => {
+      const parent = s.journal.find((e) => e.id === "separate-create")!;
+      parent.state = "conflict";
+      parent.attempts = 1;
+      delete parent.delivery;
+    });
+    await replaceFailedCreate(
+      platform,
+      scope,
+      "separate-create",
+      {
+        ...collisionReplacement(),
+        key: "second-separate-create",
+        input: { id: crypto.randomUUID(), data },
+      },
+      async () => ({ key: "separate-create", outcome: "cancelled" }),
+      () => true,
+    );
+    const latest = (await readModuleStorage(platform, scope)).journal.find(
+      (e) => e.call.action === action && !e.supersededBy,
+    )!;
+    expect(latest).toMatchObject({
+      state: "conflict",
+      delivery: "unsubmitted",
+      recordRecovery: { targetId: collisionId, destination: "existing" },
+    });
+    expect(latest.call.input).toEqual(source.input);
+  },
+);
+
+it("continues an unsent archive of another record without remapping its target or body", async () => {
+  const { platform } = await collisionStorage();
+  const target = crypto.randomUUID();
+  const archive: ModuleCall = {
+    ...call("other-record-archive"),
+    action: "archive",
+    input: { id: target, baseVersion: 3 },
+  };
+  await enqueue(platform, scope, archive, ["original-create"]);
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+  );
+  const send = vi.fn(async (request: ModuleCall) => ({
+    ...row,
+    id: (request.input as { id: string }).id,
+    archived: request.action === "archive",
+    version: request.action === "archive" ? 4 : 1,
+  }));
+  await syncModuleStorage(platform, scope, send, () => true);
+  const archives = send.mock.calls.filter(
+    ([request]) => request.action === "archive",
+  );
+  expect(archives).toHaveLength(1);
+  expect(archives[0][0].input).toStrictEqual(archive.input);
+  expect(archives[0][0].key).not.toBe(archive.key);
+  const state = await readModuleStorage(platform, scope);
+  expect(state.journal.find((e) => e.id === archives[0][0].key)?.state).toBe(
+    "accepted",
+  );
+  expect(state.journal.find((e) => e.id === archive.key)?.call).toEqual(
+    archive,
+  );
+});
+
+it("continues two collision archive reviews in order without automatically executing either target", async () => {
+  const { platform } = await collisionStorage();
+  for (const key of ["first-collision-archive", "second-collision-archive"])
+    await enqueue(platform, scope, {
+      ...call(key),
+      action: "archive",
+      input: { id: collisionId, baseVersion: 7 },
+    });
+  await replaceFailedCreate(
+    platform,
+    scope,
+    "original-create",
+    collisionReplacement(),
+    async () => ({ key: "original-create", outcome: "cancelled" }),
+    () => true,
+    {
+      "first-collision-archive": "separate",
+      "second-collision-archive": "existing",
+    },
+  );
+  const reviews = (await readModuleStorage(platform, scope)).journal.filter(
+    (e) => e.recordRecovery && !e.supersededBy,
+  );
+  expect(reviews).toHaveLength(2);
+  const send = vi.fn(async (request: ModuleCall) => ({
+    ...row,
+    id: (request.input as { id: string }).id,
+    archived: request.action === "archive",
+  }));
+  await syncModuleStorage(platform, scope, send, () => true);
+  expect(
+    send.mock.calls.some(([request]) => request.action === "archive"),
+  ).toBe(false);
+  for (const [index, entry] of reviews.entries()) {
+    const reviewed: ModuleCall = {
+      ...entry.call,
+      key: `reviewed-collision-archive-${index}`,
+      input: { id: entry.recordRecovery!.targetId, baseVersion: 1 },
+    };
+    await replaceArchive(
+      platform,
+      scope,
+      entry.id,
+      reviewed,
+      async () => ({ key: entry.id, outcome: "cancelled" }),
+      () => true,
+    );
+    await syncModuleStorage(platform, scope, send, () => true);
+    expect(
+      send.mock.calls.filter(([request]) => request.action === "archive"),
+    ).toHaveLength(index + 1);
+    if (index === 0)
+      expect(
+        (await readModuleStorage(platform, scope)).journal.find(
+          (e) => e.id === reviews[1].id,
+        ),
+      ).toMatchObject({
+        state: "conflict",
+        delivery: "unsubmitted",
+        call: reviews[1].call,
+        dependencies: [reviewed.key],
+      });
+  }
+  expect(
+    send.mock.calls
+      .filter(([request]) => request.action === "archive")
+      .map(([request]) => request.input),
+  ).toEqual([
+    { id: separateId, baseVersion: 1 },
+    { id: collisionId, baseVersion: 1 },
+  ]);
+});

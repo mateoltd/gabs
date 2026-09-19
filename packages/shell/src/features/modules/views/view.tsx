@@ -1629,7 +1629,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         {!directCreate && (
           <p>
             Other linked records that have never been submitted will follow the
-            new record. Later edits to this record need an explicit target and
+            new record. Later changes to this record need an explicit target and
             review. Existing server records stay unchanged. Work with an
             uncertain outcome or an ambiguous saved draft must be reviewed
             first.
@@ -1638,13 +1638,15 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         {!!recoveryEdits.length && (
           <div className="form-stack">
             <p>
-              Choose where each later edit belongs. These edits will remain
+              Choose where each later change belongs. These changes will remain
               saved for review against the chosen record after prerequisite
               changes are accepted.
             </p>
             {recoveryEdits.map((entry, index) => (
               <div className="form-stack" key={entry.id}>
-                <Field label={`Record for later edit ${index + 1}`}>
+                <Field
+                  label={`Record for later ${entry.call.action === "archive" ? "archive" : "edit"} ${index + 1}`}
+                >
                   <Select
                     value={recoveryTargets[entry.id] ?? ""}
                     disabled={busy}
@@ -1667,11 +1669,18 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                     </SelectOption>
                   </Select>
                 </Field>
-                <SavedChange
-                  entry={entry}
-                  schema={definition.schema as TObject}
-                  loadReferences={loadReferences}
-                />
+                {entry.call.action === "archive" ? (
+                  <details>
+                    <summary>View archive target</summary>
+                    <ResourceValue value={entry.call.input} expanded />
+                  </details>
+                ) : (
+                  <SavedChange
+                    entry={entry}
+                    schema={definition.schema as TObject}
+                    loadReferences={loadReferences}
+                  />
+                )}
               </div>
             ))}
           </div>

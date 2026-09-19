@@ -15,6 +15,8 @@ for (const mode of [
   "submitted-update-cancelled",
   "submitted-archive-accepted",
   "submitted-archive-cancelled",
+  "collision-archive-separate",
+  "collision-archive-existing",
   "archive-review",
   "archive-review-archived",
   "cross-module",

@@ -1,3 +1,4 @@
+import { collisionArchiveJourney } from "./collision-archive-journey";
 import { commandSchemaTransition } from "./command-schema-transition";
 import { commandContinuationJourney } from "./command-continuation-journey";
 import { resourceHostJourney } from "./resource-host-journey";
@@ -23,6 +24,8 @@ export type CommandCorrectionOptions = {
   kind: "web" | "native";
   mode:
     | `submitted-${"command" | "create" | "update" | "archive"}-${"accepted" | "cancelled"}`
+    | "collision-archive-separate"
+    | "collision-archive-existing"
     | "archive-review"
     | "archive-review-archived"
     | "cross-module"
@@ -74,6 +77,8 @@ export type CommandCorrectionOptions = {
 export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
+  if (options.mode.startsWith("collision-archive-"))
+    return collisionArchiveJourney(options);
   if (
     options.mode.startsWith("submitted-") ||
     options.mode.startsWith("archive-review") ||

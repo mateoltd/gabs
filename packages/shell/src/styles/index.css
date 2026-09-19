@@ -2049,7 +2049,10 @@ legend {
     position: static;
     transform: none;
     padding: 0;
-    visibility: visible;
+    visibility: inherit;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     opacity: 1;
     background: none;
     border: 0;

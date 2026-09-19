@@ -20,3 +20,6 @@ Checkpoint `222ac15` preserves the implementation before the requested Sol xhigh
 The journeys use actual SDK capture, signed releases, server updates and permission changes. They preserve the original archive through offline reload/process restart, a held settlement response during write revocation and a lost settlement reply. A successful reviewed replacement uses the current version, leaves the unselected sibling untouched, and produces exactly one archive effect and audit entry. An already-archived target offers explicit original-outcome resolution without creating another archive.
 
 Existing presentation components are reused without style changes. This does not implement archive target reassignment after failed-create collisions, nor complete other legacy/profile/release gates.
+
+
+Subsequent [archive collision target acceptance](../collision-archives/README.md) separately implements explicit target reassignment for never-submitted descendants. Its verification and remaining boundaries are recorded there.
