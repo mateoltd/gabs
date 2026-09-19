@@ -9,7 +9,11 @@ import {
   journalRecordId,
   referenceDependencies,
 } from "./journal";
-import { responseContract, responseContractKey } from "./response";
+import {
+  responseContract,
+  responseContractKey,
+  validateModuleResponse,
+} from "./response";
 import { removeResourceDraft, resourceDraftKey } from "./drafts";
 
 import {
@@ -33,6 +37,7 @@ function createDependents(
   originalId: string,
 ) {
   const affected = new Set([originalId]);
+  const accepted = new Set<string>();
   for (let size = -1; size !== affected.size;) {
     size = affected.size;
     for (const entry of journal)
@@ -40,10 +45,15 @@ function createDependents(
         !entry.supersededBy &&
         entry.dependencies.some((id) => affected.has(id))
       )
-        affected.add(entry.id);
+        // An accepted effect stays on its original record. Work depending only
+        // on that receipt already has its prerequisite and is not retargeted.
+        if (entry.state === "accepted") accepted.add(entry.id);
+        else affected.add(entry.id);
   }
   return journal.filter(
-    (entry) => affected.has(entry.id) && entry.id !== originalId,
+    (entry) =>
+      (affected.has(entry.id) || accepted.has(entry.id)) &&
+      entry.id !== originalId,
   );
 }
 
@@ -59,7 +69,9 @@ export function createCommandDependents(
         entry.workspaceId === scope.workspaceId,
     ),
     originalId,
-  ).filter((entry) => entry.call.action === "operation");
+  ).filter(
+    (entry) => entry.call.action === "operation" && entry.state !== "accepted",
+  );
 }
 
 /** Only explicit dependency edges establish that an edit belongs to this recovery. */
@@ -77,6 +89,7 @@ export function sameRecordCreateDependents(
   const id = input(original.call).id?.toLowerCase();
   return createDependents(scoped, originalId).filter(
     (entry) =>
+      entry.state !== "accepted" &&
       ["update", "archive"].includes(entry.call.action) &&
       entry.call.moduleId === original.call.moduleId &&
       entry.call.resource === original.call.resource &&
@@ -135,17 +148,29 @@ export async function prepareCreateReplacement(
     throw new JournalConflictError(
       "Choose a new record identity for this separate create.",
     );
-  const children = createDependents(scoped, originalId);
+  const branches = createDependents(scoped, originalId);
+  for (const entry of branches.filter((entry) => entry.state === "accepted")) {
+    const { module } = await responseContract(state, entry.call);
+    validateModuleResponse(module, entry.call, entry.result);
+  }
+  const children = branches.filter((entry) => entry.state !== "accepted");
   if (
     children.some(
       (entry) =>
-        (entry.state !== "pending" &&
+        // Only a permanent server fence permits an attempted command to enter
+        // the existing explicit review flow. Its exact call and key survive.
+        !(
+          entry.call.action === "operation" &&
+          entry.settlement === "cancelled" &&
+          ["rejected", "conflict"].includes(entry.state)
+        ) &&
+        ((entry.state !== "pending" &&
           !(
             entry.state === "conflict" &&
             (entry.recordRecovery || entry.createRecovery)
           )) ||
-        entry.delivery !== "unsubmitted" ||
-        entry.attempts !== 0,
+          entry.delivery !== "unsubmitted" ||
+          entry.attempts !== 0),
     )
   )
     throw new JournalConflictError(

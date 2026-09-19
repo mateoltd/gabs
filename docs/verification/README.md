@@ -845,3 +845,8 @@ The isolated full regression passed 592 tests across 89 files. Final strict chec
 ## Collision recovery architecture review, 19 September 2026
 
 The requested Sol xhigh audit and independent parent review confirmed the existing package migration and current collision-recovery ownership. No production-source change was justified. The clean baseline is preserved by `checkpoint/architecture-review-d3ffbb6`. Fresh verification passed 91 focused tests, strict environment/boundary checks and four cached production build targets. [The architecture review](architecture/README.md#collision-recovery-checkpoint-review-19-september-2026) records scope and limits. No browser/native UI was launched or newly accepted; OFF-01 and full parity remain open.
+
+
+## Submitted collision commands, 19 September 2026
+
+[The outcome-recovery record](collision-outcomes/README.md) documents partial OFF-01-COLLISION-OUTCOME acceptance. Accepted branches remain unchanged, and cancelled custom commands require explicit review before a fresh request. Final verification passed 598 unit/PostgreSQL tests across 89 files, strict environment/boundary checks, four fresh builds, eight distinct headless browser and eight hidden/minimized native journeys. Twelve final screenshots were inspected. The record distinguishes corrected fixture failures, seeded legacy delivery metadata, real server outcomes and unit-only resource coverage. Cancelled resource continuation and broader mixed-resource acceptance remain open.

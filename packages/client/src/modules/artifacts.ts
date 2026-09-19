@@ -144,11 +144,19 @@ export async function persistModuleArtifacts(
   }
   for (const [id, pkg] of Object.entries(downloads ?? {}))
     stored.downloadRefs![id] = await save(pkg);
+  // Accepted branches can still be inspected while an unresolved ancestor is
+  // recovered. Keep their exact contract until that dependency is retired.
+  const unresolved = new Set(
+    state.journal
+      .filter((entry) => entry.state !== "accepted" && !entry.supersededBy)
+      .map((entry) => entry.id),
+  );
   const retained = new Set(
     state.journal
       .filter(
         (entry) =>
           entry.call.action === "operation" ||
+          entry.dependencies.some((id) => unresolved.has(id)) ||
           entry.recoveredAt !== undefined ||
           (entry.state !== "accepted" && !entry.supersededBy),
       )

@@ -1674,8 +1674,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
             new record. Later changes to this record need an explicit target and
             review. Linked custom commands keep their original input and need a
             separate review after their prerequisites are accepted. Existing
-            server records stay unchanged. Work with an uncertain outcome or an
-            ambiguous saved draft must be reviewed first.
+            server records and accepted effects stay unchanged. Recover linked
+            requests with uncertain outcomes from Settings before continuing.
+            Commands stopped by the server still need an explicit review.
+            Ambiguous saved drafts must be reviewed first.
           </p>
         )}
         {!!recoveryEdits.length && (

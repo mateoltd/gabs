@@ -3265,75 +3265,97 @@ it.each(["permission", "uncertain", "attempted", "legacy"])(
   },
 );
 
-it("continues a reviewed command chain after collision without automatically submitting later reviews", async () => {
-  const { platform, command } = await collisionCommandStorage();
-  await enqueue(platform, scope, { ...command, key: "second-command" }, [
-    command.key!,
-  ]);
-  await cancelCollision(platform);
-  await syncModuleStorage(
-    platform,
-    scope,
-    async (call) => ({
-      ...row,
-      id: separateId,
-      data: (call.input as { data: unknown }).data,
-    }),
-    () => true,
-  );
-  let state = await readModuleStorage(platform, scope);
-  const later = state.journal.find((e) => e.id === "second-command")!;
-  const review = await saveCollisionCommandReview(
-    platform,
-    scope,
-    command.key!,
-    contacts.version,
-    { contactId: separateId },
-    0,
-    () => true,
-    [commandContinuation(later)],
-  );
-  await replaceCommand(
-    platform,
-    scope,
-    command.key!,
-    review.revision,
-    "corrected-first",
-    [commandContinuation(later)],
-    async () => ({ key: command.key!, outcome: "cancelled" }),
-    () => true,
-  );
-  const send = vi.fn(async (_call: ModuleCall) => ({ linked: true }));
-  await syncModuleStorage(platform, scope, send, () => true);
-  expect(send).toHaveBeenCalledTimes(1);
-  state = await readModuleStorage(platform, scope);
-  const held = state.journal.find((e) => e.id === later.id)!;
-  expect(held.state).toBe("conflict");
-  expect(held.call).toEqual(later.call);
-  expect(held.dependencies).toContain("corrected-first");
-  const next = await saveCollisionCommandReview(
-    platform,
-    scope,
-    later.id,
-    contacts.version,
-    { contactId: collisionId },
-    0,
-    () => true,
-  );
-  await replaceCommand(
-    platform,
-    scope,
-    later.id,
-    next.revision,
-    "corrected-second",
-    [],
-    async () => ({ key: later.id, outcome: "cancelled" }),
-    () => true,
-  );
-  await syncModuleStorage(platform, scope, send, () => true);
-  expect(send).toHaveBeenCalledTimes(2);
-  expect(send.mock.calls[1][0].input).toEqual({ contactId: collisionId });
-});
+it.each([false, true])(
+  "continues a collision command chain without automatically submitting later reviews (previously attempted: %s)",
+  async (attempted) => {
+    const { platform, command } = await collisionCommandStorage();
+    await enqueue(platform, scope, { ...command, key: "second-command" }, [
+      command.key!,
+    ]);
+    if (attempted) {
+      await changeModuleStorage(platform, scope, (state) => {
+        for (const entry of state.journal.filter(
+          (entry) => entry.call.action === "operation",
+        )) {
+          entry.delivery = "uncertain";
+          entry.attempts = 1;
+        }
+      });
+      for (const id of [command.key!, "second-command"])
+        await settleJournalEntry(
+          platform,
+          scope,
+          id,
+          async () => ({ key: id, outcome: "cancelled" }),
+          () => true,
+          "saved-command",
+        );
+    }
+    await cancelCollision(platform);
+    await syncModuleStorage(
+      platform,
+      scope,
+      async (call) => ({
+        ...row,
+        id: separateId,
+        data: (call.input as { data: unknown }).data,
+      }),
+      () => true,
+    );
+    let state = await readModuleStorage(platform, scope);
+    const later = state.journal.find((e) => e.id === "second-command")!;
+    const review = await saveCollisionCommandReview(
+      platform,
+      scope,
+      command.key!,
+      contacts.version,
+      { contactId: separateId },
+      0,
+      () => true,
+      [commandContinuation(later)],
+    );
+    await replaceCommand(
+      platform,
+      scope,
+      command.key!,
+      review.revision,
+      "corrected-first",
+      [commandContinuation(later)],
+      async () => ({ key: command.key!, outcome: "cancelled" }),
+      () => true,
+    );
+    const send = vi.fn(async (_call: ModuleCall) => ({ linked: true }));
+    await syncModuleStorage(platform, scope, send, () => true);
+    expect(send).toHaveBeenCalledTimes(1);
+    state = await readModuleStorage(platform, scope);
+    const held = state.journal.find((e) => e.id === later.id)!;
+    expect(held.state).toBe("conflict");
+    expect(held.call).toEqual(later.call);
+    expect(held.dependencies).toContain("corrected-first");
+    const next = await saveCollisionCommandReview(
+      platform,
+      scope,
+      later.id,
+      contacts.version,
+      { contactId: collisionId },
+      0,
+      () => true,
+    );
+    await replaceCommand(
+      platform,
+      scope,
+      later.id,
+      next.revision,
+      "corrected-second",
+      [],
+      async () => ({ key: later.id, outcome: "cancelled" }),
+      () => true,
+    );
+    await syncModuleStorage(platform, scope, send, () => true);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].input).toEqual({ contactId: collisionId });
+  },
+);
 
 async function saveCollisionCommandReview(
   ...args: Parameters<typeof saveCommandReview>
@@ -3442,4 +3464,179 @@ it("keeps command capture prerequisites immutable when an archive review rewires
   await syncModuleStorage(platform, scope, send, () => true);
   expect(send).toHaveBeenCalledTimes(1);
   expect(send.mock.calls[0][0].key).toBe("reviewed-archive-child");
+});
+
+it.each(["operation", "create", "update", "archive"] as const)(
+  "preserves an accepted %s collision branch and only reconnects still-unresolved paths",
+  async (action) => {
+    const { platform, command } = await collisionCommandStorage();
+    await changeModuleStorage(platform, scope, (state) => {
+      const child = state.journal[1];
+      if (action !== "operation")
+        child.call = {
+          ...call(child.id),
+          action,
+          input:
+            action === "create"
+              ? { id: childId, data }
+              : {
+                  id: collisionId,
+                  baseVersion: 1,
+                  ...(action === "update" ? { data } : {}),
+                },
+        };
+      child.delivery = "uncertain";
+      child.attempts = 1;
+    });
+    const result =
+      action === "operation"
+        ? { linked: true }
+        : {
+            ...row,
+            id: action === "create" ? childId : collisionId,
+            archived: action === "archive",
+            version: action === "create" ? 1 : 2,
+          };
+    await settleJournalEntry(
+      platform,
+      scope,
+      command.key!,
+      async () => ({
+        key: command.key,
+        outcome: "accepted",
+        result,
+      }),
+      () => true,
+      "uncertain",
+    );
+    await enqueue(
+      platform,
+      scope,
+      {
+        ...call("receipt-only-child"),
+        input: { id: crypto.randomUUID(), data },
+      },
+      [command.key!],
+    );
+    await enqueue(
+      platform,
+      scope,
+      {
+        ...call("root-and-receipt-child"),
+        input: { id: crypto.randomUUID(), data },
+      },
+      [command.key!, "original-create"],
+    );
+    // Pruning after an upgrade must retain the accepted branch's original contract.
+    await changeModuleStorage(platform, scope, (state) => {
+      state.installed.contacts = {
+        version: upgraded.version,
+        artifact: upgraded.artifact,
+        signed: upgraded,
+        publicKey,
+        verifiedAt: Date.now(),
+      };
+    });
+    const before = await readModuleStorage(platform, scope);
+    expect(
+      before.responseContracts?.[`contacts@${contacts.version}`],
+    ).toBeDefined();
+    await cancelCollision(platform);
+    const after = await readModuleStorage(platform, scope);
+    expect(after.journal.find((entry) => entry.id === command.key)).toEqual(
+      before.journal[1],
+    );
+    expect(
+      after.journal.find((entry) => entry.id === "receipt-only-child"),
+    ).toEqual(before.journal[2]);
+    const shared = after.journal.find(
+      (entry) => entry.id === "root-and-receipt-child",
+    )!;
+    expect(shared.supersededBy).toBeDefined();
+    expect(
+      after.journal.find((entry) => entry.id === shared.supersededBy)
+        ?.dependencies,
+    ).toEqual([command.key, "separate-create"]);
+  },
+);
+
+it("requires an authoritative command cancellation before reviewing an attempted collision descendant", async () => {
+  const { platform, command, interrupt } = await collisionCommandStorage();
+  await changeModuleStorage(platform, scope, (state) => {
+    state.journal[1].delivery = "uncertain";
+    state.journal[1].attempts = 2;
+  });
+  const originalChild = (await readModuleStorage(platform, scope)).journal[1];
+  await expect(cancelCollision(platform)).rejects.toThrow(
+    "Recover its outcome",
+  );
+  const settle = vi.fn(async () => ({
+    key: command.key,
+    outcome: "cancelled",
+  }));
+  interrupt();
+  await expect(
+    settleJournalEntry(
+      platform,
+      scope,
+      command.key!,
+      settle,
+      () => true,
+      "saved-command",
+    ),
+  ).rejects.toThrow("Interrupted commit");
+  expect((await readModuleStorage(platform, scope)).journal[1]).toEqual(
+    originalChild,
+  );
+  await settleJournalEntry(
+    platform,
+    scope,
+    command.key!,
+    settle,
+    () => true,
+    "saved-command",
+  );
+  await cancelCollision(platform);
+  let state = await readModuleStorage(platform, scope);
+  const held = state.journal[1];
+  expect(held).toMatchObject({
+    id: command.key,
+    call: command,
+    attempts: 2,
+    settlement: "cancelled",
+    state: "conflict",
+    dependencies: ["separate-create"],
+    captureDependencies: ["original-create"],
+  });
+  const send = vi.fn(async () => ({ ...row, id: separateId }));
+  await syncModuleStorage(platform, scope, send, () => true);
+  expect(send).toHaveBeenCalledTimes(1);
+  state = await readModuleStorage(platform, scope);
+  expect(state.journal[1]).toEqual(held);
+  const review = await saveCollisionCommandReview(
+    platform,
+    scope,
+    command.key!,
+    contacts.version,
+    { contactId: separateId },
+    0,
+    () => true,
+  );
+  await replaceCommand(
+    platform,
+    scope,
+    command.key!,
+    review.revision,
+    "reviewed-stopped-command",
+    [],
+    settle,
+    () => true,
+  );
+  const effect = vi.fn(async () => ({ linked: true }));
+  await syncModuleStorage(platform, scope, effect, () => true);
+  await syncModuleStorage(platform, scope, effect, () => true);
+  expect(effect).toHaveBeenCalledTimes(1);
+  expect((await readModuleStorage(platform, scope)).journal[1].call).toEqual(
+    command,
+  );
 });

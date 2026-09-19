@@ -169,6 +169,12 @@ export function CommandCorrection({
             {dependents.map(({ entry: child, module: original }) => (
               <div key={child.id}>
                 <p>{original.name}</p>
+                {!!child.createRecovery?.length && (
+                  <p>
+                    This command will keep waiting for its own explicit review.
+                    Selecting it updates its prerequisite without submitting it.
+                  </p>
+                )}
                 <label>
                   <input
                     type="checkbox"

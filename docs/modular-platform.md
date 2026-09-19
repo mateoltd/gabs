@@ -326,6 +326,8 @@ Never-submitted command descendants retain their exact capture calls and identit
 
 Command review preserves partial input across restart, displays the replacement context and requires accepted prerequisites before submission. Saving and replacing reject stale recovery context. The generated resource view exposes the same Saved commands inbox as custom views. Its collision recovery uses verified original/current command contracts and live installation/permission checks. [Scoped acceptance](verification/collision-commands/README.md) records the completed checks and remaining gates.
 
+Accepted descendants now end a failed-create recovery branch: their exact requests, receipts and record effects stay unchanged. Unknown outcomes still block replacement. After server cancellation, an attempted custom command can enter the explicit review flow without reusing its cancelled request for execution. Cancelled command chains require individual reviews and selected prerequisite continuation. [Outcome recovery evidence](verification/collision-outcomes/README.md) records this scope; cancelled create/update/archive continuation and broader mixed-resource acceptance remain required.
+
 ### Saved command correction
 
 Rejected or conflicting commands can retain a separate review, including partial invalid input, without changing the original request or submitting work. Uncertain requests must resolve their original outcome first. Saving persists the input, current signed release, revision and explicitly selected never-submitted dependents. Stale reviews, changed dependent input and changed authority require another review.

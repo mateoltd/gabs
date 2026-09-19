@@ -25,6 +25,8 @@ export type CommandCorrectionOptions = {
   kind: "web" | "native";
   mode:
     | `submitted-${"command" | "create" | "update" | "archive"}-${"accepted" | "cancelled"}`
+    | "collision-command-accepted"
+    | "collision-command-cancelled"
     | "collision-command-separate"
     | "collision-command-existing"
     | "collision-archive-separate"

@@ -196,7 +196,7 @@ export async function saveCommandReview(
   return saved;
 }
 
-/** Only explicit, never-submitted direct dependents may retain their inputs after a correction. */
+/** Only unsent work or fenced collision-command reviews can follow an explicit correction. */
 export function commandDependents(
   state: ModuleStorage,
   scope: Scope,
@@ -210,8 +210,11 @@ export function commandDependents(
       !entry.supersededBy &&
       (entry.state === "pending" ||
         (entry.state === "conflict" && !!entry.createRecovery?.length)) &&
-      entry.delivery === "unsubmitted" &&
-      entry.attempts === 0 &&
+      ((entry.delivery === "unsubmitted" && entry.attempts === 0) ||
+        (entry.call.action === "operation" &&
+          entry.state === "conflict" &&
+          !!entry.createRecovery?.length &&
+          entry.settlement === "cancelled")) &&
       !entry.orderingRecovery &&
       !entry.recordRecovery,
   );

@@ -6,12 +6,19 @@ import { publishExecutableFixture } from "./executable-fixture";
 import { selectValue } from "../e2e/controls.helpers";
 import type { CommandCorrectionOptions } from "./command-correction-journey";
 import module from "../fixtures/queued-resources/module";
+import { recoverCollisionCommandOutcome } from "./collision-outcome-recovery";
 
 export async function collisionCommandJourney(
   options: CommandCorrectionOptions,
 ) {
   let page = options.page;
   const { api, pool } = options;
+  const outcome =
+    options.mode === "collision-command-accepted"
+      ? "accepted"
+      : options.mode === "collision-command-cancelled"
+        ? "cancelled"
+        : undefined;
   const destination =
     options.mode === "collision-command-existing" ? "existing" : "separate";
   const id = `command-collision-${randomUUID().slice(0, 8)}`;
@@ -187,12 +194,27 @@ export async function collisionCommandJourney(
   await card.getByRole("button", { name: "Update", exact: true }).click();
   await expect(card).toContainText(`Installed ${next.version}`);
   await page.getByRole("link", { name, exact: true }).click();
+  if (outcome) {
+    page = await recoverCollisionCommandOutcome({
+      options,
+      page,
+      scope,
+      headers,
+      name,
+      child: before[1],
+      outcome,
+    });
+    await page.getByRole("link", { name, exact: true }).click();
+  }
   await page
     .getByRole("group", {
       name: "Pending create: Separate recovered record",
       exact: true,
     })
-    .getByRole("button", { name: "Review", exact: true })
+    .getByRole("button", {
+      name: outcome ? "Resume review" : "Review",
+      exact: true,
+    })
     .click();
   await page
     .getByRole("button", { name: "Create separate record", exact: true })
@@ -210,15 +232,63 @@ export async function collisionCommandJourney(
   await expect(choice).toHaveCount(0);
   await expect
     .poll(async () => (await read()).journal.map((e) => e.state))
-    .toEqual(["conflict", "conflict", "accepted"]);
+    .toEqual([
+      "conflict",
+      outcome === "accepted" ? "accepted" : "conflict",
+      "accepted",
+    ]);
   const recovered = (await read()).journal;
   const separateTarget = (recovered[2].call.input as { id: string }).id;
   const target = destination === "existing" ? originalTarget : separateTarget;
   expect(recovered[1].call).toEqual(before[1].call);
   expect(recovered[1].id).toBe(before[1].id);
+  if (outcome === "accepted") {
+    expect(recovered[1].dependencies).toEqual(before[1].dependencies);
+    expect(recovered[1].supersededBy).toBeUndefined();
+    expect(recovered[1].createRecovery).toBeUndefined();
+    const effect = await api.post(
+      `/api/v1/module/${id}/workspaces/${scope.workspaceId}/operations/capture`,
+      {
+        headers: {
+          ...headers,
+          "idempotency-key": before[1].id,
+          "x-module-version": before[1].call.moduleVersion!,
+        },
+        data: before[1].call.input,
+      },
+    );
+    expect(effect.status()).toBe(200);
+    expect(await effect.json()).toEqual(recovered[1].result);
+    const evidence = "docs/verification/collision-outcomes/command-accepted";
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: `${evidence}/${options.kind}-accepted.png` });
+    const acceptedRows = await pool.query(
+      "select data from suite.module_records where workspace_id=$1 and module_id=$2",
+      [scope.workspaceId, id],
+    );
+    expect(acceptedRows.rows.map((r) => r.data.name).sort()).toEqual(
+      [
+        "Existing corporate record",
+        "Separate recovered record",
+        "Linked effect: Existing corporate record",
+      ].sort(),
+    );
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from suite.audit where workspace_id=$1 and action=$2",
+          [scope.workspaceId, `${id}.notes.create`],
+        )
+      ).rows[0].n,
+    ).toBe(3);
+    await options.offline(true);
+    page = await options.restartOffline();
+    expect((await read()).journal).toEqual(recovered);
+    return;
+  }
   expect(recovered[1].captureDependencies).toEqual([before[0].id]);
   expect(recovered[1].dependencies).toEqual([recovered[2].id]);
-  expect(recovered[1].attempts).toBe(0);
+  expect(recovered[1].attempts).toBe(outcome ? 1 : 0);
   const records = () =>
     pool.query(
       "select id,data from suite.module_records where workspace_id=$1 and module_id=$2 order by id",
@@ -250,7 +320,9 @@ export async function collisionCommandJourney(
     .getByRole("button", { name: "Save review", exact: true })
     .click();
   await expect(review).toContainText("Review saved on this device.");
-  const evidence = `docs/verification/collision-commands/${destination}`;
+  const evidence = outcome
+    ? `docs/verification/collision-outcomes/command-${outcome}`
+    : `docs/verification/collision-commands/${destination}`;
   await mkdir(evidence, { recursive: true });
   const capture = (label: string) =>
     page.screenshot({ path: `${evidence}/${options.kind}-${label}.png` });
