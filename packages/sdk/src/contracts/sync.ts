@@ -118,7 +118,7 @@ export async function flushJournal(
         entry.error =
           e.message ?? "This change is still awaiting a verified response.";
       } else {
-        stop =
+        const ambiguous =
           !e.status ||
           e.status >= 500 ||
           e.status === 408 ||
@@ -126,7 +126,15 @@ export async function flushJournal(
           e.status === 401 ||
           e.code === "MEMBERSHIP_REVOKED" ||
           e.code === "MFA_REQUIRED";
-        if (uncertain || stop) {
+        // A single request's transport/server failure cannot starve unrelated
+        // work. Shared authentication and rate limits still stop this pass;
+        // connectivity, cancellation and authority are rechecked before each send.
+        stop =
+          e.status === 401 ||
+          e.status === 429 ||
+          e.code === "MEMBERSHIP_REVOKED" ||
+          e.code === "MFA_REQUIRED";
+        if (uncertain || ambiguous) {
           delete entry.result;
           entry.error =
             "The outcome of an earlier attempt is unknown. Your original change is retained for retry." +

@@ -184,7 +184,7 @@ it("does not turn a malformed acceptance into a rejection on a later retry", asy
   expect(entries()[0].result).toBeUndefined();
 });
 
-it.each([408, 429, 500, 401])(
+it.each([429, 401])(
   "retains ambiguous HTTP %i attempts before stopping the batch",
   async (status) => {
     const { store, entries } = fixture();
@@ -366,3 +366,81 @@ it("rechecks authority before each newly released dependent and resumes safely i
   );
   expect(sent).toEqual(["independent", "replacement", "child", "grandchild"]);
 });
+
+it.each([
+  new TypeError("Lost module reply"),
+  { status: 408 },
+  { status: 500 },
+  { status: 503 },
+])(
+  "isolates an ambiguous request failure from unrelated work: %j",
+  async (failure) => {
+    const { store, entries } = fixture();
+    const sent: string[] = [];
+    for (let pass = 0; pass < 2; pass++) {
+      await flushJournal(
+        store,
+        async (call) => {
+          sent.push(call.key!);
+          if (call.key === "original") throw failure;
+          return { id: call.key };
+        },
+        () => true,
+      );
+    }
+    expect(sent).toEqual(["original", "independent", "original"]);
+    expect(entries()[0]).toMatchObject({
+      state: "pending",
+      delivery: "uncertain",
+      attempts: 2,
+    });
+    expect(entries()[1]).toMatchObject({
+      state: "pending",
+      delivery: "unsubmitted",
+      attempts: 0,
+    });
+    expect(entries()[2]).toMatchObject({ state: "accepted", attempts: 1 });
+    await flushJournal(
+      store,
+      async (call) => {
+        sent.push(call.key!);
+        return { id: call.key };
+      },
+      () => true,
+    );
+    expect(sent).toEqual([
+      "original",
+      "independent",
+      "original",
+      "original",
+      "dependent",
+    ]);
+    expect(entries().every((entry) => entry.state === "accepted")).toBe(true);
+  },
+);
+
+it.each(["MEMBERSHIP_REVOKED", "MFA_REQUIRED"])(
+  "stops the pass after shared authority failure %s",
+  async (code) => {
+    const { store, entries } = fixture();
+    const sent: string[] = [];
+    await flushJournal(
+      store,
+      async (call) => {
+        sent.push(call.key!);
+        throw { status: 403, code };
+      },
+      () => true,
+    );
+    expect(sent).toEqual(["original"]);
+    expect(entries()[0]).toMatchObject({
+      state: "pending",
+      delivery: "uncertain",
+    });
+    expect(entries()[2]).toMatchObject({
+      state: "pending",
+      delivery: "unsubmitted",
+      attempts: 0,
+    });
+  },
+);

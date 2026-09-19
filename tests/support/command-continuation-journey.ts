@@ -1,3 +1,4 @@
+import { submittedDescendantJourney } from "./submitted-descendants";
 import {
   captureResourceDependents,
   verifyResourceDependents,
@@ -16,20 +17,23 @@ export async function commandContinuationJourney(
 ) {
   let page = options.page;
   const { api, pool } = options;
+  const submitted = options.mode.startsWith("submitted-");
+  const selectedAction = submitted ? options.mode.split("-")[1] : undefined;
   const resourceAction =
-    options.mode === "command-resource"
+    selectedAction === "create" || options.mode === "command-resource"
       ? "create"
-      : options.mode === "command-update"
+      : selectedAction === "update" || options.mode === "command-update"
         ? "update"
-        : options.mode === "command-archive"
+        : selectedAction === "archive" || options.mode === "command-archive"
           ? "archive"
           : undefined;
   const resourceChild = resourceAction !== undefined;
   const childChoice = resourceAction
     ? `Continue ${resourceAction[0].toUpperCase()}${resourceAction.slice(1)} Notes`
     : "Continue Save note";
-  const evidence =
-    resourceAction === "update" || resourceAction === "archive"
+  const evidence = submitted
+    ? `submitted-descendants/${selectedAction}-${options.mode.split("-")[2]}`
+    : resourceAction === "update" || resourceAction === "archive"
       ? `resource-${resourceAction}-continuation`
       : resourceChild
         ? "resource-continuation"
@@ -241,9 +245,11 @@ export async function commandContinuationJourney(
   ).toBeVisible();
   await mkdir(`docs/verification/${evidence}`, { recursive: true });
   const screenshot = (name: string) =>
-    page.screenshot({
-      path: `docs/verification/${evidence}/${options.kind}-${name}.png`,
-    });
+    submitted
+      ? Promise.resolve()
+      : page.screenshot({
+          path: `docs/verification/${evidence}/${options.kind}-${name}.png`,
+        });
   await screenshot("review");
   expect(
     (
@@ -357,6 +363,11 @@ export async function commandContinuationJourney(
   await screenshot("revoked-narrow");
   await options.wide();
   await permission(true);
+  if (submitted)
+    await options.interruptCall!(
+      before[1].id,
+      options.mode.endsWith("accepted") ? "accepted" : "cancelled",
+    );
   await expect(
     review.getByRole("checkbox", { name: childChoice, exact: true }).first(),
   ).toBeChecked();
@@ -369,6 +380,24 @@ export async function commandContinuationJourney(
       exact: true,
     })
     .click();
+  if (submitted) {
+    await expect(review).toHaveCount(0);
+    await expect(confirm).toHaveCount(0);
+    await page
+      .getByRole("dialog", { name: "Saved commands", exact: true })
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    return submittedDescendantJourney({
+      options,
+      page,
+      scope,
+      headers,
+      modules,
+      before,
+      targets: existingTargets,
+    });
+  }
   await expect
     .poll(async () => (await stored()).journal.map((entry) => entry.state))
     .toEqual(["rejected", "accepted", "pending", "accepted"]);

@@ -254,3 +254,8 @@ CORE-003 and UI-003 gain [scoped OFF-01-SCHEMA evidence](verification/command-sc
 ## Reviewed resource descendants, 19 September 2026
 
 CORE-003 and UI-003 gain [scoped OFF-01-DESC evidence](verification/resource-descendants/README.md): original SDK capture retries survive explicit dependency remapping; command-to-update/archive reviews preserve target/base/input through offline restart, current-authority checks and selected-only duplicate-free effects. Recovery exports retain the optional original capture list separately from current prerequisites. Final evidence includes all 563 tests passing across two runs after an integration setup connection timeout, strict checks/four fresh builds, five browser and five hidden native journeys. Submitted-child outcome recovery, missing legacy history, profile and broader release gates remain required; no original requirement is broadly closed.
+
+
+## Submitted descendant outcomes, 19 September 2026
+
+CORE-003 and UI-003 gain [scoped OFF-01-OUTCOME evidence](verification/submitted-descendants/README.md): command/create/update/archive descendants after approved parent continuation recover exact accepted-or-cancelled outcomes through lost execution/settlement replies and offline restart. The scheduler no longer lets one transport/server failure starve unrelated work; shared authentication/rate-limit stops and prerequisite ordering remain. Final checks passed 567 unit/PostgreSQL tests, strict checks/four fresh builds and ten journeys in each web/native client, with duplicate-free state/audits and eight inspected captures. Legacy/collision transitions, profiles and broader release requirements remain open; no entire original requirement is newly complete.

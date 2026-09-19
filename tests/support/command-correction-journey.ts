@@ -22,6 +22,7 @@ export type CommandCorrectionOptions = {
   pool: Pool;
   kind: "web" | "native";
   mode:
+    | `submitted-${"command" | "create" | "update" | "archive"}-${"accepted" | "cancelled"}`
     | "cross-module"
     | "command-resource"
     | "command-update"
@@ -55,6 +56,7 @@ export type CommandCorrectionOptions = {
     arrived(): Promise<void>;
     release(): Promise<void>;
   }>;
+  interruptCall?(key: string, outcome: "accepted" | "cancelled"): Promise<void>;
   offline(value: boolean): Promise<void>;
   restartOffline(): Promise<Page>;
   reconnect(): Promise<void>;
@@ -71,6 +73,7 @@ export async function commandCorrectionJourney(
   options: CommandCorrectionOptions,
 ) {
   if (
+    options.mode.startsWith("submitted-") ||
     options.mode === "cross-module" ||
     options.mode === "command-resource" ||
     options.mode === "command-update" ||

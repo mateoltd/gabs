@@ -7,6 +7,14 @@ import { commandCorrectionJourney } from "../support/command-correction-journey"
 import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 test.use({ actionTimeout: 15000 });
 for (const mode of [
+  "submitted-command-accepted",
+  "submitted-command-cancelled",
+  "submitted-create-accepted",
+  "submitted-create-cancelled",
+  "submitted-update-accepted",
+  "submitted-update-cancelled",
+  "submitted-archive-accepted",
+  "submitted-archive-cancelled",
   "cross-module",
   "command-resource",
   "command-update",
@@ -126,6 +134,21 @@ for (const mode of [
         },
         reconnect: async () => {
           await context.setOffline(false);
+        },
+        interruptCall: async (key, outcome) => {
+          await page.route("**/api/v1/module/**", async (route) => {
+            const request = route.request();
+            const write = /\/(records|operations\/capture)$/.test(
+              new URL(request.url()).pathname,
+            );
+            if (!write || request.headers()["idempotency-key"] !== key)
+              return route.fallback();
+            if (outcome === "accepted") {
+              const result = await route.fetch();
+              expect(result.ok(), await result.text()).toBe(true);
+            }
+            await route.abort("connectionreset");
+          });
         },
         blockOriginal: async (key) => {
           await page.route("**/operations/capture", async (route) => {

@@ -17,6 +17,7 @@ import type { ModuleStorage } from "../../packages/client/src/modules/storage";
 const require = createRequire(resolve("apps/desktop/package.json"));
 type CaptureState = typeof globalThis & {
   offlineFlag: boolean;
+  interruptedCall?: { key: string; outcome: "accepted" | "cancelled" };
   lossKey?: string;
   blockedKey?: string;
   lossSettlement?: boolean;
@@ -30,6 +31,14 @@ type CaptureState = typeof globalThis & {
 };
 test.use({ actionTimeout: 15000 });
 for (const mode of [
+  "submitted-command-accepted",
+  "submitted-command-cancelled",
+  "submitted-create-accepted",
+  "submitted-create-cancelled",
+  "submitted-update-accepted",
+  "submitted-update-cancelled",
+  "submitted-archive-accepted",
+  "submitted-archive-cancelled",
   "cross-module",
   "command-resource",
   "command-update",
@@ -57,12 +66,14 @@ for (const mode of [
     const api = await request.newContext({ baseURL: "http://localhost:4310" });
     const profile = await mkdtemp(resolve(tmpdir(), "suite-cross-capture-"));
     let app!: ElectronApplication, page!: Page;
+    let interruptedCall: CaptureState["interruptedCall"];
     const launch = async (offline: boolean) => {
       const entry = resolve(profile, "capture-entry.cjs");
       await writeFile(
         entry,
         `const original=globalThis.fetch;
 globalThis.offlineFlag=${offline};globalThis.dispatched=[];
+globalThis.interruptedCall=${JSON.stringify(interruptedCall) ?? "undefined"};
 globalThis.fetch=async(...args)=>{
  if(globalThis.offlineFlag)throw new TypeError('fetch failed',{cause:{code:'ECONNREFUSED'}});
  const body=typeof args[1]?.body==='string'?JSON.parse(args[1].body):undefined;
@@ -70,7 +81,11 @@ globalThis.fetch=async(...args)=>{
  const key=new Headers(args[1]?.headers).get('idempotency-key');
  if(create&&key===globalThis.blockedKey)throw new TypeError("Interrupted original",{cause:{code:"ECONNRESET"}});
  if(create)globalThis.dispatched.push(key);
+ const interrupt=globalThis.interruptedCall;
+ const interrupted=interrupt&&key===interrupt.key&&/\\/(records|operations\\/capture)$/.test(String(args[0]));
+ if(interrupted&&interrupt.outcome==="cancelled")throw new TypeError("Interrupted dependent",{cause:{code:"ECONNRESET"}});
  const result=await original(...args);
+ if(interrupted)throw new TypeError("Lost dependent reply",{cause:{code:"ECONNRESET"}});
  if(globalThis.holdRecoveryMetadata===key&&new URL(String(args[0])).pathname.endsWith("/platform")&&args[1]?.method==="GET"&&result.ok){globalThis.holdRecoveryMetadata=undefined;globalThis.recoveryMetadataArrived=true;await new Promise(resolve=>{globalThis.releaseRecoveryMetadata=resolve})}
  if(globalThis.holdSettlement&&String(args[0]).endsWith("/attempts/settle")&&result.ok){globalThis.holdSettlement=false;globalThis.settlementArrived=true;await new Promise(resolve=>{globalThis.releaseSettlement=resolve})}
  if(create&&key===globalThis.lossKey&&result.ok){globalThis.lossKey=undefined;throw new TypeError('Lost reply',{cause:{code:'ECONNRESET'}})}
@@ -222,6 +237,12 @@ globalThis.fetch=async(...args)=>{
           await offline(false);
           await page.evaluate(() => window.suiteDesktop!.login());
           await page.reload();
+        },
+        interruptCall: async (key, outcome) => {
+          interruptedCall = { key, outcome };
+          await app.evaluate((_, call) => {
+            (globalThis as CaptureState).interruptedCall = call;
+          }, interruptedCall);
         },
         blockOriginal: async (key) => {
           await app.evaluate((_, key) => {
