@@ -45,6 +45,8 @@ import {
   commitVault,
   createVault,
   unlockVault,
+  restoreVault,
+  subscribeLocalProfiles,
   type LocalVault,
 } from "./local-vault";
 export interface LocalProfileRuntime {
@@ -58,7 +60,12 @@ export type {
   LocalCapabilityGrant,
   LocalCapabilityGuard,
 } from "./local-capabilities";
-export { listLocalProfiles, removeLocalProfile } from "./local-vault";
+export {
+  listLocalProfiles,
+  listRemovedLocalProfiles,
+  removeLocalProfile,
+  subscribeLocalProfiles,
+} from "./local-vault";
 export interface LocalRelease {
   package: SignedArtifact;
   publicKey: string;
@@ -162,6 +169,7 @@ export interface LocalSession {
   id: string;
   name: string;
   readonly data: LocalData;
+  readonly locked: boolean;
   setCapabilityAccess(
     moduleId: string,
     capability: string,
@@ -649,6 +657,9 @@ function session(
     save: (deviceRequests) => commit({ ...data, deviceRequests }),
   });
   const current: LocalSession = {
+    get locked() {
+      return !unlocked;
+    },
     ...capabilityAuthority,
     processDeviceRequest: (id, execute, options = {}) =>
       devices.process(id, execute, options),
@@ -1322,13 +1333,30 @@ function session(
       });
     },
     lock() {
+      stopProfileChanges();
       unlocked = undefined;
       devices.close();
       worker.close();
       data = { records: {} };
     },
   };
+  const stopProfileChanges = subscribeLocalProfiles((id) => {
+    if (id === vault.id) current.lock();
+  });
   return current;
+}
+export async function restoreLocalProfile(
+  id: string,
+  password: string,
+  runtime: LocalProfileRuntime,
+  signal?: AbortSignal,
+) {
+  const { vault, key, data } = await restoreVault<LocalData>(
+    id,
+    password,
+    signal,
+  );
+  return session(vault, key, data, runtime);
 }
 export async function createLocalProfile(
   name: string,

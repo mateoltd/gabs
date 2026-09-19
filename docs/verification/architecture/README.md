@@ -176,3 +176,10 @@ Final verification:
 Changed-source formatting, the final fixture TypeScript check and diff checks passed. All local links in the six changed documents resolve, and all 29 original requirement IDs remain present. Forty-three overwritten historical captures were restored.
 
 [The outcome record](../collision-outcomes/README.md#cancelled-resource-review-follow-up) describes the real server fence and scoped archive acceptance. Cancelled create/update and broader mixed-resource UI acceptance, repeated-collision saved-review UI recovery, full OFF-01 and overall parity remain open. The later UI-refinement goal has not started.
+
+
+## Profile lifecycle checkpoint review, 19 September 2026
+
+Checkpoint `8602fbd0bf99c03cee8329eac697e43232aa5f2a` on `checkpoint/architecture-profile-review-d82129a` preserves the unfinished checkout without changing its index. The explicitly requested `gpt-5.6-sol` subagent at `xhigh` and parent review confirmed the existing package/subsystem layout; no repeat directory migration or public package rename was justified.
+
+The bounded correction makes session ownership explicit: encrypted storage and transactional revisions remain in the client identity layer; the shell owns the displayed session and closes late unlocks after navigation. Parent review additionally fenced an older unlock racing a newly restored profile. No style or signed release changed. [The profile recovery record](../profile-removal/README.md) contains the concrete findings, failing-before/passing-after regression, nine architecture fixtures, strict builds, full tests and real headless/hidden-native evidence. This does not accept the unrelated collision work or complete overall parity or final UI refinement.

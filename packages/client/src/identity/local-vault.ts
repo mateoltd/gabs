@@ -9,6 +9,7 @@ export interface LocalVault {
   ciphertext: ArrayBuffer;
   updatedAt: number;
   revision?: number;
+  removedAt?: number;
 }
 
 const database = () =>
@@ -56,14 +57,59 @@ const encrypt = (
     new TextEncoder().encode(JSON.stringify(value)),
   );
 
-export async function listLocalProfiles() {
-  return ((await (await database()).getAll("vaults")) as LocalVault[]).map(
-    ({ id, name }) => ({ id, name }),
-  );
+type ProfileChange = { id: string; origin: string };
+const origin = crypto.randomUUID();
+const listeners = new Set<(id: string) => void>();
+let channel: BroadcastChannel | undefined;
+export function subscribeLocalProfiles(listener: (id: string) => void) {
+  listeners.add(listener);
+  if (!channel) {
+    channel = new BroadcastChannel("suite-local-profiles");
+    channel.onmessage = (event: MessageEvent<ProfileChange>) => {
+      if (event.data?.origin !== origin && typeof event.data?.id === "string")
+        for (const notify of listeners) notify(event.data.id);
+    };
+  }
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) {
+      channel?.close();
+      channel = undefined;
+    }
+  };
 }
-
+function changed(id: string) {
+  for (const listener of listeners) listener(id);
+  const sender = new BroadcastChannel("suite-local-profiles");
+  sender.postMessage({ id, origin });
+  sender.close();
+}
+export async function listLocalProfiles() {
+  return ((await (await database()).getAll("vaults")) as LocalVault[])
+    .filter((vault) => vault.removedAt === undefined)
+    .map(({ id, name }) => ({ id, name }));
+}
+export async function listRemovedLocalProfiles() {
+  return ((await (await database()).getAll("vaults")) as LocalVault[])
+    .filter((vault) => vault.removedAt !== undefined)
+    .map(({ id, name, removedAt }) => ({ id, name, removedAt: removedAt! }));
+}
+/** Removal retains encrypted work and fences every earlier unlocked writer. */
 export async function removeLocalProfile(id: string) {
-  await (await database()).delete("vaults", id);
+  const tx = (await database()).transaction("vaults", "readwrite");
+  const vault = (await tx.store.get(id)) as LocalVault | undefined;
+  if (!vault) {
+    await tx.done;
+    throw Error("Local profile not found.");
+  }
+  if (vault.removedAt === undefined)
+    await tx.store.put({
+      ...vault,
+      removedAt: Date.now(),
+      revision: (vault.revision ?? 0) + 1,
+    });
+  await tx.done;
+  changed(id);
 }
 
 export async function createVault(
@@ -85,20 +131,18 @@ export async function createVault(
   const key = await derive(password, vault.salt);
   vault.ciphertext = await encrypt(vault, key, data, vault.iv);
   await (await database()).add("vaults", vault);
+  changed(vault.id);
   return { vault, key };
 }
 
-export async function unlockVault<T>(id: string, password: string) {
-  const vault = (await (await database()).get("vaults", id)) as
-    LocalVault | undefined;
-  if (!vault) throw Error("Local profile not found.");
+async function decryptVault<T>(vault: LocalVault, password: string) {
   try {
     const key = await derive(password, vault.salt);
     const bytes = await crypto.subtle.decrypt(
       {
         name: "AES-GCM",
         iv: vault.iv as Uint8Array<ArrayBuffer>,
-        additionalData: new TextEncoder().encode(id),
+        additionalData: new TextEncoder().encode(vault.id),
       },
       key,
       vault.ciphertext,
@@ -115,10 +159,63 @@ export async function unlockVault<T>(id: string, password: string) {
   }
 }
 
+export async function unlockVault<T>(id: string, password: string) {
+  const vault = (await (await database()).get("vaults", id)) as
+    LocalVault | undefined;
+  if (!vault) throw Error("Local profile not found.");
+  if (vault.removedAt !== undefined)
+    throw Error("Restore this removed profile before unlocking it.");
+  const result = await decryptVault<T>(vault, password);
+  await assertVaultRevision(vault, vault.revision ?? 0);
+  return result;
+}
+export async function restoreVault<T>(
+  id: string,
+  password: string,
+  signal?: AbortSignal,
+) {
+  const connection = await database();
+  const vault = (await connection.get("vaults", id)) as LocalVault | undefined;
+  if (!vault || vault.removedAt === undefined)
+    throw Error("This profile is not available for restoration.");
+  const result = await decryptVault<T>(vault, password);
+  signal?.throwIfAborted();
+  const tx = connection.transaction("vaults", "readwrite");
+  const stored = (await tx.store.get(id)) as LocalVault | undefined;
+  if (
+    signal?.aborted ||
+    !stored ||
+    stored.removedAt === undefined ||
+    (stored.revision ?? 0) !== (vault.revision ?? 0)
+  ) {
+    tx.abort();
+    await tx.done.catch(() => {});
+    signal?.throwIfAborted();
+    throw new LocalExecutionError(
+      "PROFILE_CHANGED",
+      "The profile changed during restoration. Choose it again.",
+    );
+  }
+  const restored: LocalVault = {
+    ...stored,
+    removedAt: undefined,
+    revision: (stored.revision ?? 0) + 1,
+    updatedAt: Date.now(),
+  };
+  await tx.store.put(restored);
+  await tx.done;
+  changed(id);
+  return { ...result, vault: restored };
+}
+
 export async function assertVaultRevision(vault: LocalVault, revision: number) {
   const stored = (await (await database()).get("vaults", vault.id)) as
     LocalVault | undefined;
-  if (!stored || (stored.revision ?? 0) !== revision)
+  if (
+    !stored ||
+    stored.removedAt !== undefined ||
+    (stored.revision ?? 0) !== revision
+  )
     throw new LocalExecutionError(
       "PROFILE_CHANGED",
       "This profile changed in another window or was removed. Unlock it again before using module access.",
@@ -153,6 +250,7 @@ export async function commitVault(
     !isUnlocked() ||
     signal?.aborted ||
     !stored ||
+    stored.removedAt !== undefined ||
     (stored.revision ?? 0) !== revision
   ) {
     transaction.abort();

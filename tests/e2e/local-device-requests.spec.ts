@@ -27,7 +27,7 @@ test("signed workers commit durable device requests and the broker releases writ
   const helper = await build({
     stdin: {
       contents:
-        "export * from './composition/src/local/product';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {moduleContract} from '@suite/module-sdk/client-artifact';",
+        "export * from './composition/src/local/product';export {createModuleClient,hydrateModule} from '@suite/module-sdk';export {moduleContract} from '@suite/module-sdk/client-artifact';export {removeLocalProfile,restoreLocalProfile} from './packages/client/src/identity/local-profiles';export {localProfileRuntime} from './composition/src/local/runtime';",
       resolveDir: process.cwd(),
     },
     bundle: true,
@@ -380,6 +380,46 @@ test("signed workers commit durable device requests and the broker releases writ
       const session = await sdk.unlockLocalProfile(
         profileId,
         "correct horse battery staple",
+      );
+      let effects = 0,
+        code = "accepted";
+      try {
+        await session.processDeviceRequest(requestId, async () => {
+          effects++;
+          return { status: "offered" };
+        });
+      } catch (error) {
+        code = (error as { code: string }).code;
+      }
+      const state = session.data.deviceRequests![requestId].state;
+      const records = Object.values(session.data.records)
+        .flat()
+        .map((row) => row.data.text);
+      session.lock();
+      return { state, code, effects, records };
+    }, interrupted),
+  ).toEqual({
+    state: "uncertain",
+    code: "LOCAL_DEVICE_NOT_PENDING",
+    effects: 0,
+    records: ["Saved before page termination"],
+  });
+  expect(
+    await recovery.evaluate(async ({ profileId, requestId }) => {
+      const path = "/device-profile.mjs";
+      const sdk = (await import(
+        path
+      )) as typeof import("../../composition/src/local/product") &
+        Pick<
+          typeof import("../../packages/client/src/identity/local-profiles"),
+          "removeLocalProfile" | "restoreLocalProfile"
+        > &
+        typeof import("../../composition/src/local/runtime");
+      await sdk.removeLocalProfile(profileId);
+      const session = await sdk.restoreLocalProfile(
+        profileId,
+        "correct horse battery staple",
+        sdk.localProfileRuntime,
       );
       let effects = 0,
         code = "accepted";

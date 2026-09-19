@@ -902,3 +902,8 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Sign-out recovery
 
 [OFF-03-SIGNOUT](signout-recovery/README.md) records retained pending/uncertain requests through explicit sign-out, cold offline restart, fresh authorization and revoked permissions, plus a held logout/new-login race. See the evidence for final regression/build counts, fourteen headless journeys and inspected captures. Native protected-storage fixtures and provider/profile-removal acceptance remain required.
+
+
+## 19 September 2026 — Standalone profile recovery and architecture review
+
+[OFF-03-LOCAL-REMOVAL](profile-removal/README.md) records the checkpoint, requested Sol xhigh review, parent lifecycle corrections, encrypted removal/restoration, delayed-session regressions and real browser/native acceptance. Nine architecture fixtures, strict checks/four fresh builds, eight headless journeys and 661 isolated unit/PostgreSQL tests pass. The native Contact survives a real hidden/unfocused process restart. Corporate protected storage, permanent erasure and broader identity/parity gates remain separate required work.

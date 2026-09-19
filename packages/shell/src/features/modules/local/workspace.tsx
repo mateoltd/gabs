@@ -1,4 +1,5 @@
 import { createSchemaDraft } from "@suite/module-sdk/forms";
+import { ProfileRecovery } from "./profile-recovery";
 import { LocalActions } from "./actions";
 import { LocalDeviceRequests } from "./devices/requests";
 import { LocalModules, type LocalRegistry } from "./modules";
@@ -8,7 +9,7 @@ import {
   TypedResourceSort,
 } from "@suite/ui-web";
 import { listResourceRecords } from "@suite/module-sdk/queries";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   createModuleClient,
   type ResourceRecord,
@@ -22,6 +23,7 @@ import {
   createLocalProfile,
   unlockLocalProfile,
   removeLocalProfile,
+  subscribeLocalProfiles,
   type LocalSession,
 } from "@suite/client/local-profiles";
 import {
@@ -57,6 +59,14 @@ export function LocalWorkspace({
     [busy, setBusy] = useState(false),
     [removing, setRemoving] = useState(false);
   const [revision, setRevision] = useState(0);
+  const unlockEpoch = useRef(0);
+  const activeSession = useRef<LocalSession | undefined>(undefined);
+  const selectedProfileId = useRef("");
+  const pendingSignIn = useRef(false);
+  const selectProfile = (value: string) => {
+    selectedProfileId.current = value;
+    setId(value);
+  };
   const resources = useMemo(
     () =>
       availableLocalModules(session?.data ?? { records: {} }, catalog).flatMap(
@@ -153,12 +163,45 @@ export function LocalWorkspace({
     }
   }, [selected?.key, key]);
   useEffect(() => {
-    void listLocalProfiles().then(setProfiles).catch(setError);
+    let active = true,
+      refreshSequence = 0;
+    const refreshProfiles = () => {
+      const sequence = ++refreshSequence;
+      void listLocalProfiles()
+        .then((profiles) => {
+          if (active && sequence === refreshSequence) setProfiles(profiles);
+        })
+        .catch((error) => {
+          if (active && sequence === refreshSequence) setError(error);
+        });
+    };
+    refreshProfiles();
+    const stop = subscribeLocalProfiles((changedId) => {
+      const current = activeSession.current;
+      if (changedId === selectedProfileId.current || changedId === current?.id)
+        unlockEpoch.current++;
+      if (current?.id === changedId) {
+        activeSession.current = undefined;
+        current.lock();
+        setSession(undefined);
+        setPassword("");
+        setForm({});
+        setEditing(undefined);
+      }
+      if (selectedProfileId.current === changedId) selectProfile("");
+      refreshProfiles();
+    });
+    return () => {
+      active = false;
+      stop();
+    };
   }, []);
   useEffect(() => {
     const lock = () => {
-      if (document.visibilityState === "hidden" && session) {
-        session.lock();
+      if (document.visibilityState === "hidden") {
+        unlockEpoch.current++;
+        activeSession.current?.lock();
+        activeSession.current = undefined;
         setSession(undefined);
         setPassword("");
         setForm({});
@@ -168,23 +211,39 @@ export function LocalWorkspace({
     document.addEventListener("visibilitychange", lock);
     return () => {
       document.removeEventListener("visibilitychange", lock);
-      session?.lock();
+      unlockEpoch.current++;
+      activeSession.current?.lock();
+      activeSession.current = undefined;
     };
-  }, [session]);
+  }, []);
   async function signIn() {
+    if (pendingSignIn.current) return;
+    pendingSignIn.current = true;
     setBusy(true);
     setError(undefined);
+    let next: LocalSession | undefined;
     try {
-      setSession(
-        id
-          ? await unlockLocalProfile(id, password, localProfiles)
-          : await createLocalProfile(name, password, localProfiles),
-      );
+      const epoch = unlockEpoch.current;
+      next = id
+        ? await unlockLocalProfile(id, password, localProfiles)
+        : await createLocalProfile(name, password, localProfiles);
+      if (epoch !== unlockEpoch.current || next.locked) {
+        next.lock();
+        next = undefined;
+        throw Error(
+          "The profile changed or was locked. Unlock it again to continue.",
+        );
+      }
+      activeSession.current?.lock();
+      activeSession.current = next;
+      setSession(next);
+      next = undefined;
       setPassword("");
-      setProfiles(await listLocalProfiles());
     } catch (e) {
+      next?.lock();
       setError(e);
     } finally {
+      pendingSignIn.current = false;
       setBusy(false);
     }
   }
@@ -211,7 +270,14 @@ export function LocalWorkspace({
           }}
         >
           <Field label="Profile">
-            <Select value={id} onValueChange={setId}>
+            <Select
+              value={id}
+              onValueChange={(value) => {
+                unlockEpoch.current++;
+                setPassword("");
+                selectProfile(value);
+              }}
+            >
               <SelectOption value="">Create a local profile</SelectOption>
               {profiles.map((p) => (
                 <SelectOption key={p.id} value={p.id}>
@@ -256,6 +322,21 @@ export function LocalWorkspace({
               Remove profile
             </Button>
           )}
+          <ProfileRecovery
+            onRestore={(restored) => {
+              if (restored.locked)
+                throw Error(
+                  "The profile was locked. Unlock it again to continue.",
+                );
+              unlockEpoch.current++;
+              activeSession.current?.lock();
+              activeSession.current = restored;
+              setSession(restored);
+              selectProfile(restored.id);
+              setPassword("");
+              setError(undefined);
+            }}
+          />
           <Button type="button" onClick={onExit}>
             Online workspaces
           </Button>
@@ -295,6 +376,7 @@ export function LocalWorkspace({
             </Button>
             <Button
               onClick={() => {
+                activeSession.current = undefined;
                 session.lock();
                 setSession(undefined);
                 setForm({});
@@ -496,18 +578,28 @@ export function LocalWorkspace({
         open={removing}
         onOpenChange={setRemoving}
         title="Remove local profile"
-        description="This permanently removes this profile and all its local records. Export important data first."
+        description="This removes the profile from your list and locks its open sessions. Encrypted records and unfinished work stay on this device. Restore it from Removed profiles using its original passphrase."
       >
         <Button
           variant="danger"
+          disabled={busy}
           onClick={async () => {
-            await removeLocalProfile(id);
-            setProfiles(await listLocalProfiles());
-            setId("");
-            setRemoving(false);
+            setBusy(true);
+            setError(undefined);
+            try {
+              await removeLocalProfile(id);
+              setProfiles(await listLocalProfiles());
+              selectProfile("");
+              setPassword("");
+              setRemoving(false);
+            } catch (error) {
+              setError(error);
+            } finally {
+              setBusy(false);
+            }
           }}
         >
-          Permanently remove profile
+          Remove from this device’s profile list
         </Button>
       </Modal>
     </main>
