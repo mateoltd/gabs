@@ -157,10 +157,9 @@ export async function prepareCreateReplacement(
   if (
     children.some(
       (entry) =>
-        // Only a permanent server fence permits an attempted command to enter
+        // Only a permanent server fence permits an attempted request to enter
         // the existing explicit review flow. Its exact call and key survive.
         !(
-          entry.call.action === "operation" &&
           entry.settlement === "cancelled" &&
           ["rejected", "conflict"].includes(entry.state)
         ) &&
@@ -245,6 +244,7 @@ export async function prepareCreateReplacement(
     if (
       key === ownDraft ||
       state.draftReviews?.[key]?.entryId === originalId ||
+      children.some((entry) => entry.settlement === "cancelled" && entry.id === state.draftReviews?.[key]?.entryId) ||
       drafts.some((draft) => draft.key === key) ||
       key.split("/").length === 2
     )
@@ -261,8 +261,8 @@ export async function prepareCreateReplacement(
   const reserved = new Set(state.journal.map((entry) => entry.id));
   reserved.add(replacement.key);
   for (const child of children) {
-    // Commands retain their SDK capture identity and input while awaiting a separate review.
-    if (child.call.action === "operation") {
+    // Attempted requests retain their fenced identity and input until explicit review.
+    if (child.call.action === "operation" || child.settlement === "cancelled") {
       keys.set(child.id, child.id);
       continue;
     }
@@ -284,15 +284,21 @@ export async function prepareCreateReplacement(
     call.key = keys.get(prior.id)!;
     const { module, contract } = await responseContract(state, call);
     (result.responseContracts ??= {})[responseContractKey(call)] = contract;
-    if (call.action === "operation") {
-      const operation = module.operations[call.operation!];
+    const recovery = sameRecord.has(prior.id)
+      ? {
+          targetId: targets[prior.id] === "separate" ? toId : fromId,
+          destination: targets[prior.id]!,
+        }
+      : prior.recordRecovery;
+    if (prior !== original && (call.action === "operation" || prior.settlement === "cancelled")) {
+      const operation = call.operation && module.operations[call.operation];
       if (
-        operation.policy !== "queued" ||
-        operation.kind === "query" ||
-        operation.serviceOnly
+        call.action === "operation"
+          ? !operation || operation.policy !== "queued" || operation.kind === "query" || operation.serviceOnly
+          : module.resources[call.resource!]?.policy !== "queued"
       )
         throw new JournalConflictError(
-          "Only public queued commands can be reviewed after a create collision.",
+          "Only public queued changes can be reviewed after a create collision.",
         );
       const command = result.journal.find(
         (entry) =>
@@ -325,18 +331,13 @@ export async function prepareCreateReplacement(
         (id) => keys.get(id) ?? id,
       );
       command.state = "conflict";
+      if (recovery) command.recordRecovery = recovery;
       command.error =
-        "A prerequisite record was replaced. Review this command's references before submitting it. Its original input is preserved.";
+        "A prerequisite record was replaced. Review this change before submitting it. Its original input is preserved.";
       continue;
     }
     const value = input(call);
     const schema = module.resources[call.resource!].schema;
-    const recovery = sameRecord.has(prior.id)
-      ? {
-          targetId: targets[prior.id] === "separate" ? toId : fromId,
-          destination: targets[prior.id]!,
-        }
-      : prior.recordRecovery;
     if (!recovery && call.action !== "archive")
       call.input = {
         ...value,

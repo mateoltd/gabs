@@ -95,6 +95,7 @@ export interface ModuleStorage {
     {
       entryId?: string;
       draftId?: string;
+      createRecovery?: JournalEntry["createRecovery"];
       comparison?: FieldReview;
       collision?: {
         parentId: string;
@@ -210,6 +211,10 @@ export async function saveResourceDraft(
         throw new JournalConflictError(
           "This review no longer belongs to an editable pending change. Refresh pending changes.",
         );
+      if (canonical(review.createRecovery ?? []) !== canonical(entry.createRecovery ?? []))
+        throw new JournalConflictError(
+          "A prerequisite record changed. Reopen the current recovery details before saving this review.",
+        );
     }
     const key = resourceDraftKey(moduleId, resource, review);
     if (
@@ -255,7 +260,12 @@ export async function enqueue(
   scope: Scope,
   call: ModuleCall,
   dependencies: string[] = [],
-  recovery?: { draftKey: string; supersedes?: string; generation?: number },
+  recovery?: {
+    draftKey: string;
+    supersedes?: string;
+    generation?: number;
+    createRecovery?: JournalEntry["createRecovery"];
+  },
   authorized: (state: ModuleStorage) => boolean = () => true,
 ) {
   const entry: JournalEntry = {
@@ -365,7 +375,7 @@ export async function enqueue(
         "Use authoritative command recovery before replacing a saved command.",
       );
     if (
-      replaced?.recordRecovery &&
+      (replaced?.recordRecovery || replaced?.createRecovery?.length) &&
       replaced.dependencies.some(
         (id) =>
           !s.journal.some(
@@ -380,6 +390,19 @@ export async function enqueue(
       throw new JournalConflictError(
         "Wait for prerequisite changes before reviewing this saved edit.",
       );
+    if (replaced?.createRecovery?.length) {
+      if (replaced.settlement !== "cancelled" ||
+          canonical(recovery?.createRecovery ?? []) !== canonical(replaced.createRecovery))
+        throw new JournalConflictError(
+          "A prerequisite record changed. Reopen and save the current review before submitting this change.",
+        );
+      if (s.journal.some((child) =>
+        child.userId === scope.userId && child.workspaceId === scope.workspaceId &&
+        !child.supersededBy && child.state !== "accepted" && child.dependencies.includes(replaced.id) &&
+        !(child.delivery === "unsubmitted" && child.attempts === 0) &&
+        !(child.state === "conflict" && child.createRecovery?.length && child.settlement === "cancelled")))
+        throw new JournalConflictError("Recover dependent outcomes before replacing this saved change.");
+    }
     if (!s.journal.some((e) => e.id === entry.id)) {
       const { contract, module } = await responseContract(s, call);
       if (call.action === "operation") {
@@ -442,7 +465,7 @@ export async function enqueue(
       } else removeResourceDraft(s, recovery.draftKey);
       if (recovery.supersedes)
         s.journal = s.journal.map((e) =>
-          e.userId !== scope.userId || e.workspaceId !== scope.workspaceId
+          e.userId !== scope.userId || e.workspaceId !== scope.workspaceId || e.state === "accepted" || e.supersededBy
             ? e
             : e.id === recovery.supersedes
               ? { ...e, supersededBy: entry.id }

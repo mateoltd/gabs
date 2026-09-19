@@ -25,7 +25,7 @@ export interface JournalEntry {
   orderingRecovery?: "outcome" | "waiting";
   /** A never-submitted collision descendant awaiting explicit review against this target. */
   recordRecovery?: { targetId: string; destination: "separate" | "existing" };
-  /** Original command input is retained while replaced create references await explicit review. */
+  /** Original input is retained while replaced create references await explicit review. */
   createRecovery?: CreateRecovery[];
   supersededBy?: string;
   error?: string;

@@ -5,6 +5,8 @@ import type {
   ResourceRecord,
 } from "@suite/module-sdk";
 import type { JournalEntry } from "@suite/module-sdk/sync";
+import { canonical } from "@suite/module-sdk/registry";
+import { CreateRecoveryNotice } from "./create-recovery-notice";
 import {
   Button,
   ErrorMessage,
@@ -29,11 +31,13 @@ export function ArchiveReview({
   allowed: boolean;
   busy: boolean;
   load(call: ModuleCall): Promise<ResourceRecord>;
-  submit(call: ModuleCall): Promise<void>;
+  submit(call: ModuleCall, context?: JournalEntry["createRecovery"]): Promise<void>;
   resolve(): Promise<void>;
   close(): void;
 }) {
   const [record, setRecord] = useState<ResourceRecord>();
+  const [reviewContext, setReviewContext] = useState<string>();
+  const recoveryContext = canonical(entry.createRecovery ?? []);
   const [error, setError] = useState<unknown>();
   const [loading, setLoading] = useState(false);
   const latest = useRef({ allowed, load, submit, resolve });
@@ -55,8 +59,10 @@ export function ArchiveReview({
         action: "get",
         input: { id: target },
       });
-      if (version === generation.current && latest.current.allowed)
+      if (version === generation.current && latest.current.allowed) {
         setRecord(row);
+        setReviewContext(recoveryContext);
+      }
     } catch (error) {
       if (version === generation.current && latest.current.allowed)
         setError(error);
@@ -70,9 +76,9 @@ export function ArchiveReview({
     return () => {
       generation.current++;
     };
-  }, [allowed, module.version, target]);
+  }, [allowed, module.version, target, recoveryContext]);
   const confirm = async () => {
-    if (!record || record.archived || !latest.current.allowed || busy) return;
+    if (!record || record.archived || !latest.current.allowed || busy || reviewContext !== recoveryContext) return;
     setError(undefined);
     try {
       await latest.current.submit({
@@ -82,7 +88,7 @@ export function ArchiveReview({
         action: "archive",
         key: crypto.randomUUID(),
         input: { id: record.id, baseVersion: record.version },
-      });
+      }, entry.createRecovery);
     } catch (error) {
       if (latest.current.allowed) setError(error);
     }
@@ -101,6 +107,7 @@ export function ArchiveReview({
         {input.baseVersion}.
       </p>
       {target !== input.id && <p>Selected recovery target: {target}.</p>}
+      <CreateRecoveryNotice context={entry.createRecovery} />
       <ErrorMessage error={error} />
       {!allowed ? (
         <p role="status">
@@ -151,7 +158,7 @@ export function ArchiveReview({
               Refresh current record
             </Button>
             <Button
-              disabled={busy || loading || !record || record.archived}
+              disabled={busy || loading || !record || record.archived || reviewContext !== recoveryContext}
               onClick={() => void confirm()}
             >
               Confirm reviewed archive

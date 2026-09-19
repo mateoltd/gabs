@@ -99,6 +99,7 @@ const review = Type.Object(
   {
     entryId: Type.Optional(id),
     draftId: Type.Optional(id),
+    createRecovery: Type.Optional(createRecovery),
     comparison: Type.Optional(comparison),
     collision: Type.Optional(
       Type.Object(

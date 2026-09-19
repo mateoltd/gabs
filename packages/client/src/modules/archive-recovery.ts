@@ -12,6 +12,7 @@ import {
 import { JournalConflictError } from "./journal";
 import { responseContract, validateModuleResponse } from "./response";
 import { settleModuleCall, type SettlementTransport } from "./settlement";
+import type { JournalEntry } from "@suite/module-sdk/sync";
 
 const archiveInput = Type.Object(
   {
@@ -29,6 +30,7 @@ export async function replaceArchive(
   replacement: ModuleCall,
   settle: SettlementTransport,
   authorized: (call: ModuleCall) => boolean,
+  expectedCreateRecovery?: JournalEntry["createRecovery"],
 ): Promise<"accepted" | "replaced"> {
   const call = structuredClone(replacement);
   assertSchema(RequestKeySchema, call.key);
@@ -65,8 +67,10 @@ export async function replaceArchive(
       );
     if (!authorized(entry.call) || !authorized(call))
       throw Error("Current access does not allow reviewing this archive.");
+    if (canonical(expectedCreateRecovery ?? []) !== canonical(entry.createRecovery ?? []))
+      throw new JournalConflictError("A prerequisite record changed. Refresh the archive review before confirming.");
     if (
-      entry.recordRecovery &&
+      (entry.recordRecovery || entry.createRecovery?.length) &&
       entry.dependencies.some(
         (id) =>
           !state.journal.some(
@@ -89,7 +93,10 @@ export async function replaceArchive(
       state.journal.some(
         (e) =>
           e.dependencies.includes(id) &&
+          e.userId === scope.userId && e.workspaceId === scope.workspaceId &&
           !e.supersededBy &&
+          e.state !== "accepted" &&
+          !(e.state === "conflict" && e.createRecovery?.length && e.settlement === "cancelled") &&
           ((e.state !== "pending" &&
             !(
               e.state === "conflict" &&
@@ -152,6 +159,7 @@ export async function replaceArchive(
         entry.requestedDependencies ?? entry.dependencies,
         {
           supersedes: id,
+          createRecovery: expectedCreateRecovery,
           draftKey: resourceDraftKey(call.moduleId, call.resource!, {
             entryId: id,
           }),

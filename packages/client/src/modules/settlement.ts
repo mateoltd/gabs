@@ -29,7 +29,7 @@ export {
 } from "./draft-collisions";
 import { removeResourceDraft } from "./drafts";
 
-/** Fence a failed create before atomically replacing its never-submitted dependency graph. */
+/** Fence a failed create before reconnecting eligible work; accepted effects stay unchanged. */
 export async function replaceFailedCreate(
   platform: Platform,
   scope: Scope,
