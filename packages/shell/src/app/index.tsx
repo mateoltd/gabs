@@ -13,6 +13,14 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, HashRouter } from "react-router";
 import { Login } from "../features/identity/login";
+import {
+  rememberSignOut,
+  terminateSession,
+  acknowledgeSignOut,
+  hasSignedOut,
+  reconcileSignOut,
+  rememberAuthenticatedSession,
+} from "../features/identity/signout";
 import { LocalWorkspace } from "../features/modules/local/workspace";
 import { brandIconUrl } from "./brand";
 import { ShellCompositionProvider, type ShellComposition } from "./composition";
@@ -23,6 +31,7 @@ export type { ShellComposition } from "./composition";
 
 function Session() {
   const [localMode, setLocalMode] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   useEffect(() => {
     const enter = () => setLocalMode(true);
     window.addEventListener("suite-local-mode", enter);
@@ -44,7 +53,7 @@ function Session() {
           current?.userId === userId ? undefined : current,
         );
         if (!window.suiteDesktop && !remote)
-          await invalidateBrowserAccount(userId);
+          await invalidateBrowserAccount(userId, reason === "signed-out");
         await navigator.locks.request("suite-remembered-identity", async () => {
           const remembered = await platform.identity();
           if (remembered?.userId === userId)
@@ -52,7 +61,7 @@ function Session() {
         });
         await qc.cancelQueries({ queryKey: [userId] });
         qc.removeQueries({ queryKey: [userId] });
-        if (reason !== "changed")
+        if (reason === "unauthenticated")
           void qc.invalidateQueries({ queryKey: ["me"] });
       }),
     [qc],
@@ -79,6 +88,8 @@ function Session() {
           }
           throw error;
         });
+      await reconcileSignOut(client, result);
+      await rememberAuthenticatedSession(result, signal);
       await navigator.locks.request("suite-remembered-identity", async () => {
         const remembered = await platform.identity();
         signal.throwIfAborted();
@@ -100,11 +111,6 @@ function Session() {
           "A newer profile superseded this identity.",
           "AbortError",
         );
-      if (localStorage.getItem("suite-logout-pending")) {
-        await client.request({ operation: "logout" });
-        localStorage.removeItem("suite-logout-pending");
-        throw new ApiError(401, "SIGNED_OUT", "Sign in to continue.");
-      }
       return result;
     },
     enabled: online,
@@ -113,7 +119,12 @@ function Session() {
   useEffect(() => {
     navigator.locks
       .request("suite-remembered-identity", async () => {
-        setIdentity(await platform.identity());
+        const remembered = await platform.identity();
+        setIdentity(
+          remembered && !hasSignedOut(remembered.userId)
+            ? remembered
+            : undefined,
+        );
       })
       .catch(() => setIdentity(undefined))
       .finally(() => setIdentityLoaded(true));
@@ -121,6 +132,11 @@ function Session() {
   const refresh = useCallback(() => me.refetch(), [me.refetch]);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
+      if (event.key === "suite-logout-pending" && event.newValue) {
+        const userId = me.data?.user.id ?? identity?.userId;
+        if (userId && hasSignedOut(userId))
+          void client.invalidateIdentity(userId, true, "signed-out");
+      }
       if (event.key === "suite-session-change")
         void client.invalidateIdentity(me.data?.user.id ?? identity?.userId);
     };
@@ -130,8 +146,12 @@ function Session() {
   useEffect(() => {
     const userId = me.data?.user.id ?? identity?.userId;
     if (window.suiteDesktop || !userId) return;
-    return subscribeBrowserAccount(userId, () => {
-      void client.invalidateIdentity(userId, true);
+    return subscribeBrowserAccount(userId, (signedOut) => {
+      void client.invalidateIdentity(
+        userId,
+        true,
+        signedOut ? "signed-out" : "unauthenticated",
+      );
     });
   }, [me.data?.user.id, identity?.userId]);
   const workspaces =
@@ -170,29 +190,26 @@ function Session() {
   };
   async function logout() {
     const userId = me.data?.user.id ?? identity?.userId;
-    localStorage.setItem("suite-logout-pending", "1");
-    // Clear local data even when the network session cannot be reached.
-    if (userId) await platform.purgeUser(userId);
-    await platform.rememberIdentity(undefined);
-    setIdentity(undefined);
-    localStorage.removeItem("suite-workspace");
-    if (window.suiteDesktop) {
-      await window.suiteDesktop.logout();
-      localStorage.removeItem("suite-logout-pending");
-    } else if (online) {
-      try {
-        await client.request({ operation: "logout" });
-        localStorage.removeItem("suite-logout-pending");
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 401)
-          localStorage.removeItem("suite-logout-pending");
-      }
+    if (!userId) return;
+    setEndingSession(true);
+    try {
+      const record = await rememberSignOut(userId, me.data?.csrfToken);
+      await terminateSession(client, userId, online && !window.suiteDesktop);
+      if (window.suiteDesktop) await window.suiteDesktop.logout();
+      if (online || window.suiteDesktop) acknowledgeSignOut(record);
+    } finally {
+      localStorage.removeItem("suite-workspace");
+      qc.clear();
+      setWorkspaceId("");
+      setEndingSession(false);
+      if (!online) window.location.reload();
+      else void me.refetch();
     }
-    qc.clear();
-    setWorkspaceId("");
-    if (!online) window.location.reload();
-    else await me.refetch();
   }
+  if (endingSession)
+    return (
+      <Loading label="Signing out. Your saved work stays on this device." />
+    );
   if (localMode) {
     const personal = me.data?.workspaces.find(
       (workspace) => workspace.kind === "personal",

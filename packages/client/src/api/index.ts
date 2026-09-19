@@ -111,7 +111,7 @@ export function httpTransport(
 }
 export interface IdentityInvalidation {
   userId: string;
-  reason: "changed" | "unauthenticated";
+  reason: "changed" | "unauthenticated" | "signed-out";
   remote?: boolean;
 }
 interface SessionState {
@@ -137,7 +137,11 @@ export class SuiteClient {
       this.session.listeners.delete(listener);
     };
   }
-  async invalidateIdentity(userId = this.session.userId, remote = false) {
+  async invalidateIdentity(
+    userId = this.session.userId,
+    remote = false,
+    reason: IdentityInvalidation["reason"] = "unauthenticated",
+  ) {
     if (userId && this.session.userId && userId !== this.session.userId) return;
     if (
       !this.session.userId &&
@@ -152,8 +156,28 @@ export class SuiteClient {
     if (userId)
       await Promise.all(
         [...this.session.listeners].map((listener) =>
-          listener({ userId, reason: "unauthenticated", remote }),
+          listener({ userId, reason, remote }),
         ),
+      );
+  }
+  /** Termination acknowledgements cannot grant authority and survive local invalidation. */
+  async signOut(userId: string, online: boolean) {
+    // Start transport while its CSRF credential still belongs to this identity.
+    const delivery = online
+      ? this.transport({ operation: "logout", expectedUserId: userId }).then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error }),
+        )
+      : undefined;
+    await this.invalidateIdentity(userId, false, "signed-out");
+    if (!delivery) return;
+    const response = await delivery;
+    if ("error" in response) throw response.error;
+    if (response.result.status >= 400 && response.result.status !== 401)
+      throw new ApiError(
+        response.result.status,
+        "SIGN_OUT_PENDING",
+        "Your device is locked. Session termination will retry when connected.",
       );
   }
   isCurrentUser(userId: string) {

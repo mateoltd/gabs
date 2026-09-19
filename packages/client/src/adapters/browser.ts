@@ -40,21 +40,25 @@ export const browserCapabilityLeases = new CorporateCapabilityLeases({
   exclusive: (_scope, task) => withLeaseTrust(task),
 });
 /** Changing credentials expires old leases without deleting any account's saved work. */
-export async function invalidateBrowserAccount(userId: string) {
+export async function invalidateBrowserAccount(
+  userId: string,
+  signedOut = false,
+) {
   await (
     await db()
   ).put("records", crypto.randomUUID(), `${userId}/account-revision`);
   const channel = new BroadcastChannel(`suite-account:${userId}`);
-  channel.postMessage("invalidated");
+  channel.postMessage(signedOut ? "signed-out" : "invalidated");
   channel.close();
 }
 export function subscribeBrowserAccount(
   userId: string,
-  invalidate: () => void,
+  invalidate: (signedOut: boolean) => void,
 ) {
   const channel = new BroadcastChannel(`suite-account:${userId}`);
   channel.onmessage = (event) => {
-    if (event.data === "invalidated") invalidate();
+    if (["invalidated", "signed-out"].includes(event.data))
+      invalidate(event.data === "signed-out");
   };
   return () => channel.close();
 }

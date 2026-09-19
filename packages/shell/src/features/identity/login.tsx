@@ -5,6 +5,7 @@ import type { LoginOptions } from "@suite/contracts";
 import { Button, ErrorMessage, Field, Modal } from "@suite/ui-web";
 import { ArrowRight, ShieldCheck, AlertCircle } from "@suite/ui-web/icons";
 import { SignInArtwork } from "../../app/artwork";
+import { sessionTransitionLock } from "./signout";
 import { AppUpdate } from "../../app/update";
 import { BrandIcon } from "../../app/brand";
 
@@ -48,22 +49,25 @@ export function Login() {
     setError(undefined);
     let redirecting = false;
     try {
-      if (window.suiteDesktop) await window.suiteDesktop.login(options);
-      else if (mode === "development") {
-        const response = await fetch("/auth/development", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: account }),
-        });
-        if (!response.ok) throw Error((await response.json()).message);
-      } else {
-        const query = new URLSearchParams(options);
-        redirecting = true;
-        window.location.assign(`/auth/login${query.size ? `?${query}` : ""}`);
-        return;
-      }
-      localStorage.removeItem("suite-logout-pending");
+      await navigator.locks.request(sessionTransitionLock, async () => {
+        if (window.suiteDesktop) await window.suiteDesktop.login(options);
+        else if (mode === "development") {
+          const response = await fetch("/auth/development", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: account }),
+          });
+          if (!response.ok) throw Error((await response.json()).message);
+        } else {
+          const query = new URLSearchParams(options);
+          redirecting = true;
+          window.location.assign(`/auth/login${query.size ? `?${query}` : ""}`);
+          return;
+        }
+        localStorage.removeItem("suite-logout-pending");
+      });
+      if (redirecting) return;
       await queryClient.invalidateQueries({ queryKey: ["me"] });
       if (!window.suiteDesktop)
         localStorage.setItem("suite-session-change", crypto.randomUUID());

@@ -82,7 +82,7 @@ test("receive stock, save an order, reserve and fulfill through the UI", async (
   await expect(row).toContainText("3");
   await page.screenshot({ path: "test-results/inventory.png", fullPage: true });
 });
-test("offline shell, explicit local draft recovery, reconnect and logout cleanup", async ({
+test("offline shell, explicit local draft recovery, reconnect and retained sign-out data", async ({
   page,
   context,
 }) => {
@@ -164,7 +164,7 @@ test("offline shell, explicit local draft recovery, reconnect and logout cleanup
       r.onerror = () => rej(r.error);
     });
   });
-  expect(count).toBe(0);
+  expect(count).toBeGreaterThan(0);
 });
 test("viewer permissions, accessible navigation, themes and narrow layout", async ({
   page,

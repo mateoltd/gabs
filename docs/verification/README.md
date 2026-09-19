@@ -898,3 +898,7 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Profile authority and recovery
 
 [OFF-02-LEASES-PROFILE](profile-authority/README.md) records server-side expected-actor enforcement, shared client identity ordering, durable account-wide lease expiry and real headless two-account/cross-tab, expired-session and cold-start recovery. See the scoped evidence for final regression/build counts and inspected captures. Native protected-storage and broader profile/sign-out acceptance remain required.
+
+## 19 September 2026 — Sign-out recovery
+
+[OFF-03-SIGNOUT](signout-recovery/README.md) records retained pending/uncertain requests through explicit sign-out, cold offline restart, fresh authorization and revoked permissions, plus a held logout/new-login race. See the evidence for final regression/build counts, fourteen headless journeys and inspected captures. Native protected-storage fixtures and provider/profile-removal acceptance remain required.

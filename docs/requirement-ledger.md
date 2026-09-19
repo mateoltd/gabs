@@ -314,3 +314,7 @@ CORE-003/BACK-002 gain [OFF-02-REFERENCES evidence](verification/reference-cache
 ## 19 September 2026 — Profile authority
 
 CORE-003/SHELL-001 gain [OFF-02-LEASES-PROFILE evidence](verification/profile-authority/README.md): authenticated expected-actor checks, stale-reply rejection, account-wide lease expiry, cold-start denial and preserved journals through two-account and expired-session recovery. Native protected-storage acceptance, other workspace/release transitions and destructive explicit sign-out/profile-removal behavior remain open. No entire original requirement is promoted.
+
+## 19 September 2026 — Explicit sign-out recovery
+
+CORE-003/SHELL-001/AUTH-002 gain [OFF-03-SIGNOUT evidence](verification/signout-recovery/README.md): explicit online/offline sign-out retains pending and uncertain work, ends the old session on reconnect and requires fresh authorization. Real browser cases verify original-ID recovery without duplicate updates, denied write permissions and cross-tab sign-in ordering. Native protected storage, real-provider callbacks and profile-removal recovery remain open; no entire original requirement is promoted.

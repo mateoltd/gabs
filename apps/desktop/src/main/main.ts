@@ -102,6 +102,13 @@ let updateRequired = false,
   refreshing: Promise<void> | undefined;
 let oidcConfig: Promise<oidc.Configuration> | undefined;
 let loginPromise: Promise<void> | undefined;
+let logoutPromise: Promise<void> | undefined;
+let credentialWrites: Promise<void> = Promise.resolve();
+function changeCredentials(action: () => Promise<void>) {
+  const next = credentialWrites.catch(() => {}).then(action);
+  credentialWrites = next;
+  return next;
+}
 const volatile = new Map<string, unknown>();
 protocol.registerSchemesAsPrivileged([
   {
@@ -385,19 +392,28 @@ async function client() {
     config.clientId,
   ));
 }
-async function storeTokens(tokens: oidc.TokenEndpointResponse) {
-  accessToken = tokens.access_token;
-  expiresAt = Date.now() + (tokens.expires_in ?? 300) * 1000;
-  refreshToken = tokens.refresh_token ?? refreshToken;
-  await writeSecure("credentials", { refreshToken });
+async function storeTokens(tokens: oidc.TokenEndpointResponse, epoch: number) {
+  await changeCredentials(async () => {
+    if (epoch !== identityEpoch)
+      throw Error("The authentication session changed.");
+    accessToken = tokens.access_token;
+    expiresAt = Date.now() + (tokens.expires_in ?? 300) * 1000;
+    refreshToken = tokens.refresh_token ?? refreshToken;
+    await writeSecure("credentials", { refreshToken });
+  });
+  if (epoch !== identityEpoch)
+    throw Error("The authentication session changed.");
 }
 async function ensureToken() {
   if (devAuth) return;
   if (accessToken && expiresAt > Date.now() + 30000) return;
   if (!refreshToken) throw Error("Sign in to continue.");
   refreshing ??= (async () => {
+    const epoch = identityEpoch,
+      token = refreshToken!;
     await storeTokens(
-      await oidc.refreshTokenGrant(await client(), refreshToken!),
+      await oidc.refreshTokenGrant(await client(), token),
+      epoch,
     );
   })();
   try {
@@ -573,7 +589,7 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
   };
 }
 async function login(options: LoginOptions) {
-  identityEpoch++;
+  const epoch = ++identityEpoch;
   if (devAuth) {
     const result = await fetch(config.apiOrigin + "/auth/development", {
       method: "POST",
@@ -586,6 +602,8 @@ async function login(options: LoginOptions) {
     });
     if (!result.ok)
       throw Error("Start the local API and seed its demonstration accounts.");
+    if (epoch !== identityEpoch)
+      throw Error("The authentication session changed.");
     devCookie = result.headers
       .getSetCookie()
       .find((c) => c.startsWith("suite_session="))
@@ -642,7 +660,7 @@ async function login(options: LoginOptions) {
             expectedNonce: nonce,
             idTokenExpected: true,
           });
-          await storeTokens(tokens);
+          await storeTokens(tokens, epoch);
           const result = await execute({ operation: "me" });
           if (result.status !== 200)
             throw Error("The API could not verify this account");
@@ -913,6 +931,7 @@ function handlers() {
   });
   ipcMain.handle("suite:login", async (event, value) => {
     sender(event);
+    await logoutPromise;
     moduleHosts.clear();
     nativeAuthority.clear();
     inputRecovery.clear();
@@ -928,44 +947,48 @@ function handlers() {
       loginPromise = undefined;
     }
   });
-  ipcMain.handle("suite:logout", async (event) => {
+  ipcMain.handle("suite:logout", (event) => {
     sender(event);
-    identityEpoch++;
-    moduleHosts.clear();
-    localDeviceHosts.clear();
-    const token = refreshToken;
-    const previousUser = userId;
-    lanRecovery.invalidate();
-    lanPackages.invalidate();
-    userId = undefined;
-    if (previousUser && secureAvailable()) {
-      await nativeAuthority.purge({ userId: previousUser });
-      await inputRecovery.purge({ userId: previousUser });
-    } else {
-      nativeAuthority.clear();
-      inputRecovery.clear();
-    }
-    await lan.stop();
-    accessToken = refreshToken = devCookie = csrfToken = undefined;
-    expiresAt = 0;
-    if (previousUser) {
-      if (secureAvailable()) {
-        await ensureCache();
-        await cachePurge(previousUser);
+    return (logoutPromise ??= (async () => {
+      identityEpoch++;
+      moduleHosts.clear();
+      localDeviceHosts.clear();
+      const token = refreshToken,
+        previousUser = userId;
+      userId = undefined;
+      accessToken = refreshToken = devCookie = csrfToken = undefined;
+      expiresAt = 0;
+      lanRecovery.invalidate();
+      lanPackages.invalidate();
+      try {
+        if (previousUser)
+          await writeSecure(`${previousUser}/account-revision`, randomUUID());
+        if (previousUser && secureAvailable()) {
+          await nativeAuthority.purge({ userId: previousUser });
+          await inputRecovery.purge({ userId: previousUser });
+        } else {
+          nativeAuthority.clear();
+          inputRecovery.clear();
+        }
+        await lan.stop();
+      } finally {
+        // Session removal is separate from the encrypted account's business data.
+        await changeCredentials(() =>
+          rm(resolve(root(), "credentials.bin"), { force: true }),
+        );
+        await rm(resolve(root(), "identity.bin"), { force: true });
+        volatile.clear();
       }
-      await rm(resolve(root(), previousUser), { recursive: true, force: true });
-    }
-    await rm(resolve(root(), "credentials.bin"), { force: true });
-    await rm(resolve(root(), "identity.bin"), { force: true });
-    volatile.clear();
-    userId = undefined;
-    if (token && config.issuer)
-      await fetch(new URL("oauth/revoke", config.issuer), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: config.clientId, token }),
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => undefined);
+      if (token && config.issuer)
+        await fetch(new URL("oauth/revoke", config.issuer), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: config.clientId, token }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => undefined);
+    })().finally(() => {
+      logoutPromise = undefined;
+    }));
   });
   ipcMain.handle("suite:account-revision", async (event, accountId) => {
     sender(event);
