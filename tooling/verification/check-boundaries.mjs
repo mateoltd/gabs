@@ -105,16 +105,34 @@ function exportedTarget(exports, subpath) {
   let value = exports[subpath];
   let patternMatch;
   if (value === undefined) {
-    for (const [pattern, candidate] of Object.entries(exports)) {
-      if (!pattern.includes("*")) continue;
-      const [before, after] = pattern.split("*");
-      if (!subpath.startsWith(before) || !subpath.endsWith(after)) continue;
+    const match = Object.entries(exports)
+      .filter(([pattern]) => {
+        const star = pattern.indexOf("*");
+        if (star === -1 || pattern.lastIndexOf("*") !== star) return false;
+        const before = pattern.slice(0, star);
+        const after = pattern.slice(star + 1);
+        return (
+          subpath.length >= pattern.length &&
+          subpath.startsWith(before) &&
+          subpath.endsWith(after)
+        );
+      })
+      .sort(([left], [right]) => {
+        const leftStar = left.indexOf("*");
+        const rightStar = right.indexOf("*");
+        const prefixDifference = rightStar - leftStar;
+        return prefixDifference || right.length - left.length;
+      })[0];
+    if (match) {
+      const [pattern, candidate] = match;
+      const star = pattern.indexOf("*");
+      const before = pattern.slice(0, star);
+      const after = pattern.slice(star + 1);
       patternMatch = subpath.slice(
         before.length,
         subpath.length - after.length,
       );
       value = candidate;
-      break;
     }
   }
   while (value && typeof value === "object")

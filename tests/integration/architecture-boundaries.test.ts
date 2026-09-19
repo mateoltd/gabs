@@ -279,4 +279,119 @@ describe("architecture boundaries", () => {
 
     expect(analyzeArchitecture(root)).toEqual([]);
   });
+
+  it("prefers an exact export over a matching wildcard", async () => {
+    const root = await fixture({
+      "apps/web/package.json": manifest("@fixture/web", undefined, {
+        "@fixture/shared": "workspace:*",
+      }),
+      "apps/web/src/main.ts": 'import "@fixture/shared/features/secret";',
+      "packages/shared/package.json": manifest("@fixture/shared", {
+        "./*": "./src/public/*.ts",
+        "./features/secret": "./src/node/secret.ts",
+      }),
+      "packages/shared/src/public/features/secret.ts": "export {};",
+      "packages/shared/src/node/secret.ts": 'import "node:fs";',
+    });
+
+    expect(analyzeArchitecture(root)).toEqual([
+      expect.stringContaining("browser runtime reaches Node/server code"),
+    ]);
+  });
+
+  it("prefers the wildcard with the longest static prefix", async () => {
+    const root = await fixture({
+      "apps/web/package.json": manifest("@fixture/web", undefined, {
+        "@fixture/shared": "workspace:*",
+      }),
+      "apps/web/src/main.ts": 'import "@fixture/shared/features/secret";',
+      "packages/shared/package.json": manifest("@fixture/shared", {
+        "./*": "./src/public/*.ts",
+        "./features/*": "./src/node/*.ts",
+      }),
+      "packages/shared/src/public/features/secret.ts": "export {};",
+      "packages/shared/src/node/secret.ts": 'import "node:fs";',
+    });
+
+    expect(analyzeArchitecture(root)).toEqual([
+      expect.stringContaining("browser runtime reaches Node/server code"),
+    ]);
+  });
+
+  it("uses the longer wildcard key when prefixes are equal", async () => {
+    const root = await fixture({
+      "apps/web/package.json": manifest("@fixture/web", undefined, {
+        "@fixture/shared": "workspace:*",
+      }),
+      "apps/web/src/main.ts": 'import "@fixture/shared/features/secret.js";',
+      "packages/shared/package.json": manifest("@fixture/shared", {
+        "./features/*": "./src/public/*.ts",
+        "./features/*.js": "./src/node/*.ts",
+      }),
+      "packages/shared/src/public/secret.js.ts": "export {};",
+      "packages/shared/src/node/secret.ts": 'import "node:fs";',
+    });
+
+    expect(analyzeArchitecture(root)).toEqual([
+      expect.stringContaining("browser runtime reaches Node/server code"),
+    ]);
+  });
+
+  it("does not fall through a more specific null export", async () => {
+    const root = await fixture({
+      "apps/web/package.json": manifest("@fixture/web", undefined, {
+        "@fixture/shared": "workspace:*",
+      }),
+      "apps/web/src/main.ts": 'import "@fixture/shared/internal/secret";',
+      "packages/shared/package.json": manifest("@fixture/shared", {
+        "./*": "./src/public/*.ts",
+        "./internal/*": null,
+      }),
+      "packages/shared/src/public/internal/secret.ts": "export {};",
+    });
+
+    expect(analyzeArchitecture(root)).toEqual([
+      "apps/web/src/main.ts: workspace import is not publicly exported @fixture/shared/internal/secret",
+    ]);
+  });
+
+  it("rejects empty, overlapping, and multiple-star pattern matches", async () => {
+    const root = await fixture({
+      "apps/web/package.json": manifest("@fixture/web", undefined, {
+        "@fixture/shared": "workspace:*",
+      }),
+      "apps/web/src/main.ts": [
+        'import "@fixture/shared/features/";',
+        'import "@fixture/shared/abc";',
+        'import "@fixture/shared/abbc";',
+        'import "@fixture/shared/abxbc";',
+        'import "@fixture/shared/multixy";',
+      ].join("\n"),
+      "packages/shared/package.json": manifest("@fixture/shared", {
+        "./features/*": "./src/*.ts",
+        "./ab*bc": "./src/*.ts",
+        "./multi**": "./src/*.ts",
+      }),
+      "packages/shared/src/x.ts": "export {};",
+    });
+
+    const issues = analyzeArchitecture(root);
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "workspace import is not publicly exported @fixture/shared/features/",
+        ),
+        expect.stringContaining(
+          "workspace import is not publicly exported @fixture/shared/abc",
+        ),
+        expect.stringContaining(
+          "workspace import is not publicly exported @fixture/shared/abbc",
+        ),
+        expect.stringContaining(
+          "workspace import is not publicly exported @fixture/shared/multixy",
+        ),
+      ]),
+    );
+    expect(issues).toHaveLength(4);
+  });
 });
