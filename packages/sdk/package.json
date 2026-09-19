@@ -34,7 +34,8 @@
     "./node/build-local": "./node/build-local.ts",
     "./node/build-server": "./node/build-server.ts",
     "./node/service-contracts": "./node/service-contracts.ts",
-    "./capability-review": "./src/contracts/capability-review.ts"
+    "./capability-review": "./src/contracts/capability-review.ts",
+    "./sync/order": "./src/runtime/journal/ordering.ts"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",

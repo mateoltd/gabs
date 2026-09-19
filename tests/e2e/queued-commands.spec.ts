@@ -155,6 +155,84 @@ for (const resourcePreview of [false, true])
       await page
         .getByRole("button", { name: "Synchronize pending work", exact: true })
         .click();
+      if (resourcePreview) {
+        const record = page
+          .getByRole("region", { name: "notes records", exact: true })
+          .getByRole("row")
+          .filter({ hasText: "Preview queued note" });
+        const id = (await record.getByRole("cell").first().innerText()).trim();
+        await region
+          .getByLabel("Accepted record identity", { exact: true })
+          .fill(id);
+        const loadBase = async () => {
+          await region
+            .getByRole("button", { name: "Load accepted record", exact: true })
+            .click();
+          await expect(region).toContainText(
+            "Loaded server version 1: Preview queued note",
+          );
+        };
+        for (const name of ["First simulated edit", "Second simulated edit"]) {
+          await loadBase();
+          await page.getByLabel("Server online", { exact: true }).uncheck();
+          await region.getByLabel("Note name", { exact: true }).fill(name);
+          await region
+            .getByRole("button", { name: "Save pending update", exact: true })
+            .click();
+          await expect(
+            region.getByLabel("Note name", { exact: true }),
+          ).toHaveValue("");
+          await page.getByLabel("Server online", { exact: true }).check();
+        }
+        await loadBase();
+        await page.getByLabel("Server online", { exact: true }).uncheck();
+        await region
+          .getByRole("button", { name: "Save pending archive", exact: true })
+          .click();
+        await expect(
+          region.getByText("Loaded server version 1: Preview queued note", {
+            exact: true,
+          }),
+        ).toHaveCount(0);
+        await region
+          .getByLabel("Note name", { exact: true })
+          .fill("Independent simulated record");
+        await region
+          .getByRole("button", { name: "Save pending note", exact: true })
+          .click();
+        await expect(
+          region.getByLabel("Note name", { exact: true }),
+        ).toHaveValue("");
+        await page.getByLabel("Server online", { exact: true }).check();
+        await page
+          .getByRole("button", {
+            name: "Synchronize pending work",
+            exact: true,
+          })
+          .click();
+        const journal = page.getByRole("region", {
+          name: "Operation journal data",
+          exact: true,
+        });
+        await expect(
+          journal.getByRole("cell", { name: "accepted", exact: true }),
+        ).toHaveCount(3);
+        await expect(
+          journal.getByRole("cell", { name: "conflict", exact: true }),
+        ).toHaveCount(1);
+        await expect(
+          journal.getByRole("cell", { name: "pending", exact: true }),
+        ).toHaveCount(1);
+        await expect(
+          page.getByRole("cell", { name: "First simulated edit", exact: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole("cell", {
+            name: "Independent simulated record",
+            exact: true,
+          }),
+        ).toBeVisible();
+      }
       await page.getByText("Permission simulator", { exact: true }).click();
       await page
         .getByLabel(

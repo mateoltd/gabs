@@ -857,3 +857,8 @@ The requested Sol xhigh audit and independent parent review confirmed the existi
 [The requested Sol xhigh audit and parent review](architecture/README.md#resource-recovery-checkpoint-review-19-september-2026) preserved checkpoint `2b282c1`, confirmed the existing physical package migration and corrected missing resource/archive review-context plumbing. The shared recovery notice stays in the shell; durable guards remain in the client; portable metadata stays in the SDK. No stylesheet changed.
 
 Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict environment/boundary checks, four fresh builds, seven distinct headless browser cases and seven hidden/minimized native cases. The linked record distinguishes the corrected screenshot-selector failure, the narrow archive recheck and inspected captures. [Cancelled archive acceptance](collision-outcomes/README.md#cancelled-resource-review-follow-up) extends OFF-01 without closing its create/update, repeated-collision review or wider mixed-graph gates. Full parity and final UI refinement remain unfinished.
+
+
+## Shared simulation scheduling, 19 September 2026
+
+[OFF-01-SIM](simulation-order/README.md) now verifies host-equivalent same-record/reference ordering for typed captures and the development preview, atomic cycle rejection and exact retries independent of prerequisite order. Five original failures now pass; verification includes 109 focused tests, 605 isolated unit/PostgreSQL tests, strict checks/four fresh bundles, two preview and two real-host headless journeys. No layout changed. Native collision acceptance and broader offline/profile recovery remain required.

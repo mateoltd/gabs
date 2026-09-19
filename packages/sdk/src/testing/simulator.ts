@@ -1,4 +1,7 @@
-import { simulateQueuedOperations } from "./queued-operations";
+import {
+  captureSimulatedEntry,
+  simulateQueuedOperations,
+} from "./queued-operations";
 import {
   referenceQueryField,
   referenceValues,
@@ -964,16 +967,9 @@ export function createModuleSimulator<M extends ModuleDefinition>(
             "This key was used for different input.",
           );
         if (!old)
-          journal.push({
-            id,
-            userId: simulationIdentity.userId,
-            workspaceId: simulationIdentity.workspaceId,
-            call: { ...call, key: id },
-            dependencies: [],
-            state: "pending",
-            createdAt: Date.now(),
-            attempts: 0,
-            delivery: "unsubmitted",
+          captureSimulatedEntry(module, journal, simulationIdentity, {
+            ...call,
+            key: id,
           });
         return { state: "pending", id };
       }

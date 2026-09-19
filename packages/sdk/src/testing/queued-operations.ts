@@ -10,6 +10,11 @@ import {
 import { canonical } from "../contracts/registry";
 import type { JournalEntry } from "../contracts/sync";
 import {
+  assertJournalOrder,
+  recordDependencies,
+  referenceDependencies,
+} from "../runtime/journal/ordering";
+import {
   queueDependenciesSchema,
   queueKeySchema,
 } from "../client/queued-operation";
@@ -102,32 +107,7 @@ export function simulateQueuedOperations(
         assertSchema(queueDependenciesSchema, dependencies);
         if (dependencies.includes(call.key))
           throw Error("A saved write cannot depend on itself.");
-        const old = journal.find((entry) => entry.id === call.key);
-        if (
-          old &&
-          (canonical(old.call) !== canonical(call) ||
-            canonical(
-              old.captureDependencies ??
-                old.requestedDependencies ??
-                old.dependencies,
-            ) !== canonical(dependencies))
-        )
-          throw Error(
-            "This retry identity already belongs to different input or prerequisites.",
-          );
-        if (!old)
-          journal.push({
-            id: call.key,
-            ...identity,
-            call: structuredClone(call),
-            dependencies: [...dependencies],
-            requestedDependencies: [...dependencies],
-            captureDependencies: [...dependencies],
-            state: "pending",
-            delivery: "unsubmitted",
-            createdAt: Date.now(),
-            attempts: 0,
-          });
+        captureSimulatedEntry(module, journal, identity, call, dependencies);
         return get({
           moduleId: module.id,
           moduleVersion: module.version,
@@ -157,32 +137,7 @@ export function simulateQueuedOperations(
       assertSchema(queueDependenciesSchema, dependencies);
       if (dependencies.includes(call.key))
         throw Error("A saved command cannot depend on itself.");
-      const old = journal.find((entry) => entry.id === call.key);
-      if (
-        old &&
-        (canonical(old.call) !== canonical(call) ||
-          canonical(
-            old.captureDependencies ??
-              old.requestedDependencies ??
-              old.dependencies,
-          ) !== canonical(dependencies))
-      )
-        throw Error(
-          "This retry identity already belongs to different input or prerequisites.",
-        );
-      if (!old)
-        journal.push({
-          id: call.key,
-          ...identity,
-          call: structuredClone(call),
-          dependencies: [...dependencies],
-          requestedDependencies: [...dependencies],
-          captureDependencies: [...dependencies],
-          state: "pending",
-          delivery: "unsubmitted",
-          createdAt: Date.now(),
-          attempts: 0,
-        });
+      captureSimulatedEntry(module, journal, identity, call, dependencies);
       return get({
         moduleId: module.id,
         moduleVersion: module.version,
@@ -191,4 +146,58 @@ export function simulateQueuedOperations(
       });
     },
   };
+}
+
+/** Shared by preview submission and typed queues; all checks finish before mutation. */
+export function captureSimulatedEntry(
+  module: ModuleDefinition,
+  journal: JournalEntry[],
+  identity: Pick<JournalEntry, "userId" | "workspaceId">,
+  call: ModuleCall,
+  dependencies: string[] = [],
+) {
+  if (!call.key) throw Error("A captured write requires a stable key.");
+  const old = journal.find((entry) => entry.id === call.key);
+  if (old) {
+    if (
+      canonical(old.call) !== canonical(call) ||
+      canonical(
+        [
+          ...(old.captureDependencies ??
+            old.requestedDependencies ??
+            old.dependencies),
+        ].sort(),
+      ) !== canonical([...dependencies].sort())
+    )
+      throw Error(
+        "This retry identity already belongs to different input or prerequisites.",
+      );
+    return;
+  }
+  const schema =
+    call.action === "operation"
+      ? module.operations[call.operation!].input
+      : module.resources[call.resource!].schema;
+  const entry: JournalEntry = {
+    id: call.key,
+    ...identity,
+    call: structuredClone(call),
+    dependencies: [
+      ...new Set([
+        ...dependencies,
+        ...recordDependencies(call, journal, identity),
+        ...referenceDependencies(schema, call, journal, identity),
+      ]),
+    ],
+    requestedDependencies: [...dependencies],
+    captureDependencies: [...dependencies],
+    state: "pending",
+    delivery: "unsubmitted",
+    createdAt: Date.now(),
+    attempts: 0,
+  };
+  if (call.action === "operation")
+    assertSchema(queueDependenciesSchema, entry.dependencies);
+  assertJournalOrder([...journal, entry], identity);
+  journal.push(entry);
 }
