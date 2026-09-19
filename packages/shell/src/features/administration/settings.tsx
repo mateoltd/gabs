@@ -12,6 +12,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { SavedWorkRecovery } from "../modules/recovery";
+import { ClearDownloads } from "../modules/offline/clear-downloads";
 export function Settings(
   props: FeatureProps & {
     toggleOffline: () => Promise<void>;
@@ -66,7 +67,7 @@ export function Settings(
           <h2>Offline work on this device</h2>
           <p>
             {bootstrap.offlineHours
-              ? "Keep a limited cache and order drafts available for up to 24 hours after authorization."
+              ? "Keep downloaded records and saved work available during the company’s offline access window."
               : "The workspace administrator has disabled offline storage."}
           </p>
           <Button
@@ -92,6 +93,7 @@ export function Settings(
             data.
           </p>
           <SavedWorkRecovery {...props} />
+          <ClearDownloads {...props} />
         </section>
         {props.online && bootstrap.permissions.includes("workspace.manage") && (
           <section className="panel">

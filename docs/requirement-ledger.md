@@ -287,3 +287,8 @@ CORE-003 and SDK developer experience gain [OFF-01-SIM evidence](verification/si
 ## Bounded resource-page retention, 19 September 2026
 
 CORE-003/SHELL-001 gain [scoped OFF-02 evidence](verification/resource-cache/README.md): bounded recent query pages, persisted download times, legacy cache migration and unchanged pending work under the account/workspace storage lock. Verification passed 611 isolated tests, strict checks/four fresh builds and four distinct headless journeys, with wide/narrow captures inspected. The evidence distinguishes the corrected redundant-network-wait fixture from product behavior. Native acceptance, explicit working-set selection, reference-cache bounds and full lease/revocation journeys remain open; no original requirement is broadly completed.
+
+
+## Selected offline lists, 19 September 2026
+
+CORE-003/SHELL-001 gain [OFF-02-LISTS evidence](verification/offline-lists/README.md): bounded multi-page filtered selections, explicit refresh/removal, shared-page retention and cache clearing without changing pending work. 617 isolated tests, strict checks/four fresh builds and five headless journeys passed, followed by presentation/shared-harness rechecks. Four captures were inspected. The native harness is ready but has no pass while protected storage is unavailable. Reference-cache bounds and broader lease/revocation acceptance remain required; custom-view SDK cached reads are an explicit OFF-02-SDK implementation gap. No entire original requirement is newly complete.

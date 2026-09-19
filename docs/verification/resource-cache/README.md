@@ -19,3 +19,8 @@ Strict checks and four fresh builds passed in `/tmp/gabs-resource-cache-build-fi
 ## Remaining OFF-02 requirements
 
 Explicit authorized working-set selection/removal, reference-query cache bounds, user-facing cache management and full lease-shortening/expiry/connected-revocation journeys remain required. Global artifact/journal quotas are separate from disposable page retention; pending work must not be silently evicted to enforce a page budget. Full offline/profile acceptance and overall parity remain open.
+
+
+## Selected-list follow-up
+
+[OFF-02-LISTS](../offline-lists/README.md) adds user-selected multi-page downloads and cache controls. Selected pages now take priority over recent automatic pages; oversized refreshes preserve an older selected copy with its original timestamp. The current 617-test regression and browser acceptance include the earlier bounded-cache behavior. Native verification and broader OFF-02 gates remain open.

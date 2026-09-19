@@ -867,3 +867,8 @@ Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict
 ## Bounded resource-page cache, 19 September 2026
 
 [OFF-02 cache evidence](resource-cache/README.md) records bounded recent-page retention, legacy migration, preserved saved work and visible download freshness. 611 isolated tests, strict checks/four fresh builds and four distinct headless journeys passed. Two new captures were inspected. The initial sort test required a redundant network response; after correcting that fixture assumption its existing record/offline-pagination assertions passed. Native acceptance and the rest of OFF-02 remain required.
+
+
+## Selected offline lists, 19 September 2026
+
+[OFF-02-LISTS evidence](offline-lists/README.md) records named filtered selections, bounded downloads, explicit refresh/removal, safe cache clearing and pending-work preservation. 617 isolated tests, strict checks/four fresh builds and five headless journeys passed; final presentation and shared-harness rechecks also passed. Four captures were inspected. An actual disconnected-refetch defect was found and corrected. Native acceptance, public SDK offline reads in custom views, reference-cache bounds and broader authority gates remain required.

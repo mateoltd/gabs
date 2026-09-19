@@ -28,7 +28,8 @@ import {
   validateModuleResponse,
   ResponseContractUnavailable,
 } from "@suite/client/module-response";
-import { resourceCursorCacheKey } from "@suite/module-sdk/queries";
+import { resourcePageCacheKey } from "@suite/client/offline-lists";
+import { OfflineLists } from "../offline/lists";
 import type { ResourceRangeBounds, ResourceSort } from "@suite/module-sdk";
 import { ConflictReview } from "./conflict-review";
 import { SavedChange, SavedDraft } from "./saved-change";
@@ -297,18 +298,13 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       setError(error);
     }
   };
-  const pageKey = canonical([
+  const listQuery = { search, cursor, archived, limit, where, ranges, orderBy };
+  const pageKey = resourcePageCacheKey(
     moduleId,
     module.version,
     resource,
-    search,
-    resourceCursorCacheKey(cursor),
-    archived,
-    limit,
-    where,
-    ...(Object.keys(ranges).length ? [ranges] : []),
-    ...(orderBy.length ? [{ sort: orderBy }] : []),
-  ]);
+    listQuery,
+  );
   const ordinaryDraftKey = resourceDraftKey(moduleId, resource);
   const draftKey = resourceDraftKey(moduleId, resource, reviewSession);
   const reviewedCreate = storage?.journal.find(
@@ -1261,6 +1257,25 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           )}
         </div>
         <div className="resource-query-controls">
+          <OfflineLists
+            {...props}
+            resource={resource}
+            query={listQuery}
+            openList={(query) => {
+              setSearch(query.search ?? "");
+              setArchived(query.archived ?? false);
+              setLimit(query.limit ?? 50);
+              setWhere(query.where ?? {});
+              setRanges(query.ranges ?? {});
+              setOrderBy([...(query.orderBy ?? [])]);
+              resetPage();
+            }}
+            changed={async (refresh) => {
+              await read();
+              if (refresh && recoveryContext.current.online)
+                await query.refetch();
+            }}
+          />
           <TypedResourceFilters
             key={`${resource}@${module.version}`}
             schema={definition.schema as TObject}
