@@ -395,6 +395,8 @@ export const OPERATIONS = {
 } as const;
 export type OperationId = keyof typeof OPERATIONS;
 export interface OperationRequest {
+  /** An expectation checked against authenticated credentials; never an authority claim. */
+  expectedUserId?: string;
   operation: OperationId;
   params?: Record<string, string>;
   query?: Record<string, string | number | undefined>;

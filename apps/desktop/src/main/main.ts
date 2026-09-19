@@ -87,6 +87,8 @@ const oidcConfigured =
   !!config.audience;
 let win: BrowserWindow | undefined;
 let userId: string | undefined;
+let identityEpoch = 0,
+  identitySequence = 0;
 const moduleHosts = new ModuleHostSessions(() => userId);
 const localDeviceHosts = createLocalDeviceHost(() => win, minimizedTest);
 let accessToken: string | undefined,
@@ -406,7 +408,29 @@ async function ensureToken() {
 }
 async function execute(raw: OperationRequest, timeoutMs?: number) {
   const actor = userId;
-  const request = validateOperation(raw);
+  const validated = validateOperation(raw);
+  const epoch = identityEpoch;
+  const sequence =
+    validated.operation === "me" ? ++identitySequence : undefined;
+  const current = () =>
+    validated.operation === "connection" ||
+    (epoch === identityEpoch &&
+      (sequence === undefined || sequence === identitySequence));
+  const stale = () => ({
+    status: 401,
+    body: {
+      code: "PROFILE_CHANGED",
+      message: "The profile changed while this request was running.",
+    },
+  });
+  const request = {
+    ...validated,
+    expectedUserId:
+      validated.expectedUserId ??
+      (validated.operation === "me" || validated.operation === "connection"
+        ? undefined
+        : actor),
+  };
   const op = operationPath(request);
   const recoveryRevision =
     actor && request.params?.workspaceId
@@ -435,8 +459,10 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
   try {
     await ensureToken();
   } catch (error) {
+    if (!current()) return stale();
     if (isCapabilityTransportFailure(error))
       throw new CapabilityTransportUnavailable("The API cannot be reached.");
+    if (actor) await writeSecure(`${actor}/account-revision`, randomUUID());
     return {
       status: 401,
       body: { code: "UNAUTHENTICATED", message: "Sign in to continue." },
@@ -450,6 +476,8 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     headers.Origin = config.apiOrigin.replace(":4310", ":4300");
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   } else headers.Authorization = `Bearer ${accessToken}`;
+  if (!current()) return stale();
+  if (request.expectedUserId) headers["X-Suite-Actor"] = request.expectedUserId;
   if (request.body !== undefined) headers["Content-Type"] = "application/json";
   if (request.idempotencyKey)
     headers["Idempotency-Key"] = request.idempotencyKey;
@@ -471,14 +499,35 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     throw error;
   });
   const body = (await res.json()) as Record<string, unknown>;
+  if (!current()) return stale();
+  const authenticatedActor = res.headers.get("x-suite-actor") ?? undefined;
+  if (
+    res.ok &&
+    request.expectedUserId &&
+    authenticatedActor !== request.expectedUserId
+  ) {
+    if (actor) await writeSecure(`${actor}/account-revision`, randomUUID());
+    return {
+      status: 401,
+      actorId: authenticatedActor,
+      body: {
+        code: "PROFILE_CHANGED",
+        message: "The response did not confirm the requested profile.",
+      },
+    };
+  }
   if (res.status === 426) updateRequired = true;
   if (request.operation === "me" && res.ok) {
     const user = body.user as { id: string };
+    if (!authenticatedActor || user.id !== authenticatedActor) return stale();
     if (userId && userId !== user.id) {
+      await writeSecure(`${userId}/account-revision`, randomUUID());
       lanRecovery.invalidate();
       lanPackages.invalidate();
       void lan.stop().catch(() => {});
     }
+    if (!current()) return stale();
+    if (userId !== user.id) identityEpoch++;
     userId = user.id;
     csrfToken = body.csrfToken as string | undefined;
   }
@@ -510,15 +559,21 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
       );
     }
     if (res.status === 401) {
+      await writeSecure(`${actor}/account-revision`, randomUUID());
       void lan.stop().catch(() => {});
       moduleHosts.clear();
       await nativeAuthority.purge({ userId: actor });
       await inputRecovery.purge({ userId: actor });
     }
   }
-  return { status: res.status, body };
+  return {
+    status: res.status,
+    body,
+    actorId: res.headers.get("x-suite-actor") ?? undefined,
+  };
 }
 async function login(options: LoginOptions) {
+  identityEpoch++;
   if (devAuth) {
     const result = await fetch(config.apiOrigin + "/auth/development", {
       method: "POST",
@@ -875,6 +930,7 @@ function handlers() {
   });
   ipcMain.handle("suite:logout", async (event) => {
     sender(event);
+    identityEpoch++;
     moduleHosts.clear();
     localDeviceHosts.clear();
     const token = refreshToken;
@@ -910,6 +966,13 @@ function handlers() {
         body: JSON.stringify({ client_id: config.clientId, token }),
         signal: AbortSignal.timeout(5000),
       }).catch(() => undefined);
+  });
+  ipcMain.handle("suite:account-revision", async (event, accountId) => {
+    sender(event);
+    validateScope({ userId: accountId }, userId);
+    return (
+      (await readSecure<string>(`${accountId}/account-revision`)) ?? "initial"
+    );
   });
   ipcMain.handle("suite:cache-read", (event, scope, key) => {
     sender(event);

@@ -55,6 +55,7 @@ interface Authority {
 export interface PolicyRequest extends Readonly<Scope> {
   readonly generation: string;
   readonly epoch: number;
+  readonly accountRevision: string;
 }
 const expired = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
@@ -112,13 +113,17 @@ export class WorkspacePolicy {
     // A session-only device needs no persistent write before online authentication.
     return { generation: "initial", denied: false };
   }
-  private check(
+  private async check(
     authority: Authority,
     request: PolicyRequest,
     signal?: AbortSignal,
   ) {
+    const accountRevision = await this.platform.accountRevision(
+      this.scope.userId,
+    );
     signal?.throwIfAborted();
     if (
+      request.accountRevision !== accountRevision ||
       request.userId !== this.scope.userId ||
       request.workspaceId !== this.scope.workspaceId ||
       request.epoch !== this.epoch ||
@@ -161,14 +166,24 @@ export class WorkspacePolicy {
     return this.exclusive(async () => {
       signal?.throwIfAborted();
       const authority = await this.authority();
-      return { ...this.scope, generation: authority.generation, epoch };
+      return {
+        ...this.scope,
+        generation: authority.generation,
+        epoch,
+        accountRevision: await this.platform.accountRevision(this.scope.userId),
+      };
     });
   }
   async load(): Promise<Snapshot | undefined> {
     return this.exclusive(async () => {
       const authority = await this.authority();
       const snapshot = await this.snapshot();
-      if (authority.denied) {
+      if (
+        authority.denied ||
+        (snapshot &&
+          (snapshot.accountRevision ?? "initial") !==
+            (await this.platform.accountRevision(this.scope.userId)))
+      ) {
         this.accessDenied = true;
         return snapshot ? expired(snapshot) : undefined;
       }
@@ -187,7 +202,7 @@ export class WorkspacePolicy {
     if (!ticket) throw obsolete();
     return this.exclusive(async () => {
       const authority = await this.authority();
-      this.check(authority, ticket, signal);
+      await this.check(authority, ticket, signal);
       if (authority.denied && !request) throw obsolete();
       if (candidate.workspace.id !== this.scope.workspaceId)
         throw Error("Offline policy belongs to a different workspace.");
@@ -196,20 +211,19 @@ export class WorkspacePolicy {
         ? newerPolicy(snapshot?.bootstrap, this.currentPolicy)
         : snapshot?.bootstrap;
       const next = newerPolicy(current, candidate);
-      this.check(authority, ticket, signal);
+      await this.check(authority, ticket, signal);
       if (snapshot)
-        await this.platform.save(
-          this.scope,
-          "snapshot",
-          snapshotWithPolicy(snapshot, this.catalog, next),
-        );
-      this.check(authority, ticket, signal);
+        await this.platform.save(this.scope, "snapshot", {
+          ...snapshotWithPolicy(snapshot, this.catalog, next),
+          accountRevision: ticket.accountRevision,
+        });
+      await this.check(authority, ticket, signal);
       if (authority.denied)
         await this.platform.save(this.scope, "workspace-authority", {
           ...authority,
           denied: false,
         });
-      this.check(authority, ticket, signal);
+      await this.check(authority, ticket, signal);
       this.currentPolicy = next;
       this.accessDenied = false;
       this.accepted = ticket;
@@ -221,7 +235,7 @@ export class WorkspacePolicy {
     if (!ticket || this.accessDenied) throw obsolete();
     return this.exclusive(async () => {
       const authority = await this.authority();
-      this.check(authority, ticket);
+      await this.check(authority, ticket);
       if (
         authority.denied ||
         snapshot.bootstrap.workspace.id !== this.scope.workspaceId
@@ -233,9 +247,10 @@ export class WorkspacePolicy {
         this.catalog,
         this.currentPolicy,
       );
-      this.check(authority, ticket);
+      await this.check(authority, ticket);
+      result.accountRevision = ticket.accountRevision;
       await this.platform.save(this.scope, "snapshot", result);
-      this.check(authority, ticket);
+      await this.check(authority, ticket);
       return result;
     });
   }

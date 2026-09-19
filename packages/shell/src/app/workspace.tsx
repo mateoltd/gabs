@@ -82,7 +82,7 @@ import {
 import { useShellComposition } from "./composition";
 import { FeatureBoundary } from "./feature-boundary";
 import { MotionRoutes, RouteRedirect } from "./routes";
-import { client, platform } from "./runtime";
+import { client as sessionClient, platform } from "./runtime";
 import { AppUpdate } from "./update";
 import {
   useLocalNetwork,
@@ -148,6 +148,7 @@ export function Workspace({
     () => ({ userId: user.id, workspaceId }),
     [user.id, workspaceId],
   );
+  const client = useMemo(() => sessionClient.forUser(user.id), [user.id]);
   const qc = useQueryClient();
   const latestPolicy = useRef<import("@suite/contracts").Bootstrap | undefined>(
     undefined,
@@ -498,11 +499,17 @@ export function Workspace({
       .then((saved) => {
         if (epoch !== cachePolicyEpoch.current) return;
         setCached(saved ?? undefined);
-        return platform.rememberIdentity({
-          userId: user.id,
-          name: user.name,
-          workspaceId,
-        });
+        return navigator.locks.request(
+          "suite-remembered-identity",
+          async () => {
+            if (!client.isCurrentUser(user.id)) return;
+            await platform.rememberIdentity({
+              userId: user.id,
+              name: user.name,
+              workspaceId,
+            });
+          },
+        );
       })
       .catch(setError);
   }, [

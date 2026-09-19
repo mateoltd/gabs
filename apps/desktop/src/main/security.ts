@@ -59,10 +59,16 @@ export function validateOperation(value: unknown): OperationRequest {
           "idempotencyKey",
           "version",
           "moduleVersion",
+          "expectedUserId",
         ].includes(k),
     )
   )
     throw Error("Operation not allowed");
+  if (
+    r.expectedUserId !== undefined &&
+    (typeof r.expectedUserId !== "string" || !uuid.test(r.expectedUserId))
+  )
+    throw Error("Invalid expected profile");
   if (JSON.stringify(value).length > 262144) throw Error("Request too large");
   if (
     r.version !== undefined &&

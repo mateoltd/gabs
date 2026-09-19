@@ -310,3 +310,7 @@ CORE-003/BACK-002 gain [OFF-02-REFERENCES evidence](verification/reference-cache
 ## 19 September 2026 — Scoped revocation recovery
 
 [Scoped revocation recovery](verification/policy-revocation/README.md) strengthens CORE-003/SHELL-001 with durable authorization generations, rejection of pre-denial replies/writers, scoped cross-tab invalidation and retained offline preference/pending work through membership restoration. The real membership journey preserves the original request through offline restart and authoritative acceptance. Native protected-storage acceptance, account-wide credential/profile changes and the remaining workspace/release transitions stay required; this does not complete OFF-02/03 or any whole original requirement.
+
+## 19 September 2026 — Profile authority
+
+CORE-003/SHELL-001 gain [OFF-02-LEASES-PROFILE evidence](verification/profile-authority/README.md): authenticated expected-actor checks, stale-reply rejection, account-wide lease expiry, cold-start denial and preserved journals through two-account and expired-session recovery. Native protected-storage acceptance, other workspace/release transitions and destructive explicit sign-out/profile-removal behavior remain open. No entire original requirement is promoted.

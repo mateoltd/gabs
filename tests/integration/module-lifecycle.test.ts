@@ -62,6 +62,7 @@ it("recovers exact device changes across download interruption, uncertain accept
   const memory = new Map<string, unknown>();
   let failLocalCommit = false;
   const platform: Platform = {
+    accountRevision: async () => "initial",
     kind: "web",
     load: async <T>(
       scope: { userId: string; workspaceId: string },

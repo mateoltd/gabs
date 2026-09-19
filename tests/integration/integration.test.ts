@@ -144,6 +144,55 @@ afterAll(async () => {
   await admin.end();
 });
 describe("real PostgreSQL transactions and tenant security", () => {
+  it("checks the expected profile before business effects and identifies authenticated replies", async () => {
+    const preflight = await server.app.inject({
+      method: "OPTIONS",
+      url: "/api/v1/me",
+      headers: {
+        origin: "http://localhost:4300",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "x-suite-actor",
+      },
+    });
+    expect(preflight.statusCode).toBe(204);
+    expect(preflight.headers["access-control-allow-headers"]).toContain(
+      "X-Suite-Actor",
+    );
+
+    const sku = "PROFILE-" + randomUUID().slice(0, 8);
+    const response = await server.app.inject({
+      method: "POST",
+      url: "/api/v1" + path("/products"),
+      headers: {
+        ...headers,
+        "idempotency-key": randomUUID(),
+        "x-suite-actor": other.id,
+      },
+      payload: { sku, name: "Must not be created", priceMinor: 1000 },
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ code: "PROFILE_CHANGED" });
+    expect(response.headers["access-control-expose-headers"]).toContain(
+      "X-Suite-Actor",
+    );
+    expect(response.headers["x-suite-actor"]).toBe(owner.id);
+    expect(
+      (
+        await admin.query(
+          "select id from suite.products where workspace_id=$1 and sku=$2",
+          [workspace, sku],
+        )
+      ).rows,
+    ).toEqual([]);
+    const bootstrap = await server.app.inject({
+      method: "GET",
+      url: "/api/v1" + path("/bootstrap"),
+      headers: { ...headers, "x-suite-actor": owner.id },
+    });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.headers["x-suite-actor"]).toBe(owner.id);
+  });
+
   it("reads current identity and the full inheritance graph without retaining stale grants", async () => {
     const user = await identify(db, {
       issuer: "test",

@@ -26,6 +26,7 @@ function fixture(transport: Transport) {
   });
   const memory = new Map<string, unknown>();
   const platform: Platform = {
+    accountRevision: async () => "initial",
     kind: "web",
     load: async <T>(
       scope: { userId: string; workspaceId: string },

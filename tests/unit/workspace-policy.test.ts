@@ -45,6 +45,7 @@ function fixture() {
     },
   });
   const platform = {
+    accountRevision: async () => "initial",
     load: async (s: Scope, key: string) =>
       structuredClone(disk.get(JSON.stringify([s, key]))),
     save: async (s: Scope, key: string, value: unknown) => {
@@ -226,4 +227,46 @@ it("binds request tickets to their account and workspace even before first persi
       name: "AbortError",
     });
   expect(await session.load()).toBeUndefined();
+});
+
+it("an account revision expires every workspace lease and fences old requests without deleting work", async () => {
+  const f = fixture(),
+    session = f.session();
+  let revision = "initial";
+  f.platform.accountRevision = async (userId) =>
+    userId === scope.userId ? revision : "initial";
+  const otherWorkspace = { ...scope, workspaceId: "second" };
+  const otherPolicy = {
+    ...policy,
+    workspace: { ...policy.workspace, id: "second" },
+  };
+  const second = f.session(otherWorkspace);
+  await authorize(second, otherPolicy);
+  await second.save({ ...snapshot, bootstrap: otherPolicy });
+  const foreignScope = { ...scope, userId: "another" };
+  const foreign = f.session(foreignScope);
+  await authorize(foreign);
+  await foreign.save(snapshot);
+  await authorize(session);
+  await session.save(snapshot);
+  const request = await session.begin();
+  await f.platform.save(scope, "drafts", [{ input: "Account work" }]);
+  revision = crypto.randomUUID();
+  expect((await f.session().load())?.expiresAt).toBe(0);
+  expect((await f.session(otherWorkspace).load())?.expiresAt).toBe(0);
+  expect((await f.session(foreignScope).load())?.expiresAt).toBe(
+    snapshot.expiresAt,
+  );
+  await expect(session.accept(policy, request)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  await expect(session.save(snapshot)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  const recovered = f.session();
+  await authorize(recovered);
+  expect((await recovered.load())?.accountRevision).toBe(revision);
+  expect(await f.platform.load(scope, "drafts")).toEqual([
+    { input: "Account work" },
+  ]);
 });

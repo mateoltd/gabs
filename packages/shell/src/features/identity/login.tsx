@@ -65,6 +65,8 @@ export function Login() {
       }
       localStorage.removeItem("suite-logout-pending");
       await queryClient.invalidateQueries({ queryKey: ["me"] });
+      if (!window.suiteDesktop)
+        localStorage.setItem("suite-session-change", crypto.randomUUID());
     } catch (value) {
       setError(value);
     } finally {

@@ -108,6 +108,7 @@ function storage() {
   let failRoot = 0;
   const path = (s: Scope, key: string) => `${s.userId}/${s.workspaceId}/${key}`;
   const platform: Platform = {
+    accountRevision: async () => "initial",
     kind: "desktop",
     load: async <T>(s: Scope, key: string) =>
       structuredClone(records.get(path(s, key))) as T | undefined,

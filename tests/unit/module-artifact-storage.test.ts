@@ -27,6 +27,7 @@ it("stores a growing executable catalog in bounded records and recovers atomic u
   let failRoot = false,
     failChunk = false;
   const platform: Platform = {
+    accountRevision: async () => "initial",
     kind: "desktop",
     load: async <T>(s: Scope, key: string) =>
       structuredClone(records.get(path(s, key))) as T | undefined,

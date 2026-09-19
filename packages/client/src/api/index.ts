@@ -71,7 +71,7 @@ export class ApiError extends Error {
 export type Transport = (
   request: OperationRequest,
   signal?: AbortSignal,
-) => Promise<{ status: number; body: unknown }>;
+) => Promise<{ status: number; body: unknown; actorId?: string }>;
 export function httpTransport(
   baseUrl = "",
   getCsrf: () => string | undefined = () => undefined,
@@ -81,6 +81,8 @@ export function httpTransport(
     const headers: Record<string, string> = {};
     if (request.body !== undefined)
       headers["Content-Type"] = "application/json";
+    if (request.expectedUserId)
+      headers["X-Suite-Actor"] = request.expectedUserId;
     const csrf = getCsrf();
     if (csrf) headers["X-CSRF-Token"] = csrf;
     if (request.idempotencyKey)
@@ -100,11 +102,69 @@ export function httpTransport(
         ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
         : AbortSignal.timeout(timeout),
     });
-    return { status: response.status, body: await response.json() };
+    return {
+      status: response.status,
+      body: await response.json(),
+      actorId: response.headers.get("x-suite-actor") ?? undefined,
+    };
   };
 }
+export interface IdentityInvalidation {
+  userId: string;
+  reason: "changed" | "unauthenticated";
+  remote?: boolean;
+}
+interface SessionState {
+  userId?: string;
+  csrf?: string;
+  generation: number;
+  meSequence: number;
+  lastInvalidUser?: string;
+  listeners: Set<(event: IdentityInvalidation) => Promise<void>>;
+}
 export class SuiteClient {
-  private csrf?: string;
+  private session: SessionState = {
+    generation: 0,
+    meSequence: 0,
+    listeners: new Set(),
+  };
+  private expectedUserId?: string;
+  onIdentityInvalidated(
+    listener: (event: IdentityInvalidation) => Promise<void>,
+  ) {
+    this.session.listeners.add(listener);
+    return () => {
+      this.session.listeners.delete(listener);
+    };
+  }
+  async invalidateIdentity(userId = this.session.userId, remote = false) {
+    if (userId && this.session.userId && userId !== this.session.userId) return;
+    if (
+      !this.session.userId &&
+      userId &&
+      this.session.lastInvalidUser === userId
+    )
+      return;
+    this.session.lastInvalidUser = userId;
+    this.session.generation++;
+    this.session.userId = undefined;
+    this.session.csrf = undefined;
+    if (userId)
+      await Promise.all(
+        [...this.session.listeners].map((listener) =>
+          listener({ userId, reason: "unauthenticated", remote }),
+        ),
+      );
+  }
+  isCurrentUser(userId: string) {
+    return this.session.userId === userId;
+  }
+  forUser(userId: string): SuiteClient {
+    const client = new SuiteClient(this.transport);
+    client.session = this.session;
+    client.expectedUserId = userId;
+    return client;
+  }
   private reads = new Map<AbortController, string>();
   cancelWorkspace(workspaceId: string) {
     for (const [controller, id] of this.reads)
@@ -112,7 +172,7 @@ export class SuiteClient {
   }
   private transport: Transport;
   constructor(transport?: Transport) {
-    this.transport = transport ?? httpTransport("", () => this.csrf);
+    this.transport = transport ?? httpTransport("", () => this.session.csrf);
   }
   module<const M extends ModuleDefinition>(definition: M, workspaceId: string) {
     return createModuleClient(definition, (call, options) =>
@@ -123,6 +183,18 @@ export class SuiteClient {
     request: OperationRequest & { operation: K },
     options?: { signal?: AbortSignal },
   ): Promise<Result<K>> {
+    const expected = this.expectedUserId;
+    if (expected && this.session.userId && expected !== this.session.userId)
+      throw new ApiError(
+        401,
+        "PROFILE_CHANGED",
+        "This request belongs to another profile.",
+      );
+    const generation = this.session.generation;
+    const meSequence =
+      request.operation === "me" && !expected
+        ? ++this.session.meSequence
+        : undefined;
     const controller = new AbortController();
     if (
       (OPERATIONS[request.operation].method === "GET" ||
@@ -138,11 +210,42 @@ export class SuiteClient {
         ? AbortSignal.any([controller.signal, options.signal])
         : controller.signal;
       signal.throwIfAborted();
-      result = await this.transport(request, signal);
+      result = await this.transport(
+        expected ? { ...request, expectedUserId: expected } : request,
+        signal,
+      );
       signal.throwIfAborted();
     } finally {
       this.reads.delete(controller);
     }
+
+    if (
+      (meSequence !== undefined && meSequence !== this.session.meSequence) ||
+      (request.operation !== "connection" &&
+        generation !== this.session.generation) ||
+      (expected && this.session.userId && expected !== this.session.userId)
+    )
+      throw new ApiError(
+        401,
+        "PROFILE_CHANGED",
+        "The active profile changed while this request was running.",
+      );
+    if (expected && result.actorId && result.actorId !== expected) {
+      await this.invalidateIdentity(expected);
+      throw new ApiError(
+        401,
+        "PROFILE_CHANGED",
+        "The server authenticated a different profile. Revalidate your identity.",
+      );
+    }
+    if (result.status === 401 && (expected || this.session.userId))
+      await this.invalidateIdentity(expected ?? this.session.userId);
+    if (expected && result.status < 400 && !result.actorId)
+      throw new ApiError(
+        409,
+        "IDENTITY_UNVERIFIED",
+        "The server did not confirm this response's profile. Update the server before continuing.",
+      );
 
     if (result.status >= 400) {
       const body = result.body as {
@@ -159,8 +262,38 @@ export class SuiteClient {
         body.detail,
       );
     }
-    if (request.operation === "me")
-      this.csrf = (result.body as { csrfToken?: string }).csrfToken;
+    if (request.operation === "me" && !expected) {
+      const body = result.body as { user: { id: string }; csrfToken?: string };
+      if (result.actorId && result.actorId !== body.user.id)
+        throw new ApiError(
+          401,
+          "PROFILE_CHANGED",
+          "The identity response does not match its authenticated profile.",
+        );
+      const previous = this.session.userId;
+      this.session.userId = body.user.id;
+      this.session.csrf = body.csrfToken;
+      this.session.lastInvalidUser = undefined;
+      if (previous && previous !== body.user.id) {
+        this.session.generation++;
+        await Promise.all(
+          [...this.session.listeners].map((listener) =>
+            listener({ userId: previous, reason: "changed" }),
+          ),
+        );
+      }
+    }
+    if (
+      meSequence !== undefined &&
+      (meSequence !== this.session.meSequence ||
+        this.session.userId !==
+          (result.body as { user: { id: string } }).user.id)
+    )
+      throw new ApiError(
+        401,
+        "PROFILE_CHANGED",
+        "A newer identity observation superseded this reply.",
+      );
     return result.body as Result<K>;
   }
 }

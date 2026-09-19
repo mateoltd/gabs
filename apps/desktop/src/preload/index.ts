@@ -87,6 +87,8 @@ const bridge: DesktopBridge = {
   execute: (request) => ipcRenderer.invoke("suite:execute", request),
   login: (options) => ipcRenderer.invoke("suite:login", options),
   logout: () => ipcRenderer.invoke("suite:logout"),
+  accountRevision: (userId) =>
+    ipcRenderer.invoke("suite:account-revision", userId),
   cacheRead: (scope, key) => ipcRenderer.invoke("suite:cache-read", scope, key),
   cacheWrite: (scope, key, value) =>
     ipcRenderer.invoke("suite:cache-write", scope, key, value),

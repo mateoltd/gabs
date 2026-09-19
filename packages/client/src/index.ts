@@ -27,6 +27,7 @@ export interface Snapshot {
   orders: Order[];
   expiresAt: number;
   cachedAt: number;
+  accountRevision?: string;
 }
 export interface LocalDraft {
   /** Exact release used by a submitted attempt; absent for a new, unsubmitted draft. */
@@ -54,6 +55,7 @@ export interface RememberedIdentity {
 }
 export interface Platform {
   kind: "web" | "desktop";
+  accountRevision(userId: string): Promise<string>;
   load<T>(scope: Scope, key: CacheKey): Promise<T | undefined>;
   save<T>(scope: Scope, key: CacheKey, value: T): Promise<void>;
   pruneModuleArtifacts(scope: Scope, keep: ModuleArtifactKey[]): Promise<void>;
@@ -185,9 +187,10 @@ export interface DesktopBridge {
   }>;
   execute(
     request: OperationRequest,
-  ): Promise<{ status: number; body: unknown }>;
+  ): Promise<{ status: number; body: unknown; actorId?: string }>;
   login(options?: LoginOptions): Promise<void>;
   logout(): Promise<void>;
+  accountRevision(userId: string): Promise<string>;
   cacheRead(scope: Scope, key: CacheKey): Promise<unknown>;
   cacheWrite(scope: Scope, key: CacheKey, value: unknown): Promise<void>;
   cachePruneArtifacts(scope: Scope, keep: ModuleArtifactKey[]): Promise<void>;

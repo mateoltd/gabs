@@ -40,6 +40,7 @@ function harness() {
     },
   });
   const platform: Platform = {
+    accountRevision: async () => "initial",
     kind: "web",
     load: async <T>(s: typeof scope, key: string) =>
       structuredClone(values.get(`${s.userId}/${s.workspaceId}/${key}`)) as T,

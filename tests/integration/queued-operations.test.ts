@@ -109,6 +109,7 @@ it("replays a durably captured Orders command after a lost accepted response wit
     expect(trust.statusCode).toBe(200);
     const records = new Map<string, unknown>();
     const platform: Platform = {
+      accountRevision: async () => "initial",
       kind: "web",
       pruneModuleArtifacts: async () => {},
       load: async <T>(

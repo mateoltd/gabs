@@ -1,4 +1,8 @@
 import { type RememberedIdentity } from "@suite/client";
+import {
+  invalidateBrowserAccount,
+  subscribeBrowserAccount,
+} from "@suite/client/browser";
 import { ApiError } from "@suite/client/api";
 import { Button, Empty, FeedbackProvider, Loading } from "@suite/ui-web";
 import {
@@ -26,15 +30,76 @@ function Session() {
   }, []);
   const online = useConnectivity(),
     qc = useQueryClient();
+  const [invalidUser, setInvalidUser] = useState<string>();
   const [identity, setIdentity] = useState<RememberedIdentity>(),
     [identityLoaded, setIdentityLoaded] = useState(false),
     [workspaceId, setWorkspaceId] = useState(
       localStorage.getItem("suite-workspace") ?? "",
     );
+  useEffect(
+    () =>
+      client.onIdentityInvalidated(async ({ userId, reason, remote }) => {
+        setInvalidUser(userId);
+        setIdentity((current) =>
+          current?.userId === userId ? undefined : current,
+        );
+        if (!window.suiteDesktop && !remote)
+          await invalidateBrowserAccount(userId);
+        await navigator.locks.request("suite-remembered-identity", async () => {
+          const remembered = await platform.identity();
+          if (remembered?.userId === userId)
+            await platform.rememberIdentity(undefined);
+        });
+        await qc.cancelQueries({ queryKey: [userId] });
+        qc.removeQueries({ queryKey: [userId] });
+        if (reason !== "changed")
+          void qc.invalidateQueries({ queryKey: ["me"] });
+      }),
+    [qc],
+  );
   const me = useQuery({
     queryKey: ["me"],
-    queryFn: async () => {
-      const result = await client.request({ operation: "me" });
+    queryFn: async ({ signal }) => {
+      const result = await client
+        .request({ operation: "me" }, { signal })
+        .catch(async (error: unknown) => {
+          // After a restart the transport has no in-memory actor yet. A confirmed
+          // denial still expires the saved account's leases before offline fallback.
+          if (
+            error instanceof ApiError &&
+            error.status === 401 &&
+            error.code !== "PROFILE_CHANGED" &&
+            !signal.aborted
+          ) {
+            const remembered = await navigator.locks.request(
+              "suite-remembered-identity",
+              () => platform.identity(),
+            );
+            if (remembered) await client.invalidateIdentity(remembered.userId);
+          }
+          throw error;
+        });
+      await navigator.locks.request("suite-remembered-identity", async () => {
+        const remembered = await platform.identity();
+        signal.throwIfAborted();
+        if (!client.isCurrentUser(result.user.id))
+          throw new DOMException(
+            "A newer profile superseded this identity.",
+            "AbortError",
+          );
+        if (remembered && remembered.userId !== result.user.id) {
+          if (!window.suiteDesktop)
+            await invalidateBrowserAccount(remembered.userId);
+          await platform.rememberIdentity(undefined);
+          setIdentity(undefined);
+        }
+      });
+      signal.throwIfAborted();
+      if (!client.isCurrentUser(result.user.id))
+        throw new DOMException(
+          "A newer profile superseded this identity.",
+          "AbortError",
+        );
       if (localStorage.getItem("suite-logout-pending")) {
         await client.request({ operation: "logout" });
         localStorage.removeItem("suite-logout-pending");
@@ -46,13 +111,29 @@ function Session() {
     retry: false,
   });
   useEffect(() => {
-    platform
-      .identity()
-      .then(setIdentity)
+    navigator.locks
+      .request("suite-remembered-identity", async () => {
+        setIdentity(await platform.identity());
+      })
       .catch(() => setIdentity(undefined))
       .finally(() => setIdentityLoaded(true));
   }, []);
   const refresh = useCallback(() => me.refetch(), [me.refetch]);
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.key === "suite-session-change")
+        void client.invalidateIdentity(me.data?.user.id ?? identity?.userId);
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, [me.data?.user.id, identity?.userId]);
+  useEffect(() => {
+    const userId = me.data?.user.id ?? identity?.userId;
+    if (window.suiteDesktop || !userId) return;
+    return subscribeBrowserAccount(userId, () => {
+      void client.invalidateIdentity(userId, true);
+    });
+  }, [me.data?.user.id, identity?.userId]);
   const workspaces =
     me.data?.workspaces ??
     (identity
@@ -120,10 +201,10 @@ function Session() {
       <LocalWorkspace
         onExit={() => setLocalMode(false)}
         registry={
-          personal
+          personal && me.data && client.isCurrentUser(me.data.user.id)
             ? {
-                client,
-                userId: me.data!.user.id,
+                client: client.forUser(me.data.user.id),
+                userId: me.data.user.id,
                 workspaceId: personal.id,
                 online: online && !!me.data,
               }
@@ -140,6 +221,21 @@ function Session() {
         <Empty
           title="Update Common to continue"
           description="Install the current desktop release. Your local drafts remain on this device and can be reopened after updating."
+        />
+      </main>
+    );
+  if (
+    invalidUser &&
+    invalidUser === me.data?.user.id &&
+    !client.isCurrentUser(invalidUser)
+  )
+    return online ? (
+      <Login />
+    ) : (
+      <main className="offline-start">
+        <Empty
+          title="Profile access is locked"
+          description="Connect and sign in again to recover your saved work."
         />
       </main>
     );

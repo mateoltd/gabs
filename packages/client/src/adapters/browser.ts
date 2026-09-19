@@ -39,8 +39,30 @@ export const browserCapabilityLeases = new CorporateCapabilityLeases({
   },
   exclusive: (_scope, task) => withLeaseTrust(task),
 });
+/** Changing credentials expires old leases without deleting any account's saved work. */
+export async function invalidateBrowserAccount(userId: string) {
+  await (
+    await db()
+  ).put("records", crypto.randomUUID(), `${userId}/account-revision`);
+  const channel = new BroadcastChannel(`suite-account:${userId}`);
+  channel.postMessage("invalidated");
+  channel.close();
+}
+export function subscribeBrowserAccount(
+  userId: string,
+  invalidate: () => void,
+) {
+  const channel = new BroadcastChannel(`suite-account:${userId}`);
+  channel.onmessage = (event) => {
+    if (event.data === "invalidated") invalidate();
+  };
+  return () => channel.close();
+}
 export const browserPlatform: Platform = {
   kind: "web",
+  accountRevision: async (userId) =>
+    (await (await db()).get("records", `${userId}/account-revision`)) ??
+    "initial",
   async load<T>(scope: Scope, kind: CacheKey) {
     return (await db()).get("records", key(scope, kind)) as Promise<
       T | undefined
@@ -116,6 +138,7 @@ export function getPlatform(): Platform {
   if (!native) return browserPlatform;
   return {
     kind: "desktop",
+    accountRevision: (userId) => native.accountRevision(userId),
     load: <T>(s: Scope, k: CacheKey) =>
       native.cacheRead(s, k) as Promise<T | undefined>,
     save: (s, k, v) => native.cacheWrite(s, k, v),

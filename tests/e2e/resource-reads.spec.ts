@@ -195,13 +195,25 @@ test("a signed custom view reads downloaded records after restart and distinguis
       "update suite.roles set permissions=array_remove(permissions,$2) where workspace_id=$1",
       [workspace, `${id}.notes.read`],
     );
-    const revokedPolicy = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/workspaces/${workspace}/bootstrap`) &&
-        response.ok(),
-    );
+    // Long-poll delivery may accept the newer policy and cancel a concurrent
+    // bootstrap. Observe authoritative policy delivery through either path.
+    const revokedPolicy = page.waitForResponse(async (response) => {
+      if (
+        !response.ok() ||
+        !["bootstrap", "policy"].some((endpoint) =>
+          response.url().includes(`/workspaces/${workspace}/${endpoint}`),
+        )
+      )
+        return false;
+      const body = await response.json();
+      const permissions = (body.bootstrap ?? body).permissions;
+      return (
+        Array.isArray(permissions) && !permissions.includes(`${id}.notes.read`)
+      );
+    });
     await page.reload();
-    expect((await (await revokedPolicy).json()).permissions).not.toContain(
+    const received = await (await revokedPolicy).json();
+    expect((received.bootstrap ?? received).permissions).not.toContain(
       `${id}.notes.read`,
     );
     await expect(

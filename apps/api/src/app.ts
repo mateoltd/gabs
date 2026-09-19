@@ -140,6 +140,7 @@ export async function createApp(
   await app.register(cors, {
     origin: config.origin,
     credentials: true,
+    exposedHeaders: ["X-Suite-Actor"],
     allowedHeaders: [
       "Content-Type",
       "X-CSRF-Token",
@@ -148,6 +149,7 @@ export async function createApp(
       "Authorization",
       "X-Desktop-Version",
       "X-Module-Version",
+      "X-Suite-Actor",
     ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   });
@@ -181,7 +183,8 @@ export async function createApp(
       return { ok: true };
     },
   );
-  app.addHook("onSend", async (_req, reply, payload) => {
+  app.addHook("onSend", async (req, reply, payload) => {
+    if (req.actor) reply.header("X-Suite-Actor", req.actor.id);
     reply
       .header("X-Content-Type-Options", "nosniff")
       .header("Cache-Control", "no-store")
@@ -194,6 +197,13 @@ export async function createApp(
     if (bearer?.startsWith("Bearer "))
       req.actor = await auth.bearer(bearer.slice(7));
     else req.actor = await auth.session(req.cookies.suite_session);
+    const expectedUser = req.headers["x-suite-actor"];
+    requireCondition(
+      expectedUser === undefined || expectedUser === req.actor.id,
+      401,
+      "PROFILE_CHANGED",
+      "The active profile changed. Revalidate your identity before continuing.",
+    );
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       !bearer?.startsWith("Bearer ")
