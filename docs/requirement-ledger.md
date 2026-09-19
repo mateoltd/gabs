@@ -305,3 +305,8 @@ CORE-003/BACK-002 gain [OFF-02-REFERENCES evidence](verification/reference-cache
 ## 19 September 2026 — Offline policy recovery
 
 [Offline policy recovery](verification/offline-policy/README.md) extends CORE-003/SHELL-001 with administrator-selectable 1–24-hour windows, durable reconciliation of received policy and authorized online recovery after offline access is disabled. New capture remains separately gated, expiry retains pending work and device-data removal refuses unresolved changes. Native policy journeys, membership/profile revocation, delayed account/workspace/release transitions and full OFF-02/03 acceptance remain required; no broad original requirement is promoted.
+
+
+## 19 September 2026 — Scoped revocation recovery
+
+[Scoped revocation recovery](verification/policy-revocation/README.md) strengthens CORE-003/SHELL-001 with durable authorization generations, rejection of pre-denial replies/writers, scoped cross-tab invalidation and retained offline preference/pending work through membership restoration. The real membership journey preserves the original request through offline restart and authoritative acceptance. Native protected-storage acceptance, account-wide credential/profile changes and the remaining workspace/release transitions stay required; this does not complete OFF-02/03 or any whole original requirement.

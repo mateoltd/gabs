@@ -316,3 +316,144 @@ test("an administrator can shorten the offline window without losing pending wor
     })
     .toBe("accepted");
 });
+
+test("received membership revocation reaches a disconnected tab and preserves work through restart and regrant", async ({
+  page,
+  context,
+  playwright,
+}) => {
+  test.setTimeout(120000);
+  const f = await setup(page);
+  const roles = await (
+    await page.request.get(`/api/v1/workspaces/${f.scope.workspaceId}/roles`)
+  ).json();
+  const root = roles.find((role: { name: string }) => role.name === "Owner");
+  const invited = await page.request.post(
+    `/api/v1/workspaces/${f.scope.workspaceId}/invitations`,
+    {
+      headers: { ...f.headers, "idempotency-key": randomUUID() },
+      data: { email: "sales@demo.local", roleId: root.id },
+    },
+  );
+  expect(invited.ok(), await invited.text()).toBe(true);
+  const invitation = await invited.json();
+  const admin = await playwright.request.newContext({
+    baseURL: "http://localhost:4300",
+  });
+  const second = await context.newPage();
+  try {
+    const login = await admin.post("/auth/development", {
+      data: { email: "sales@demo.local" },
+    });
+    expect(login.ok(), await login.text()).toBe(true);
+    const me = await (await admin.get("/api/v1/me")).json();
+    const headers = {
+      origin: "http://localhost:4300",
+      "x-csrf-token": me.csrfToken as string,
+    };
+    const accepted = await admin.post(
+      `/api/v1/invitations/${invitation.id}/accept`,
+      { headers, data: {} },
+    );
+    expect(accepted.ok(), await accepted.text()).toBe(true);
+    const members = await (
+      await admin.get(`/api/v1/workspaces/${f.scope.workspaceId}/members`)
+    ).json();
+    const owner = members.find(
+      (member: { userId: string }) => member.userId === f.scope.userId,
+    );
+    const changeMembership = async (active: boolean) => {
+      const response = await admin.patch(
+        `/api/v1/workspaces/${f.scope.workspaceId}/members/${owner.id}`,
+        {
+          headers: { ...headers, "idempotency-key": randomUUID() },
+          data: {
+            active,
+            roleIds: owner.roles.map((role: { id: string }) => role.id),
+            modules: owner.modules,
+          },
+        },
+      );
+      expect(response.ok(), await response.text()).toBe(true);
+    };
+    await second.goto(page.url());
+    await expect(
+      second.getByRole("row").filter({ hasText: "Policy contact" }),
+    ).toBeVisible();
+    // The second tab cannot learn about denial through HTTP; it must receive the scoped broadcast.
+    await second.route("**/api/v1/**", (route) => route.abort());
+    await context.setOffline(true);
+    const original = await f.capture();
+    await changeMembership(false);
+    await context.setOffline(false);
+    await expect
+      .poll(async () => (await f.stored()).snapshot?.expiresAt, {
+        timeout: 30000,
+      })
+      .toBe(0);
+    await expect(
+      second.getByRole("row").filter({ hasText: "Policy contact" }),
+    ).toHaveCount(0);
+    expect((await f.stored()).state.journal).toEqual([original]);
+    await expect(
+      second.getByRole("heading", {
+        name: "Workspace access is locked",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await mkdir("docs/verification/policy-revocation", { recursive: true });
+    await second.screenshot({
+      path: "docs/verification/policy-revocation/locked-wide.png",
+    });
+    await second.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await second.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth + 1,
+      ),
+    ).toBe(true);
+    await second.screenshot({
+      path: "docs/verification/policy-revocation/locked-narrow.png",
+    });
+    await context.setOffline(true);
+    await page.reload();
+    await expect(
+      page.getByText(
+        "Connect to revalidate this workspace. Unsent drafts remain stored.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    expect((await f.stored()).state.journal).toEqual([original]);
+    await changeMembership(true);
+    await context.setOffline(false);
+    await page.reload();
+    await selectValue(page, "Workspace", f.scope.workspaceId);
+    await f.settings();
+    await expect(
+      page.getByRole("button", {
+        name: "Disable offline storage",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => (await f.stored()).state.journal[0]?.state, {
+        timeout: 30000,
+      })
+      .toBe("accepted");
+    const recovered = (await f.stored()).state.journal[0]!;
+    expect({
+      id: recovered.id,
+      call: recovered.call,
+      dependencies: recovered.dependencies,
+    }).toEqual({
+      id: original.id,
+      call: original.call,
+      dependencies: original.dependencies,
+    });
+    await expect
+      .poll(async () => (await f.stored()).snapshot?.expiresAt)
+      .toBeGreaterThan(Date.now());
+  } finally {
+    await second.close();
+    await admin.dispose();
+  }
+});

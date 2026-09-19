@@ -31,3 +31,8 @@ The initial shortened-window test failed because the one-hour option did not exi
 The macOS console still reports `screen_locked: true`. The native policy-disable/shortening journey and protected SQLite/IPC/restart acceptance remain required. No protected-storage bypass, unlock attempt or foreground window was used.
 
 Membership-wide revocation (including writes queued around denial), delayed account/workspace/module-release transitions and remaining profile/sign-out recovery must still be implemented or independently verified. Deterministic storage tests do not prove every browser/network race. These gates remain in OFF-02-LEASES and OFF-03; no entire original requirement or the parity goal is complete.
+
+
+## Scoped revocation follow-up
+
+[The subsequent revocation milestone](../policy-revocation/README.md) adds durable generations and real two-tab membership removal/restoration, preserving the original pending request through offline restart. Account-wide credential/profile changes, other delayed context transitions and native acceptance remain open. Historical test counts above remain scoped to the original policy-window change.

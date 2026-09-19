@@ -58,10 +58,11 @@ import {
 } from "../features/administration/platform-admin";
 import {
   newerPolicy,
-  persistSnapshotPolicy,
   snapshotWithPolicy,
-  usePolicyDelivery,
-} from "../features/administration/policy-delivery";
+  WorkspacePolicy,
+  type PolicyRequest,
+} from "../features/administration/policy";
+import { usePolicyDelivery } from "../features/administration/policy-delivery";
 import {
   deviceId,
   flushInstallationReports,
@@ -151,16 +152,13 @@ export function Workspace({
   const latestPolicy = useRef<import("@suite/contracts").Bootstrap | undefined>(
     undefined,
   );
-  const saveSnapshot = useCallback(
-    (value: Snapshot | null) =>
-      persistSnapshotPolicy(
-        platform,
-        scope,
-        moduleCatalog,
-        () => latestPolicy.current,
-        value,
-      ),
+  const policySession = useMemo(
+    () => new WorkspacePolicy(platform, scope, moduleCatalog),
     [scope, moduleCatalog],
+  );
+  const saveSnapshot = useCallback(
+    (value: Snapshot) => policySession.save(value),
+    [policySession],
   );
 
   const [policyDenied, setPolicyDenied] = useState(false);
@@ -247,8 +245,10 @@ export function Workspace({
   const devicePolicy = useRef<string | undefined>(undefined);
   const acceptPolicy = async (
     candidate: import("@suite/contracts").Bootstrap,
+    request?: PolicyRequest,
+    signal?: AbortSignal,
   ) => {
-    const next = newerPolicy(latestPolicy.current, candidate);
+    const next = await policySession.accept(candidate, request, signal);
     const changed = next !== latestPolicy.current;
     if (changed) cachePolicyEpoch.current++;
     latestPolicy.current = next;
@@ -272,27 +272,28 @@ export function Workspace({
         setError(error);
       }
     }
-    await persistSnapshotPolicy(
-      platform,
-      scope,
-      moduleCatalog,
-      () => latestPolicy.current,
-    );
+    signal?.throwIfAborted();
+    if (policySession.denied || policySession.policy !== next)
+      throw new DOMException(
+        "Workspace authorization changed during policy delivery.",
+        "AbortError",
+      );
     return latestPolicy.current;
   };
   const boot = useQuery({
     queryKey: [user.id, workspaceId, "bootstrap"],
     queryFn: async ({ signal }) => {
+      const request = await policySession.begin(signal);
       const result = await client.request(
         { operation: "bootstrap", params: { workspaceId } },
         { signal },
       );
       signal.throwIfAborted();
-      if (!signal.aborted) {
-        setValidatedOnline(true);
-        setPolicyDenied(false);
-      }
-      return acceptPolicy(result);
+      const policy = await acceptPolicy(result, request, signal);
+      signal.throwIfAborted();
+      setValidatedOnline(true);
+      setPolicyDenied(false);
+      return policy;
     },
     enabled: online,
     retry: false,
@@ -300,8 +301,8 @@ export function Workspace({
   });
   useEffect(() => {
     let active = true;
-    platform
-      .load<Snapshot>(scope, "snapshot")
+    policySession
+      .load()
       .then((value) => {
         if (active) {
           setCached(
@@ -310,6 +311,7 @@ export function Workspace({
               : value,
           );
           setOfflineEnabled(!!value);
+          setPolicyDenied(policySession.denied);
           setCacheLoaded(true);
         }
       })
@@ -376,6 +378,7 @@ export function Workspace({
   });
   const handleError = useCallback(
     (e: unknown) => {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e);
       if (
         e instanceof ApiError &&
@@ -388,13 +391,17 @@ export function Workspace({
       ) {
         cachePolicyEpoch.current++;
         // Revoke access immediately, retaining provisional work for authorized recovery.
-        setCached(undefined);
-        setOfflineEnabled(false);
+        setValidatedOnline(false);
+        setCached((previous) =>
+          previous
+            ? { ...previous, expiresAt: 0, products: [], orders: [] }
+            : previous,
+        );
         void Promise.all([
           window.suiteDesktop
             ? Promise.resolve()
             : browserCapabilityLeases.invalidate(scope),
-          saveSnapshot(null),
+          policySession.revoke(),
           changeModuleStorage(platform, scope, (s) => {
             s.pages = {};
             s.referenceOptions = {};
@@ -404,18 +411,33 @@ export function Workspace({
           .catch(setError);
         qc.removeQueries({ queryKey: [user.id, workspaceId] });
       }
-      if (e instanceof ApiError && e.status === 401) void onRefreshIdentity();
     },
-    [scope, qc, onRefreshIdentity, user.id, workspaceId],
+    [scope, qc, onRefreshIdentity, user.id, workspaceId, policySession],
+  );
+  useEffect(
+    () =>
+      policySession.subscribe(() => {
+        cachePolicyEpoch.current++;
+        setPolicyDenied(true);
+        setValidatedOnline(false);
+        setCached((previous) =>
+          previous
+            ? { ...previous, expiresAt: 0, products: [], orders: [] }
+            : previous,
+        );
+        void qc.cancelQueries({ queryKey: [user.id, workspaceId] });
+      }),
+    [policySession, qc, user.id, workspaceId],
   );
   usePolicyDelivery(
     client,
     workspaceId,
     user.id,
     online,
-    async (policy, changed) => {
+    (signal) => policySession.begin(signal),
+    async (policy, changed, request, signal) => {
       await qc.cancelQueries({ queryKey: [user.id, workspaceId, "bootstrap"] });
-      policy = await acceptPolicy(policy);
+      policy = await acceptPolicy(policy, request, signal);
       setPolicyDenied(false);
       setValidatedOnline(true);
       qc.setQueryData([user.id, workspaceId, "bootstrap"], policy);
@@ -656,7 +678,7 @@ export function Workspace({
         moduleCatalog,
         receivePolicy: async (candidate, signal) => {
           signal.throwIfAborted();
-          const policy = await acceptPolicy(candidate);
+          const policy = await acceptPolicy(candidate, undefined, signal);
           signal.throwIfAborted();
           qc.setQueryData([user.id, workspaceId, "bootstrap"], policy);
           setCached((previous) =>
@@ -1112,7 +1134,20 @@ export function Workspace({
               ))}
           </div>
           {!features ? (
-            boot.error ? (
+            policyDenied ? (
+              <Empty
+                title="Workspace access is locked"
+                description="Connect and revalidate your access to recover saved work on this device."
+                action={
+                  <Button
+                    disabled={!online}
+                    onClick={() => void boot.refetch()}
+                  >
+                    Revalidate access
+                  </Button>
+                }
+              />
+            ) : boot.error ? (
               <>
                 <ErrorMessage error={boot.error} />
                 <Button onClick={() => void boot.refetch()}>Retry</Button>

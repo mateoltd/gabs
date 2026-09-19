@@ -11,7 +11,12 @@ export interface Scope {
   workspaceId: string;
 }
 export type CacheKey =
-  "snapshot" | "drafts" | "pending" | "module-state" | ModuleArtifactKey;
+  | "snapshot"
+  | "drafts"
+  | "pending"
+  | "module-state"
+  | "workspace-authority"
+  | ModuleArtifactKey;
 export type ModuleArtifactKey = `module-artifact/${string}/${number}`;
 export const isModuleArtifactKey = (key: unknown): key is ModuleArtifactKey =>
   typeof key === "string" &&

@@ -362,7 +362,13 @@ function cacheKey(scope: Scope, key: CacheKey) {
   if (
     !scope.workspaceId ||
     (!isModuleArtifactKey(key) &&
-      !["snapshot", "drafts", "pending", "module-state"].includes(key))
+      ![
+        "snapshot",
+        "drafts",
+        "pending",
+        "module-state",
+        "workspace-authority",
+      ].includes(key))
   )
     throw Error("Invalid cache key");
   return `${scope.userId}/${scope.workspaceId}/${key}`;
