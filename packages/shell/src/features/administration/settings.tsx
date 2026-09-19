@@ -95,8 +95,8 @@ export function Settings(
               : "Enable on this device"}
           </Button>
           <p className="small settings-note">
-            Local drafts are not a backup. Signing out removes local workspace
-            data.
+            Local drafts are not a backup. Signing out locks access; saved work
+            stays on this device.
           </p>
           <SavedWorkRecovery {...props} />
           <ClearDownloads {...props} />

@@ -323,3 +323,8 @@ CORE-003/SHELL-001/AUTH-002 gain [OFF-03-SIGNOUT evidence](verification/signout-
 ## 19 September 2026 — Standalone profile removal/restoration
 
 CORE-003/SHELL-001/AUTH-002 gain [OFF-03-LOCAL-REMOVAL evidence](verification/profile-removal/README.md): encrypted retained work, passphrase-gated restoration, stale-writer rejection, cross-tab locking, delayed-session cleanup and uncertain-device no-replay. Real browser and hidden native restart journeys pass. Removing a profile from the selector is explicitly non-destructive; irreversible erasure, corporate saved-profile lifecycle, protected native corporate acceptance and broader identity requirements remain open. No entire original requirement is promoted.
+
+
+## 19 September 2026 — Workspace transition recovery
+
+CORE-003/SHELL-001 gain [OFF-02-LEASES-WORKSPACE browser evidence](verification/workspace-transition/README.md): delayed callbacks cannot replace the selected offline entry, authorized cached names survive restart, original requests remain isolated and recovery applies one server update. Corporate native switching/restart, atomic offline-storage disable/capture, installed-release transitions and broader identity requirements remain required. No entire original requirement is promoted.

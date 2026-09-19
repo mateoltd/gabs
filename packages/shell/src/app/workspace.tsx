@@ -324,6 +324,7 @@ export function Workspace({
       });
     return () => {
       active = false;
+      cachePolicyEpoch.current++;
       client.cancelWorkspace(workspaceId);
       void qc.cancelQueries({ queryKey: [user.id, workspaceId] });
     };
@@ -502,7 +503,11 @@ export function Workspace({
         return navigator.locks.request(
           "suite-remembered-identity",
           async () => {
-            if (!client.isCurrentUser(user.id)) return;
+            if (
+              epoch !== cachePolicyEpoch.current ||
+              !client.isCurrentUser(user.id)
+            )
+              return;
             await platform.rememberIdentity({
               userId: user.id,
               name: user.name,
@@ -843,6 +848,11 @@ export function Workspace({
   const retainedFeatures = useRef<FeatureProps | undefined>(undefined);
   if (features) retainedFeatures.current = features;
   const routeFeatures = features ?? retainedFeatures.current;
+  const displayedWorkspaces = workspaces.map((workspace) =>
+    workspace.id === bootstrapData?.workspace.id
+      ? { ...workspace, ...bootstrapData.workspace }
+      : workspace,
+  );
   const onlineOnly = (node: ReactNode) =>
     online ? (
       node
@@ -869,7 +879,7 @@ export function Workspace({
           <WorkspaceSwitcher
             logoDataUrl={bootstrapData?.workspace.logoDataUrl}
             compact={narrow}
-            workspaces={workspaces}
+            workspaces={displayedWorkspaces}
             workspaceId={workspaceId}
             onWorkspace={onWorkspace}
           />
@@ -1009,8 +1019,9 @@ export function Workspace({
             </Button>
             <WorkspaceBreadcrumb
               workspaceName={
-                workspaces.find((workspace) => workspace.id === workspaceId)
-                  ?.name ?? "Workspace"
+                displayedWorkspaces.find(
+                  (workspace) => workspace.id === workspaceId,
+                )?.name ?? "Workspace"
               }
               page={
                 title === "people"

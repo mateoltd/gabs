@@ -907,3 +907,8 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Standalone profile recovery and architecture review
 
 [OFF-03-LOCAL-REMOVAL](profile-removal/README.md) records the checkpoint, requested Sol xhigh review, parent lifecycle corrections, encrypted removal/restoration, delayed-session regressions and real browser/native acceptance. Nine architecture fixtures, strict checks/four fresh builds, eight headless journeys and 661 isolated unit/PostgreSQL tests pass. The native Contact survives a real hidden/unfocused process restart. Corporate protected storage, permanent erasure and broader identity/parity gates remain separate required work.
+
+
+## 19 September 2026 — Workspace transition recovery
+
+[OFF-02-LEASES-WORKSPACE](workspace-transition/README.md) records the failing-before/passing-after late-writer regression, two real company workspaces, offline restart and server-verified isolated recovery. Twenty-two focused tests, strict checks/four fresh builds and nine distinct headless journeys across affected runs pass. The offline capture was inspected. Corporate protected native acceptance and atomic offline-storage disable/capture remain required.
