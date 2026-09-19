@@ -16,6 +16,8 @@ import { assertSchema, ValidationError } from "../authoring/validation";
 import type { JsonRecord, ModuleDefinition } from "../authoring/module";
 import { createQueuedOperations, type ModuleQueue } from "./queued-operation";
 import {
+  ResourceReadMetadataSchema,
+  type ResourceRead,
   resourceRecordSchema,
   resourcePageSchema,
   ResourceResponseError,
@@ -44,9 +46,13 @@ export interface ModuleCall {
 export interface ModuleRequestOptions {
   signal?: AbortSignal;
 }
+export interface ResourceReadOptions extends ModuleRequestOptions {
+  /** Available uses the server online and authorized downloads offline. Server never uses downloads. */
+  source?: "available" | "server";
+}
 export type ModuleTransport = (
   call: ModuleCall,
-  options?: ModuleRequestOptions,
+  options?: ResourceReadOptions,
 ) => Promise<unknown>;
 /** Stable within one module client; a new host authorization context gets a new client. */
 export interface ResourceClient<Data = JsonRecord> {
@@ -57,12 +63,12 @@ export interface ResourceClient<Data = JsonRecord> {
   loadReferences: ReferenceLoader;
   get(
     id: string,
-    options?: ModuleRequestOptions,
-  ): Promise<ResourceRecord<Data>>;
+    options?: ResourceReadOptions,
+  ): Promise<ResourceRead<ResourceRecord<Data>>>;
   list(
     input?: ResourceListOptions<Data>,
-    options?: ModuleRequestOptions,
-  ): Promise<ResourcePage<Data>>;
+    options?: ResourceReadOptions,
+  ): Promise<ResourceRead<ResourcePage<Data>>>;
   create(data: Data, key?: string): Promise<ResourceRecord<Data>>;
   update(
     id: string,
@@ -96,15 +102,31 @@ export function createModuleClient<M extends ModuleDefinition>(
     action: "get" | "list",
     input: unknown,
     schema: TSchema,
-    options: ModuleRequestOptions = {},
+    options: ResourceReadOptions = {},
   ): Promise<T> {
     options.signal?.throwIfAborted();
+    if (
+      options.source !== undefined &&
+      options.source !== "available" &&
+      options.source !== "server"
+    )
+      throw new ValidationError("Unknown resource read source policy.");
     try {
       const result = await transport(
         { moduleId: module.id, resource: name, action, input },
         options,
       );
       validateResponse(schema, result, name, action);
+      const metadata = (result as { read?: unknown }).read;
+      if (metadata !== undefined)
+        assertSchema(ResourceReadMetadataSchema, metadata);
+      if (
+        options.source === "server" &&
+        (metadata as { source?: string } | undefined)?.source !== "server"
+      )
+        throw Error(
+          "A server response is required for this read. Reconnect and try again.",
+        );
       return result as T;
     } finally {
       options.signal?.throwIfAborted();
@@ -230,7 +252,7 @@ export function createModuleClient<M extends ModuleDefinition>(
           references,
         ),
         get: (id, options) =>
-          read<ResourceRecord<Data>>(
+          read<ResourceRead<ResourceRecord<Data>>>(
             name,
             "get",
             { id },
@@ -238,7 +260,13 @@ export function createModuleClient<M extends ModuleDefinition>(
             options,
           ),
         list: (input = {}, options) =>
-          read<ResourcePage<Data>>(name, "list", input, pageSchema, options),
+          read<ResourceRead<ResourcePage<Data>>>(
+            name,
+            "list",
+            input,
+            pageSchema,
+            options,
+          ),
         create: (data: Data, key: string = crypto.randomUUID()) => {
           assertSchema(module.resources[name].schema, data);
           return mutate("create", { data }, key);

@@ -66,7 +66,7 @@ it("derives named, aliased and reexported value requirements without type-only d
   );
   expect(client.home.requires).toEqual({
     "view.context": 1,
-    "client.resources": 4,
+    "client.resources": 5,
     "ui.Button": 1,
     "react.useState": 1,
     "jsx.jsx": 1,
@@ -124,9 +124,12 @@ it("rejects old or incompatible hosts before executing module initialization", a
     expect(() =>
       entry.createView({
         ...host,
-        capabilities: { ...host.capabilities, "client.resources": [1, 2] },
+        capabilities: {
+          ...host.capabilities,
+          "client.resources": [1, 2, 3, 4],
+        },
       }),
-    ).toThrow(/client.resources revision 4/);
+    ).toThrow(/client.resources revision 5/);
     expect(global.__suiteCompatibilityProbe).toBeUndefined();
     expect(() => entry.createView({ react: React, jsx, ui })).toThrow(
       /view.context revision 1/,

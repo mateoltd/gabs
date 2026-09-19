@@ -292,3 +292,7 @@ CORE-003/SHELL-001 gain [scoped OFF-02 evidence](verification/resource-cache/REA
 ## Selected offline lists, 19 September 2026
 
 CORE-003/SHELL-001 gain [OFF-02-LISTS evidence](verification/offline-lists/README.md): bounded multi-page filtered selections, explicit refresh/removal, shared-page retention and cache clearing without changing pending work. 617 isolated tests, strict checks/four fresh builds and five headless journeys passed, followed by presentation/shared-harness rechecks. Four captures were inspected. The native harness is ready but has no pass while protected storage is unavailable. Reference-cache bounds and broader lease/revocation acceptance remain required; custom-view SDK cached reads are an explicit OFF-02-SDK implementation gap. No entire original requirement is newly complete.
+
+## Cached custom-view resource reads, 19 September 2026
+
+CORE-003/SHELL-001 and typed SDK access gain [OFF-02-SDK evidence](verification/resource-reads/README.md): exact downloaded lists/records, complete list-row reuse, typed provenance, explicit server-only reads, versioned host compatibility and response-time authority checks. Final verification passed 627 isolated tests, strict checks/four fresh builds and four headless journeys including restart, lease expiry and received read revocation; scoped Axe and inspected wide/narrow captures passed. Native protected-storage acceptance and reference-cache bounds remain required. No entire original requirement is newly complete.

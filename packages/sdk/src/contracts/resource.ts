@@ -1,5 +1,25 @@
-import { Type, type TSchema } from "@sinclair/typebox";
+import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import type { JsonRecord } from "../authoring/module";
+
+/** Host-supplied read provenance. Missing metadata means the source is unknown. */
+export const ResourceReadMetadataSchema = Type.Union([
+  Type.Object(
+    { source: Type.Literal("server") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      source: Type.Literal("cache"),
+      downloadedAt: Type.Union([
+        Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+        Type.Null(),
+      ]),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type ResourceReadMetadata = Static<typeof ResourceReadMetadataSchema>;
+export type ResourceRead<T> = T & { read?: ResourceReadMetadata };
 
 export interface MemberPage {
   items: { id: string; name: string }[];

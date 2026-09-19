@@ -3,12 +3,13 @@ import type {
   ResourceClient,
   ResourceListOptions,
   ResourcePage,
+  ResourceRead,
 } from "@suite/module-sdk";
 import { canonical } from "@suite/module-sdk/registry";
 
 export type ResourceListQuery<T> = Omit<ResourceListOptions<T>, "cursor">;
 export type ResourceListState<T> =
-  | { status: "success"; page: ResourcePage<T>; error: undefined }
+  | { status: "success"; page: ResourceRead<ResourcePage<T>>; error: undefined }
   | { status: "error"; page: undefined; error: unknown }
   | { status: "idle"; page: undefined; error: undefined }
   | { status: "loading"; page: undefined; error: undefined };

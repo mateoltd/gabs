@@ -173,7 +173,7 @@ async function requiredHostContracts(
 ): Promise<ViewHostRequirements> {
   const required: Record<string, number> = {
     "view.context": 1,
-    "client.resources": 4,
+    "client.resources": 5,
   };
   const imports = {
     react: "react",

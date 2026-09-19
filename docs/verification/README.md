@@ -872,3 +872,7 @@ Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict
 ## Selected offline lists, 19 September 2026
 
 [OFF-02-LISTS evidence](offline-lists/README.md) records named filtered selections, bounded downloads, explicit refresh/removal, safe cache clearing and pending-work preservation. 617 isolated tests, strict checks/four fresh builds and five headless journeys passed; final presentation and shared-harness rechecks also passed. Four captures were inspected. An actual disconnected-refetch defect was found and corrected. Native acceptance, public SDK offline reads in custom views, reference-cache bounds and broader authority gates remain required.
+
+## Public SDK downloaded resource reads, 19 September 2026
+
+[OFF-02-SDK evidence](resource-reads/README.md) records 627 isolated tests, strict checks/four fresh builds and four final headless journeys. The independent signed module reads downloaded lists and list-derived records after restart, distinguishes cache/server sources, refuses authoritative offline requests, locks on expiry and respects received revocation. The record also documents the corrected implicit-submit fixture failure, scoped accessibility, inspected wide/narrow captures and pending native protected-storage acceptance. The parity goal remains active.

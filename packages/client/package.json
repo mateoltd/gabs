@@ -24,7 +24,8 @@
     "./module-dispatch": "./src/modules/dispatch.ts",
     "./module-synchronization": "./src/modules/synchronization.ts",
     "./archive-recovery": "./src/modules/archive-recovery.ts",
-    "./offline-lists": "./src/modules/offline-lists.ts"
+    "./offline-lists": "./src/modules/offline-lists.ts",
+    "./module-reads": "./src/modules/reads.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

@@ -1,3 +1,5 @@
+import { readModuleResource } from "@suite/client/module-reads";
+import { canReadSavedWork } from "../recovery/access";
 import { sendModuleCall } from "@suite/client/module-transport";
 import { SavedCommands, useQueuedCommands } from "./queued-commands";
 import { createModuleHost } from "@suite/module-sdk/host-capabilities";
@@ -417,6 +419,7 @@ function CustomModuleView(
     props.prepared,
   );
   const [error, setError] = React.useState<unknown>();
+  const [downloaded, setDownloaded] = React.useState<{ at: number | null }>();
   const allowed = canUse(
     props.bootstrap,
     module.id,
@@ -495,25 +498,93 @@ function CustomModuleView(
             throw Error(
               "This module view is no longer active. Open it again before sending a request.",
             );
-          if (!current.online || !navigator.onLine)
-            throw Error(
-              "Reconnect before sending this custom-view request. No change has been submitted.",
-            );
           const permission =
             call.action === "operation"
               ? module.operations[call.operation!]?.permission
               : `${module.id}.${call.resource}.${["list", "get", "references"].includes(call.action) ? "read" : "write"}`;
-          if (
-            !permission ||
-            !canUse(
-              current.bootstrap,
-              module.id,
-              permission,
-              current.moduleCatalog,
+          const check = () => {
+            options?.signal?.throwIfAborted();
+            const active = latest.current;
+            if (
+              !mounted.current ||
+              active.scope.userId !== current.scope.userId ||
+              active.scope.workspaceId !== current.scope.workspaceId ||
+              active.pkg.digest !== props.pkg.digest
             )
-          )
+              throw Error(
+                "This module view is no longer active. Reopen it before reading records.",
+              );
+            if (
+              !permission ||
+              !canUse(
+                active.bootstrap,
+                module.id,
+                view.permission,
+                active.moduleCatalog,
+              ) ||
+              !canUse(
+                active.bootstrap,
+                module.id,
+                permission,
+                active.moduleCatalog,
+              )
+            )
+              throw Error(
+                "This action is not available with your current permissions.",
+              );
+          };
+          check();
+          if (call.action === "get" || call.action === "list") {
+            const checkRead = () => {
+              check();
+              const active = latest.current;
+              if (
+                (!active.online || !navigator.onLine) &&
+                (active.bootstrap.offlineHours <= 0 ||
+                  !canReadSavedWork(active))
+              )
+                throw Error(
+                  "Offline access expired or changed. Reconnect to verify access.",
+                );
+            };
+            const result = await readModuleResource(
+              {
+                platform: current.platform,
+                scope: current.scope,
+                module,
+                online: current.online && navigator.onLine,
+                check: checkRead,
+                canCache: () =>
+                  latest.current.bootstrap.offlineHours > 0 &&
+                  canReadSavedWork(latest.current),
+                send: (request, readOptions) =>
+                  sendModuleCall(
+                    current.client,
+                    current.scope,
+                    request,
+                    readOptions,
+                  ),
+              },
+              call,
+              options,
+            );
+            checkRead();
+            const metadata = result.read;
+            if (metadata.source === "cache")
+              setDownloaded((previous) => ({
+                at:
+                  previous?.at === null || metadata.downloadedAt === null
+                    ? null
+                    : Math.min(
+                        previous?.at ?? metadata.downloadedAt,
+                        metadata.downloadedAt,
+                      ),
+              }));
+            return result;
+          }
+          if (!current.online || !navigator.onLine)
             throw Error(
-              "This action is not available with your current permissions.",
+              "Reconnect before sending this custom-view request. No change has been submitted.",
             );
           if (
             call.action === "operation" &&
@@ -558,6 +629,15 @@ function CustomModuleView(
       {deviceLeases.message && (
         <p role="status" className="muted">
           {deviceLeases.message}
+        </p>
+      )}
+      {downloaded && (
+        <p role="status" className="muted">
+          This view has used downloaded records.{" "}
+          {downloaded.at === null
+            ? "Their download time is unknown."
+            : `Oldest download used: ${new Date(downloaded.at).toLocaleString()}.`}{" "}
+          Reconnect and reload the view for current server data.
         </p>
       )}
       <SavedCommands state={queued} />

@@ -77,7 +77,7 @@ export function describeViewHost(
 ): ViewHostCapabilities {
   const capabilities: Record<string, readonly number[]> = {
     "view.context": [1],
-    "client.resources": [1, 2, 3, 4],
+    "client.resources": [1, 2, 3, 4, 5],
     "client.host": [1, 2],
     "client.formats": [1],
   };
