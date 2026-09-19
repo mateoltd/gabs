@@ -44,7 +44,9 @@ import { readFile, writeFile, rename, mkdir, rm } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { resolve, sep, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createServer } from "node:http";
+import { NativeCredentials } from "./identity/credentials";
+import { nativeLoginCallback } from "./identity/callback";
+import { NativeSignIn } from "./identity/sign-in";
 import { randomUUID } from "node:crypto";
 import * as oidc from "openid-client";
 import { assertSchema } from "@suite/module-sdk";
@@ -93,24 +95,25 @@ let identityEpoch = 0,
   identitySequence = 0;
 const moduleHosts = new ModuleHostSessions(() => userId);
 const localDeviceHosts = createLocalDeviceHost(() => win, minimizedTest);
-let accessToken: string | undefined,
-  refreshToken: string | undefined,
-  expiresAt = 0,
-  devCookie: string | undefined,
-  csrfToken: string | undefined;
+let devCookie: string | undefined, csrfToken: string | undefined;
 let updateRequired = false,
   updateReady = false,
-  installing = false,
-  refreshing: Promise<void> | undefined;
+  installing = false;
 let oidcConfig: Promise<oidc.Configuration> | undefined;
-let loginPromise: Promise<void> | undefined;
+const signInRequests = new NativeSignIn();
 let logoutPromise: Promise<void> | undefined;
-let credentialWrites: Promise<void> = Promise.resolve();
-function changeCredentials(action: () => Promise<void>) {
-  const next = credentialWrites.catch(() => {}).then(action);
-  credentialWrites = next;
-  return next;
-}
+const credentials = new NativeCredentials({
+  epoch: () => identityEpoch,
+  load: () => readSecure<{ refreshToken?: string }>("credentials"),
+  save: async (value) => {
+    await writeSecure("credentials", value);
+  },
+  remove: async () => {
+    volatile.delete("credentials");
+    await rm(resolve(root(), "credentials.bin"), { force: true });
+  },
+  renew: async (token) => oidc.refreshTokenGrant(await client(), token),
+});
 const volatile = new Map<string, unknown>();
 protocol.registerSchemesAsPrivileged([
   {
@@ -394,35 +397,8 @@ async function client() {
     config.clientId,
   ));
 }
-async function storeTokens(tokens: oidc.TokenEndpointResponse, epoch: number) {
-  await changeCredentials(async () => {
-    if (epoch !== identityEpoch)
-      throw Error("The authentication session changed.");
-    accessToken = tokens.access_token;
-    expiresAt = Date.now() + (tokens.expires_in ?? 300) * 1000;
-    refreshToken = tokens.refresh_token ?? refreshToken;
-    await writeSecure("credentials", { refreshToken });
-  });
-  if (epoch !== identityEpoch)
-    throw Error("The authentication session changed.");
-}
 async function ensureToken() {
-  if (devAuth) return;
-  if (accessToken && expiresAt > Date.now() + 30000) return;
-  if (!refreshToken) throw Error("Sign in to continue.");
-  refreshing ??= (async () => {
-    const epoch = identityEpoch,
-      token = refreshToken!;
-    await storeTokens(
-      await oidc.refreshTokenGrant(await client(), token),
-      epoch,
-    );
-  })();
-  try {
-    await refreshing;
-  } finally {
-    refreshing = undefined;
-  }
+  if (!devAuth) await credentials.ensure();
 }
 async function execute(raw: OperationRequest, timeoutMs?: number) {
   const actor = userId;
@@ -493,7 +469,7 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     headers.Cookie = devCookie;
     headers.Origin = config.apiOrigin.replace(":4310", ":4300");
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  } else headers.Authorization = `Bearer ${accessToken}`;
+  } else headers.Authorization = `Bearer ${credentials.accessToken}`;
   if (!current()) return stale();
   if (request.expectedUserId) headers["X-Suite-Actor"] = request.expectedUserId;
   if (request.body !== undefined) headers["Content-Type"] = "application/json";
@@ -590,110 +566,78 @@ async function execute(raw: OperationRequest, timeoutMs?: number) {
     actorId: res.headers.get("x-suite-actor") ?? undefined,
   };
 }
-async function login(options: LoginOptions) {
+async function login(options: LoginOptions, signal: AbortSignal) {
   const epoch = ++identityEpoch;
-  if (devAuth) {
-    const result = await fetch(config.apiOrigin + "/auth/development", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "owner@demo.local" }),
-      redirect: "error",
-      signal: AbortSignal.timeout(10000),
-    }).catch(() => {
-      throw Error("The local API is unavailable. Start it and try again.");
-    });
-    if (!result.ok)
-      throw Error("Start the local API and seed its demonstration accounts.");
-    if (epoch !== identityEpoch)
-      throw Error("The authentication session changed.");
-    devCookie = result.headers
-      .getSetCookie()
-      .find((c) => c.startsWith("suite_session="))
-      ?.split(";")[0];
-    if (!devCookie)
-      throw Error(
-        "The local API did not create a session. Try signing in again.",
-      );
-    const me = await execute({ operation: "me" });
-    if (me.status !== 200) {
-      devCookie = undefined;
-      throw Error(
-        "The local session could not be verified. Try signing in again.",
-      );
+  let ownedEpoch = epoch;
+  const previousUser = userId;
+  userId = undefined;
+  devCookie = csrfToken = undefined;
+  try {
+    await credentials.clear();
+    if (previousUser)
+      await writeSecure(`${previousUser}/account-revision`, randomUUID());
+    await rm(resolve(root(), "identity.bin"), { force: true });
+    signal.throwIfAborted();
+    if (devAuth) {
+      const result = await fetch(config.apiOrigin + "/auth/development", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "owner@demo.local" }),
+        redirect: "error",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+      }).catch(() => {
+        throw Error("The local API is unavailable. Start it and try again.");
+      });
+      if (!result.ok)
+        throw Error("Start the local API and seed its demonstration accounts.");
+      signal.throwIfAborted();
+      if (epoch !== identityEpoch)
+        throw Error("The authentication session changed.");
+      devCookie = result.headers
+        .getSetCookie()
+        .find((c) => c.startsWith("suite_session="))
+        ?.split(";")[0];
+      if (!devCookie)
+        throw Error(
+          "The local API did not create a session. Try signing in again.",
+        );
+      const me = await execute({ operation: "me" });
+      if (me.status === 200) ownedEpoch = identityEpoch;
+      signal.throwIfAborted();
+      if (me.status !== 200)
+        throw Error(
+          "The local session could not be verified. Try signing in again.",
+        );
+      return;
     }
-    return;
-  }
-  const c = await client(),
-    verifier = oidc.randomPKCECodeVerifier(),
-    state = oidc.randomState(),
-    nonce = oidc.randomNonce();
-  const callback = new URL(config.callback);
-  if (
-    callback.protocol !== "http:" ||
-    callback.hostname !== "127.0.0.1" ||
-    !callback.port
-  )
-    throw Error("Use a registered 127.0.0.1 callback with a fixed port.");
-  await new Promise<void>((resolveLogin, reject) => {
-    let finished = false;
-    const finish = (error?: Error) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      server.close();
-      error ? reject(error) : resolveLogin();
-    };
-    const server = createServer((req, res) => {
-      void (async () => {
-        try {
-          const url = new URL(req.url ?? "/", config.callback);
-          if (
-            req.method !== "GET" ||
-            url.pathname !== callback.pathname ||
-            url.searchParams.get("state") !== state
-          ) {
-            res.writeHead(400);
-            res.end("Invalid callback");
-            return;
-          }
-          const tokens = await oidc.authorizationCodeGrant(c, url, {
-            pkceCodeVerifier: verifier,
-            expectedState: state,
-            expectedNonce: nonce,
-            idTokenExpected: true,
-          });
-          await storeTokens(tokens, epoch);
-          const result = await execute({ operation: "me" });
-          if (result.status !== 200)
-            throw Error("The API could not verify this account");
-          res.writeHead(200, {
-            "Content-Type": "text/html",
-            "Content-Security-Policy": "default-src 'none'",
-          });
-          res.end("<h1>Signed in</h1><p>You can return to Common.</p>");
-          if (!minimizedTest) {
-            win?.show();
-            win?.focus();
-          }
-          finish();
-        } catch (e) {
-          res.writeHead(400);
-          res.end("Sign-in failed. Return to Common and try again.");
-          finish(e as Error);
-        }
-      })();
-    });
-    const timer = setTimeout(
-      () => finish(Error("Sign-in timed out. Try again.")),
-      180000,
-    );
-    server.once("error", (e) =>
-      finish(
-        new Error(`Unable to open the registered login callback: ${e.message}`),
-      ),
-    );
-    server.listen(Number(callback.port), "127.0.0.1", () => {
-      void (async () => {
+    const c = await client(),
+      verifier = oidc.randomPKCECodeVerifier(),
+      state = oidc.randomState(),
+      nonce = oidc.randomNonce();
+    signal.throwIfAborted();
+    await nativeLoginCallback({
+      callback: new URL(config.callback),
+      state,
+      signal: signal,
+      exchange: async (url, signal) => {
+        const tokens = await oidc.authorizationCodeGrant(c, url, {
+          pkceCodeVerifier: verifier,
+          expectedState: state,
+          expectedNonce: nonce,
+          idTokenExpected: true,
+        });
+        signal.throwIfAborted();
+        await credentials.commit(tokens, epoch, "login", signal);
+        signal.throwIfAborted();
+        const result = await execute({ operation: "me" });
+        if (result.status === 200) ownedEpoch = identityEpoch;
+        signal.throwIfAborted();
+        if (result.status !== 200)
+          throw Error("The API could not verify this account");
+      },
+      open: async (signal) => {
+        const challenge = await oidc.calculatePKCECodeChallenge(verifier);
+        signal.throwIfAborted();
         const url = oidc.buildAuthorizationUrl(c, {
           ...(options.loginHint ? { login_hint: options.loginHint } : {}),
           ...(options.screenHint
@@ -702,7 +646,7 @@ async function login(options: LoginOptions) {
           redirect_uri: config.callback,
           scope: "openid profile email offline_access",
           audience: config.audience,
-          code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
+          code_challenge: challenge,
           code_challenge_method: "S256",
           state,
           nonce,
@@ -710,10 +654,26 @@ async function login(options: LoginOptions) {
             "http://schemas.openid.net/pape/policies/2007/06/multi-factor",
         });
         await shell.openExternal(url.toString());
-      })().catch((e) => finish(e));
+      },
     });
-  });
+    signal.throwIfAborted();
+    if (!minimizedTest) {
+      win?.show();
+      win?.focus();
+    }
+  } catch (error) {
+    // Logout owns cleanup after advancing the epoch; an older failed attempt
+    // must never remove a newer session's credentials.
+    if (ownedEpoch === identityEpoch) {
+      identityEpoch++;
+      userId = undefined;
+      devCookie = csrfToken = undefined;
+      await credentials.clear();
+    }
+    throw error;
+  }
 }
+
 function handlers() {
   localDeviceHosts.register(sender);
   ipcMain.handle(
@@ -931,35 +891,37 @@ function handlers() {
     sender(event);
     return execute(request);
   });
-  ipcMain.handle("suite:login", async (event, value) => {
+  ipcMain.handle("suite:login", (event, value) => {
     sender(event);
-    await logoutPromise;
-    moduleHosts.clear();
-    nativeAuthority.clear();
-    inputRecovery.clear();
-    localDeviceHosts.clear();
-    lanRecovery.invalidate();
-    lanPackages.invalidate();
-    await lan.stop();
     const options = validateLogin(value);
-    loginPromise ??= login(options);
-    try {
-      await loginPromise;
-    } finally {
-      loginPromise = undefined;
-    }
+    return signInRequests.run(async (signal) => {
+      await logoutPromise;
+      signal.throwIfAborted();
+      moduleHosts.clear();
+      nativeAuthority.clear();
+      inputRecovery.clear();
+      localDeviceHosts.clear();
+      lanRecovery.invalidate();
+      lanPackages.invalidate();
+      await lan.stop();
+      signal.throwIfAborted();
+      await login(options, signal);
+    });
   });
   ipcMain.handle("suite:logout", (event) => {
     sender(event);
     return (logoutPromise ??= (async () => {
       identityEpoch++;
+      signInRequests.cancel();
       moduleHosts.clear();
       localDeviceHosts.clear();
-      const token = refreshToken,
+      const token = credentials.refreshToken,
         previousUser = userId;
       userId = undefined;
-      accessToken = refreshToken = devCookie = csrfToken = undefined;
-      expiresAt = 0;
+      devCookie = csrfToken = undefined;
+      // Clear memory immediately; serialize durable deletion behind earlier writes.
+      const clearingCredentials = credentials.clear();
+      void clearingCredentials.catch(() => {});
       lanRecovery.invalidate();
       lanPackages.invalidate();
       try {
@@ -975,9 +937,7 @@ function handlers() {
         await lan.stop();
       } finally {
         // Session removal is separate from the encrypted account's business data.
-        await changeCredentials(() =>
-          rm(resolve(root(), "credentials.bin"), { force: true }),
-        );
+        await clearingCredentials;
         await rm(resolve(root(), "identity.bin"), { force: true });
         volatile.clear();
       }
@@ -1192,8 +1152,7 @@ async function start() {
     return;
   }
   try {
-    refreshToken = (await readSecure<{ refreshToken?: string }>("credentials"))
-      ?.refreshToken;
+    await credentials.restore();
     userId = (await readSecure<RememberedIdentity>("identity"))?.userId;
   } catch {
     /* A locked keychain leaves sign-in available without leaking plaintext. */

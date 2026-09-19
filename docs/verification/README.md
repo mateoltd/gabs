@@ -922,3 +922,8 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Received module release policy
 
 [OFF-02-LEASES-RELEASE](release-policy/README.md) records final full regression and strict/four-build checks, seven distinct browser journeys across final release/editor runs, dependency and native-authority tests, and inspected offline-lock/custom-input captures. Earlier failures exposed effect-driven component reload and synchronization timing; their correction and verification limits are recorded. Real protected native acceptance remains required.
+
+
+## 19 September 2026 — Native authentication ownership
+
+[OFF-03-CREDENTIALS](native-authentication/README.md) records 12 focused credential/sign-in/listener cases, full isolated regression and strict checks/four successful build tasks. The desktop bundle rebuilt; unchanged tasks used cache. These are production-logic and real-loopback tests with controlled provider/storage responses, not provider/Keychain acceptance. No UI source changed or browser/native window was opened.

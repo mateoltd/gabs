@@ -338,3 +338,8 @@ CORE-003/SHELL-001 gain [OFF-02-LEASES-STORAGE evidence](verification/storage-di
 ## 19 September 2026 — Received module release policy
 
 CORE-002/CORE-003/SHELL-001/UI-004 gain [OFF-02-LEASES-RELEASE evidence](verification/release-policy/README.md): received accepted-version restrictions survive failed downloads and offline restart, original pending calls remain recoverable, and hiding a custom view preserves its live input. Optional rollout and duplicate-free historical receipt recovery remain verified. Native authority unit evidence does not replace the outstanding protected native UI/restart gate. No whole original requirement is promoted.
+
+
+## 19 September 2026 — Native credential and callback ownership
+
+CORE-003/SHELL-001/AUTH-002 gain [OFF-03-CREDENTIALS evidence](verification/native-authentication/README.md): old authentication work cannot publish credentials into a replacement session, fresh login cannot inherit another account's refresh token, and cancelled/duplicate loopback callbacks cannot reactivate sign-in. Production-class and actual listener tests do not establish real-provider MFA/refresh or protected desktop acceptance. Multiple saved corporate profiles, broader identity recovery and original requirement completion remain open.

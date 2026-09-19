@@ -420,3 +420,8 @@ Disabling corporate offline storage checks retained drafts, requests, reviews an
 ### Received release restrictions
 
 Workspace bootstrap includes the accepted versions for explicitly configured pins/rollouts, resolving an empty pin to the current release. Optional rollouts include their approved older releases; mandatory rollouts retain only the selected release. These restrictions share the existing policy revision and offline lease, so delayed older authorization cannot restore a retired version. The host checks each installed dependency before entry, while saved calls retain their original contracts for authoritative recovery. Custom components reuse their verified loaded component after temporary hiding to preserve publisher React state. [Evidence and remaining native acceptance](verification/release-policy/README.md).
+
+
+### Native authentication lifetimes
+
+Main-process identity code owns credentials, sign-in requests and the registered loopback listener under `apps/desktop/src/main/identity`. Refresh sharing and writes are bound to the current authentication generation. New login replaces its refresh credential rather than inheriting an older account's token. Logout clears memory immediately and serializes durable removal after earlier writes. A cancelled attempt detaches before replacement sign-in; timeout/sign-out abort the callback, prevent later activation and release its listener. Pending corporate data is retained. [Verification and outstanding real-provider/OS gates](verification/native-authentication/README.md).
