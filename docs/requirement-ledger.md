@@ -300,3 +300,8 @@ CORE-003/SHELL-001 and typed SDK access gain [OFF-02-SDK evidence](verification/
 ## Bounded reference downloads, 19 September 2026
 
 CORE-003/BACK-002 gain [OFF-02-REFERENCES evidence](verification/reference-cache/README.md): shared generated/public SDK lookup, bounded label migration, per-label freshness, current source/target checks, policy-revision-bound cross-module reuse and pending-work-preserving clearing. Verification passed 635 isolated tests, strict checks/four fresh builds, six headless journeys and a final narrow Settings recheck, with scoped Axe and five inspected captures. The actual native protected-storage gate and broader authority/profile journeys remain required; no entire original requirement is newly complete.
+
+
+## 19 September 2026 — Offline policy recovery
+
+[Offline policy recovery](verification/offline-policy/README.md) extends CORE-003/SHELL-001 with administrator-selectable 1–24-hour windows, durable reconciliation of received policy and authorized online recovery after offline access is disabled. New capture remains separately gated, expiry retains pending work and device-data removal refuses unresolved changes. Native policy journeys, membership/profile revocation, delayed account/workspace/release transitions and full OFF-02/03 acceptance remain required; no broad original requirement is promoted.

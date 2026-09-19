@@ -16,6 +16,7 @@ export function createModuleResourceQueue(
   platform: Platform,
   scope: Scope,
   authorized: (call: ModuleCall) => boolean,
+  canCapture: (call: ModuleCall) => boolean = () => true,
 ): ModuleResourceQueue {
   async function get(identity: QueuedResourceIdentity) {
     const call: ModuleCall = { ...identity, input: {} };
@@ -86,8 +87,10 @@ export function createModuleResourceQueue(
         throw Error(
           "A versioned resource write with a stable identity is required.",
         );
-      if (!authorized(call))
-        throw Error("Current access does not allow saving this change.");
+      if (!authorized(call) || !canCapture(call))
+        throw Error(
+          "Current access does not allow saving a new pending change.",
+        );
       const { module } = await responseContract(
         await readModuleStorage(platform, scope),
         call,
@@ -116,7 +119,7 @@ export function createModuleResourceQueue(
         call,
         [...dependencies],
         undefined,
-        () => authorized(call),
+        () => authorized(call) && canCapture(call),
       );
       if (!authorized(call))
         throw Error(

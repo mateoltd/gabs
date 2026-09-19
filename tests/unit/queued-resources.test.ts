@@ -66,6 +66,7 @@ async function fixture() {
     };
   });
   let allowed = true;
+  let captureAllowed = true;
   const send = vi.fn(async () => {
     throw Error("Direct transport must not execute queued capture.");
   });
@@ -73,7 +74,12 @@ async function fixture() {
     createModuleClient(
       module,
       send,
-      createModuleQueue(platform, scope, () => allowed),
+      createModuleQueue(
+        platform,
+        scope,
+        () => allowed,
+        () => captureAllowed,
+      ),
     );
   return {
     platform,
@@ -82,6 +88,9 @@ async function fixture() {
     },
     client,
     send,
+    disableCapture: () => {
+      captureAllowed = false;
+    },
     deny: () => {
       allowed = false;
     },
@@ -448,3 +457,46 @@ it.each([
     }),
   ).toBe(false);
 });
+
+it("withdraws new capture without hiding existing command and resource receipts", async () => {
+  const f = await fixture();
+  const command = await f
+    .client()
+    .queue("capture", { name: "Original command" });
+  const record = await f
+    .client()
+    .resource("notes")
+    .queue.create({ name: "Original record" });
+  const before = (await f.read()).journal;
+  f.disableCapture();
+  await expect(
+    f.client().queue("capture", { name: "Forbidden command" }),
+  ).rejects.toThrow();
+  await expect(
+    f.client().resource("notes").queue.create({ name: "Forbidden record" }),
+  ).rejects.toThrow();
+  expect(await f.client().queued("capture", command.key)).toEqual(command);
+  expect(
+    await f.client().resource("notes").queue.get("create", record.key),
+  ).toEqual(record);
+  expect((await f.read()).journal).toEqual(before);
+});
+
+it.each(["command", "resource"])(
+  "rechecks capture policy after storage waits for a %s",
+  async (kind) => {
+    const f = await fixture();
+    const load = f.platform.load.bind(f.platform);
+    vi.spyOn(f.platform, "load").mockImplementationOnce(async (...args) => {
+      const value = await load(...args);
+      f.disableCapture();
+      return value;
+    });
+    await expect(
+      kind === "command"
+        ? f.client().queue("capture", { name: "Late command" })
+        : f.client().resource("notes").queue.create({ name: "Late record" }),
+    ).rejects.toThrow();
+    expect((await f.read()).journal).toEqual([]);
+  },
+);

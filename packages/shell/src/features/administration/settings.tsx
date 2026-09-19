@@ -70,9 +70,15 @@ export function Settings(
               ? "Keep downloaded records and saved work available during the company’s offline access window."
               : "The workspace administrator has disabled offline storage."}
           </p>
+          {!bootstrap.offlineHours && offlineEnabled && (
+            <p className="small">
+              Saved work remains on this device for authorized recovery while
+              connected.
+            </p>
+          )}
           <Button
             disabled={
-              !bootstrap.offlineHours ||
+              (!offlineEnabled && !bootstrap.offlineHours) ||
               busy ||
               (!props.online && !offlineEnabled)
             }
@@ -169,9 +175,13 @@ export function Settings(
               <Field label="Company offline access">
                 <Select value={hours} onValueChange={(e) => setHours(e)}>
                   <SelectOption value="0">Disabled</SelectOption>
-                  <SelectOption value="24">
-                    Allow a 24-hour offline window
-                  </SelectOption>
+                  {Array.from({ length: 24 }, (_, index) => index + 1).map(
+                    (hours) => (
+                      <SelectOption key={hours} value={String(hours)}>
+                        Allow a {hours}-hour offline window
+                      </SelectOption>
+                    ),
+                  )}
                 </Select>
               </Field>
               <Button type="submit" variant="primary" disabled={busy}>

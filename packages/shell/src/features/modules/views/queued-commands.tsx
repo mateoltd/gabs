@@ -238,8 +238,11 @@ export function useQueuedCommands(
     }
   };
   const queue = React.useMemo<ModuleQueue>(() => {
-    const adapter = createModuleQueue(props.platform, props.scope, (call) =>
-      access(call, false, true),
+    const adapter = createModuleQueue(
+      props.platform,
+      props.scope,
+      (call) => access(call, false, true),
+      () => latest.current.props.bootstrap.offlineHours > 0,
     );
     return {
       resources: {

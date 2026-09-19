@@ -880,3 +880,10 @@ Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict
 ## Bounded reference downloads, 19 September 2026
 
 [OFF-02-REFERENCES evidence](reference-cache/README.md) records 635 isolated tests, strict checks/four fresh builds, six headless journeys and the final narrow Settings recheck. Generated/custom lookups share scoped bounded downloads and honest timestamps; live target revocation and offline restart deny access, while Settings label clearing preserves an exact pending Contacts edit that later synchronizes. Five captures were inspected. The record explicitly retains pending native protected-storage and broader lease/profile acceptance.
+
+
+## 19 September 2026 — OFF-02-LEASES policy recovery
+
+[Offline policy recovery](offline-policy/README.md) extends CORE-003/SHELL-001 with administrator-selectable 1–24-hour windows, durable reconciliation of received policy and authorized online recovery after offline access is disabled. New capture remains separately gated, expiry retains pending work and device-data removal refuses unresolved changes. Native policy journeys, membership/profile revocation, delayed account/workspace/release transitions and full OFF-02/03 acceptance remain required; no broad original requirement is promoted.
+
+The [evidence record](offline-policy/README.md) covers 108 focused checks, 639 isolated unit/PostgreSQL tests, strict checks/four fresh builds, five headless journeys and inspected wide/narrow Settings/recovery captures. Earlier missing one-hour selection, test-selector ambiguity and capture-check ordering were corrected before final acceptance. The isolated databases were removed. Native policy-disable/shortening journeys and actual protected-storage acceptance remain required; macOS still reports the console locked. No protection bypass or foreground desktop test was used.

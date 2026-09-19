@@ -58,6 +58,7 @@ import {
 } from "../features/administration/platform-admin";
 import {
   newerPolicy,
+  persistSnapshotPolicy,
   snapshotWithPolicy,
   usePolicyDelivery,
 } from "../features/administration/policy-delivery";
@@ -147,13 +148,19 @@ export function Workspace({
     [user.id, workspaceId],
   );
   const qc = useQueryClient();
+  const latestPolicy = useRef<import("@suite/contracts").Bootstrap | undefined>(
+    undefined,
+  );
   const saveSnapshot = useCallback(
     (value: Snapshot | null) =>
-      navigator.locks.request(
-        `suite-snapshot:${scope.userId}:${scope.workspaceId}`,
-        () => platform.save(scope, "snapshot", value),
+      persistSnapshotPolicy(
+        platform,
+        scope,
+        moduleCatalog,
+        () => latestPolicy.current,
+        value,
       ),
-    [scope],
+    [scope, moduleCatalog],
   );
 
   const [policyDenied, setPolicyDenied] = useState(false);
@@ -236,31 +243,41 @@ export function Workspace({
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("suite-theme", theme);
   }, [theme]);
-  const latestPolicy = useRef<import("@suite/contracts").Bootstrap | undefined>(
-    undefined,
-  );
   const cachePolicyEpoch = useRef(0);
   const devicePolicy = useRef<string | undefined>(undefined);
   const acceptPolicy = async (
     candidate: import("@suite/contracts").Bootstrap,
   ) => {
     const next = newerPolicy(latestPolicy.current, candidate);
-    if (next !== latestPolicy.current) cachePolicyEpoch.current++;
+    const changed = next !== latestPolicy.current;
+    if (changed) cachePolicyEpoch.current++;
     latestPolicy.current = next;
-    const revision = next.policyRevision ?? "0";
+    if (changed) {
+      setCached((previous) =>
+        previous ? snapshotWithPolicy(previous, moduleCatalog, next) : previous,
+      );
+    }
+    const current = latestPolicy.current;
+    const revision = current.policyRevision ?? "0";
     if (!window.suiteDesktop && devicePolicy.current !== revision) {
       devicePolicy.current = revision;
       try {
         await browserCapabilityLeases.observePolicy(
           scope,
           revision,
-          next.offlineHours > 0,
+          current.offlineHours > 0,
         );
       } catch (error) {
         if (devicePolicy.current === revision) devicePolicy.current = undefined;
         setError(error);
       }
     }
+    await persistSnapshotPolicy(
+      platform,
+      scope,
+      moduleCatalog,
+      () => latestPolicy.current,
+    );
     return latestPolicy.current;
   };
   const boot = useQuery({
@@ -429,24 +446,9 @@ export function Workspace({
     if (policyDenied || !online || !boot.data || !cacheLoaded) return;
     if (newerPolicy(latestPolicy.current, boot.data) !== boot.data) return;
     const epoch = cachePolicyEpoch.current;
-    if (!boot.data.offlineHours) {
-      if (cached) {
-        void saveSnapshot({
-          ...cached,
-          expiresAt: 0,
-          bootstrap: boot.data,
-          products: [],
-          orders: [],
-        })
-          .then(() => {
-            if (epoch !== cachePolicyEpoch.current) return;
-            setCached(undefined);
-            setOfflineEnabled(false);
-          })
-          .catch(setError);
-      }
-      return;
-    }
+    // Corporate policy restricts access, not consent or ownership of pending work.
+    // acceptPolicy has already expired the persisted lease when offline access is disabled.
+    if (!boot.data.offlineHours) return;
     if (!offlineEnabled) return;
     const value: Snapshot = {
       bootstrap: boot.data,
@@ -471,9 +473,9 @@ export function Workspace({
         boot.data.offlineHours * 3600000,
     };
     void saveSnapshot(value)
-      .then(() => {
+      .then((saved) => {
         if (epoch !== cachePolicyEpoch.current) return;
-        setCached(value);
+        setCached(saved ?? undefined);
         return platform.rememberIdentity({
           userId: user.id,
           name: user.name,
@@ -655,25 +657,6 @@ export function Workspace({
         receivePolicy: async (candidate, signal) => {
           signal.throwIfAborted();
           const policy = await acceptPolicy(candidate);
-          signal.throwIfAborted();
-          await navigator.locks.request(
-            `suite-snapshot:${scope.userId}:${scope.workspaceId}`,
-            async () => {
-              signal.throwIfAborted();
-              const snapshot = await platform.load<Snapshot>(scope, "snapshot");
-              signal.throwIfAborted();
-              if (snapshot)
-                await platform.save(
-                  scope,
-                  "snapshot",
-                  snapshotWithPolicy(
-                    snapshot,
-                    moduleCatalog,
-                    latestPolicy.current,
-                  ),
-                );
-            },
-          );
           signal.throwIfAborted();
           qc.setQueryData([user.id, workspaceId, "bootstrap"], policy);
           setCached((previous) =>

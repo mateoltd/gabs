@@ -48,6 +48,7 @@ export function createModuleQueue(
   platform: Platform,
   scope: Scope,
   authorized: (call: ModuleCall) => boolean,
+  canCapture: (call: ModuleCall) => boolean = () => true,
 ): ModuleQueue {
   async function get(identity: QueuedOperationIdentity) {
     const call: ModuleCall = { ...identity, action: "operation", input: {} };
@@ -78,7 +79,12 @@ export function createModuleQueue(
     return receipt(entry);
   }
   return {
-    resources: createModuleResourceQueue(platform, scope, authorized),
+    resources: createModuleResourceQueue(
+      platform,
+      scope,
+      authorized,
+      canCapture,
+    ),
     async capture(raw, dependencies) {
       const call = structuredClone(raw);
       if (
@@ -92,13 +98,17 @@ export function createModuleQueue(
         throw Error(
           "A versioned queued command with a stable identity is required.",
         );
+      if (!canCapture(call))
+        throw Error(
+          "Current access does not allow saving a new pending change.",
+        );
       const entry = await enqueue(
         platform,
         scope,
         call,
         [...dependencies],
         undefined,
-        () => authorized(call),
+        () => authorized(call) && canCapture(call),
       );
       if (!authorized(call))
         throw Error(
