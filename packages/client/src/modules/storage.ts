@@ -1,3 +1,7 @@
+import {
+  pruneReferenceCache,
+  type ReferenceCacheState,
+} from "./reference-cache";
 import type { CommandReview } from "./command-recovery";
 import { pruneResourcePages, type ResourcePageCache } from "./cache";
 export { cacheResourcePage, resourcePageDownloadedAt } from "./cache";
@@ -55,7 +59,7 @@ export interface InstallationAttempt {
   error?: string;
   retry?: { failures: number; nextAttemptAt: number };
 }
-export interface ModuleStorage extends ResourcePageCache {
+export interface ModuleStorage extends ResourcePageCache, ReferenceCacheState {
   /** Last device contract retained for leased inspection after uninstall, never execution. */
   recoveryVersions?: Record<string, string>;
   commandReviews?: Record<string, CommandReview>;
@@ -112,10 +116,6 @@ export interface ModuleStorage extends ResourcePageCache {
       };
     }
   >;
-  referenceOptions?: Record<
-    string,
-    Record<string, { value: string; label: string }[]>
-  >;
 }
 const empty = (): ModuleStorage => ({
   journal: [],
@@ -135,7 +135,8 @@ async function readUnlocked(platform: Platform, scope: Scope) {
     : empty();
   const orderChanged = recoverRecordOrder(state.journal, scope);
   const cacheChanged = pruneResourcePages(state);
-  if (orderChanged || cacheChanged)
+  const referencesChanged = pruneReferenceCache(state);
+  if (orderChanged || cacheChanged || referencesChanged)
     await platform.save(
       scope,
       "module-state",
@@ -171,6 +172,7 @@ export async function changeModuleStorage(
     await fn(state);
     recoverRecordOrder(state.journal, scope);
     pruneResourcePages(state);
+    pruneReferenceCache(state);
     const stored = await persistModuleArtifacts(platform, scope, state);
     // This single durable write commits the release set and journal together, after all bytes exist.
     await platform.save(scope, "module-state", stored);

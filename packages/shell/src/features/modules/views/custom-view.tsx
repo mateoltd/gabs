@@ -1,3 +1,6 @@
+import { readModuleReferences } from "@suite/client/reference-reads";
+import { assertReferenceAccess } from "../offline/reference-access";
+import type { ReferenceQuery } from "@suite/module-sdk/references";
 import { readModuleResource } from "@suite/client/module-reads";
 import { canReadSavedWork } from "../recovery/access";
 import { sendModuleCall } from "@suite/client/module-transport";
@@ -534,6 +537,50 @@ function CustomModuleView(
               );
           };
           check();
+          if (call.action === "references") {
+            const result = await readModuleReferences(
+              {
+                platform: current.platform,
+                scope: current.scope,
+                module,
+                resource: call.resource!,
+                online: current.online && navigator.onLine,
+                authorization: () => latest.current.bootstrap.policyRevision,
+                check: (target) => {
+                  check();
+                  assertReferenceAccess(
+                    latest.current,
+                    module,
+                    call.resource!,
+                    target,
+                  );
+                },
+                canCache: () =>
+                  latest.current.bootstrap.offlineHours > 0 &&
+                  canReadSavedWork(latest.current),
+                send: (input, readOptions) =>
+                  sendModuleCall(
+                    current.client,
+                    current.scope,
+                    { ...call, input },
+                    readOptions,
+                  ),
+              },
+              call.input as ReferenceQuery,
+              options,
+            );
+            check();
+            if (result.read?.source === "cache") {
+              const at = result.read.downloadedAt;
+              setDownloaded((previous) => ({
+                at:
+                  previous?.at === null || at === null
+                    ? null
+                    : Math.min(previous?.at ?? at, at),
+              }));
+            }
+            return result;
+          }
           if (call.action === "get" || call.action === "list") {
             const checkRead = () => {
               check();

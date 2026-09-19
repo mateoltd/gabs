@@ -134,7 +134,7 @@ test("nested reference choices search beyond the first page and preserve selecti
     await context.setOffline(true);
     await picker.locator("summary").click();
     await picker.getByRole("textbox").fill("Target 105");
-    await expect(picker.getByRole("status")).toContainText("downloaded choice");
+    await expect(picker.getByRole("status")).toContainText("offline choice");
     await expect(picker.getByRole("combobox")).toContainText("Target 105");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({

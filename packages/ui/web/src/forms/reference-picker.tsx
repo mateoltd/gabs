@@ -33,7 +33,14 @@ export function ReferencePicker({
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string>();
   const [previous, setPrevious] = useState<(string | undefined)[]>([]);
-  const [page, setPage] = useState<Awaited<ReturnType<ReferenceLoader>>>();
+  const [loaded, setLoaded] = useState<{
+    load: ReferenceLoader;
+    key: string;
+    page: Awaited<ReturnType<ReferenceLoader>>;
+  }>();
+  // Authorization/target changes invalidate labels immediately, before effects or network work.
+  const page =
+    loaded?.load === load && loaded.key === key ? loaded.page : undefined;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
@@ -50,11 +57,11 @@ export function ReferencePicker({
           controller.signal,
         )
           .then((page) => {
-            if (!controller.signal.aborted) setPage(page);
+            if (!controller.signal.aborted) setLoaded({ load, key, page });
           })
           .catch((error: unknown) => {
             if (!controller.signal.aborted) {
-              setPage(undefined);
+              setLoaded(undefined);
               setError(
                 error instanceof Error
                   ? error.message
@@ -123,7 +130,7 @@ export function ReferencePicker({
             {loading
               ? "Loading choices…"
               : page?.offline
-                ? `${page.items.length} downloaded ${page.items.length === 1 ? "choice" : "choices"}. Connect to search more records.`
+                ? `${page.items.length} offline ${page.items.length === 1 ? "choice" : "choices"}. Connect to search more records.`
                 : page
                   ? `${page.items.length} ${page.items.length === 1 ? "choice" : "choices"} on page ${previous.length + 1}.`
                   : "Choices unavailable."}
@@ -152,6 +159,13 @@ export function ReferencePicker({
           </div>
         </div>
       </details>
+      {page?.read?.source === "cache" && (
+        <p className="muted">
+          {page.read.downloadedAt === null
+            ? "Download time is unknown. Pending choices may also be included."
+            : `Downloaded labels from ${new Date(page.read.downloadedAt).toLocaleString()}. Pending choices may also be included.`}
+        </p>
+      )}
       {selected && page?.selected === null && (
         <p className="muted" role="status">
           {page.offline

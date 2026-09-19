@@ -1,30 +1,21 @@
 import { ApiError } from "@suite/client/api";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleDefinition } from "@suite/module-sdk";
 import {
   referenceFields,
   referenceTargetKey,
   type ReferenceOption,
-  type ReferencePage,
 } from "@suite/module-sdk/references";
 import { canUse, type FeatureProps } from "@suite/client";
 import {
-  changeModuleStorage,
-  readModuleStorage,
-  pendingReferenceOptions,
-} from "@suite/client/module-storage";
+  readModuleReferences,
+  mergeReferenceOptions,
+} from "@suite/client/reference-reads";
+import { assertReferenceAccess } from "../offline/reference-access";
+import { canReadSavedWork } from "../recovery/access";
 import type { ReferenceLoader } from "@suite/ui-web";
 
 type Options = Record<string, ReferenceOption[]>;
-const mergeOptions = (old: ReferenceOption[], next: ReferenceOption[]) => {
-  const options = new Map<string, ReferenceOption>();
-  // Most recently used labels win; the cache is bounded per declared target.
-  for (const item of [...old, ...next]) {
-    options.delete(item.value.toLowerCase());
-    options.set(item.value.toLowerCase(), item);
-  }
-  return [...options.values()].slice(-200);
-};
 export function useModuleReferences(
   props: FeatureProps,
   module: ModuleDefinition,
@@ -44,165 +35,80 @@ export function useModuleReferences(
     () => (schema ? referenceFields(schema) : []),
     [schema],
   );
-  const legacyCacheKey = `${module.id}@${module.version}/${resource}`;
-  const key = `${legacyCacheKey}/references-v1`;
+  const latest = useRef({ props, module, resource });
+  latest.current = { props, module, resource };
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [references, setReferences] = useState<Options>({});
   const [error, setError] = useState<unknown>();
   const [denied, setDenied] = useState<Record<string, true>>({});
   const load = useCallback<ReferenceLoader>(
     async (target, query, signal) => {
-      signal.throwIfAborted();
       const targetKey = referenceTargetKey(target);
-      const forgetTarget = async () => {
-        if (!signal.aborted)
-          setDenied((current) =>
-            current[targetKey] ? current : { ...current, [targetKey]: true },
-          );
-        setReferences((current) => {
-          const next = { ...current };
-          delete next[targetKey];
-          return next;
-        });
-        if (offlineEnabled)
-          await changeModuleStorage(platform, scope, (stored) => {
-            const cached = stored.referenceOptions;
-            if (cached?.[key]) delete cached[key][targetKey];
-            for (const field of declarations) {
-              if (
-                referenceTargetKey(field.target) !== targetKey ||
-                !/^\/properties\/[^/]+$/.test(field.schemaPath)
-              )
-                continue;
-              const legacyField = field.schemaPath
-                .slice(12)
-                .replaceAll("~1", "/")
-                .replaceAll("~0", "~");
-              if (cached?.[legacyCacheKey])
-                delete cached[legacyCacheKey][legacyField];
-            }
-          });
-      };
-
-      if (
-        !canUse(
-          bootstrap,
-          module.id,
-          `${module.id}.${resource}.read`,
-          moduleCatalog,
-        )
-      ) {
-        await forgetTarget();
-        throw new ApiError(
-          403,
-          "FORBIDDEN",
-          "You no longer have access to this resource.",
-        );
-      }
       const declaration = declarations.find(
         (field) => referenceTargetKey(field.target) === targetKey,
       );
       if (!declaration)
         throw Error("The module does not declare this reference.");
-      if (
-        target.kind === "resource" &&
-        !canUse(
-          bootstrap,
-          target.moduleId,
-          `${target.moduleId}.${target.resource}.read`,
-          moduleCatalog,
-        )
-      ) {
-        await forgetTarget();
-        throw new ApiError(
-          403,
-          "FORBIDDEN",
-          "You no longer have access to the referenced resource.",
-        );
-      }
-      if (!online) {
-        if (
-          !offlineEnabled ||
-          !bootstrap.offlineHours ||
-          Date.now() >=
-            new Date(bootstrap.authorizedAt).getTime() +
-              bootstrap.offlineHours * 3600000
-        )
-          throw Error("Connect to renew access to downloaded choices.");
-        const stored = await readModuleStorage(platform, scope);
+      const check = () => {
         signal.throwIfAborted();
-        const cached = stored.referenceOptions?.[key] ?? {};
-        const legacyKey =
-          declaration.schemaPath.startsWith("/properties/") &&
-          !declaration.schemaPath.slice(12).includes("/")
-            ? declaration.schemaPath
-                .slice(12)
-                .replaceAll("~1", "/")
-                .replaceAll("~0", "~")
-            : undefined;
-        const downloaded =
-          cached[targetKey] ??
-          (legacyKey &&
-          Object.hasOwn(
-            stored.referenceOptions?.[legacyCacheKey] ?? {},
-            legacyKey,
-          )
-            ? stored.referenceOptions![legacyCacheKey][legacyKey]
-            : []);
-        // Pending creates are selectable but never added to authoritative pages or label caches.
-        // Target permission and the corporate lease have already been checked above.
-        const options = [
-          ...new Map(
-            [
-              ...(target.kind !== "resource" ||
-              target.moduleId === module.id ||
-              cached[targetKey] !== undefined
-                ? pendingReferenceOptions(stored.journal, scope, target)
-                : []),
-              ...downloaded,
-            ].map((option) => [option.value.toLowerCase(), option]),
-          ).values(),
-        ];
-        const rows = [...options]
-          .sort((a, b) =>
-            a.value.toLowerCase().localeCompare(b.value.toLowerCase()),
-          )
-          .filter(
-            (item) =>
-              (!query.cursor ||
-                item.value.toLowerCase() > query.cursor.toLowerCase()) &&
-              (!query.search ||
-                item.label.toLowerCase().includes(query.search.toLowerCase())),
+        const current = latest.current;
+        if (
+          !mounted.current ||
+          current.props.scope.userId !== scope.userId ||
+          current.props.scope.workspaceId !== scope.workspaceId ||
+          current.module.id !== module.id ||
+          current.module.version !== module.version ||
+          current.resource !== resource
+        )
+          throw Error(
+            "This reference field is no longer active. Reopen it before loading choices.",
           );
-        return {
-          items: rows.slice(0, query.limit),
-          nextCursor:
-            rows.length > query.limit ? rows[query.limit - 1].value : null,
-          ...(query.selected
-            ? {
-                selected:
-                  options.find(
-                    (item) =>
-                      item.value.toLowerCase() ===
-                      query.selected!.toLowerCase(),
-                  ) ?? null,
-              }
-            : {}),
-          offline: true,
-        };
-      }
-      let page: ReferencePage;
+        assertReferenceAccess(current.props, module, resource, target);
+      };
+      let page: Awaited<ReturnType<ReferenceLoader>>;
       try {
-        page = await client
-          .module(module, scope.workspaceId)
-          .resource(resource)
-          .references({ ...query, field: declaration.schemaPath }, { signal });
+        page = await readModuleReferences(
+          {
+            platform,
+            scope,
+            module,
+            resource,
+            online: latest.current.props.online && navigator.onLine,
+            authorization: () => latest.current.props.bootstrap.policyRevision,
+            check,
+            canCache: () =>
+              latest.current.props.bootstrap.offlineHours > 0 &&
+              canReadSavedWork(latest.current.props),
+            send: (input, options) =>
+              client
+                .module(module, scope.workspaceId)
+                .resource(resource)
+                .references(input, options),
+          },
+          { ...query, field: declaration.schemaPath },
+          { signal },
+        );
+        check();
       } catch (error) {
-        if (error instanceof ApiError && [403, 404].includes(error.status)) {
-          await forgetTarget();
+        if (!signal.aborted && mounted.current) {
+          if (error instanceof ApiError && [403, 404].includes(error.status))
+            setDenied((current) =>
+              current[targetKey] ? current : { ...current, [targetKey]: true },
+            );
+          setReferences((current) => {
+            const next = { ...current };
+            delete next[targetKey];
+            return next;
+          });
         }
         throw error;
       }
-      signal.throwIfAborted();
       setDenied((current) => {
         if (!current[targetKey]) return current;
         const next = { ...current };
@@ -213,21 +119,19 @@ export function useModuleReferences(
         ...page.items,
         ...(page.selected ? [page.selected] : []),
       ];
-      setReferences((current) =>
-        signal.aborted
-          ? current
-          : {
-              ...current,
-              [targetKey]: mergeOptions(current[targetKey] ?? [], incoming),
-            },
-      );
-      if (offlineEnabled && bootstrap.offlineHours)
-        await changeModuleStorage(platform, scope, (stored) => {
-          if (signal.aborted) return;
-          const options = ((stored.referenceOptions ??= {})[key] ??= {});
-          options[targetKey] = mergeOptions(options[targetKey] ?? [], incoming);
-        });
-      signal.throwIfAborted();
+      setReferences((current) => ({
+        ...current,
+        [targetKey]: page.offline
+          ? incoming
+          : mergeReferenceOptions(
+              (current[targetKey] ?? []).filter(
+                (item) =>
+                  page.selected !== null ||
+                  item.value.toLowerCase() !== query.selected?.toLowerCase(),
+              ),
+              incoming,
+            ),
+      }));
       return page;
     },
     [
@@ -293,10 +197,17 @@ export function useModuleReferences(
               .slice(12)
               .replaceAll("~1", "/")
               .replaceAll("~0", "~"),
-            references[referenceTargetKey(field.target)] ?? [],
+            (() => {
+              try {
+                assertReferenceAccess(props, module, resource, field.target);
+              } catch {
+                return [];
+              }
+              return references[referenceTargetKey(field.target)] ?? [];
+            })(),
           ]),
       ),
-    [declarations, references],
+    [declarations, references, load, props.snapshot],
   );
   // Invalidate mounted consumers when any lookup learns of a denial. Preloading
   // keeps the underlying stable callback so a persistent denial cannot retry-loop.

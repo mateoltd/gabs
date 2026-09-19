@@ -190,9 +190,17 @@ if (page.read?.source === "cache") {
 const current = await notes.get(id, { source: "server" });
 ```
 
-`source: "server"` requires a verified server-source response; offline, local, simulation or source-unknown transports cannot satisfy it. New builds declare `client.resources` revision 5 so older hosts reject them before view initialization instead of ignoring this option. Existing revisions remain supported. A current server read never authorizes a later business commitment: the server still validates each write. Reference lookup and operation policies are unchanged by this read contract.
+`source: "server"` requires a verified server-source response; offline, local, simulation or source-unknown transports cannot satisfy it. The server-only read contract started with `client.resources` revision 5; new builds now declare revision 6, including reference reads, so older hosts reject them before view initialization instead of ignoring this option. Existing revisions remain supported. A current server read never authorizes a later business commitment: the server still validates each write. Reference lookup and operation policies are unchanged by this read contract.
 
 The host checks current view/resource permissions, scope, installed view identity, cancellation and offline consent/lease before returning cached data, including after asynchronous reads. It validates cached resource schemas again. Missing downloads, revoked access, expiry and incompatible releases are failures. Download clearing/removal affects only disposable records, preserving the separate journal and saved work. [Acceptance evidence](verification/resource-reads/README.md) distinguishes browser verification from pending protected native acceptance.
+
+### Downloaded reference labels
+
+Generated forms and public SDK reference clients use a shared cache of authorized labels. Offline search and paging cover the downloaded subset, with the selected identifier retained when its label is missing. The cache is bounded per account/workspace to 50 source/target buckets, 2,000 labels, 200 labels per bucket and a 1 MiB UTF-8 entry budget. This is separate from the downloaded record-page budget and from pending work. Historical oversized caches migrate under the storage lock; timestamps stay attached to individual labels rather than being renewed by unrelated lookups.
+
+`client.resource(name).references(query, options)` returns `ReferenceReadPage`, including optional `read` provenance and an `offline` marker for downloaded results. The same metadata survives `loadReferences` and drives host picker freshness. `source: "server"` requires server provenance. Current bundles declare `client.resources` revision 6; older host revisions are rejected before module initialization, while the current host retains support for existing bundles.
+
+Current source/target permissions and the offline lease govern every lookup. Cross-module cached choices additionally require successful lookup evidence for the current received policy revision; absent or outdated evidence requires reconnecting. Server denials discard the affected target’s labels, and changes of picker authority immediately hide its old labels without erasing the selected ID. Pending reference choices remain provisional journal projections and are never persisted as downloaded labels. Settings can clear labels independently of record pages, drafts and queued work. Clearing does not disable future authorized downloads. [Acceptance evidence](verification/reference-cache/README.md) distinguishes browser verification from the pending protected native gate.
 
 ### Standalone reference consent
 

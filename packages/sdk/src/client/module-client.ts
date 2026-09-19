@@ -5,10 +5,10 @@ import {
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import {
   referenceQueryField,
-  ReferencePageSchema,
+  ReferenceReadPageSchema,
   createReferenceLoader,
   type ReferenceQuery,
-  type ReferencePage,
+  type ReferenceReadPage,
   type ReferenceLoader,
 } from "../contracts/references";
 import type { ResourceListOptions } from "./resource-query";
@@ -58,8 +58,8 @@ export type ModuleTransport = (
 export interface ResourceClient<Data = JsonRecord> {
   references(
     input: ReferenceQuery,
-    options?: ModuleRequestOptions,
-  ): Promise<ReferencePage>;
+    options?: ResourceReadOptions,
+  ): Promise<ReferenceReadPage>;
   loadReferences: ReferenceLoader;
   get(
     id: string,
@@ -89,6 +89,15 @@ type ModuleResourceClient<
   ("queued" extends M["resources"][K]["policy"]
     ? { queue: QueuedResourceClient<Static<M["resources"][K]["schema"]>> }
     : {});
+function checkReadOptions(options: ResourceReadOptions) {
+  options.signal?.throwIfAborted();
+  if (
+    options.source !== undefined &&
+    options.source !== "available" &&
+    options.source !== "server"
+  )
+    throw new ValidationError("Unknown resource read source policy.");
+}
 export function createModuleClient<M extends ModuleDefinition>(
   module: M,
   send: ModuleTransport,
@@ -104,13 +113,7 @@ export function createModuleClient<M extends ModuleDefinition>(
     schema: TSchema,
     options: ResourceReadOptions = {},
   ): Promise<T> {
-    options.signal?.throwIfAborted();
-    if (
-      options.source !== undefined &&
-      options.source !== "available" &&
-      options.source !== "server"
-    )
-      throw new ValidationError("Unknown resource read source policy.");
+    checkReadOptions(options);
     try {
       const result = await transport(
         { moduleId: module.id, resource: name, action, input },
@@ -233,17 +236,24 @@ export function createModuleClient<M extends ModuleDefinition>(
       }
       const references = async (
         input: ReferenceQuery,
-        options: ModuleRequestOptions = {},
-      ): Promise<ReferencePage> => {
-        options.signal?.throwIfAborted();
+        options: ResourceReadOptions = {},
+      ): Promise<ReferenceReadPage> => {
+        checkReadOptions(options);
         referenceQueryField(module.resources[name].schema, input);
         const result = await transport(
           { moduleId: module.id, resource: name, action: "references", input },
           options,
         );
         options.signal?.throwIfAborted();
-        assertSchema(ReferencePageSchema, result);
-        return result as ReferencePage;
+        assertSchema(ReferenceReadPageSchema, result);
+        if (
+          options.source === "server" &&
+          (result as ReferenceReadPage).read?.source !== "server"
+        )
+          throw Error(
+            "A server response is required for this lookup. Reconnect and try again.",
+          );
+        return result as ReferenceReadPage;
       };
       const client: ResourceClient<Data> = {
         references,

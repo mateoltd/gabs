@@ -1,3 +1,4 @@
+import { ResourceReadMetadataSchema } from "./resource";
 import { Type, type Static } from "@sinclair/typebox";
 import { checkSchema } from "../authoring/validation";
 import {
@@ -37,17 +38,26 @@ export const ReferencePageSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+export const ReferenceReadPageSchema = Type.Object(
+  {
+    ...ReferencePageSchema.properties,
+    offline: Type.Optional(Type.Boolean()),
+    read: Type.Optional(ResourceReadMetadataSchema),
+  },
+  { additionalProperties: false },
+);
+export type ReferenceReadPage = Static<typeof ReferenceReadPageSchema>;
 export type ReferenceOption = Static<typeof ReferenceOptionSchema>;
 export type ReferencePage = Static<typeof ReferencePageSchema>;
 export type ReferenceLookup = (
   query: ReferenceQuery,
   options?: { signal?: AbortSignal },
-) => Promise<ReferencePage>;
+) => Promise<ReferenceReadPage>;
 export type ReferenceLoader = (
   target: ReferenceTarget,
   query: Omit<ReferenceQuery, "field"> & { limit: number },
   signal: AbortSignal,
-) => Promise<ReferencePage & { offline?: boolean }>;
+) => Promise<ReferenceReadPage>;
 /** Resolve only fields declared by the source contract; callers never supply a target route. */
 export function referenceQueryField(
   schema: TSchema,

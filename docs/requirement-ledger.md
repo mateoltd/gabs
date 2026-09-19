@@ -296,3 +296,7 @@ CORE-003/SHELL-001 gain [OFF-02-LISTS evidence](verification/offline-lists/READM
 ## Cached custom-view resource reads, 19 September 2026
 
 CORE-003/SHELL-001 and typed SDK access gain [OFF-02-SDK evidence](verification/resource-reads/README.md): exact downloaded lists/records, complete list-row reuse, typed provenance, explicit server-only reads, versioned host compatibility and response-time authority checks. Final verification passed 627 isolated tests, strict checks/four fresh builds and four headless journeys including restart, lease expiry and received read revocation; scoped Axe and inspected wide/narrow captures passed. Native protected-storage acceptance and reference-cache bounds remain required. No entire original requirement is newly complete.
+
+## Bounded reference downloads, 19 September 2026
+
+CORE-003/BACK-002 gain [OFF-02-REFERENCES evidence](verification/reference-cache/README.md): shared generated/public SDK lookup, bounded label migration, per-label freshness, current source/target checks, policy-revision-bound cross-module reuse and pending-work-preserving clearing. Verification passed 635 isolated tests, strict checks/four fresh builds, six headless journeys and a final narrow Settings recheck, with scoped Axe and five inspected captures. The actual native protected-storage gate and broader authority/profile journeys remain required; no entire original requirement is newly complete.

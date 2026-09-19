@@ -25,7 +25,8 @@
     "./module-synchronization": "./src/modules/synchronization.ts",
     "./archive-recovery": "./src/modules/archive-recovery.ts",
     "./offline-lists": "./src/modules/offline-lists.ts",
-    "./module-reads": "./src/modules/reads.ts"
+    "./module-reads": "./src/modules/reads.ts",
+    "./reference-reads": "./src/modules/reference-reads.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",
