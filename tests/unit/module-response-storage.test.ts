@@ -1,3 +1,4 @@
+import { replaceArchive } from "../../packages/client/src/modules/archive-recovery";
 import { prepareCreateReplacement } from "../../packages/client/src/modules/collisions";
 import {
   replaceFailedCreate,
@@ -2579,3 +2580,197 @@ it("recognizes capture identities across independent SDK copies without relying 
   ])
     expect(isQueueCaptureError(error)).toBe(false);
 });
+
+async function archiveFixture() {
+  const f = storage();
+  await f.install();
+  const id = crypto.randomUUID();
+  const originalCall: ModuleCall = {
+    moduleId: "contacts",
+    moduleVersion: contacts.version,
+    resource: "contacts",
+    action: "archive",
+    key: "original-archive-key",
+    input: { id, baseVersion: 1 },
+  };
+  await enqueue(f.platform, scope, originalCall);
+  await changeModuleStorage(f.platform, scope, (s) => {
+    s.journal[0].state = "conflict";
+    s.journal[0].attempts = 1;
+    delete s.journal[0].delivery;
+  });
+  return {
+    ...f,
+    id,
+    originalCall,
+    replacement: {
+      ...originalCall,
+      key: "reviewed-archive-key",
+      input: { id, baseVersion: 2 },
+    },
+  };
+}
+
+it("fences a conflicting archive before queuing its current-version review and reconnecting an unsent dependent", async () => {
+  const f = await archiveFixture();
+  await enqueue(f.platform, scope, {
+    ...f.originalCall,
+    key: "dependent-archive-key",
+  });
+  const result = await replaceArchive(
+    f.platform,
+    scope,
+    f.originalCall.key!,
+    f.replacement,
+    async (request) => {
+      expect(request.body).toMatchObject({
+        key: f.originalCall.key,
+        call: { action: "archive", input: f.originalCall.input },
+      });
+      expect((await readModuleStorage(f.platform, scope)).journal).toHaveLength(
+        2,
+      );
+      return { key: f.originalCall.key, outcome: "cancelled" };
+    },
+    () => true,
+  );
+  expect(result).toBe("replaced");
+  const state = await readModuleStorage(f.platform, scope);
+  expect(state.journal[0]).toMatchObject({
+    call: f.originalCall,
+    settlement: "cancelled",
+    supersededBy: f.replacement.key,
+  });
+  expect(state.journal[1].dependencies).toEqual([f.replacement.key]);
+  expect(state.journal[2]).toMatchObject({
+    state: "pending",
+    attempts: 0,
+    delivery: "unsubmitted",
+    call: f.replacement,
+  });
+});
+
+it("recovers an accepted original archive without generating a second effect", async () => {
+  const f = await archiveFixture();
+  const accepted = { ...row, id: f.id, archived: true, version: 2 };
+  await expect(
+    replaceArchive(
+      f.platform,
+      scope,
+      f.originalCall.key!,
+      f.replacement,
+      async () => ({
+        key: f.originalCall.key,
+        outcome: "accepted",
+        result: accepted,
+      }),
+      () => true,
+    ),
+  ).resolves.toBe("accepted");
+  const state = await readModuleStorage(f.platform, scope);
+  expect(state.journal).toHaveLength(1);
+  expect(state.journal[0]).toMatchObject({
+    state: "accepted",
+    call: f.originalCall,
+    result: accepted,
+  });
+});
+
+it("retains a cancelled archive through interrupted local replacement and safely resumes", async () => {
+  const f = await archiveFixture();
+  const settle = async () => ({
+    key: f.originalCall.key,
+    outcome: "cancelled",
+  });
+  f.interrupt(2);
+  await expect(
+    replaceArchive(
+      f.platform,
+      scope,
+      f.originalCall.key!,
+      f.replacement,
+      settle,
+      () => true,
+    ),
+  ).rejects.toThrow("Interrupted commit");
+  expect((await readModuleStorage(f.platform, scope)).journal).toHaveLength(1);
+  expect(
+    (await readModuleStorage(f.platform, scope)).journal[0].settlement,
+  ).toBe("cancelled");
+  await expect(
+    replaceArchive(
+      f.platform,
+      scope,
+      f.originalCall.key!,
+      f.replacement,
+      settle,
+      () => true,
+    ),
+  ).resolves.toBe("replaced");
+});
+
+it.each(["permission", "release"])(
+  "does not replace an archive after %s changes during settlement",
+  async (change) => {
+    const f = await archiveFixture();
+    let allowed = true;
+    await expect(
+      replaceArchive(
+        f.platform,
+        scope,
+        f.originalCall.key!,
+        f.replacement,
+        async () => {
+          if (change === "permission") allowed = false;
+          else await f.install(upgraded);
+          return { key: f.originalCall.key, outcome: "cancelled" };
+        },
+        () => allowed,
+      ),
+    ).rejects.toThrow(
+      change === "permission" ? "Current access" : "installed release",
+    );
+    expect((await readModuleStorage(f.platform, scope)).journal).toHaveLength(
+      1,
+    );
+    expect(
+      (await readModuleStorage(f.platform, scope)).journal[0].call,
+    ).toEqual(f.originalCall);
+  },
+);
+
+it.each(["uncertain", "target", "child"])(
+  "refuses archive replacement with unsafe %s state before settlement",
+  async (reason) => {
+    const f = await archiveFixture();
+    if (reason === "target")
+      f.replacement.input = { id: crypto.randomUUID(), baseVersion: 2 };
+    else if (reason === "uncertain")
+      await changeModuleStorage(f.platform, scope, (s) => {
+        s.journal[0].state = "pending";
+        s.journal[0].delivery = "uncertain";
+      });
+    else {
+      await enqueue(f.platform, scope, {
+        ...f.originalCall,
+        key: "submitted-archive-child",
+      });
+      await changeModuleStorage(f.platform, scope, (s) => {
+        s.journal[1].delivery = "uncertain";
+        s.journal[1].attempts = 1;
+      });
+    }
+    const settle = vi.fn();
+    await expect(
+      replaceArchive(
+        f.platform,
+        scope,
+        f.originalCall.key!,
+        f.replacement,
+        settle,
+        () => true,
+      ),
+    ).rejects.toThrow();
+    expect(settle).not.toHaveBeenCalled();
+  },
+);

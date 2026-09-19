@@ -1,3 +1,7 @@
+import {
+  archiveReviewJourney,
+  changeArchiveBase,
+} from "./archive-review-journey";
 import { submittedDescendantJourney } from "./submitted-descendants";
 import {
   captureResourceDependents,
@@ -17,6 +21,7 @@ export async function commandContinuationJourney(
 ) {
   let page = options.page;
   const { api, pool } = options;
+  const archiveReviewMode = options.mode.startsWith("archive-review");
   const submitted = options.mode.startsWith("submitted-");
   const selectedAction = submitted ? options.mode.split("-")[1] : undefined;
   const resourceAction =
@@ -24,7 +29,9 @@ export async function commandContinuationJourney(
       ? "create"
       : selectedAction === "update" || options.mode === "command-update"
         ? "update"
-        : selectedAction === "archive" || options.mode === "command-archive"
+        : selectedAction === "archive" ||
+            options.mode === "command-archive" ||
+            archiveReviewMode
           ? "archive"
           : undefined;
   const resourceChild = resourceAction !== undefined;
@@ -245,7 +252,7 @@ export async function commandContinuationJourney(
   ).toBeVisible();
   await mkdir(`docs/verification/${evidence}`, { recursive: true });
   const screenshot = (name: string) =>
-    submitted
+    submitted || archiveReviewMode
       ? Promise.resolve()
       : page.screenshot({
           path: `docs/verification/${evidence}/${options.kind}-${name}.png`,
@@ -363,6 +370,8 @@ export async function commandContinuationJourney(
   await screenshot("revoked-narrow");
   await options.wide();
   await permission(true);
+  if (archiveReviewMode)
+    await changeArchiveBase(options, scope, headers, before[1].call);
   if (submitted)
     await options.interruptCall!(
       before[1].id,
@@ -380,7 +389,7 @@ export async function commandContinuationJourney(
       exact: true,
     })
     .click();
-  if (submitted) {
+  if (submitted || archiveReviewMode) {
     await expect(review).toHaveCount(0);
     await expect(confirm).toHaveCount(0);
     await page
@@ -388,6 +397,15 @@ export async function commandContinuationJourney(
       .getByRole("button", { name: "Close dialog", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
+    if (archiveReviewMode)
+      return archiveReviewJourney({
+        options,
+        page,
+        scope,
+        headers,
+        modules,
+        before,
+      });
     return submittedDescendantJourney({
       options,
       page,

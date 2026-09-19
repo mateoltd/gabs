@@ -256,7 +256,7 @@ export async function enqueue(
   call: ModuleCall,
   dependencies: string[] = [],
   recovery?: { draftKey: string; supersedes?: string; generation?: number },
-  authorized: () => boolean = () => true,
+  authorized: (state: ModuleStorage) => boolean = () => true,
 ) {
   const entry: JournalEntry = {
     id: call.key ?? crypto.randomUUID(),
@@ -270,7 +270,7 @@ export async function enqueue(
   };
   let captured = entry;
   await changeModuleStorage(platform, scope, async (s) => {
-    if (!authorized())
+    if (!authorized(s))
       throw Error("Current access does not allow saving this change.");
     if (
       recovery &&
@@ -455,7 +455,7 @@ export async function enqueue(
         );
     }
     assertJournalOrder(s.journal, scope);
-    if (!authorized())
+    if (!authorized(s))
       throw Error("Current access changed before this change could be saved.");
   });
   return captured;

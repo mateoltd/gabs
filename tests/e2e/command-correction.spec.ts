@@ -15,6 +15,8 @@ for (const mode of [
   "submitted-update-cancelled",
   "submitted-archive-accepted",
   "submitted-archive-cancelled",
+  "archive-review",
+  "archive-review-archived",
   "cross-module",
   "command-resource",
   "command-update",

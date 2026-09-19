@@ -22,7 +22,8 @@
     "./command-recovery": "./src/modules/command-recovery.ts",
     "./work-recovery": "./src/recovery/work.ts",
     "./module-dispatch": "./src/modules/dispatch.ts",
-    "./module-synchronization": "./src/modules/synchronization.ts"
+    "./module-synchronization": "./src/modules/synchronization.ts",
+    "./archive-recovery": "./src/modules/archive-recovery.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

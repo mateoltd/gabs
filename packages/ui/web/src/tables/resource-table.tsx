@@ -24,11 +24,14 @@ export function ResourceValue({
   value,
   schema,
   path = "",
+  expanded = false,
   renderReference,
 }: {
   value: unknown;
   schema?: TSchema;
   path?: string;
+  /** Expand this collection initially; nested values remain individually collapsible. */
+  expanded?: boolean;
   renderReference?: (value: string, path: string) => ReactNode;
 }) {
   if (typeof value === "string" && renderReference) {
@@ -48,7 +51,7 @@ export function ResourceValue({
     const entries = Object.entries(value);
     const array = Array.isArray(value);
     return (
-      <details className="resource-value">
+      <details className="resource-value" open={expanded || undefined}>
         <summary>
           {entries.length}{" "}
           {array

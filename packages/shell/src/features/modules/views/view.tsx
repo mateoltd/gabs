@@ -1,3 +1,5 @@
+import { replaceArchive } from "@suite/client/archive-recovery";
+import { ArchiveReview } from "./archive-review";
 import { synchronizeWorkspace } from "../synchronization/host";
 import { sendModuleCall } from "@suite/client/module-transport";
 import { exportRecoveryInput } from "@suite/client/browser";
@@ -70,6 +72,7 @@ import {
   Empty,
   Loading,
   SchemaForm,
+  ResourceValue,
   type FormSchema,
   fieldLabel,
 } from "@suite/ui-web";
@@ -105,6 +108,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   >();
   const [archiveAttempt, setArchiveAttempt] = useState<ModuleCall>();
   const [archiveNotice, setArchiveNotice] = useState<string>();
+  const [archiveReviewId, setArchiveReviewId] = useState<string>();
   const qc = useQueryClient();
   const names = Object.keys(module.resources).sort((a, b) =>
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
@@ -299,6 +303,9 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       entry.call.action === "create" &&
       !entry.supersededBy &&
       ["conflict", "rejected"].includes(entry.state),
+  );
+  const archiveReview = storage?.journal.find(
+    (entry) => entry.id === archiveReviewId && !entry.supersededBy,
   );
   const recoveryEdits =
     storage && reviewedCreate
@@ -1416,6 +1423,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       )
                     }
                     onClick={async () => {
+                      if (entry.call.action === "archive") {
+                        setArchiveReviewId(entry.id);
+                        return;
+                      }
                       const key = resourceDraftKey(moduleId, resource, {
                         entryId: entry.id,
                       });
@@ -1491,6 +1502,12 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                       : "Review"}
                   </Button>
                 )}
+                {entry.call.action === "archive" && (
+                  <details>
+                    <summary>View archive target</summary>
+                    <ResourceValue value={entry.call.input} />
+                  </details>
+                )}
                 {["create", "update"].includes(entry.call.action) && (
                   <SavedChange
                     entry={entry}
@@ -1529,6 +1546,70 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           Check and resolve
         </Button>
       </Modal>
+      {archiveReview && (
+        <ArchiveReview
+          key={archiveReview.id}
+          entry={archiveReview}
+          module={module}
+          allowed={
+            canRecoverCall(archiveReview.call) &&
+            !!module.resources[archiveReview.call.resource!]
+          }
+          busy={busy}
+          load={async (call) => {
+            if (!canRecoverCall(call))
+              throw Error("Current access does not allow reading this record.");
+            const value = (await send(call)) as ResourceRecord;
+            if (!canRecoverCall(call))
+              throw Error("Current access changed while reading this record.");
+            return value;
+          }}
+          close={() => setArchiveReviewId(undefined)}
+          resolve={async () => {
+            setBusy(true);
+            try {
+              await settleJournalEntry(
+                platform,
+                scope,
+                archiveReview.id,
+                settlementTransport,
+                () => canRecoverCall(archiveReview.call),
+                "saved-resource",
+              );
+              setArchiveReviewId(undefined);
+              await query.refetch();
+            } finally {
+              try {
+                await read();
+              } finally {
+                setBusy(false);
+              }
+            }
+          }}
+          submit={async (call) => {
+            setBusy(true);
+            try {
+              await replaceArchive(
+                platform,
+                scope,
+                archiveReview.id,
+                call,
+                settlementTransport,
+                canRecoverCall,
+              );
+              setArchiveReviewId(undefined);
+              await synchronize();
+              await query.refetch();
+            } finally {
+              try {
+                await read();
+              } finally {
+                setBusy(false);
+              }
+            }
+          }}
+        />
+      )}
       <Modal
         title="Create a separate record"
         description="Recover a failed create with a new record identity."

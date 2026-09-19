@@ -23,6 +23,8 @@ export type CommandCorrectionOptions = {
   kind: "web" | "native";
   mode:
     | `submitted-${"command" | "create" | "update" | "archive"}-${"accepted" | "cancelled"}`
+    | "archive-review"
+    | "archive-review-archived"
     | "cross-module"
     | "command-resource"
     | "command-update"
@@ -74,6 +76,7 @@ export async function commandCorrectionJourney(
 ) {
   if (
     options.mode.startsWith("submitted-") ||
+    options.mode.startsWith("archive-review") ||
     options.mode === "cross-module" ||
     options.mode === "command-resource" ||
     options.mode === "command-update" ||

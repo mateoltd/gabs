@@ -39,6 +39,8 @@ for (const mode of [
   "submitted-update-cancelled",
   "submitted-archive-accepted",
   "submitted-archive-cancelled",
+  "archive-review",
+  "archive-review-archived",
   "cross-module",
   "command-resource",
   "command-update",
@@ -301,7 +303,10 @@ globalThis.fetch=async(...args)=>{
               },
         holdSettlement: async () => {
           await app.evaluate(() => {
-            (globalThis as CaptureState).holdSettlement = true;
+            const state = globalThis as CaptureState;
+            state.settlementArrived = false;
+            state.releaseSettlement = undefined;
+            state.holdSettlement = true;
           });
           return {
             arrived: async () => {
