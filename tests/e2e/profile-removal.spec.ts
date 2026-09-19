@@ -129,7 +129,7 @@ for (const mode of ["create", "unlock"] as const) {
 
 async function vaultHelper(context: import("@playwright/test").BrowserContext) {
   const helper = await build({
-    entryPoints: ["packages/client/src/identity/local-vault.ts"],
+    entryPoints: ["packages/client/src/identity/local-vault/index.ts"],
     bundle: true,
     write: false,
     platform: "browser",
@@ -450,6 +450,7 @@ test("removed vaults reject stale writers, wrong passwords and concurrent restor
     );
     return {
       data: recovered.data,
+      keysExtractable: [key.extractable, recovered.key.extractable],
       sameCiphertext:
         Array.from(new Uint8Array(recovered.vault.ciphertext)).join(",") ===
         Array.from(new Uint8Array(vault.ciphertext)).join(","),
@@ -471,6 +472,7 @@ test("removed vaults reject stale writers, wrong passwords and concurrent restor
   expect(result.wrong).toContain("passphrase");
   expect(result.aborted).toBe("AbortError");
   expect(result.sameCiphertext).toBe(true);
+  expect(result.keysExtractable).toEqual([false, false]);
   expect(result.restored.sort()).toEqual(["fulfilled", "rejected"]);
   expect(result.data).toEqual(result.original);
   expect(result.active).toHaveLength(2);

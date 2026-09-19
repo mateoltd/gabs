@@ -360,3 +360,6 @@ AUTH-002/SEC-002 gain scoped [ID-02-NATIVE evidence](verification/profile-unlock
 
 
 AUTH-001/AUTH-002 gain scoped [ID-02-RECOVERY evidence](verification/recovery-session/README.md): authoritative recent-session identity, fixed recovery expiry, verified email/MFA checks, typed client results and web/native OIDC authentication-age validation. Browser PIN storage/UI, standalone PIN/biometrics and real-provider/native acceptance remain open. No original requirement is newly marked complete.
+
+
+AUTH-002/SEC-002 retain their existing status after the [20 September vault architecture review](verification/architecture/README.md#local-vault-checkpoint-review-20-september-2026). Typed storage, cryptography and lifecycle ownership are separated with unchanged encrypted passphrase data and recovery behavior. The review verifies compatibility and scoped regressions; standalone PIN/biometrics remain required under ID-02-LOCAL. No original requirement is newly marked complete.

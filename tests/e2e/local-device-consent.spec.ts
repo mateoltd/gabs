@@ -34,7 +34,7 @@ test("profile owners review signed device declarations and persist keyboard cons
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   // Simulate damaged stored package bytes while preserving real vault encryption.
   const helper = await build({
-    entryPoints: ["packages/client/src/identity/local-vault.ts"],
+    entryPoints: ["packages/client/src/identity/local-vault/index.ts"],
     bundle: true,
     write: false,
     platform: "browser",

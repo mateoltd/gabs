@@ -117,7 +117,7 @@ test("real web workers persist atomic receipts offline and reject stale or remov
     same: true,
     names: ["Worker contact", "Second contact"],
     stale: "PROFILE_CHANGED",
-    removed: "PROFILE_CHANGED",
+    removed: "PROFILE_LOCKED",
     profiles: [],
   });
   // Stale and removed profiles now fail before any worker receives their data.

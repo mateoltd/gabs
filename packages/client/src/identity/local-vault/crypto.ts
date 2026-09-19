@@ -1,5 +1,6 @@
 import type { LocalVault } from "./store";
-export async function derive(password: string, salt: Uint8Array, extractable = false, usages: KeyUsage[] = ["encrypt", "decrypt"]) {
+
+export async function derive(password: string, salt: Uint8Array) {
   const material = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -16,8 +17,8 @@ export async function derive(password: string, salt: Uint8Array, extractable = f
     },
     material,
     { name: "AES-GCM", length: 256 },
-    extractable,
-    usages,
+    false,
+    ["encrypt", "decrypt"],
   );
 }
 
@@ -37,9 +38,9 @@ export const encrypt = (
     new TextEncoder().encode(JSON.stringify(value)),
   );
 
-export async function decryptVault<T>(vault: LocalVault, password: string, extractable = false) {
+export async function decryptVault<T>(vault: LocalVault, password: string) {
   try {
-    const key = await derive(password, vault.salt, extractable);
+    const key = await derive(password, vault.salt);
     const bytes = await crypto.subtle.decrypt(
       {
         name: "AES-GCM",
@@ -60,4 +61,3 @@ export async function decryptVault<T>(vault: LocalVault, password: string, extra
     );
   }
 }
-

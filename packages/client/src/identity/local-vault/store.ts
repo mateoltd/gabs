@@ -1,5 +1,6 @@
 import { LocalExecutionError } from "@suite/module-sdk/local";
-import { openDB } from "idb";
+import { openDB, type DBSchema } from "idb";
+
 export interface LocalVault {
   id: string;
   name: string;
@@ -9,14 +10,16 @@ export interface LocalVault {
   updatedAt: number;
   revision?: number;
   removedAt?: number;
-  unlock?: string;
 }
 
-export const database = () =>
-  openDB("suite-local-profiles", 2, {
+interface LocalVaultDatabase extends DBSchema {
+  vaults: { key: string; value: LocalVault };
+}
+
+export const openLocalVaultDatabase = () =>
+  openDB<LocalVaultDatabase>("suite-local-profiles", 1, {
     upgrade(db) {
-      if (!db.objectStoreNames.contains("vaults")) db.createObjectStore("vaults", { keyPath: "id" });
-      if (!db.objectStoreNames.contains("unlocks")) db.createObjectStore("unlocks", { keyPath: "id" });
+      db.createObjectStore("vaults", { keyPath: "id" });
     },
   });
 
@@ -24,6 +27,7 @@ type ProfileChange = { id: string; origin: string };
 const origin = crypto.randomUUID();
 const listeners = new Set<(id: string) => void>();
 let channel: BroadcastChannel | undefined;
+
 export function subscribeLocalProfiles(listener: (id: string) => void) {
   listeners.add(listener);
   if (!channel) {
@@ -41,15 +45,17 @@ export function subscribeLocalProfiles(listener: (id: string) => void) {
     }
   };
 }
-export function changed(id: string) {
+
+export function notifyLocalProfileChanged(id: string) {
   for (const listener of listeners) listener(id);
   const sender = new BroadcastChannel("suite-local-profiles");
   sender.postMessage({ id, origin });
   sender.close();
 }
+
 export async function assertVaultRevision(vault: LocalVault, revision: number) {
-  const stored = (await (await database()).get("vaults", vault.id)) as
-    LocalVault | undefined;
+  const connection = await openLocalVaultDatabase();
+  const stored = await connection.get("vaults", vault.id);
   if (
     !stored ||
     stored.removedAt !== undefined ||
@@ -60,4 +66,3 @@ export async function assertVaultRevision(vault: LocalVault, revision: number) {
       "This profile changed in another window or was removed. Unlock it again before using module access.",
     );
 }
-
