@@ -917,3 +917,8 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Atomic offline-storage disable
 
 [OFF-02-LEASES-STORAGE](storage-disable/README.md): 665 unit/PostgreSQL tests across 98 files, final strict checks/four builds, six headless browser journeys and two inspected Settings captures. Two integration tests execute the actual encrypted SQLite worker. Corporate protected native acceptance remains open; this is scoped engineering/browser evidence.
+
+
+## 19 September 2026 — Received module release policy
+
+[OFF-02-LEASES-RELEASE](release-policy/README.md) records final full regression and strict/four-build checks, seven distinct browser journeys across final release/editor runs, dependency and native-authority tests, and inspected offline-lock/custom-input captures. Earlier failures exposed effect-driven component reload and synchronization timing; their correction and verification limits are recorded. Real protected native acceptance remains required.

@@ -14,11 +14,14 @@ import {
 } from "../../tooling/modules/registry-review";
 import { selectValue } from "./controls.helpers";
 
-for (const lostReply of [false, true])
+for (const mode of ["optional", "receipt", "interrupted"] as const) {
+  const lostReply = mode === "receipt";
   test(
-    lostReply
-      ? "a lost success reply recovers the original receipt across a mandatory update without duplicating work"
-      : "optional rollout retains an installed contract and mandatory rollout preserves old queued work",
+    mode === "interrupted"
+      ? "received mandatory policy survives a failed download and offline restart without erasing pending work"
+      : lostReply
+        ? "a lost success reply recovers the original receipt across a mandatory update without duplicating work"
+        : "optional rollout retains an installed contract and mandatory rollout preserves old queued work",
     async ({ page, context }) => {
       const id = `rollout-ui-${randomUUID().slice(0, 8)}`,
         name = `Rollout notes ${id.slice(-8)}`,
@@ -333,15 +336,75 @@ for (const lostReply of [false, true])
             )
           ).ok(),
         ).toBeTruthy();
-        await context.setOffline(false);
-        if (lostReply)
+        const artifactRoute = `**/module/${id}/workspaces/${workspace}/artifact**`;
+        if (mode === "interrupted") {
+          await page.route(artifactRoute, (route) => route.abort("failed"));
+          await context.setOffline(false);
+          await page.reload();
           await expect
-            .poll(async () => (await journal())[0]?.state)
-            .toBe("accepted");
-        else
+            .poll(() =>
+              page.evaluate(
+                async ({ userId, workspace, id }) => {
+                  const db = await new Promise<IDBDatabase>(
+                    (resolve, reject) => {
+                      const request = indexedDB.open("suite-offline-v1");
+                      request.onsuccess = () => resolve(request.result);
+                      request.onerror = () => reject(request.error);
+                    },
+                  );
+                  try {
+                    return await new Promise<string[] | undefined>(
+                      (resolve, reject) => {
+                        const request = db
+                          .transaction("records")
+                          .objectStore("records")
+                          .get(`${userId}/${workspace}/snapshot`);
+                        request.onsuccess = () =>
+                          resolve(
+                            request.result?.bootstrap.modules.find(
+                              (m: { moduleId: string }) => m.moduleId === id,
+                            )?.acceptedVersions,
+                          );
+                        request.onerror = () => reject(request.error);
+                      },
+                    );
+                  } finally {
+                    db.close();
+                  }
+                },
+                { userId: me.user.id, workspace, id },
+              ),
+            )
+            .toEqual(["1.1.0"]);
           await expect(
-            page.locator(".module-pending").getByText(/no longer accepted/),
+            page.getByRole("button", { name: "New notes", exact: true }),
+          ).toHaveCount(0);
+          await context.setOffline(true);
+          await page.reload();
+          await expect(
+            page.getByText("Module installation required", { exact: true }),
           ).toBeVisible();
+          await expect(
+            page.getByRole("button", { name: "New notes", exact: true }),
+          ).toHaveCount(0);
+          expect((await journal())[0]).toMatchObject({
+            id: pending.id,
+            call: pending.call,
+          });
+          await mkdir("docs/verification/release-policy", { recursive: true });
+          await page.screenshot({
+            path: "docs/verification/release-policy/offline-update-required.png",
+            animations: "disabled",
+          });
+          await page.unroute(artifactRoute);
+        }
+        await context.setOffline(false);
+        // The retired executable cannot submit new work while replacement is pending.
+        // Preserve exact identities until the current release resumes recovery.
+        expect((await journal())[0]).toMatchObject({
+          id: pending.id,
+          call: pending.call,
+        });
         const upgraded = page.waitForResponse(
           (response) =>
             response
@@ -361,6 +424,10 @@ for (const lostReply of [false, true])
         ).toBeVisible();
         await page.keyboard.press("Escape");
         if (lostReply) {
+          // Workspace synchronization may have started before the new release committed.
+          await expect
+            .poll(async () => (await journal())[0]?.state, { timeout: 25000 })
+            .toBe("accepted");
           await expect(
             page.getByRole("cell", {
               name: "Captured with the old release",
@@ -402,7 +469,7 @@ for (const lostReply of [false, true])
         }
         await expect(
           page.locator(".module-pending").getByText(/no longer accepted/),
-        ).toBeVisible();
+        ).toBeVisible({ timeout: 25000 });
         expect(
           (
             await admin.query(
@@ -464,3 +531,4 @@ for (const lostReply of [false, true])
       }
     },
   );
+}

@@ -421,6 +421,11 @@ function CustomModuleView(
   const [loaded, setLoaded] = React.useState<LoadedView | undefined>(
     props.prepared,
   );
+  // Activity suspends effects while a preserved view is hidden. Reuse its
+  // verified component on resume so the publisher's live React state survives.
+  const verifiedView = React.useRef<
+    { digest: string; publicKey: string; value: LoadedView } | undefined
+  >(undefined);
   const [error, setError] = React.useState<unknown>();
   const [downloaded, setDownloaded] = React.useState<{ at: number | null }>();
   const allowed = canUse(
@@ -464,6 +469,14 @@ function CustomModuleView(
       setLoaded(props.prepared);
       return;
     }
+    const retained = verifiedView.current;
+    if (
+      retained?.digest === props.pkg.digest &&
+      retained.publicKey === props.publicKey
+    ) {
+      setLoaded(retained.value);
+      return;
+    }
     void (async () => {
       await verifyArtifact(props.pkg, props.publicKey);
       if (!active) return;
@@ -476,7 +489,15 @@ function CustomModuleView(
           );
         restoreViewCheckpoint(module, viewId, View.suiteViewState, undefined);
       }
-      if (active) setLoaded({ View, css: bundle.css });
+      if (active) {
+        const value = { View, css: bundle.css };
+        verifiedView.current = {
+          digest: props.pkg.digest,
+          publicKey: props.publicKey,
+          value,
+        };
+        setLoaded(value);
+      }
     })().catch((error) => {
       if (active) setError(error);
     });

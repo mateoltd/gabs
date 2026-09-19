@@ -415,3 +415,8 @@ The shell cancels old remembered-workspace callbacks when their scoped screen cl
 ### Device offline-storage consent
 
 Disabling corporate offline storage checks retained drafts, requests, reviews and installation work in the same backend transaction that removes cached data and writes a new disabled authority generation. IndexedDB and encrypted SQLite reject late business-cache writes while that marker is set. Fresh authentication does not enable storage; the user must explicitly enable it under current online policy. Browser tabs receive disable immediately. Online retry identities and executable metadata retain their required durable storage. [Acceptance and remaining native gate](verification/storage-disable/README.md).
+
+
+### Received release restrictions
+
+Workspace bootstrap includes the accepted versions for explicitly configured pins/rollouts, resolving an empty pin to the current release. Optional rollouts include their approved older releases; mandatory rollouts retain only the selected release. These restrictions share the existing policy revision and offline lease, so delayed older authorization cannot restore a retired version. The host checks each installed dependency before entry, while saved calls retain their original contracts for authoritative recovery. Custom components reuse their verified loaded component after temporary hiding to preserve publisher React state. [Evidence and remaining native acceptance](verification/release-policy/README.md).

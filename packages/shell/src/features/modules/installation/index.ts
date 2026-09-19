@@ -508,6 +508,24 @@ export async function uninstallModule(
     }
   });
 }
+/** Received rollout policy applies immediately, including while an update is unavailable. */
+export function acceptsInstalledVersions(
+  bootstrap: FeatureProps["bootstrap"],
+  versions: Readonly<Record<string, string>>,
+) {
+  return Object.entries(versions).every(([id, version]) => {
+    const module = bootstrap.modules.find((m) => m.moduleId === id);
+    return (
+      !!module &&
+      module.assigned &&
+      module.entitled &&
+      module.state === "enabled" &&
+      (module.acceptedVersions === undefined ||
+        module.acceptedVersions.includes(version))
+    );
+  });
+}
+
 /** Verify every dependency, including offline activation and local removal intent. */
 export async function verifiedInstalledModule(
   props: FeatureProps,
@@ -516,6 +534,7 @@ export async function verifiedInstalledModule(
   state?: PlatformState,
 ) {
   const visited = new Set<string>();
+  const versions: Record<string, string> = {};
   const visit = async (moduleId: string): Promise<boolean> => {
     if (visited.has(moduleId)) return true;
     visited.add(moduleId);
@@ -530,7 +549,10 @@ export async function verifiedInstalledModule(
       storage.lifecycle?.[moduleId]?.action === "uninstall" ||
       !installed?.signed ||
       !installed.publicKey ||
-      installed.version !== installed.signed.version
+      installed.version !== installed.signed.version ||
+      !acceptsInstalledVersions(props.bootstrap, {
+        [moduleId]: installed.version,
+      })
     )
       return false;
     const selected = state?.modules.find((m) => m.id === moduleId)?.version;
@@ -559,6 +581,7 @@ export async function verifiedInstalledModule(
         ))
     )
       return false;
+    versions[moduleId] = installed.version;
     await verifyArtifact(installed.signed, installed.publicKey);
     assertClientHost(installed.signed.artifact, viewHost.capabilities);
     const manifest = installed.signed.manifest as unknown as ReleaseManifest;
@@ -573,6 +596,7 @@ export async function verifiedInstalledModule(
     ? {
         pkg: storage.installed[id].signed!,
         publicKey: storage.installed[id].publicKey!,
+        versions,
       }
     : false;
 }

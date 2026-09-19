@@ -254,7 +254,10 @@ export class NativeCapabilityAuthority {
               item.moduleId === id &&
               item.state === "enabled" &&
               item.entitled &&
-              item.assigned,
+              item.assigned &&
+              (id !== module.id ||
+                item.acceptedVersions === undefined ||
+                item.acceptedVersions.includes(module.version)),
           ),
       )
     )

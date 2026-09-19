@@ -561,3 +561,21 @@ it("does not give offline administrators blanket receipt access", async () => {
     await offline.allows(recoveryCall(f.module.id, f.module.version)),
   ).toBe(false);
 });
+
+it("received mandatory release policy denies an old offline capability after restart", async () => {
+  const f = fixture();
+  await f.prepare();
+  f.online(false);
+  await expect(f.authorize()).resolves.toBeDefined();
+  await f.manager.observe(f.scope, {
+    ...f.policy,
+    policyRevision: "4",
+    modules: f.policy.modules.map((m) => ({
+      ...m,
+      acceptedVersions: ["99.0.0"],
+    })),
+  });
+  f.restart();
+  await expect(f.prepare()).rejects.toThrow(/permissions/);
+  await expect(f.authorize()).rejects.toThrow();
+});

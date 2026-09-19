@@ -18,6 +18,7 @@ import {
   installModule,
   deviceId,
   verifiedInstalledModule,
+  acceptsInstalledVersions,
 } from "../installation";
 export function ModuleGate(
   props: FeatureProps & {
@@ -32,7 +33,7 @@ export function ModuleGate(
 ) {
   const { catalog } = useShellComposition();
   const qc = useQueryClient();
-  const query = useQuery<false | { pkg: SignedArtifact; publicKey: string }>({
+  const query = useQuery<Awaited<ReturnType<typeof verifiedInstalledModule>>>({
     networkMode: "always",
     staleTime: 0,
     placeholderData: (previous, query) =>
@@ -127,7 +128,8 @@ export function ModuleGate(
           }),
         ),
       );
-      return installed;
+      const committed = await readModuleStorage(props.platform, props.scope);
+      return verifiedInstalledModule(props, committed, props.moduleId);
     },
   });
   const retained = useRef<ReactNode>(null);
@@ -144,7 +146,10 @@ export function ModuleGate(
     );
   const accessDenied =
     query.error instanceof ApiError && [401, 403].includes(query.error.status);
-  const visible = permitted && !!query.data && !accessDenied;
+  const releaseAccepted =
+    !!query.data &&
+    acceptsInstalledVersions(props.bootstrap, query.data.versions);
+  const visible = permitted && releaseAccepted && !accessDenied;
   if (visible && query.data)
     retained.current =
       typeof props.children === "function"
@@ -166,7 +171,7 @@ export function ModuleGate(
             Retry installation
           </Button>
         </div>
-      ) : !query.data ? (
+      ) : !query.data || !releaseAccepted ? (
         <>
           <Empty
             title="Module installation required"

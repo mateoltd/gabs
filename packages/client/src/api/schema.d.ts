@@ -1117,6 +1117,7 @@ export interface operations {
                             accessPolicy: "self" | "approval" | "admin";
                             entitled: boolean;
                             assigned: boolean;
+                            acceptedVersions?: string[];
                         }[];
                         offlineHours: number;
                         seatLimit: number;
@@ -5604,6 +5605,7 @@ export interface operations {
                                 accessPolicy: "self" | "approval" | "admin";
                                 entitled: boolean;
                                 assigned: boolean;
+                                acceptedVersions?: string[];
                             }[];
                             offlineHours: number;
                             seatLimit: number;

@@ -2,6 +2,7 @@ import { provisionLegacyWorkspace as provisionWorkspace } from "../fixtures/lega
 import "dotenv/config";
 import { it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
+import type { Bootstrap } from "../../packages/contracts/src";
 import { createApp } from "../../apps/api/src/app";
 import {
   connectDatabase,
@@ -64,7 +65,25 @@ it("recovers committed receipts after mandatory updates while enforcing current 
           },
         },
       });
-      if (response.statusCode === 200) revision++;
+      if (response.statusCode === 200) {
+        revision++;
+        const bootstrap = await server.app.inject({
+          method: "GET",
+          url: `/api/v1/workspaces/${workspace}/bootstrap`,
+          headers,
+        });
+        expect(bootstrap.statusCode).toBe(200);
+        expect(
+          bootstrap
+            .json<Bootstrap>()
+            .modules.find((m) => m.moduleId === "inventory")?.acceptedVersions,
+        ).toEqual([
+          ...new Set([
+            target || "1.2.0",
+            ...(mandatory ? [] : acceptedVersions),
+          ]),
+        ]);
+      }
       return response;
     };
     const operation = (
@@ -196,6 +215,8 @@ it("recovers committed receipts after mandatory updates while enforcing current 
     expect(
       (await operation("create-product", "1.1.0", input, key)).json(),
     ).toEqual(created.json());
+    // An unpinned mandatory rollout still communicates the resolved current release.
+    expect((await policy(true, [], "")).statusCode).toBe(200);
     await inWorkspace(db, workspace, async (tx) => {
       const rows = await tx
         .selectFrom("suite.products")

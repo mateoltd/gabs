@@ -107,6 +107,8 @@ export const ModuleStateSchema = Type.Object({
   ),
   entitled: Type.Boolean(),
   assigned: Type.Boolean(),
+  // Absent in older leases or when no explicit rollout policy exists.
+  acceptedVersions: Type.Optional(Type.Array(Type.String())),
 });
 export const BootstrapSchema = Type.Object({
   workspace: WorkspaceSchema,

@@ -335,6 +335,36 @@ it("recovers exact device changes across download interruption, uncertain accept
     await changeModuleStorage(platform, props.scope, (s) => {
       s.drafts[`${root}:notes`] = { name: "Unsynced work" };
     });
+    // The dependency closure must obey received rollout policy even without HTTP.
+    const optional = {
+      ...props,
+      bootstrap: {
+        ...props.bootstrap,
+        modules: props.bootstrap.modules.map((m) =>
+          m.moduleId === dependency
+            ? { ...m, acceptedVersions: ["1.1.0", "1.0.0"] }
+            : m,
+        ),
+      },
+    };
+    expect(
+      await verifiedInstalledModule(optional, await stored(), root),
+    ).toBeTruthy();
+    const mandatory = {
+      ...optional,
+      bootstrap: {
+        ...optional.bootstrap,
+        modules: optional.bootstrap.modules.map((m) =>
+          m.moduleId === dependency ? { ...m, acceptedVersions: ["1.1.0"] } : m,
+        ),
+      },
+    };
+    expect(await verifiedInstalledModule(mandatory, await stored(), root)).toBe(
+      false,
+    );
+    expect((await stored()).drafts[`${root}:notes`]).toEqual({
+      name: "Unsynced work",
+    });
     await publish(dependency, "1.1.0", {});
     await publish(root, "1.1.0", { [dependency]: "^1.0.0" });
     const upgrade = await state();

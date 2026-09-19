@@ -56,6 +56,12 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
     : modules
         .filter((m) => m.state === "enabled" && m.active)
         .map((m) => m.module_id);
+  const releasePolicies = await tx
+    .selectFrom("suite.platform_settings")
+    .select(["key", "value"])
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("key", "like", "pin:%")
+    .execute();
   const assigned = await tx
     .selectFrom("suite.module_assignments")
     .select("module_id")
@@ -79,16 +85,47 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
     },
     permissions: ctx.permissions,
     roleNames: ctx.roleNames,
-    modules: visibleIds.map((id) => {
-      const m = modules.find((m) => m.module_id === id);
-      return {
-        moduleId: id,
-        state: m?.state ?? "draft",
-        accessPolicy: m?.access_policy ?? "admin",
-        entitled: m?.active ?? false,
-        assigned: assigned.some((a) => a.module_id === id),
-      };
-    }) as Bootstrap["modules"],
+    modules: (await Promise.all(
+      visibleIds.map(async (id) => {
+        const m = modules.find((m) => m.module_id === id);
+        const rollout = releasePolicies.find(
+          (p) => p.key === `pin:${id}`,
+        )?.value;
+        const selectedVersion =
+          typeof rollout?.version === "string"
+            ? rollout.version ||
+              (
+                await workspaceModule(
+                  tx,
+                  ctx.workspaceId,
+                  id,
+                  ctx.runtime.catalog,
+                )
+              ).version
+            : undefined;
+        const acceptedVersions = selectedVersion
+          ? [
+              ...new Set([
+                selectedVersion,
+                ...(rollout?.mandatory === false &&
+                Array.isArray(rollout.acceptedVersions)
+                  ? rollout.acceptedVersions.filter(
+                      (v): v is string => typeof v === "string",
+                    )
+                  : []),
+              ]),
+            ]
+          : undefined;
+        return {
+          moduleId: id,
+          state: m?.state ?? "draft",
+          accessPolicy: m?.access_policy ?? "admin",
+          entitled: m?.active ?? false,
+          assigned: assigned.some((a) => a.module_id === id),
+          ...(acceptedVersions ? { acceptedVersions } : {}),
+        };
+      }),
+    )) as Bootstrap["modules"],
     offlineHours: w.offline_hours,
     seatLimit: w.seat_limit,
     memberCount: Number(count.n),

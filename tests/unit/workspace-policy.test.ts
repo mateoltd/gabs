@@ -345,3 +345,33 @@ it("an account revision expires every workspace lease and fences old requests wi
     { input: "Account work" },
   ]);
 });
+
+it("retains received release restrictions across restart and ignores a delayed older rollout", async () => {
+  const f = fixture(),
+    first = f.session(),
+    other = f.session();
+  const activation = {
+    moduleId: "contacts",
+    state: "enabled" as const,
+    accessPolicy: "admin" as const,
+    assigned: true,
+    entitled: true,
+  };
+  const optional: Bootstrap = {
+    ...policy,
+    modules: [{ ...activation, acceptedVersions: ["1.1.0", "1.0.0"] }],
+  };
+  await authorize(first, optional);
+  await first.save({ ...snapshot, bootstrap: optional });
+  const delayed = await other.begin();
+  const mandatory: Bootstrap = {
+    ...optional,
+    policyRevision: "2",
+    modules: [{ ...activation, acceptedVersions: ["1.1.0"] }],
+  };
+  await authorize(first, mandatory);
+  expect(await other.accept(optional, delayed)).toEqual(mandatory);
+  expect((await f.session().load())?.bootstrap.modules).toEqual(
+    mandatory.modules,
+  );
+});

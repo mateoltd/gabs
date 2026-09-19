@@ -333,3 +333,8 @@ CORE-003/SHELL-001 gain [OFF-02-LEASES-WORKSPACE browser evidence](verification/
 ## 19 September 2026 — Atomic offline-storage disable
 
 CORE-003/SHELL-001 gain [OFF-02-LEASES-STORAGE evidence](verification/storage-disable/README.md): current saved work blocks deletion atomically, late cache writes are rejected, browser tabs receive disable and authentication preserves opt-out until explicit enabling. Real encrypted SQLite-worker checks pass; corporate native protected-storage/UI acceptance remains required. No whole original requirement is promoted.
+
+
+## 19 September 2026 — Received module release policy
+
+CORE-002/CORE-003/SHELL-001/UI-004 gain [OFF-02-LEASES-RELEASE evidence](verification/release-policy/README.md): received accepted-version restrictions survive failed downloads and offline restart, original pending calls remain recoverable, and hiding a custom view preserves its live input. Optional rollout and duplicate-free historical receipt recovery remain verified. Native authority unit evidence does not replace the outstanding protected native UI/restart gate. No whole original requirement is promoted.

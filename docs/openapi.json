@@ -629,6 +629,12 @@
                           },
                           "assigned": {
                             "type": "boolean"
+                          },
+                          "acceptedVersions": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         }
                       }
@@ -11553,6 +11559,12 @@
                               },
                               "assigned": {
                                 "type": "boolean"
+                              },
+                              "acceptedVersions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
                               }
                             }
                           }
