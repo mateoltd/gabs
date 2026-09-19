@@ -314,6 +314,12 @@ Creation assigns a UUID record target before capture. A supplied retry key reuse
 
 `ModuleQueue.resources` is the optional host adapter for these methods. Corporate views and the development simulator provide it; a host without it reports an actionable unsupported-host error. This API does not grant corporate authority to a standalone workspace. Newly built custom views require `client.resources` revision 4; the current host also retains revisions 1–3 for existing signed releases. Revision compatibility does not confer permissions or enable offline storage.
 
+### Saved archive correction
+
+The generated resource view reviews a rejected/conflicting archive separately from create/update forms. It loads the current server record under current read/write authority and displays its version beside the original target/base. `@suite/client/archive-recovery` fences the exact original before durably enqueuing a reviewed archive; accepted originals recover their validated receipt without replacement. The client holds the workspace synchronization lock across settlement and enqueue, rejects submitted dependents, and rechecks current authority and the exact installed release within storage transactions. Cancellation survives an interrupted local replacement.
+
+Already-archived records offer explicit original-outcome resolution without another archive effect. Offline/access loss clears the current snapshot and blocks confirmation. [Acceptance and limits](verification/archive-review/README.md) distinguish this workflow from still-required failed-create archive target reassignment and legacy/profile recovery.
+
 ### Saved command correction
 
 Rejected or conflicting commands can retain a separate review, including partial invalid input, without changing the original request or submitting work. Uncertain requests must resolve their original outcome first. Saving persists the input, current signed release, revision and explicitly selected never-submitted dependents. Stale reviews, changed dependent input and changed authority require another review.

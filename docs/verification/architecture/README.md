@@ -128,3 +128,14 @@ Parent review inspected all changed production files and the regressions. Final 
 - The checkpointed resource milestone separately passed six browser and five hidden/minimized, unfocused native cases before these validation-only corrections. Its [evidence](../resource-continuation/README.md) records the exact sequence and twelve inspected captures. No production stylesheet or signed historical artifact changed.
 
 Physical paths, public package identifiers, module permissions and corporate authority remain intact. OFF-01-RESOURCE has scoped local acceptance; OFF-01, full product parity and final UI refinement remain incomplete. The paused goal stays paused during this requested architecture task.
+
+
+## Archive recovery checkpoint review, 19 September 2026
+
+Checkpoint `222ac15` preserves the archive-recovery implementation before the explicitly requested `gpt-5.6-sol` review at `xhigh`. The physical migration remains implemented in `92fd5fb`: `sdk`, `client`, `server`, `shell` and nested `ui/web` and `ui/tokens`. Public package identifiers remain compatibility contracts.
+
+The independent audit and parent review found no further structural correction justified. Durable archive settlement, cancellation, replacement and dependency rewiring belong in `client/src/modules/archive-recovery.ts`, exposed through an explicit package export. The shell owns React state, the current server snapshot and live authorization binding. `ui/web` owns only the generic opt-in expansion of `ResourceValue`; existing callers retain their behavior. No styling or signed historical artifact changed.
+
+Both reviews examined the scope-specific synchronization lock across settlement and enqueue, the separate storage transactions, current permission/release checks, immutable original calls and retained response validation. Submitted or uncertain direct children are rejected before settlement and in the subsequent storage transaction. The synchronization lock remains held through enqueue; concurrent captures can only add unsent children, which are rewired atomically. Cancellation remains durable if local replacement fails. A spot-check since `703b3ab` also confirmed that shared request-key validation and SDK boundaries remain intact.
+
+The parent corrected an acceptance selector to identify the exact independently published release when several fixture modules share a display name. The subagent made no source changes and ran no duplicate verification. [Archive acceptance](../archive-review/README.md) owns the fresh build, full regression, browser/native and visual results, including initial failures and scope limits. This review does not close full OFF-01, product parity or the later UI-refinement goal.

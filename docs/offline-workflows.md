@@ -60,6 +60,10 @@ With offline storage disabled, direct pending input remains in the mounted edito
 
 [Scoped recovery-export acceptance](verification/recovery-export/README.md) now verifies native account/workspace/module binding, current read and dependency authority before and after delayed dialogs, denial of unscoped writes and renderer-forged policy, protected offline restart, expiry and logout. Browser export verifies current identity/policy, persists received denial, cancels stale views and checks retained offline policy. Neither path turns exported input into an accepted business change. Broader profile/sign-out recovery remains OFF-03.
 
+### Explicit queued archive review
+
+[Archive-review acceptance](verification/archive-review/README.md) covers rejected/conflicting archives against the current server record. The original target and base version remain visible; confirmation settles the original before queuing a fresh archive at the reviewed version. Accepted originals recover receipts. An already-archived record offers original-outcome resolution without another archive. Received write revocation and offline restart preserve the original; reauthorization and explicit confirmation restore the workflow. Failed-create archive target reassignment remains required separately.
+
 ### Independent saved-work exports
 
 [Settings export acceptance](verification/work-recovery-export/README.md) covers original requests, drafts, independent comparisons and collision/archive provenance after module removal or uninstall and offline restart. Files retain exact device observations; export does not mutate work, authorize execution or implement import. Current identity, original/current permissions and offline leases govern delivery. Native metadata is prepared again through authenticated catalog/source-contract requests after policy changes and reauthentication; unknown originals fail closed.

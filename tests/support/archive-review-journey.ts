@@ -82,9 +82,14 @@ export async function archiveReviewJourney({
   );
   expect(rollout.ok(), await rollout.text()).toBe(true);
   await page.getByRole("link", { name: "Modules", exact: true }).click();
-  const card = page.locator(".module-install-card").filter({
-    has: page.getByRole("heading", { name: modules[1].name, exact: true }),
-  });
+  const card = page
+    .locator(".module-install-card")
+    .filter({
+      has: page.getByRole("heading", { name: modules[1].name, exact: true }),
+    })
+    .filter({
+      has: page.getByText(`Version ${next.version}`, { exact: true }),
+    });
   await expect(card).toContainText(`Version ${next.version}`);
   await card.getByRole("button", { name: "Update", exact: true }).click();
   await expect(card).toContainText(`Installed ${next.version}`);

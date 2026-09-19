@@ -259,3 +259,8 @@ CORE-003 and UI-003 gain [scoped OFF-01-DESC evidence](verification/resource-des
 ## Submitted descendant outcomes, 19 September 2026
 
 CORE-003 and UI-003 gain [scoped OFF-01-OUTCOME evidence](verification/submitted-descendants/README.md): command/create/update/archive descendants after approved parent continuation recover exact accepted-or-cancelled outcomes through lost execution/settlement replies and offline restart. The scheduler no longer lets one transport/server failure starve unrelated work; shared authentication/rate-limit stops and prerequisite ordering remain. Final checks passed 567 unit/PostgreSQL tests, strict checks/four fresh builds and ten journeys in each web/native client, with duplicate-free state/audits and eight inspected captures. Legacy/collision transitions, profiles and broader release requirements remain open; no entire original requirement is newly complete.
+
+
+## Explicit archive recovery, 19 September 2026
+
+CORE-003 and UI-003 gain [scoped OFF-01-ARCHIVE evidence](verification/archive-review/README.md): failed archives retain original targets/versions, review current server data and settle the exact original before a durable replacement. Revocation and offline restart preserve input; accepted or already-archived outcomes do not produce another archive. Verification passed 575 unit/PostgreSQL tests, strict checks/four fresh builds, eight headless browser and eight hidden native journeys, with twelve inspected captures. The requested Sol xhigh and parent architecture reviews confirmed current ownership. Failed-create archive target reassignment and other legacy/profile/release gates remain required; no entire original requirement is newly complete.
