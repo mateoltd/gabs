@@ -276,6 +276,10 @@ export const OPERATIONS = {
   overview: { method: "GET", path: "/api/v1/workspaces/:workspaceId/overview" },
   me: { method: "GET", path: "/api/v1/me" },
   profileRecovery: { method: "GET", path: "/api/v1/identity/recovery" },
+  profileRecoveryClock: {
+    method: "GET",
+    path: "/api/v1/identity/recovery-clock",
+  },
   workspacePolicy: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/policy",

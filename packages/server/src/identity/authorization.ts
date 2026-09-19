@@ -20,7 +20,9 @@ export interface Actor {
   emailVerified: boolean;
   mfa: boolean;
   csrfToken?: string;
-  authentication?: Pick<ProfileRecovery, "sessionId" | "authenticatedAt">;
+  authentication?: Pick<ProfileRecovery, "sessionId" | "authenticatedAt"> & {
+    observedAt?: number;
+  };
 }
 export interface Context {
   actor: Actor;

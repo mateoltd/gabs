@@ -42,6 +42,7 @@ export async function removeLocalProfile(id: string) {
     await tx.store.put({
       ...vault,
       removedAt: Date.now(),
+      unlock: undefined,
       revision: (vault.revision ?? 0) + 1,
     });
   await tx.done;
@@ -112,6 +113,7 @@ export async function restoreVault<T>(
   const restored: LocalVault = {
     ...stored,
     removedAt: undefined,
+    unlock: undefined,
     revision: (stored.revision ?? 0) + 1,
     updatedAt: Date.now(),
   };
@@ -169,7 +171,7 @@ export async function commitVault(
     );
   }
   await transaction.store.put({
-    ...vault,
+    ...stored,
     iv,
     ciphertext,
     updatedAt: Date.now(),

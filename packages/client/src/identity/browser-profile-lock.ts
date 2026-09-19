@@ -20,6 +20,7 @@ export interface BrowserRecoveryChallenge {
   account: string;
   snapshot: string;
   startedAt: number;
+  serverStartedAt: number;
   previousSessionId?: string;
 }
 export interface BrowserLockStorage {
@@ -28,6 +29,7 @@ export interface BrowserLockStorage {
   exclusive<T>(account: string, run: () => Promise<T>): Promise<T>;
   changed(account: string): void;
   recovery(): Promise<ProfileRecovery>;
+  clock(): Promise<number>;
   now?(): number;
 }
 export class BrowserProfileLocked extends Error {
@@ -459,6 +461,7 @@ export class BrowserProfileLock implements ProfileLockBridge {
     const account = this.requireAccount(),
       generation = this.generation,
       startedAt = this.now();
+    const serverStartedAt = await this.serverTime();
     const raw = await this.host.exclusive(account, () =>
       this.host.read(account),
     );
@@ -489,18 +492,27 @@ export class BrowserProfileLock implements ProfileLockBridge {
       account,
       snapshot: await snapshot(raw),
       startedAt,
+      serverStartedAt,
       previousSessionId,
     };
   }
 
+  private async serverTime() {
+    const value = await this.host.clock();
+    if (!Number.isSafeInteger(value) || value < 0)
+      throw Error("The recovery clock is unavailable. Sign in again.");
+    return value;
+  }
   private async proof() {
     const proof = await this.host.recovery();
     assertSchema(ProfileRecoverySchema, proof);
     const start = Date.parse(proof.authenticatedAt),
       end = Date.parse(proof.expiresAt);
-    if (start > this.now() || end <= this.now() || end - start !== 300000)
+    const localStart = this.now();
+    const serverNow = await this.serverTime();
+    if (start > serverNow || end <= serverNow || end - start !== 300000)
       throw Error("Sign in online again before recovering this profile.");
-    return proof;
+    return { ...proof, localExpiresAt: localStart + end - serverNow };
   }
   async completeRecovery(
     challenge: BrowserRecoveryChallenge,
@@ -515,6 +527,8 @@ export class BrowserProfileLock implements ProfileLockBridge {
       !Number.isSafeInteger(challenge.startedAt) ||
       challenge.startedAt < 0 ||
       challenge.startedAt > this.now() ||
+      !Number.isSafeInteger(challenge.serverStartedAt) ||
+      challenge.serverStartedAt < 0 ||
       (challenge.previousSessionId !== undefined &&
         (typeof challenge.previousSessionId !== "string" ||
           !/^[a-f0-9]{64}$/.test(challenge.previousSessionId)))
@@ -529,7 +543,7 @@ export class BrowserProfileLock implements ProfileLockBridge {
     if (
       proof.userId !== account ||
       proof.sessionId === challenge.previousSessionId ||
-      Date.parse(proof.authenticatedAt) < challenge.startedAt
+      Date.parse(proof.authenticatedAt) < challenge.serverStartedAt
     )
       throw Error("Sign in again with this profile before recovering access.");
     // Adopt fresh host credentials before publishing unlocked access.
@@ -556,7 +570,7 @@ export class BrowserProfileLock implements ProfileLockBridge {
       this.current(account, generation);
       if (
         proof.sessionId === value.sessionId ||
-        Date.parse(proof.expiresAt) <= this.now()
+        proof.localExpiresAt <= this.now()
       )
         throw Error("Sign in online again before recovering this profile.");
       await this.persist(
@@ -565,7 +579,7 @@ export class BrowserProfileLock implements ProfileLockBridge {
         { ...value, epoch: crypto.randomUUID(), sessionId: proof.sessionId },
         true,
       );
-      this.recoveredUntil = Date.parse(proof.expiresAt);
+      this.recoveredUntil = proof.localExpiresAt;
       this.recoverySession = proof.sessionId;
       this.changed();
     });

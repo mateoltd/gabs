@@ -1,3 +1,8 @@
+import { LocalProfileUnlock } from "./profile-unlock";
+import {
+  localUnlockStatus,
+  type LocalUnlockStatus,
+} from "@suite/client/local-unlock";
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { ProfileRecovery } from "./profile-recovery";
 import { LocalActions } from "./actions";
@@ -22,6 +27,7 @@ import {
   listLocalProfiles,
   createLocalProfile,
   unlockLocalProfile,
+  unlockLocalProfileWith,
   removeLocalProfile,
   subscribeLocalProfiles,
   type LocalSession,
@@ -59,6 +65,27 @@ export function LocalWorkspace({
     [busy, setBusy] = useState(false),
     [removing, setRemoving] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [unlockMethod, setUnlockMethod] = useState<"passphrase" | "pin">(
+    "passphrase",
+  );
+  const [unlockStatus, setUnlockStatus] = useState<LocalUnlockStatus>();
+  const [unlockNotice, setUnlockNotice] = useState("");
+  useEffect(() => {
+    let current = true;
+    setUnlockStatus(undefined);
+    setUnlockMethod("passphrase");
+    if (id && !session)
+      void localUnlockStatus(id, localProfiles.unlockProtection)
+        .then((value) => {
+          if (current) setUnlockStatus(value);
+        })
+        .catch((error) => {
+          if (current) setError(error);
+        });
+    return () => {
+      current = false;
+    };
+  }, [id, session, localProfiles]);
   const unlockEpoch = useRef(0);
   const activeSession = useRef<LocalSession | undefined>(undefined);
   const selectedProfileId = useRef("");
@@ -216,7 +243,9 @@ export function LocalWorkspace({
       activeSession.current = undefined;
     };
   }, []);
-  async function signIn() {
+  async function signIn(
+    method: "passphrase" | "pin" | "biometric" = unlockMethod,
+  ) {
     if (pendingSignIn.current) return;
     pendingSignIn.current = true;
     setBusy(true);
@@ -225,7 +254,9 @@ export function LocalWorkspace({
     try {
       const epoch = unlockEpoch.current;
       next = id
-        ? await unlockLocalProfile(id, password, localProfiles)
+        ? method === "passphrase"
+          ? await unlockLocalProfile(id, password, localProfiles)
+          : await unlockLocalProfileWith(id, method, password, localProfiles)
         : await createLocalProfile(name, password, localProfiles);
       if (epoch !== unlockEpoch.current || next.locked) {
         next.lock();
@@ -239,6 +270,7 @@ export function LocalWorkspace({
       setSession(next);
       next = undefined;
       setPassword("");
+      setUnlockNotice("");
     } catch (e) {
       next?.lock();
       setError(e);
@@ -261,6 +293,7 @@ export function LocalWorkspace({
         description="Standalone work saved on this device. Company data remains separate."
       />
       <ErrorMessage error={error} />
+      {unlockNotice && <p role="status">{unlockNotice}</p>}
       {!session ? (
         <form
           className="form-stack local-profile-form"
@@ -296,20 +329,64 @@ export function LocalWorkspace({
               />
             </Field>
           )}
-          <Field label="Passphrase">
+          <Field
+            label={id && unlockMethod === "pin" ? "Profile PIN" : "Passphrase"}
+          >
             <Input
               value={password}
               type="password"
-              minLength={12}
+              minLength={id && unlockMethod === "pin" ? 8 : 12}
+              maxLength={id && unlockMethod === "pin" ? 12 : undefined}
+              inputMode={id && unlockMethod === "pin" ? "numeric" : undefined}
+              pattern={id && unlockMethod === "pin" ? "[0-9]{8,12}" : undefined}
               required
-              autoComplete={id ? "current-password" : "new-password"}
+              autoComplete={
+                id && unlockMethod === "pin"
+                  ? "off"
+                  : id
+                    ? "current-password"
+                    : "new-password"
+              }
               onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
           <p>
-            Use at least 12 characters. Losing the passphrase means losing
-            access to this local profile.
+            {id && unlockMethod === "pin"
+              ? "Enter your PIN of 8 to 12 digits. Your passphrase remains available for recovery."
+              : "Use at least 12 characters. Keep your passphrase to recover this local profile if quick unlock is lost."}
           </p>
+          {id && unlockStatus?.enabled && (
+            <div className="actions">
+              <Button
+                type="button"
+                disabled={
+                  busy ||
+                  (unlockMethod === "passphrase" && !unlockStatus.available)
+                }
+                onClick={() => {
+                  unlockEpoch.current++;
+                  setPassword("");
+                  setError(undefined);
+                  setUnlockMethod((value) =>
+                    value === "pin" ? "passphrase" : "pin",
+                  );
+                }}
+              >
+                {unlockMethod === "pin"
+                  ? "Use passphrase instead"
+                  : "Use PIN instead"}
+              </Button>
+              {unlockStatus.biometric && unlockStatus.biometricAvailable && (
+                <Button
+                  type="button"
+                  disabled={busy || !unlockStatus.available}
+                  onClick={() => void signIn("biometric")}
+                >
+                  Use Touch ID
+                </Button>
+              )}
+            </div>
+          )}
           <Button type="submit" variant="primary" disabled={busy}>
             {id ? "Unlock profile" : "Create profile"}
           </Button>
@@ -401,6 +478,15 @@ export function LocalWorkspace({
             >
               Export data
             </Button>
+            <LocalProfileUnlock
+              id={session.id}
+              onSaved={() => {
+                selectProfile(session.id);
+                setUnlockNotice(
+                  "Quick unlock settings saved. Unlock your profile to continue.",
+                );
+              }}
+            />
             <LocalModules
               session={session}
               registry={registry}

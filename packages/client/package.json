@@ -31,7 +31,8 @@
     "./profile-lock": "./src/identity/profile-lock.ts",
     "./browser-profile-lock": "./src/adapters/browser-profile-lock.ts",
     "./online-profiles": "./src/identity/online-profiles.ts",
-    "./online-profile-store": "./src/adapters/online-profiles.ts"
+    "./online-profile-store": "./src/adapters/online-profiles.ts",
+    "./local-unlock": "./src/identity/local-vault/unlock.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

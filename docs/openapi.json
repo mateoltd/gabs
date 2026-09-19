@@ -70,6 +70,33 @@
         }
       }
     },
+    "/api/v1/identity/recovery-clock": {
+      "get": {
+        "operationId": "profileRecoveryClock",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "now"
+                  ],
+                  "properties": {
+                    "now": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/recovery": {
       "get": {
         "operationId": "profileRecovery",

@@ -42,6 +42,17 @@ it("issues account-bound recovery evidence only for recent verified MFA sessions
       .selectAll()
       .where("token_hash", "=", hashToken(session.token))
       .executeTakeFirstOrThrow();
+    const clock = await server.app.inject({
+      method: "GET",
+      url: "/api/v1/identity/recovery-clock",
+    });
+    expect(clock.statusCode).toBe(200);
+    expect(clock.headers["cache-control"]).toBe("no-store");
+    expect(clock.headers["x-suite-actor"]).toBeUndefined();
+    expect(Object.keys(clock.json())).toEqual(["now"]);
+    expect(Date.parse(clock.json().now)).toBeGreaterThanOrEqual(
+      before.created_at.getTime(),
+    );
     const result = await request();
     expect(result.statusCode).toBe(200);
     expect(result.headers["cache-control"]).toBe("no-store");

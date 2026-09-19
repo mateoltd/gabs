@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { createHash, randomBytes } from "node:crypto";
 import * as oidc from "openid-client";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -93,6 +94,7 @@ export function authentication(
           "s.mfa",
           "s.created_at",
         ])
+        .select(sql<Date>`clock_timestamp()`.as("observed_at"))
         .where("s.token_hash", "=", hashToken(token))
         .where("s.expires_at", ">", new Date())
         .executeTakeFirst();
@@ -112,6 +114,7 @@ export function authentication(
         authentication: {
           sessionId: hashToken(`profile-recovery:${row.csrf_token}`),
           authenticatedAt: row.created_at.toISOString(),
+          observedAt: row.observed_at.getTime(),
         },
       };
     },
@@ -125,7 +128,7 @@ export function authentication(
       const authenticatedAt = actor.authentication
         ? Date.parse(actor.authentication.authenticatedAt)
         : NaN;
-      const now = Date.now();
+      const now = actor.authentication?.observedAt ?? Date.now();
       requireCondition(
         actor.authentication &&
           Number.isFinite(authenticatedAt) &&
@@ -137,7 +140,8 @@ export function authentication(
       );
       return {
         userId: actor.id,
-        ...actor.authentication,
+        sessionId: actor.authentication.sessionId,
+        authenticatedAt: actor.authentication.authenticatedAt,
         expiresAt: new Date(authenticatedAt + 5 * 60_000).toISOString(),
       };
     },

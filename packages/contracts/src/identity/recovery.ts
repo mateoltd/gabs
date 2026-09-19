@@ -11,3 +11,9 @@ export const ProfileRecoverySchema = Type.Object(
   { additionalProperties: false },
 );
 export type ProfileRecovery = Static<typeof ProfileRecoverySchema>;
+
+/** Database clock used to order recovery intent against session issuance. No identity or credential data. */
+export const ProfileRecoveryClockSchema = Type.Object(
+  { now: Type.String({ format: "date-time" }) },
+  { additionalProperties: false },
+);

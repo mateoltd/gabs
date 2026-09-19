@@ -1,5 +1,6 @@
 import { LocalExecutionError } from "@suite/module-sdk/local";
 import { openDB, type DBSchema } from "idb";
+import type { LocalUnlockCredential } from "./contracts";
 
 export interface LocalVault {
   id: string;
@@ -10,6 +11,7 @@ export interface LocalVault {
   updatedAt: number;
   revision?: number;
   removedAt?: number;
+  unlock?: LocalUnlockCredential;
 }
 
 interface LocalVaultDatabase extends DBSchema {

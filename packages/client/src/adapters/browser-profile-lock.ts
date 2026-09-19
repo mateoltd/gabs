@@ -36,6 +36,11 @@ export function createBrowserProfileLock() {
       await navigator.locks.request(`suite-profile-lock:${account}`, run),
     changed: (account) => channel.postMessage(account),
     recovery: () => new SuiteClient().request({ operation: "profileRecovery" }),
+    clock: async () =>
+      Date.parse(
+        (await new SuiteClient().request({ operation: "profileRecoveryClock" }))
+          .now,
+      ),
   });
   channel.onmessage = (event: MessageEvent<unknown>) => {
     if (typeof event.data === "string") void lock.refresh(event.data);
@@ -69,7 +74,8 @@ export function browserProfileRecovery(): PendingRecovery | undefined {
       typeof value.id === "string" &&
       typeof value.challenge?.account === "string" &&
       typeof value.challenge.snapshot === "string" &&
-      Number.isSafeInteger(value.challenge.startedAt)
+      Number.isSafeInteger(value.challenge.startedAt) &&
+      Number.isSafeInteger(value.challenge.serverStartedAt)
     )
       return value;
   } catch {

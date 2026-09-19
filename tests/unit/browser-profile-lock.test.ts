@@ -43,6 +43,7 @@ function fixture() {
     changed: () => {},
     now: () => now,
     recovery: async () => structuredClone(proof),
+    clock: async () => now,
   };
   return {
     lock: new BrowserProfileLock(host),
@@ -322,3 +323,37 @@ it("does not grant an older recovery after a new sign-in intent starts", async (
     canRecover: false,
   });
 });
+
+it.each([-3_600_000, 3_600_000])(
+  "orders recovery on the server clock with a %s ms browser offset and keeps prior sessions rejected",
+  async (localOffset) => {
+    const f = fixture();
+    f.host.now = () => Date.parse(f.proof().authenticatedAt) + localOffset;
+    await f.lock.activate(account);
+    await f.lock.configureProfileLock(pin, false);
+    await f.lock.lockProfile();
+    const challenge = await f.lock.beginRecovery();
+    expect(challenge.startedAt - challenge.serverStartedAt).toBe(localOffset);
+    await expect(f.lock.completeRecovery(challenge)).rejects.toThrow(
+      "Sign in again",
+    );
+    f.signIn();
+    await f.lock.completeRecovery(challenge);
+    expect(await f.lock.profileLockStatus()).toMatchObject({
+      locked: false,
+      canRecover: true,
+      recoveryExpiresAt: Date.parse(f.proof().expiresAt) + localOffset,
+    });
+    await f.lock.lockProfile();
+    const newer = await f.lock.beginRecovery();
+    f.host.recovery = async () => ({
+      ...f.proof(),
+      sessionId: "d".repeat(64),
+      authenticatedAt: new Date(newer.serverStartedAt - 1).toISOString(),
+      expiresAt: new Date(newer.serverStartedAt - 1 + 300000).toISOString(),
+    });
+    await expect(f.lock.completeRecovery(newer)).rejects.toThrow(
+      "Sign in again",
+    );
+  },
+);

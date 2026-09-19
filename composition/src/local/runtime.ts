@@ -11,6 +11,10 @@ export const localWorkerFactory: LocalWorkerFactory = () =>
 export const localProfileRuntime: LocalProfileRuntime = Object.freeze({
   catalog: moduleCatalog,
   workerFactory: localWorkerFactory,
+  unlockProtection:
+    typeof window === "undefined"
+      ? undefined
+      : window.suiteDesktop?.localUnlock,
 });
 
 export const createLocalWorkerHost = () =>

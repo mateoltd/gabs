@@ -963,3 +963,8 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## Standalone vault architecture review, 20 September 2026
 
 [Delegated architecture acceptance](architecture/README.md#local-vault-checkpoint-review-20-september-2026) records checkpoint `5d7ee8a`, the Sol xhigh cleanup and independent parent review. The typed vault split preserves the passphrase data format and removes premature PIN-only schema/key changes. Verification passed 37 focused tests, strict checks/four fresh builds, seven selected headless browser journeys after correcting a baseline-confirmed stale expectation, and two hidden/minimized native restart journeys. Scoped accessibility checks and capture inspection passed. This does not implement standalone PIN/biometrics, complete ID-02 or accept final UI polish.
+
+
+## Standalone profile PIN and recovery clocks, 20 September 2026
+
+[ID-02-LOCAL evidence](local-profile-unlock/README.md) verifies encrypted PIN wrapping, passphrase recovery, persisted attempt limits, offline restart, cancellation, cross-tab locking and profile-removal fences. Native OS/biometric integration is implemented with bounded-IPC and controlled-provider checks; actual OS-protected PIN/restart and physical biometric acceptance remain open. The corporate regression also found and corrected a database/browser clock mismatch without relaxing fresh-session checks. Full regression passed 728 tests across 109 files, strict checks/four build targets, twelve distinct scoped browser journeys across correction runs, and minimized native acceptance. Wide/narrow/native captures were inspected. Full-file desktop encryption and utility-process standalone key custody remain ID-03; overall parity and UI refinement remain open.

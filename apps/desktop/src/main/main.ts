@@ -1,3 +1,4 @@
+import { NativeLocalUnlock } from "./identity/local-unlock";
 import { NativeProfileLock } from "./identity/profile-lock";
 import { NativeInputRecovery } from "./input-recovery";
 import { validateRecoveryInput } from "@suite/client/input-recovery";
@@ -812,7 +813,46 @@ async function profileAction(run: () => void | Promise<void>) {
     };
   }
 }
+const localUnlock = new NativeLocalUnlock({
+  available: secureAvailable,
+  biometricAvailable: () =>
+    process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+  biometric: () =>
+    systemPreferences.promptTouchID("unlock your local Common profile"),
+  encrypt: async (value) => {
+    if (!(await safeStorage.isAsyncEncryptionAvailable()))
+      throw Error("Protected storage is unavailable. Use your passphrase.");
+    return safeStorage.encryptStringAsync(value);
+  },
+  decrypt: async (value) => {
+    if (!(await safeStorage.isAsyncEncryptionAvailable()))
+      throw Error("Protected storage is unavailable. Use your passphrase.");
+    return (await safeStorage.decryptStringAsync(Buffer.from(value))).result;
+  },
+});
+async function localUnlockAction<T>(run: () => Promise<T>) {
+  try {
+    return { ok: true, result: await run() };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Local unlock failed.",
+    };
+  }
+}
 function handlers() {
+  ipcMain.handle("suite:local-unlock-status", (event) => {
+    sender(event, true);
+    return localUnlock.status();
+  });
+  ipcMain.handle("suite:local-unlock-seal", (event, binding, value) => {
+    sender(event, true);
+    return localUnlockAction(() => localUnlock.seal(binding, value));
+  });
+  ipcMain.handle("suite:local-unlock-open", (event, binding, value) => {
+    sender(event, true);
+    return localUnlockAction(() => localUnlock.open(binding, value));
+  });
   ipcMain.handle("suite:profile-lock-status", (event) => {
     sender(event, true);
     return profileLock.status();

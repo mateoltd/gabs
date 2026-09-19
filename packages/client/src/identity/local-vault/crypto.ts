@@ -1,6 +1,11 @@
 import type { LocalVault } from "./store";
 
-export async function derive(password: string, salt: Uint8Array) {
+export async function derive(
+  password: string,
+  salt: Uint8Array,
+  extractable = false,
+  usages: KeyUsage[] = ["encrypt", "decrypt"],
+) {
   const material = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -17,8 +22,8 @@ export async function derive(password: string, salt: Uint8Array) {
     },
     material,
     { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
+    extractable,
+    usages,
   );
 }
 
@@ -38,26 +43,34 @@ export const encrypt = (
     new TextEncoder().encode(JSON.stringify(value)),
   );
 
-export async function decryptVault<T>(vault: LocalVault, password: string) {
+export async function decryptVault<T>(
+  vault: LocalVault,
+  password: string,
+  extractable = false,
+) {
   try {
-    const key = await derive(password, vault.salt);
-    const bytes = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: vault.iv as Uint8Array<ArrayBuffer>,
-        additionalData: new TextEncoder().encode(vault.id),
-      },
-      key,
-      vault.ciphertext,
-    );
-    return {
-      vault,
-      key,
-      data: JSON.parse(new TextDecoder().decode(bytes)) as T,
-    };
+    const key = await derive(password, vault.salt, extractable);
+    const data = await decryptWithKey<T>(vault, key);
+    return { vault, key, data };
   } catch {
     throw Error(
       "The local profile could not be unlocked. Check the passphrase.",
     );
   }
+}
+
+export async function decryptWithKey<T>(
+  vault: LocalVault,
+  key: CryptoKey,
+): Promise<T> {
+  const bytes = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: vault.iv as Uint8Array<ArrayBuffer>,
+      additionalData: new TextEncoder().encode(vault.id),
+    },
+    key,
+    vault.ciphertext,
+  );
+  return JSON.parse(new TextDecoder().decode(bytes)) as T;
 }

@@ -17,6 +17,13 @@ async function recover<Result>(
   return response.result;
 }
 const bridge: DesktopBridge = {
+  localUnlock: {
+    status: () => ipcRenderer.invoke("suite:local-unlock-status"),
+    seal: (binding, bytes) =>
+      recover("suite:local-unlock-seal", binding, bytes),
+    open: (binding, sealed) =>
+      recover("suite:local-unlock-open", binding, sealed),
+  },
   profileLockStatus: () => ipcRenderer.invoke("suite:profile-lock-status"),
   onProfileLock: (callback) => {
     const listener = (

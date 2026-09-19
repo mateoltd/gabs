@@ -411,6 +411,22 @@ export async function createApp(
     },
   );
   app.get(
+    "/api/v1/identity/recovery-clock",
+    {
+      config: { public: true },
+      schema: {
+        operationId: "profileRecoveryClock",
+        response: { 200: S.ProfileRecoveryClockSchema },
+      },
+    },
+    async () => {
+      const result = await sql<{
+        now: Date;
+      }>`select clock_timestamp() as now`.execute(db);
+      return { now: result.rows[0].now.toISOString() };
+    },
+  );
+  app.get(
     "/api/v1/identity/recovery",
     {
       schema: {

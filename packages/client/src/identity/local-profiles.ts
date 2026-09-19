@@ -1,3 +1,7 @@
+import {
+  unlockLocalVault,
+  type LocalUnlockProtection,
+} from "./local-vault/unlock";
 import type {
   ModuleCall,
   ModuleDefinition,
@@ -52,6 +56,7 @@ import {
 export interface LocalProfileRuntime {
   catalog: ModuleCatalog;
   workerFactory: LocalWorkerFactory;
+  unlockProtection?: LocalUnlockProtection;
 }
 export { localReferenceAccess, localServiceAccess } from "./local-access";
 export { localCapabilityAccess } from "./local-capabilities";
@@ -1373,6 +1378,24 @@ export async function unlockLocalProfile(
   runtime: LocalProfileRuntime,
 ) {
   const { vault, key, data } = await unlockVault<LocalData>(id, password);
+  return session(vault, key, data, runtime);
+}
+
+export async function unlockLocalProfileWith(
+  id: string,
+  method: "pin" | "biometric",
+  pin: string,
+  runtime: LocalProfileRuntime,
+  signal?: AbortSignal,
+) {
+  const { vault, key, data } = await unlockLocalVault<LocalData>(
+    id,
+    method,
+    pin,
+    runtime.unlockProtection,
+    signal,
+  );
+  signal?.throwIfAborted();
   return session(vault, key, data, runtime);
 }
 

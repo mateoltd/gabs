@@ -1,3 +1,7 @@
+export type {
+  LocalUnlockBinding,
+  LocalUnlockProtection,
+} from "./identity/local-vault/contracts";
 import type {
   Bootstrap,
   DraftInput,
@@ -113,6 +117,7 @@ export interface LanReceipt {
   message: string;
 }
 export interface DesktopBridge extends ProfileLockBridge {
+  localUnlock: import("./identity/local-vault/contracts").LocalUnlockProtection;
   onlineProfiles(): Promise<
     import("./identity/online-profiles").OnlineProfile[]
   >;
