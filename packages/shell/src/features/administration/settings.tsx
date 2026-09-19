@@ -83,10 +83,14 @@ export function Settings(
               (!props.online && !offlineEnabled)
             }
             onClick={async () => {
+              setError(undefined);
+              setBusy(true);
               try {
                 await toggleOffline();
               } catch (e) {
                 setError(e);
+              } finally {
+                setBusy(false);
               }
             }}
           >

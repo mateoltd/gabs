@@ -3,6 +3,10 @@ import type { Bootstrap } from "../../packages/contracts/src";
 import type { Platform, Scope, Snapshot } from "../../packages/client/src";
 import { moduleCatalog } from "@suite/module-catalog";
 import { WorkspacePolicy } from "../../packages/shell/src/features/administration/policy";
+import {
+  assertWorkspacePurgeable,
+  disabledWorkspaceAuthority,
+} from "../../packages/client/src/offline/storage-retention";
 const scope = { userId: "owner", workspaceId: "company" };
 const policy: Bootstrap = {
   workspace: {
@@ -51,6 +55,21 @@ function fixture() {
     save: async (s: Scope, key: string, value: unknown) => {
       disk.set(JSON.stringify([s, key]), structuredClone(value));
     },
+    purgeWorkspace: async (s: Scope) => {
+      const read = (key: string) => disk.get(JSON.stringify([s, key]));
+      assertWorkspacePurgeable({
+        drafts: read("drafts"),
+        pending: read("pending"),
+        modules: read("module-state"),
+      });
+      for (const key of disk.keys())
+        if (JSON.stringify(JSON.parse(key)[0]) === JSON.stringify(s))
+          disk.delete(key);
+      disk.set(
+        JSON.stringify([s, "workspace-authority"]),
+        disabledWorkspaceAuthority(),
+      );
+    },
   } as unknown as Platform;
   return {
     platform,
@@ -67,6 +86,62 @@ function gate() {
   });
   return { promise, release };
 }
+
+it("storage opt-out survives new authorization and rejects pre-disable writers until explicit enabling", async () => {
+  const f = fixture(),
+    first = f.session(),
+    other = f.session();
+  await authorize(first);
+  await authorize(other);
+  await first.save(snapshot);
+  const delayed = await other.begin();
+  await first.disableStorage();
+  expect(await first.load()).toBeUndefined();
+  expect(first.storageDisabled).toBe(true);
+  await expect(other.accept(policy, delayed)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  await expect(other.save(snapshot)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  const fresh = f.session();
+  await authorize(fresh);
+  expect(fresh.storageDisabled).toBe(true);
+  await expect(fresh.save(snapshot)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  await fresh.revoke();
+  await authorize(fresh);
+  expect(fresh.storageDisabled).toBe(true);
+  await fresh.enableStorage();
+  await fresh.save(snapshot);
+  expect((await f.session().load())?.expiresAt).toBe(snapshot.expiresAt);
+});
+
+it("a refused storage purge preserves authority and broadcasts no disable event", async () => {
+  const f = fixture(),
+    session = f.session();
+  await authorize(session);
+  await session.save(snapshot);
+  const input = [{ key: "uncertain-online-attempt" }];
+  await f.platform.save(scope, "pending", input);
+  const notified = vi.fn();
+  const stop = session.subscribe(notified);
+  try {
+    await expect(session.disableStorage()).rejects.toThrow(
+      "Resolve pending changes",
+    );
+    expect(session.denied).toBe(false);
+    expect(session.storageDisabled).toBe(false);
+    expect(notified).not.toHaveBeenCalled();
+    expect(await f.platform.load(scope, "pending")).toEqual(input);
+    expect(await session.load()).toMatchObject({
+      expiresAt: snapshot.expiresAt,
+    });
+  } finally {
+    stop();
+  }
+});
 
 it("keeps session-only authority and fresh online policy from opting into storage", async () => {
   const f = fixture(),
@@ -185,7 +260,7 @@ it("broadcasts denial only to the same account and workspace", async () => {
   });
   let stopSecond = () => {};
   const received = new Promise<void>((resolve) => {
-    stopSecond = second.subscribe(resolve);
+    stopSecond = second.subscribe(() => resolve());
   });
   try {
     await first.revoke();

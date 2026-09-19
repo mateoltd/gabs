@@ -125,6 +125,8 @@ const empty = (): ModuleStorage => ({
 });
 const lockKey = (scope: Scope) =>
   `suite-modules:${scope.userId}:${scope.workspaceId}`;
+export const withModuleStorageLock = <T>(scope: Scope, run: () => Promise<T>) =>
+  navigator.locks.request(lockKey(scope), run);
 async function readUnlocked(platform: Platform, scope: Scope) {
   const stored = await platform.load<StoredModuleState>(scope, "module-state");
   const state = stored
@@ -145,9 +147,7 @@ async function readUnlocked(platform: Platform, scope: Scope) {
   return state;
 }
 export async function readModuleStorage(platform: Platform, scope: Scope) {
-  return navigator.locks.request(lockKey(scope), () =>
-    readUnlocked(platform, scope),
-  );
+  return withModuleStorageLock(scope, () => readUnlocked(platform, scope));
 }
 export async function changeModuleStorage(
   platform: Platform,
@@ -178,7 +178,7 @@ export async function changeModuleStorage(
     await platform.save(scope, "module-state", stored);
     return state;
   };
-  return navigator.locks.request(lockKey(scope), change);
+  return withModuleStorageLock(scope, change);
 }
 /** Save one review independently; stale windows cannot resurrect a replaced request. */
 export async function saveResourceDraft(

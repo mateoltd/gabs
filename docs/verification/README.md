@@ -912,3 +912,8 @@ Nine focused policy checks, 646 isolated unit/PostgreSQL tests, strict checks/fo
 ## 19 September 2026 — Workspace transition recovery
 
 [OFF-02-LEASES-WORKSPACE](workspace-transition/README.md) records the failing-before/passing-after late-writer regression, two real company workspaces, offline restart and server-verified isolated recovery. Twenty-two focused tests, strict checks/four fresh builds and nine distinct headless journeys across affected runs pass. The offline capture was inspected. Corporate protected native acceptance and atomic offline-storage disable/capture remain required.
+
+
+## 19 September 2026 — Atomic offline-storage disable
+
+[OFF-02-LEASES-STORAGE](storage-disable/README.md): 665 unit/PostgreSQL tests across 98 files, final strict checks/four builds, six headless browser journeys and two inspected Settings captures. Two integration tests execute the actual encrypted SQLite worker. Corporate protected native acceptance remains open; this is scoped engineering/browser evidence.

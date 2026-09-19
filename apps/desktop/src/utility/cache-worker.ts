@@ -3,7 +3,32 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { verifyLanPackage } from "./lan-package";
 import type { ArtifactTransfer } from "@suite/module-sdk/relay-artifacts";
 import type { ArtifactMetadata } from "@suite/module-sdk/platform";
+import {
+  assertWorkspacePurgeable,
+  assertWorkspaceCacheWrite,
+  disabledWorkspaceAuthority,
+  StorageRetentionError,
+} from "@suite/client/storage-retention";
 let db: DatabaseSync | undefined, key: Buffer | undefined;
+function write(cacheKey: string, value: unknown) {
+  const iv = randomBytes(12),
+    cipher = createCipheriv("aes-256-gcm", key!, iv);
+  cipher.setAAD(Buffer.from(cacheKey));
+  const encrypted = Buffer.concat([
+    cipher.update(JSON.stringify(value), "utf8"),
+    cipher.final(),
+  ]);
+  db!
+    .prepare(
+      "INSERT INTO cache(key,payload) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
+    )
+    .run(cacheKey, Buffer.concat([iv, cipher.getAuthTag(), encrypted]));
+}
+function purge(prefix: string) {
+  db!
+    .prepare("DELETE FROM cache WHERE key LIKE ? ESCAPE '\\'")
+    .run(prefix.replace(/[\\%_]/g, "\\$&") + "/%");
+}
 function read(cacheKey: string): unknown {
   const row = db!
     .prepare("SELECT payload FROM cache WHERE key=?")
@@ -27,6 +52,7 @@ process.parentPort.on("message", async (event) => {
       | "read"
       | "write"
       | "purge"
+      | "purge-workspace"
       | "prune-artifacts"
       | "verify-lan-package";
     path?: string;
@@ -55,16 +81,36 @@ process.parentPort.on("message", async (event) => {
       throw Error("Invalid cache key.");
     let value: unknown;
     if (message.action === "write") {
-      const iv = randomBytes(12),
-        cipher = createCipheriv("aes-256-gcm", key, iv);
-      cipher.setAAD(Buffer.from(message.key));
-      const encrypted = Buffer.concat([
-        cipher.update(JSON.stringify(message.value), "utf8"),
-        cipher.final(),
-      ]);
-      db.prepare(
-        "INSERT INTO cache(key,payload) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
-      ).run(message.key, Buffer.concat([iv, cipher.getAuthTag(), encrypted]));
+      const [userId, workspaceId, kind, rest] = message.key.split("/");
+      if (workspaceId && kind && !rest)
+        assertWorkspaceCacheWrite(
+          read(`${userId}/${workspaceId}/workspace-authority`),
+          kind,
+          message.value,
+        );
+      write(message.key, message.value);
+      value = true;
+    } else if (message.action === "purge-workspace") {
+      if (message.key.split("/").length !== 2)
+        throw Error("A workspace scope is required.");
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        assertWorkspacePurgeable({
+          drafts: read(`${message.key}/drafts`),
+          pending: read(`${message.key}/pending`),
+          modules: read(`${message.key}/module-state`),
+          inbox: read(`${message.key}/relay-inbox`),
+        });
+        purge(message.key);
+        write(
+          `${message.key}/workspace-authority`,
+          disabledWorkspaceAuthority(),
+        );
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
       value = true;
     } else if (message.action === "read") {
       value = read(message.key);
@@ -90,17 +136,18 @@ process.parentPort.on("message", async (event) => {
         throw error;
       }
       value = true;
-    } else {
-      db.prepare("DELETE FROM cache WHERE key LIKE ? ESCAPE '\\'").run(
-        message.key.replace(/[\\%_]/g, "\\$&") + "/%",
-      );
+    } else if (message.action === "purge") {
+      purge(message.key);
       value = true;
-    }
+    } else throw Error("Unknown storage operation.");
     process.parentPort.postMessage({ id: message.id, value });
-  } catch {
+  } catch (error) {
     process.parentPort.postMessage({
       id: message.id,
-      error: "Protected storage operation failed.",
+      error:
+        error instanceof StorageRetentionError
+          ? error.message
+          : "Protected storage operation failed.",
     });
   }
 });

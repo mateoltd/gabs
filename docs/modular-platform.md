@@ -410,3 +410,8 @@ Corporate sign-out ends access and retains saved business data. Account revision
 ### Workspace transitions
 
 The shell cancels old remembered-workspace callbacks when their scoped screen closes and rechecks callback currency inside the identity write lock. Authorized bootstrap metadata supplies the active workspace label after offline restart. [Workspace transition acceptance](verification/workspace-transition/README.md) preserves original pending work across two real companies and verifies one recovered server update. Native corporate acceptance and atomic local storage-disable/capture remain required.
+
+
+### Device offline-storage consent
+
+Disabling corporate offline storage checks retained drafts, requests, reviews and installation work in the same backend transaction that removes cached data and writes a new disabled authority generation. IndexedDB and encrypted SQLite reject late business-cache writes while that marker is set. Fresh authentication does not enable storage; the user must explicitly enable it under current online policy. Browser tabs receive disable immediately. Online retry identities and executable metadata retain their required durable storage. [Acceptance and remaining native gate](verification/storage-disable/README.md).

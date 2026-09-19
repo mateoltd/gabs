@@ -1,5 +1,6 @@
 import { NativeInputRecovery } from "./input-recovery";
 import { validateRecoveryInput } from "@suite/client/input-recovery";
+import { assertWorkspacePurgeable } from "@suite/client/storage-retention";
 import { downloadExport } from "./export-download";
 import { createLocalDeviceHost } from "./local-devices";
 import {
@@ -21,6 +22,7 @@ import {
   cacheRead,
   cacheWrite,
   cachePurge,
+  cachePurgeWorkspace,
   cachePruneArtifacts,
   cacheVerifyLanPackage,
 } from "../utility/cache-service";
@@ -1038,11 +1040,27 @@ function handlers() {
     const path = scope.workspaceId
       ? `${scope.userId}/${scope.workspaceId}`
       : scope.userId;
+    if (scope.workspaceId) {
+      if (!secureAvailable())
+        throw Error(
+          "Protected storage is unavailable. Unlock it before removing offline data.",
+        );
+      // Include retained legacy files and volatile online retry identities; the
+      // utility process independently checks current database rows atomically.
+      assertWorkspacePurgeable({
+        drafts: await readSecure(`${path}/drafts`),
+        pending: await readSecure(`${path}/pending`),
+        modules: await readSecure(`${path}/module-state`),
+      });
+      assertWorkspacePurgeable({ pending: volatile.get(`${path}/pending`) });
+      validateScope(scope, userId);
+    }
     if (secureAvailable()) {
+      await ensureCache();
+      if (scope.workspaceId) await cachePurgeWorkspace(path);
+      else await cachePurge(path);
       await nativeAuthority.purge(scope);
       await inputRecovery.purge(scope);
-      await ensureCache();
-      await cachePurge(path);
     }
     await rm(resolve(root(), path), { recursive: true, force: true });
     for (const key of volatile.keys())

@@ -11,6 +11,11 @@ import {
 import { hostCapabilitySchemas } from "@suite/module-sdk/host-capabilities";
 import { ApiError, type SuiteClient } from "../api";
 import { openDB } from "idb";
+import {
+  assertWorkspacePurgeable,
+  assertWorkspaceCacheWrite,
+  disabledWorkspaceAuthority,
+} from "../offline/storage-retention";
 import type { Platform, Scope, CacheKey, RememberedIdentity } from "../index";
 import { CorporateCapabilityLeases } from "../identity/capability-leases";
 const db = () =>
@@ -73,7 +78,22 @@ export const browserPlatform: Platform = {
     >;
   },
   async save(scope, kind, value) {
-    await (await db()).put("records", value, key(scope, kind));
+    const tx = (await db()).transaction("records", "readwrite");
+    try {
+      assertWorkspaceCacheWrite(
+        await tx.store.get(key(scope, "workspace-authority")),
+        kind,
+        value,
+      );
+      await tx.store.put(value, key(scope, kind));
+      await tx.done;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      await tx.done.catch(() => {});
+      throw error;
+    }
   },
   async pruneModuleArtifacts(scope, keep) {
     const store = await db();
@@ -90,10 +110,27 @@ export const browserPlatform: Platform = {
     await withLeaseTrust(async () => {
       const store = await db();
       const tx = store.transaction("records", "readwrite");
-      for (const k of await tx.store.getAllKeys())
-        if (String(k).startsWith(`${scope.userId}/${scope.workspaceId}/`))
-          await tx.store.delete(k);
-      await tx.done;
+      try {
+        assertWorkspacePurgeable({
+          drafts: await tx.store.get(key(scope, "drafts")),
+          pending: await tx.store.get(key(scope, "pending")),
+          modules: await tx.store.get(key(scope, "module-state")),
+        });
+        for (const k of await tx.store.getAllKeys())
+          if (String(k).startsWith(`${scope.userId}/${scope.workspaceId}/`))
+            await tx.store.delete(k);
+        await tx.store.put(
+          disabledWorkspaceAuthority(),
+          key(scope, "workspace-authority"),
+        );
+        await tx.done;
+      } catch (error) {
+        try {
+          tx.abort();
+        } catch {}
+        await tx.done.catch(() => {});
+        throw error;
+      }
     });
   },
   async purgeUser(userId) {

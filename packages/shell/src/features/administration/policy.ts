@@ -6,6 +6,7 @@ import {
   type Snapshot,
 } from "@suite/client";
 import type { ModuleCatalog } from "@suite/module-sdk/catalog";
+import { withModuleStorageLock } from "@suite/client/module-storage";
 
 /** An older reply may arrive after a newer notification or explicit refresh. */
 export function newerPolicy(
@@ -51,7 +52,9 @@ export function snapshotWithPolicy(
 interface Authority {
   generation: string;
   denied: boolean;
+  storageDisabled?: boolean;
 }
+type PolicyChange = "revoked" | "storage-disabled";
 export interface PolicyRequest extends Readonly<Scope> {
   readonly generation: string;
   readonly epoch: number;
@@ -73,6 +76,10 @@ const obsolete = () =>
 export class WorkspacePolicy {
   private currentPolicy: Bootstrap | undefined;
   private accessDenied = false;
+  private disabledStorage = false;
+  get storageDisabled() {
+    return this.disabledStorage;
+  }
   get policy() {
     return this.currentPolicy;
   }
@@ -82,7 +89,7 @@ export class WorkspacePolicy {
   private epoch = 0;
   private accepted: PolicyRequest | undefined;
   private channel: BroadcastChannel | undefined;
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(reason: PolicyChange) => void>();
   constructor(
     private platform: Platform,
     private scope: Scope,
@@ -103,14 +110,18 @@ export class WorkspacePolicy {
     if (stored) {
       if (
         typeof stored.generation !== "string" ||
-        typeof stored.denied !== "boolean"
+        typeof stored.denied !== "boolean" ||
+        (stored.storageDisabled !== undefined &&
+          typeof stored.storageDisabled !== "boolean")
       )
         throw Error(
           "Saved workspace authorization is invalid. Reauthenticate before recovery.",
         );
+      this.disabledStorage = stored.storageDisabled === true;
       return stored;
     }
     // A session-only device needs no persistent write before online authentication.
+    this.disabledStorage = false;
     return { generation: "initial", denied: false };
   }
   private async check(
@@ -137,20 +148,22 @@ export class WorkspacePolicy {
       throw Error("Offline snapshot belongs to a different workspace.");
     return value ?? undefined;
   }
-  private revokeMemory() {
+  private revokeMemory(reason: PolicyChange = "revoked") {
     this.epoch++;
     this.accessDenied = true;
     this.accepted = undefined;
-    for (const listener of this.listeners) listener();
+    if (reason === "storage-disabled") this.disabledStorage = true;
+    for (const listener of this.listeners) listener(reason);
   }
-  subscribe(listener: () => void) {
+  subscribe(listener: (reason: PolicyChange) => void) {
     this.listeners.add(listener);
     if (!this.channel && typeof BroadcastChannel !== "undefined") {
       this.channel = new BroadcastChannel(
         `suite-policy:${this.scope.userId}:${this.scope.workspaceId}`,
       );
       this.channel.onmessage = (event) => {
-        if (event.data === "revoked") this.revokeMemory();
+        if (event.data === "revoked" || event.data === "storage-disabled")
+          this.revokeMemory(event.data);
       };
     }
     return () => {
@@ -178,6 +191,10 @@ export class WorkspacePolicy {
     return this.exclusive(async () => {
       const authority = await this.authority();
       const snapshot = await this.snapshot();
+      if (authority.storageDisabled) {
+        this.accessDenied = authority.denied;
+        return undefined;
+      }
       if (
         authority.denied ||
         (snapshot &&
@@ -212,7 +229,7 @@ export class WorkspacePolicy {
         : snapshot?.bootstrap;
       const next = newerPolicy(current, candidate);
       await this.check(authority, ticket, signal);
-      if (snapshot)
+      if (snapshot && !authority.storageDisabled)
         await this.platform.save(this.scope, "snapshot", {
           ...snapshotWithPolicy(snapshot, this.catalog, next),
           accountRevision: ticket.accountRevision,
@@ -238,6 +255,7 @@ export class WorkspacePolicy {
       await this.check(authority, ticket);
       if (
         authority.denied ||
+        authority.storageDisabled ||
         snapshot.bootstrap.workspace.id !== this.scope.workspaceId
       )
         throw obsolete();
@@ -257,14 +275,46 @@ export class WorkspacePolicy {
   revoke(): Promise<void> {
     this.revokeMemory();
     return this.exclusive(async () => {
+      const authority = await this.authority();
       await this.platform.save(this.scope, "workspace-authority", {
+        ...authority,
         generation: crypto.randomUUID(),
         denied: true,
       });
       this.channel?.postMessage("revoked");
       const snapshot = await this.snapshot();
-      if (snapshot)
+      if (snapshot && !authority.storageDisabled)
         await this.platform.save(this.scope, "snapshot", expired(snapshot));
+    });
+  }
+  async disableStorage() {
+    // Same order as snapshot writers, then module/draft writers. The backend
+    // checks pending work and installs the durable opt-out in one transaction.
+    await this.exclusive(() =>
+      withModuleStorageLock(this.scope, () =>
+        navigator.locks.request(
+          `drafts:${this.scope.userId}:${this.scope.workspaceId}`,
+          () => this.platform.purgeWorkspace(this.scope),
+        ),
+      ),
+    );
+    this.revokeMemory("storage-disabled");
+    this.channel?.postMessage("storage-disabled");
+  }
+  async enableStorage() {
+    const ticket = this.accepted;
+    if (!ticket || this.accessDenied || !this.currentPolicy?.offlineHours)
+      throw obsolete();
+    await this.exclusive(async () => {
+      const authority = await this.authority();
+      await this.check(authority, ticket);
+      if (authority.denied) throw obsolete();
+      await this.platform.save(this.scope, "workspace-authority", {
+        ...authority,
+        storageDisabled: false,
+      });
+      await this.check(authority, ticket);
+      this.disabledStorage = false;
     });
   }
 }

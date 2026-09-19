@@ -250,6 +250,10 @@ export function Workspace({
     signal?: AbortSignal,
   ) => {
     const next = await policySession.accept(candidate, request, signal);
+    if (policySession.storageDisabled) {
+      setOfflineEnabled(false);
+      setCached(undefined);
+    }
     const changed = next !== latestPolicy.current;
     if (changed) cachePolicyEpoch.current++;
     latestPolicy.current = next;
@@ -418,16 +422,28 @@ export function Workspace({
   );
   useEffect(
     () =>
-      policySession.subscribe(() => {
+      policySession.subscribe((reason) => {
         cachePolicyEpoch.current++;
         setPolicyDenied(true);
         setValidatedOnline(false);
+        if (reason === "storage-disabled") {
+          setOfflineEnabled(false);
+          setCached(undefined);
+        }
         setCached((previous) =>
           previous
             ? { ...previous, expiresAt: 0, products: [], orders: [] }
             : previous,
         );
-        void qc.cancelQueries({ queryKey: [user.id, workspaceId] });
+        void qc
+          .cancelQueries({ queryKey: [user.id, workspaceId] })
+          .then(() => {
+            if (reason === "storage-disabled")
+              return qc.invalidateQueries({
+                queryKey: [user.id, workspaceId, "bootstrap"],
+              });
+          })
+          .catch(setError);
       }),
     [policySession, qc, user.id, workspaceId],
   );
@@ -532,23 +548,14 @@ export function Workspace({
   ]);
   async function toggleOffline() {
     if (offlineEnabled) {
-      const drafts = await platform.load<unknown[]>(scope, "drafts");
-      const modules = await readModuleStorage(platform, scope);
-      if (
-        drafts?.length ||
-        Object.keys(modules.drafts).length ||
-        modules.journal.some((e) => e.state !== "accepted" && !e.supersededBy)
-      )
-        throw Error(
-          "Resolve pending changes and saved drafts before disabling offline storage.",
-        );
-      await platform.purgeWorkspace(scope);
+      await policySession.disableStorage();
       setCached(undefined);
       setOfflineEnabled(false);
       return;
     }
     if (!boot.data?.offlineHours)
       throw Error("Offline storage is disabled by workspace policy.");
+    await policySession.enableStorage();
     setOfflineEnabled(true);
   }
   const catalog = useQuery({

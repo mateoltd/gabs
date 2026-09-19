@@ -328,3 +328,8 @@ CORE-003/SHELL-001/AUTH-002 gain [OFF-03-LOCAL-REMOVAL evidence](verification/pr
 ## 19 September 2026 — Workspace transition recovery
 
 CORE-003/SHELL-001 gain [OFF-02-LEASES-WORKSPACE browser evidence](verification/workspace-transition/README.md): delayed callbacks cannot replace the selected offline entry, authorized cached names survive restart, original requests remain isolated and recovery applies one server update. Corporate native switching/restart, atomic offline-storage disable/capture, installed-release transitions and broader identity requirements remain required. No entire original requirement is promoted.
+
+
+## 19 September 2026 — Atomic offline-storage disable
+
+CORE-003/SHELL-001 gain [OFF-02-LEASES-STORAGE evidence](verification/storage-disable/README.md): current saved work blocks deletion atomically, late cache writes are rejected, browser tabs receive disable and authentication preserves opt-out until explicit enabling. Real encrypted SQLite-worker checks pass; corporate native protected-storage/UI acceptance remains required. No whole original requirement is promoted.
