@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as oidc from "openid-client";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { DB } from "../persistence/database";
-import type { LoginOptions } from "@suite/contracts";
+import type { LoginOptions, ProfileRecovery } from "@suite/contracts";
 import type { Actor } from "./authorization";
 import { AppError, requireCondition } from "../errors";
 import { identify } from "./provision";
@@ -91,6 +91,7 @@ export function authentication(
           "u.active",
           "s.csrf_token",
           "s.mfa",
+          "s.created_at",
         ])
         .where("s.token_hash", "=", hashToken(token))
         .where("s.expires_at", ">", new Date())
@@ -108,6 +109,36 @@ export function authentication(
         emailVerified: row.email_verified,
         mfa: row.mfa,
         csrfToken: row.csrf_token,
+        authentication: {
+          sessionId: hashToken(`profile-recovery:${row.csrf_token}`),
+          authenticatedAt: row.created_at.toISOString(),
+        },
+      };
+    },
+    recovery(actor: Actor): ProfileRecovery {
+      requireCondition(
+        actor.emailVerified && actor.mfa,
+        403,
+        "MFA_REQUIRED",
+        "Verify your email and sign in with multi-factor authentication to recover this profile.",
+      );
+      const authenticatedAt = actor.authentication
+        ? Date.parse(actor.authentication.authenticatedAt)
+        : NaN;
+      const now = Date.now();
+      requireCondition(
+        actor.authentication &&
+          Number.isFinite(authenticatedAt) &&
+          authenticatedAt <= now &&
+          now < authenticatedAt + 5 * 60_000,
+        403,
+        "REAUTHENTICATION_REQUIRED",
+        "Sign in again before recovering this profile.",
+      );
+      return {
+        userId: actor.id,
+        ...actor.authentication,
+        expiresAt: new Date(authenticatedAt + 5 * 60_000).toISOString(),
       };
     },
     async bearer(token: string): Promise<Actor> {
@@ -230,9 +261,9 @@ export function authentication(
         .execute();
       const url = oidc.buildAuthorizationUrl(c, {
         ...(options.loginHint ? { login_hint: options.loginHint } : {}),
-        ...(options.screenHint
-          ? { screen_hint: options.screenHint, prompt: "login" }
-          : {}),
+        ...(options.screenHint ? { screen_hint: options.screenHint } : {}),
+        prompt: "login",
+        max_age: "0",
         redirect_uri: config.apiOrigin + "/auth/callback",
         scope: "openid profile email",
         state,
@@ -269,6 +300,7 @@ export function authentication(
         expectedState: state,
         expectedNonce: attempt.nonce,
         idTokenExpected: true,
+        maxAge: 0,
       });
       const claims = tokens.claims()!;
       requireCondition(

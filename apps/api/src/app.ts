@@ -411,6 +411,16 @@ export async function createApp(
     },
   );
   app.get(
+    "/api/v1/identity/recovery",
+    {
+      schema: {
+        operationId: "profileRecovery",
+        response: { 200: S.ProfileRecoverySchema },
+      },
+    },
+    async (req) => auth.recovery(req.actor),
+  );
+  app.get(
     "/api/v1/me",
     {
       schema: {

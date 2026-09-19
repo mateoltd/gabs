@@ -11,7 +11,7 @@ import {
   assertModuleStorage,
   lockModuleStorage,
 } from "../persistence/module-storage";
-import type { Permission, ModuleId } from "@suite/contracts";
+import type { Permission, ModuleId, ProfileRecovery } from "@suite/contracts";
 import type { ServerRuntime } from "../runtime/host";
 export interface Actor {
   id: string;
@@ -20,6 +20,7 @@ export interface Actor {
   emailVerified: boolean;
   mfa: boolean;
   csrfToken?: string;
+  authentication?: Pick<ProfileRecovery, "sessionId" | "authenticatedAt">;
 }
 export interface Context {
   actor: Actor;

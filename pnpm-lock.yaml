@@ -271,12 +271,18 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       kysely:
         specifier: 0.29.5
         version: 0.29.5
       openapi-typescript:
         specifier: 7.13.0
         version: 7.13.0(typescript@5.9.3)
+      openid-client:
+        specifier: 6.8.8
+        version: 6.8.8
       pg:
         specifier: 8.23.0
         version: 8.23.0

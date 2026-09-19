@@ -945,3 +945,8 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## 19 September 2026 — Native unlock architecture checkpoint
 
 [ID-02-NATIVE](profile-unlock/README.md) records the user-requested Sol xhigh implementation review and parent acceptance following checkpoint `be100d1`. The portable identity bridge, native protected policy and shell gate preserve subsystem ownership. Durable-write races, delayed profile responses, feedback containment and uncertain-request retry handling are covered by focused regressions and real headless/minimized journeys. The evidence retains the sleep-interrupted run and explicitly open protected-storage, physical hardware and provider gates. Full ID-02, feature parity and later UI refinement remain incomplete.
+
+
+## 19 September 2026 — Recovery-session authority
+
+[ID-02-RECOVERY](recovery-session/README.md) records five focused server/protocol cases, strict checks/four fresh builds, 704 unit/PostgreSQL tests, ten headless browser journeys and two hidden/minimized native journeys. One protected-storage PIN/restart test remains skipped. The new typed server contract supplies stable recent-session evidence; both OIDC code exchanges check the requested authentication age. The report distinguishes controlled provider transport from real-provider acceptance and leaves browser PIN/UI implementation explicitly open. No UI source or style changed.

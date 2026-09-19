@@ -747,6 +747,7 @@ async function login(options: LoginOptions, signal: AbortSignal) {
           expectedState: state,
           expectedNonce: nonce,
           idTokenExpected: true,
+          maxAge: 0,
         });
         signal.throwIfAborted();
         await credentials.commit(tokens, epoch, "login", signal);

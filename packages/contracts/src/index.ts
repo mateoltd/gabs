@@ -4,6 +4,7 @@ export * from "./workspaces/attempts";
 export * from "./workspaces/request-key";
 export * from "./commerce/entities";
 export * from "./identity/permissions";
+export * from "./identity/recovery";
 import { OrderSchema } from "./commerce/entities";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 export { Type, type Static, type TSchema };
@@ -274,6 +275,7 @@ export const OPERATIONS = {
 
   overview: { method: "GET", path: "/api/v1/workspaces/:workspaceId/overview" },
   me: { method: "GET", path: "/api/v1/me" },
+  profileRecovery: { method: "GET", path: "/api/v1/identity/recovery" },
   workspacePolicy: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/policy",

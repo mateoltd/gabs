@@ -355,3 +355,6 @@ AUTH-002 gains [ID-01-PRIVACY renderer evidence](verification/background-privacy
 
 
 AUTH-002/SEC-002 gain scoped [ID-02-NATIVE evidence](verification/profile-unlock/README.md): account/origin-scoped native PIN policy, optional supported biometric gate, preserved editors, fail-closed reads and durable retry limits. CORE-003/BACK-002 retain uncertain original request identities when native locking withholds a response. The typed contract remains in client identity, native policy in Electron main and presentation in shell identity. Real protected-storage PIN/restart, hardware/provider acceptance, browser corporate unlock, standalone PIN/biometrics and full-file encryption remain open; no original requirement is promoted to complete.
+
+
+AUTH-001/AUTH-002 gain scoped [ID-02-RECOVERY evidence](verification/recovery-session/README.md): authoritative recent-session identity, fixed recovery expiry, verified email/MFA checks, typed client results and web/native OIDC authentication-age validation. Browser PIN storage/UI, standalone PIN/biometrics and real-provider/native acceptance remain open. No original requirement is newly marked complete.

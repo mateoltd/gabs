@@ -70,6 +70,48 @@
         }
       }
     },
+    "/api/v1/identity/recovery": {
+      "get": {
+        "operationId": "profileRecovery",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "userId",
+                    "sessionId",
+                    "authenticatedAt",
+                    "expiresAt"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "authenticatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "me",
