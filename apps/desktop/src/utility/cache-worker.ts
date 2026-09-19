@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { openProtectedDatabase } from "./storage/database";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { verifyLanPackage } from "./lan-package";
 import type { ArtifactTransfer } from "@suite/module-sdk/relay-artifacts";
@@ -9,7 +9,8 @@ import {
   disabledWorkspaceAuthority,
   StorageRetentionError,
 } from "@suite/client/storage-retention";
-let db: DatabaseSync | undefined, key: Buffer | undefined;
+let db: ReturnType<typeof openProtectedDatabase> | undefined,
+  key: Buffer | undefined;
 function write(cacheKey: string, value: unknown) {
   const iv = randomBytes(12),
     cipher = createCipheriv("aes-256-gcm", key!, iv);
@@ -34,7 +35,10 @@ function read(cacheKey: string): unknown {
     .prepare("SELECT payload FROM cache WHERE key=?")
     .get(cacheKey) as { payload: Uint8Array } | undefined;
   if (!row) return;
-  const bytes = Buffer.from(row.payload),
+  return decrypt(cacheKey, row.payload);
+}
+function decrypt(cacheKey: string, payload: Uint8Array): unknown {
+  const bytes = Buffer.from(payload),
     cipher = createDecipheriv("aes-256-gcm", key!, bytes.subarray(0, 12));
   cipher.setAAD(Buffer.from(cacheKey));
   cipher.setAuthTag(bytes.subarray(12, 28));
@@ -69,10 +73,9 @@ process.parentPort.on("message", async (event) => {
       if (db) throw Error("Storage is already open.");
       key = Buffer.from(message.secret!, "base64");
       if (key.length !== 32) throw Error("Invalid storage key.");
-      db = new DatabaseSync(message.path!);
-      db.exec(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, payload BLOB NOT NULL)",
-      );
+      db = openProtectedDatabase(message.path!, key, (row) => {
+        decrypt(row.key, row.payload);
+      });
       process.parentPort.postMessage({ id: message.id, value: true });
       return;
     }

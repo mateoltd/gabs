@@ -44,7 +44,7 @@ import {
   autoUpdater,
   type IpcMainInvokeEvent,
 } from "electron";
-import { readFile, writeFile, rename, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, rm, open } from "node:fs/promises";
 import { mkdirSync, existsSync } from "node:fs";
 import { resolve, sep, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -368,12 +368,47 @@ async function ensureCache() {
     if (!secureAvailable()) throw Error("Protected storage is unavailable.");
     let secret = await readSecure<string>("cache-secret");
     if (!secret) {
+      const database = resolve(root(), "workspace.sqlite");
+      if (
+        [database, `${database}.protected`]
+          .flatMap((path) => [
+            path,
+            `${path}-wal`,
+            `${path}-shm`,
+            `${path}-journal`,
+          ])
+          .some(existsSync)
+      )
+        throw Error(
+          "The protected storage key is missing. Restore the device backup before continuing.",
+        );
       secret = randomBytes(32).toString("base64");
-      await writeSecure("cache-secret", secret);
+      if (!(await writeSecure("cache-secret", secret)))
+        throw Error(
+          "The storage key could not be protected. Retry when protected storage is available.",
+        );
+    }
+    // SQLite must never acknowledge data before its recovery key is on disk.
+    const keyFile = await open(resolve(root(), "cache-secret.bin"), "r+");
+    try {
+      await keyFile.sync();
+    } finally {
+      await keyFile.close();
+    }
+    if (process.platform !== "win32") {
+      const directory = await open(root(), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
     }
     await mkdir(root(), { recursive: true, mode: 0o700 });
     await openCache(resolve(root(), "workspace.sqlite"), secret);
-  })());
+  })().catch((error) => {
+    cacheReady = undefined;
+    throw error;
+  }));
 }
 async function writeSecure(key: string, value: unknown) {
   if (!secureAvailable()) {

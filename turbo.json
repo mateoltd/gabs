@@ -10,7 +10,9 @@
         "AUTH0_DESKTOP_CLIENT_ID",
         "AUTH0_AUDIENCE",
         "AUTH0_DESKTOP_CALLBACK",
-        "DESKTOP_UPDATE_URL"
+        "DESKTOP_UPDATE_URL",
+        "npm_config_platform",
+        "npm_config_arch"
       ]
     },
     "dev": {

@@ -207,6 +207,9 @@ settings:
 overrides:
   '@electron/node-gyp': 10.2.0-electron.2
 
+patchedDependencies:
+  better-sqlite3-multiple-ciphers@13.0.3: 9b443ccbaee7ac91affdcecc315f983ec083ff9f1582cb9b115aaf06e055c062
+
 importers:
 
   .:
@@ -388,6 +391,9 @@ importers:
       '@suite/ui-web':
         specifier: workspace:*
         version: link:../../packages/ui/web
+      better-sqlite3-multiple-ciphers:
+        specifier: 13.0.3
+        version: 13.0.3(patch_hash=9b443ccbaee7ac91affdcecc315f983ec083ff9f1582cb9b115aaf06e055c062)
       openid-client:
         specifier: 6.8.8
         version: 6.8.8
@@ -2679,6 +2685,10 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
+  better-sqlite3-multiple-ciphers@13.0.3:
+    resolution: {integrity: sha512-UYabM82r1J84TLWc/SszoHs6XopWpl/2HCg3Nui1JUaFXg/VLswzkPowYiRhK/4CftI8dgtikwyZQecMldrGxQ==}
+    engines: {node: '>=22'}
+
   bl@4.1.0:
     resolution: {integrity: sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w==}
 
@@ -4078,6 +4088,10 @@ packages:
   node-abi@3.96.0:
     resolution: {integrity: sha512-rebQ/lz7i0EkoLzUVSrKRzA69zMkwLp95kKMWoMDkkM00Suxz0D7zEQPwRml5fQum24mj7bPvmlgLAmu2JCiYg==}
     engines: {node: '>=10'}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
@@ -7751,6 +7765,10 @@ snapshots:
 
   baseline-browser-mapping@2.11.23: {}
 
+  better-sqlite3-multiple-ciphers@13.0.3(patch_hash=9b443ccbaee7ac91affdcecc315f983ec083ff9f1582cb9b115aaf06e055c062):
+    dependencies:
+      node-addon-api: 8.9.2
+
   bl@4.1.0:
     dependencies:
       buffer: 5.7.1
@@ -9272,6 +9290,8 @@ snapshots:
   node-abi@3.96.0:
     dependencies:
       semver: 7.8.5
+
+  node-addon-api@8.9.2: {}
 
   node-api-version@0.2.1:
     dependencies:

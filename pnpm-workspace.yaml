@@ -5,6 +5,8 @@ packages:
   - composition
   - modules/*
 allowBuilds:
+  # Node-API prebuilds are bundled; no dependency build script is required.
+  better-sqlite3-multiple-ciphers: false
   electron: true
   esbuild: true
   electron-winstaller: true
@@ -22,6 +24,8 @@ minimumReleaseAgeExclude:
   - turbo@2.10.13
 overrides:
   "@electron/node-gyp": 10.2.0-electron.2
+patchedDependencies:
+  better-sqlite3-multiple-ciphers@13.0.3: patches/better-sqlite3-multiple-ciphers@13.0.3.patch
 # Forge is bundled; only its packaging tools need public hoisting.
 publicHoistPattern:
   - "@electron-forge/*"

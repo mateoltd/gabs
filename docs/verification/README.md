@@ -968,3 +968,8 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## Standalone profile PIN and recovery clocks, 20 September 2026
 
 [ID-02-LOCAL evidence](local-profile-unlock/README.md) verifies encrypted PIN wrapping, passphrase recovery, persisted attempt limits, offline restart, cancellation, cross-tab locking and profile-removal fences. Native OS/biometric integration is implemented with bounded-IPC and controlled-provider checks; actual OS-protected PIN/restart and physical biometric acceptance remain open. The corporate regression also found and corrected a database/browser clock mismatch without relaxing fresh-session checks. Full regression passed 728 tests across 109 files, strict checks/four build targets, twelve distinct scoped browser journeys across correction runs, and minimized native acceptance. Wide/narrow/native captures were inspected. Full-file desktop encryption and utility-process standalone key custody remain ID-03; overall parity and UI refinement remain open.
+
+
+## 20 September 2026: page-encrypted desktop database
+
+[ID-03-DB evidence](protected-database/README.md) records authenticated page/WAL encryption, transactional migration, corruption/wrong-key rejection, interrupted import and acknowledged-write recovery, and native-binary loading from a real packaged ASAR. Ten focused checks, 736 tests across 110 files, strict builds, three final hidden/minimized native journeys and the packaged-worker check passed. The final key-file flush ordering change is included in final strict/native builds after the full regression. No interactive OS prompts or UI changes; actual key-provider acceptance, standalone custody, rotation and overall parity remain open.

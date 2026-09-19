@@ -6,6 +6,10 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { createRequire } from "node:module";
+const desktopRequire = createRequire(
+  join(process.cwd(), "apps/desktop/package.json"),
+);
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -18,9 +22,23 @@ async function storage() {
     bundle: true,
     write: false,
     platform: "node",
-    format: "esm",
+    format: "cjs",
+    plugins: [
+      {
+        name: "native-sqlite",
+        setup(build) {
+          build.onResolve(
+            { filter: /^better-sqlite3-multiple-ciphers$/ },
+            () => ({
+              path: desktopRequire.resolve("better-sqlite3-multiple-ciphers"),
+              external: true,
+            }),
+          );
+        },
+      },
+    ],
   });
-  const entry = join(directory, "cache.mjs");
+  const entry = join(directory, "cache.cjs");
   await writeFile(entry, bundle.outputFiles[0].text);
   const worker = new Worker(
     `const {parentPort}=require('node:worker_threads');

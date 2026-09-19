@@ -14,7 +14,8 @@
     "openid-client": "6.8.8",
     "semver": "7.8.5",
     "@suite/design-tokens": "workspace:*",
-    "@suite/ui-web": "workspace:*"
+    "@suite/ui-web": "workspace:*",
+    "better-sqlite3-multiple-ciphers": "13.0.3"
   },
   "main": "dist/main.cjs",
   "scripts": {

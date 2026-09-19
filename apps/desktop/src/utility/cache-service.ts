@@ -51,7 +51,12 @@ export function openCache(path: string, secret: string) {
       worker = undefined;
       ready = undefined;
     });
-    await send("open", { path, secret });
+    try {
+      await send("open", { path, secret });
+    } catch (error) {
+      worker?.kill();
+      throw error;
+    }
   })());
 }
 export const cacheRead = (key: string) => send("read", { key });

@@ -5,7 +5,7 @@ module.exports = {
     name: "Common",
     executableName: "common",
     appBundleId: "com.common.suite",
-    asar: true,
+    asar: { unpack: "**/vendor/sqlite/prebuilds/*.node" },
     prune: false,
     ignore: (path) => !!path && !/^\/(dist|package\.json)(\/|$)/.test(path),
     ...(process.env.APPLE_SIGN_IDENTITY
