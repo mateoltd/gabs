@@ -91,7 +91,10 @@ export async function replaceArchive(
           e.dependencies.includes(id) &&
           !e.supersededBy &&
           ((e.state !== "pending" &&
-            !(e.state === "conflict" && e.recordRecovery)) ||
+            !(
+              e.state === "conflict" &&
+              (e.recordRecovery || e.createRecovery?.length)
+            )) ||
             e.delivery !== "unsubmitted" ||
             e.attempts !== 0),
       )

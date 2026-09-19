@@ -213,3 +213,30 @@ it("preserves archived collision input and both record snapshots without treatin
     createSavedWorkRecovery(f.state, f.scope, module.id, { draftKey: key }),
   ).rejects.toThrow();
 });
+
+it("exports original and reviewed create-collision context without changing either snapshot", async () => {
+  const f = fixture();
+  const originalId = randomUUID();
+  const replacementId = randomUUID();
+  f.state.journal[0].createRecovery = [
+    { moduleId: module.id, resource: "notes", originalId, replacementId },
+  ];
+  f.state.commandReviews![f.entry.id].createRecovery = [
+    {
+      moduleId: module.id,
+      resource: "notes",
+      originalId,
+      replacementId: randomUUID(),
+    },
+  ];
+  const before = structuredClone(f.state);
+  const exported = await createSavedWorkRecovery(f.state, f.scope, module.id, {
+    requestId: f.entry.id,
+  });
+  assertSchema(SavedWorkRecoverySchema, JSON.parse(JSON.stringify(exported)));
+  expect(exported).toMatchObject({
+    entry: before.journal[0],
+    review: before.commandReviews![f.entry.id],
+  });
+  expect(f.state).toEqual(before);
+});

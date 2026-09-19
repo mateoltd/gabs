@@ -43,6 +43,7 @@ export const commandContinuation = (
 export interface CommandReview {
   continuations?: CommandContinuation[];
   source: ModuleCall;
+  createRecovery?: JournalEntry["createRecovery"];
   moduleVersion: string;
   input: unknown;
   revision: number;
@@ -118,6 +119,7 @@ export async function saveCommandReview(
   expectedRevision: number,
   authorized: CommandAuthorization,
   continuations: readonly CommandContinuation[] = [],
+  expectedCreateRecovery?: JournalEntry["createRecovery"],
 ): Promise<CommandReview> {
   const snapshot = structuredClone(input);
   const choices = structuredClone([...continuations]);
@@ -125,6 +127,13 @@ export async function saveCommandReview(
   await changeModuleStorage(platform, scope, async (state) => {
     const entry = original(state, scope, id);
     reviewable(entry);
+    if (
+      canonical(expectedCreateRecovery ?? []) !==
+      canonical(entry.createRecovery ?? [])
+    )
+      throw new JournalConflictError(
+        "A prerequisite record changed. Reopen its current recovery details before saving this review.",
+      );
     const call = correction(entry, { moduleVersion, input: snapshot });
     if (!authorized(entry.call, state) || !authorized(call, state))
       throw Error("Current access does not allow reviewing this command.");
@@ -167,6 +176,9 @@ export async function saveCommandReview(
     saved = {
       continuations: choices,
       source: structuredClone(entry.call),
+      ...(entry.createRecovery
+        ? { createRecovery: structuredClone(entry.createRecovery) }
+        : {}),
       moduleVersion,
       input: snapshot,
       revision: expectedRevision + 1,
@@ -196,7 +208,8 @@ export function commandDependents(
       entry.workspaceId === scope.workspaceId &&
       entry.dependencies.includes(id) &&
       !entry.supersededBy &&
-      entry.state === "pending" &&
+      (entry.state === "pending" ||
+        (entry.state === "conflict" && !!entry.createRecovery?.length)) &&
       entry.delivery === "unsubmitted" &&
       entry.attempts === 0 &&
       !entry.orderingRecovery &&
@@ -242,6 +255,29 @@ export async function replaceCommand(
       if (canonical(review.continuations ?? []) !== canonical(continuations))
         throw new JournalConflictError(
           "Save the selected dependent review before submitting.",
+        );
+      if (
+        canonical(review.createRecovery ?? []) !==
+        canonical(entry.createRecovery ?? [])
+      )
+        throw new JournalConflictError(
+          "A prerequisite record changed after this review was saved. Reopen and save the review again.",
+        );
+      if (
+        entry.createRecovery?.length &&
+        entry.dependencies.some(
+          (id) =>
+            !state.journal.some(
+              (prior) =>
+                prior.id === id &&
+                prior.userId === scope.userId &&
+                prior.workspaceId === scope.workspaceId &&
+                prior.state === "accepted",
+            ),
+        )
+      )
+        throw new JournalConflictError(
+          "Wait for prerequisite changes before submitting this saved command.",
         );
       const call = correction(entry, review, key);
       if (!authorized(entry.call, state) || !authorized(call, state))

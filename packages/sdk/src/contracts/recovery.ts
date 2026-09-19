@@ -29,6 +29,12 @@ const call = Type.Union([
     { additionalProperties: false },
   ),
 ]);
+const createRecovery = Type.Array(
+  Type.Object(
+    { moduleId: name, resource: name, originalId: id, replacementId: id },
+    { additionalProperties: false },
+  ),
+);
 const journal = Type.Object(
   {
     id,
@@ -64,6 +70,7 @@ const journal = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    createRecovery: Type.Optional(createRecovery),
     supersededBy: Type.Optional(id),
     error: Type.Optional(Type.String()),
     errorCode: Type.Optional(Type.String()),
@@ -138,6 +145,7 @@ export const SavedWorkRecoverySchema = Type.Union([
         Type.Object(
           {
             source: call,
+            createRecovery: Type.Optional(createRecovery),
             moduleVersion: version,
             input: Type.Unknown(),
             revision: Type.Integer({ minimum: 1 }),

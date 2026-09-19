@@ -47,6 +47,21 @@ function createDependents(
   );
 }
 
+export function createCommandDependents(
+  state: ModuleStorage,
+  scope: Scope,
+  originalId: string,
+) {
+  return createDependents(
+    state.journal.filter(
+      (entry) =>
+        entry.userId === scope.userId &&
+        entry.workspaceId === scope.workspaceId,
+    ),
+    originalId,
+  ).filter((entry) => entry.call.action === "operation");
+}
+
 /** Only explicit dependency edges establish that an edit belongs to this recovery. */
 export function sameRecordCreateDependents(
   state: ModuleStorage,
@@ -80,7 +95,7 @@ export async function prepareCreateReplacement(
   scope: Scope,
   originalId: string,
   replacement: ModuleCall,
-  authorized: (call: ModuleCall) => boolean,
+  authorized: (call: ModuleCall, state?: ModuleStorage) => boolean,
   targets: CreateRecoveryTargets = {},
   draftChoices: CreateDraftChoices = {},
 ): Promise<ModuleStorage> {
@@ -125,7 +140,10 @@ export async function prepareCreateReplacement(
     children.some(
       (entry) =>
         (entry.state !== "pending" &&
-          !(entry.state === "conflict" && entry.recordRecovery)) ||
+          !(
+            entry.state === "conflict" &&
+            (entry.recordRecovery || entry.createRecovery)
+          )) ||
         entry.delivery !== "unsubmitted" ||
         entry.attempts !== 0,
     )
@@ -134,14 +152,15 @@ export async function prepareCreateReplacement(
       "Some linked work may already have been submitted. Recover its outcome before changing this record identity.",
     );
   if (
-    children.some(
-      (entry) =>
-        !["create", "update", "archive"].includes(entry.call.action) ||
-        !entry.call.resource,
+    children.some((entry) =>
+      entry.call.action === "operation"
+        ? !entry.call.operation || !!entry.call.resource
+        : !["create", "update", "archive"].includes(entry.call.action) ||
+          !entry.call.resource,
     )
   )
     throw new JournalConflictError(
-      "Linked custom work requires explicit review before changing this record identity.",
+      "This linked work has no recoverable resource or command contract.",
     );
   if (
     scoped.some(
@@ -183,7 +202,11 @@ export async function prepareCreateReplacement(
     throw new JournalConflictError(
       "Choose where to review each later edit before creating a separate record.",
     );
-  if (![replacement, ...children.map((entry) => entry.call)].every(authorized))
+  if (
+    ![replacement, ...children.map((entry) => entry.call)].every((call) =>
+      authorized(call, state),
+    )
+  )
     throw new JournalConflictError(
       "Current access does not allow recovery of all linked work.",
     );
@@ -213,6 +236,11 @@ export async function prepareCreateReplacement(
   const reserved = new Set(state.journal.map((entry) => entry.id));
   reserved.add(replacement.key);
   for (const child of children) {
+    // Commands retain their SDK capture identity and input while awaiting a separate review.
+    if (child.call.action === "operation") {
+      keys.set(child.id, child.id);
+      continue;
+    }
     let key: string;
     do {
       key = crypto.randomUUID();
@@ -229,8 +257,54 @@ export async function prepareCreateReplacement(
   for (const prior of [original, ...children]) {
     const call = structuredClone(prior === original ? replacement : prior.call);
     call.key = keys.get(prior.id)!;
-    const value = input(call);
     const { module, contract } = await responseContract(state, call);
+    (result.responseContracts ??= {})[responseContractKey(call)] = contract;
+    if (call.action === "operation") {
+      const operation = module.operations[call.operation!];
+      if (
+        operation.policy !== "queued" ||
+        operation.kind === "query" ||
+        operation.serviceOnly
+      )
+        throw new JournalConflictError(
+          "Only public queued commands can be reviewed after a create collision.",
+        );
+      const command = result.journal.find(
+        (entry) =>
+          entry.id === prior.id &&
+          entry.userId === scope.userId &&
+          entry.workspaceId === scope.workspaceId,
+      )!;
+      const recoveries = (command.createRecovery ??= []);
+      const previous = recoveries.find(
+        (recovery) =>
+          recovery.moduleId === from.moduleId &&
+          recovery.resource === from.resource &&
+          (recovery.replacementId === fromId || recovery.originalId === fromId),
+      );
+      if (previous) previous.replacementId = toId;
+      else
+        recoveries.push({
+          moduleId: from.moduleId,
+          resource: from.resource,
+          originalId: fromId,
+          replacementId: toId,
+        });
+      command.captureDependencies ??= [
+        ...(command.requestedDependencies ?? command.dependencies),
+      ];
+      command.requestedDependencies = (
+        command.requestedDependencies ?? command.dependencies
+      ).map((id) => keys.get(id) ?? id);
+      command.dependencies = command.dependencies.map(
+        (id) => keys.get(id) ?? id,
+      );
+      command.state = "conflict";
+      command.error =
+        "A prerequisite record was replaced. Review this command's references before submitting it. Its original input is preserved.";
+      continue;
+    }
+    const value = input(call);
     const schema = module.resources[call.resource!].schema;
     const recovery = sameRecord.has(prior.id)
       ? {
@@ -244,7 +318,6 @@ export async function prepareCreateReplacement(
         data: remapResourceReferences(schema, value.data, from, toId),
       };
     // A child's original base snapshot describes the server record and must not be rewritten.
-    (result.responseContracts ??= {})[responseContractKey(call)] = contract;
     additions.push({
       ...scope,
       id: call.key,
@@ -268,6 +341,7 @@ export async function prepareCreateReplacement(
     const key = keys.get(entry.id);
     if (
       !key ||
+      key === entry.id ||
       entry.userId !== scope.userId ||
       entry.workspaceId !== scope.workspaceId
     )
@@ -296,7 +370,7 @@ export async function prepareCreateReplacement(
     from,
     toId,
     replacement.key,
-    authorized,
+    (call) => authorized(call, result),
   );
   // A prior preservation choice can still point at an unrelated existing record.
   // Keep its input unchanged while reconnecting the replaced prerequisite.
@@ -307,7 +381,11 @@ export async function prepareCreateReplacement(
   for (const [key, review] of Object.entries(result.draftReviews ?? {}))
     if (review.entryId === originalId) removeResourceDraft(result, key);
   assertJournalOrder(result.journal, scope);
-  if (!additions.every((entry) => authorized(entry.call)))
+  if (
+    ![...additions, ...children].every((entry) =>
+      authorized(entry.call, result),
+    )
+  )
     throw new JournalConflictError(
       "Current access changed during recovery. Your input is preserved.",
     );

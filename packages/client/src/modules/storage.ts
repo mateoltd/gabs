@@ -451,6 +451,16 @@ export async function enqueue(
                   dependencies: e.dependencies.map((id) =>
                     id === recovery.supersedes ? entry.id : id,
                   ),
+                  ...(e.requestedDependencies?.includes(recovery.supersedes!)
+                    ? {
+                        captureDependencies: e.captureDependencies ?? [
+                          ...e.requestedDependencies,
+                        ],
+                        requestedDependencies: e.requestedDependencies.map(
+                          (id) => (id === recovery.supersedes ? entry.id : id),
+                        ),
+                      }
+                    : {}),
                 },
         );
     }

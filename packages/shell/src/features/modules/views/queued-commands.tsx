@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { synchronizeWorkspace } from "../synchronization/host";
 import { SavedWorkExport } from "../recovery/export";
 import { canReadSavedWork } from "../recovery/access";
@@ -59,6 +60,11 @@ export function useQueuedCommands(
   owner: { kind: "view"; permission: string } | { kind: "recovery" },
   executing?: (change: 1 | -1) => void,
 ) {
+  const queryClient = useQueryClient();
+  const refreshQueries = () =>
+    queryClient.invalidateQueries({
+      queryKey: [props.scope.userId, props.scope.workspaceId],
+    });
   const latest = React.useRef({ props, executing, module });
   latest.current = { props, executing, module };
   const contracts = React.useRef(new Map<string, ModuleDefinition>());
@@ -216,7 +222,10 @@ export function useQueuedCommands(
       const result = await synchronizeWorkspace(() =>
         access(undefined, true) ? latest.current.props : undefined,
       );
-      if (mounted.current && access()) setError(result.errors[0]);
+      if (mounted.current && access()) {
+        setError(result.errors[0]);
+        if (result.sent) await refreshQueries();
+      }
     } catch (error) {
       if (mounted.current && access()) setError(error);
     } finally {
@@ -321,7 +330,10 @@ export function useQueuedCommands(
         () => access(entry.call, true),
         "saved-command",
       );
-      if (mounted.current && access()) setError(undefined);
+      if (mounted.current && access()) {
+        setError(undefined);
+        await refreshQueries();
+      }
     } catch (error) {
       if (mounted.current && access()) setError(error);
     } finally {
@@ -374,6 +386,7 @@ export function useQueuedCommands(
               moduleVersion: previous.moduleVersion,
             })),
         selected,
+        entry.createRecovery,
       );
     });
   const replace = (
@@ -406,6 +419,8 @@ export function useQueuedCommands(
             ? continuationAccess(call, true, state)
             : access(call, true, true),
       );
+      if (result === "accepted" && access(entry.call, true))
+        await refreshQueries();
       void synchronize();
       return result;
     });

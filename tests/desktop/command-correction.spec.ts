@@ -39,6 +39,8 @@ for (const mode of [
   "submitted-update-cancelled",
   "submitted-archive-accepted",
   "submitted-archive-cancelled",
+  "collision-command-separate",
+  "collision-command-existing",
   "collision-archive-separate",
   "collision-archive-existing",
   "archive-review",

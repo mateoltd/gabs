@@ -5,7 +5,11 @@ import {
   type AttemptSettlementRequest,
 } from "@suite/contracts";
 import type { Platform, Scope } from "../index";
-import { changeModuleStorage, readModuleStorage } from "./storage";
+import {
+  changeModuleStorage,
+  readModuleStorage,
+  type ModuleStorage,
+} from "./storage";
 import { responseContract, validateModuleResponse } from "./response";
 import { JournalConflictError } from "./journal";
 import {
@@ -14,6 +18,7 @@ import {
 } from "./collisions";
 export {
   sameRecordCreateDependents,
+  createCommandDependents,
   type CreateRecoveryTargets,
 } from "./collisions";
 import type { CreateDraftChoices } from "./draft-collisions";
@@ -31,7 +36,7 @@ export async function replaceFailedCreate(
   id: string,
   replacement: ModuleCall,
   settle: SettlementTransport,
-  authorized: (call: ModuleCall) => boolean,
+  authorized: (call: ModuleCall, state?: ModuleStorage) => boolean,
   targets: CreateRecoveryTargets = {},
   draftChoices: CreateDraftChoices = {},
 ): Promise<"accepted" | "replaced"> {

@@ -75,6 +75,8 @@ export function CommandCorrection({
     (!saved ||
       saved.moduleVersion !== module.version ||
       canonical(saved.input) !== canonical(input) ||
+      canonical(saved.createRecovery ?? []) !==
+        canonical(entry.createRecovery ?? []) ||
       canonical(saved.continuations ?? []) !== canonical(selected));
   const persist = async () => {
     if (unavailable)
@@ -103,6 +105,27 @@ export function CommandCorrection({
             The original command was accepted. Your separate review is preserved
             and has not been submitted.
           </p>
+        )}
+        {!!entry.createRecovery?.length && (
+          <div role="status">
+            <p>
+              A prerequisite record was replaced. Review which references should
+              use the separate record. Original command input is unchanged.
+            </p>
+            <ul>
+              {entry.createRecovery.map((recovery) => (
+                <li
+                  key={`${recovery.moduleId}/${recovery.resource}/${recovery.originalId}`}
+                >
+                  <p>
+                    {recovery.moduleId}: {recovery.resource}
+                  </p>
+                  <p>Original record: {recovery.originalId}</p>
+                  <p>Separate record: {recovery.replacementId}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <details>
           <summary>Original saved input</summary>

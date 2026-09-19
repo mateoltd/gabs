@@ -1,3 +1,10 @@
+import { SavedCommands, useQueuedCommands } from "./queued-commands";
+import {
+  prepareContinuation,
+  canContinue,
+  continuationKey,
+  type ContinuationAccess,
+} from "../recovery/continuation";
 import { replaceArchive } from "@suite/client/archive-recovery";
 import { ArchiveReview } from "./archive-review";
 import { synchronizeWorkspace } from "../synchronization/host";
@@ -9,6 +16,7 @@ import {
   settleModuleCall,
   replaceFailedCreate,
   sameRecordCreateDependents,
+  createCommandDependents,
   collisionDrafts,
   type CollisionDraft,
   type CreateDraftChoices,
@@ -114,6 +122,11 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
   );
   const [resource, setResource] = useState(names[0]);
+  const queued = useQueuedCommands(props, module, {
+    kind: "view",
+    permission:
+      module.navigation?.permission ?? `${module.id}.${resource}.read`,
+  });
   const retainedDefinitions = useRef({ ...module.resources });
   Object.assign(retainedDefinitions.current, module.resources);
   const definition =
@@ -748,13 +761,39 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           );
         setDirectCreate(undefined);
       } else {
+        const state = await readModuleStorage(platform, scope);
+        const commands = new Map<string, ContinuationAccess>();
+        for (const entry of createCommandDependents(
+          state,
+          scope,
+          reviewedCreate!.id,
+        )) {
+          const access = await prepareContinuation(
+            recoveryContext.current,
+            state,
+            entry.call,
+          );
+          if (access) commands.set(continuationKey(entry.call), access);
+        }
         await replaceFailedCreate(
           platform,
           scope,
           reviewedCreate!.id,
           replacement,
           settlementTransport,
-          canRecoverCall,
+          (call, stored) =>
+            call.action !== "operation"
+              ? canRecoverCall(call)
+              : authorized() &&
+                recoveryContext.current.scope.userId === scope.userId &&
+                recoveryContext.current.scope.workspaceId ===
+                  scope.workspaceId &&
+                canContinue(
+                  recoveryContext.current,
+                  call,
+                  commands.get(continuationKey(call)),
+                  stored,
+                ),
           recoveryTargets,
           draftChoices,
         );
@@ -1041,31 +1080,34 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         title={module.name}
         description={module.description}
         actions={
-          write && (
-            <Button
-              variant="primary"
-              disabled={!resourceAvailable}
-              onClick={() => {
-                setForm(
-                  createSchemaDraft(definition.schema) as Record<
-                    string,
-                    unknown
-                  >,
-                );
-                setReviewSession(undefined);
-                setReviewTargetId(undefined);
-                setDirectCreate(undefined);
-                draftGeneration.current = {
-                  key: ordinaryDraftKey,
-                  value: storage?.draftGenerations?.[ordinaryDraftKey] ?? 0,
-                };
-                setEditing(null);
-              }}
-            >
-              <Plus size={16} />
-              New {definition.title.toLowerCase()}
-            </Button>
-          )
+          <>
+            <SavedCommands state={queued} />
+            {write && (
+              <Button
+                variant="primary"
+                disabled={!resourceAvailable}
+                onClick={() => {
+                  setForm(
+                    createSchemaDraft(definition.schema) as Record<
+                      string,
+                      unknown
+                    >,
+                  );
+                  setReviewSession(undefined);
+                  setReviewTargetId(undefined);
+                  setDirectCreate(undefined);
+                  draftGeneration.current = {
+                    key: ordinaryDraftKey,
+                    value: storage?.draftGenerations?.[ordinaryDraftKey] ?? 0,
+                  };
+                  setEditing(null);
+                }}
+              >
+                <Plus size={16} />
+                New {definition.title.toLowerCase()}
+              </Button>
+            )}
+          </>
         }
       />
       <SegmentedControl
@@ -1630,9 +1672,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
           <p>
             Other linked records that have never been submitted will follow the
             new record. Later changes to this record need an explicit target and
-            review. Existing server records stay unchanged. Work with an
-            uncertain outcome or an ambiguous saved draft must be reviewed
-            first.
+            review. Linked custom commands keep their original input and need a
+            separate review after their prerequisites are accepted. Existing
+            server records stay unchanged. Work with an uncertain outcome or an
+            ambiguous saved draft must be reviewed first.
           </p>
         )}
         {!!recoveryEdits.length && (
