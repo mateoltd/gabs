@@ -154,6 +154,33 @@ export async function recordOrderJourney(options: {
   }
   page = await options.restartOffline();
   await nav();
+  const freshness = page
+    .getByRole("status")
+    .filter({ hasText: "Offline copy." });
+  await expect(freshness).toContainText("This information may be out of date.");
+  const downloaded = freshness.locator("time");
+  await expect(downloaded).toBeVisible();
+  const downloadedAt = Date.parse((await downloaded.getAttribute("datetime"))!);
+  expect(downloadedAt).toBeGreaterThan(0);
+  expect(downloadedAt).toBeLessThanOrEqual(Date.now());
+  if (!options.legacy) {
+    await mkdir("docs/verification/resource-cache", { recursive: true });
+    await freshness.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `docs/verification/resource-cache/${options.kind}-wide.png`,
+    });
+    await options.narrow();
+    await freshness.scrollIntoViewIfNeeded();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `docs/verification/resource-cache/${options.kind}-narrow.png`,
+    });
+    await options.wide();
+  }
   expect((await journal()).map((e) => e.call)).toEqual(
     saved.map((e) => e.call),
   );

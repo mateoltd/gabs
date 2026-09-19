@@ -3791,3 +3791,71 @@ it("requires an authoritative command cancellation before reviewing an attempted
     command,
   );
 });
+
+it("bounds legacy cached pages durably without changing pending work or another workspace", async () => {
+  const { platform, records, root } = storage();
+  const originalState: StoredModuleState = {
+    pages: Object.fromEntries(
+      Array.from({ length: 60 }, (_, i) => [
+        `page-${i}`,
+        { items: [row], nextCursor: null },
+      ]),
+    ),
+    journal: [
+      {
+        id: "retained",
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+        call: call("retained"),
+        dependencies: [],
+        state: "pending",
+        delivery: "uncertain",
+        createdAt: 1,
+        attempts: 1,
+      },
+    ],
+    drafts: { "contacts/contacts": data },
+    installed: {},
+  };
+  const otherScope = { ...scope, workspaceId: "another-company" };
+  const otherAccount = { ...scope, userId: "another-user" };
+  await platform.save(scope, "module-state", originalState);
+  await platform.save(otherScope, "module-state", originalState);
+  await platform.save(otherAccount, "module-state", originalState);
+  const restored = await readModuleStorage(platform, scope);
+  expect(Object.keys(restored.pages)).toHaveLength(50);
+  expect(Object.keys(root().pages)).toHaveLength(50);
+  expect(restored.journal).toEqual(originalState.journal);
+  expect(restored.drafts).toEqual(originalState.drafts);
+  expect(await platform.load(otherScope, "module-state")).toEqual(
+    originalState,
+  );
+  expect(await platform.load(otherAccount, "module-state")).toEqual(
+    originalState,
+  );
+  expect(records.size).toBe(3);
+});
+
+it("keeps the prior durable state if saving the bounded cache is interrupted", async () => {
+  const { platform, root, interrupt } = storage();
+  const originalState: StoredModuleState = {
+    pages: Object.fromEntries(
+      Array.from({ length: 60 }, (_, i) => [
+        `page-${i}`,
+        { items: [row], nextCursor: null },
+      ]),
+    ),
+    journal: [],
+    drafts: { "contacts/contacts": data },
+    installed: {},
+  };
+  await platform.save(scope, "module-state", originalState);
+  interrupt();
+  await expect(readModuleStorage(platform, scope)).rejects.toThrow(
+    "Interrupted commit",
+  );
+  expect(root()).toEqual(originalState);
+  const restored = await readModuleStorage(platform, scope);
+  expect(Object.keys(restored.pages)).toHaveLength(50);
+  expect(restored.drafts).toEqual(originalState.drafts);
+});

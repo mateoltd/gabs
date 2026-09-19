@@ -62,6 +62,8 @@ import { canUse, type FeatureProps } from "@suite/client";
 import { ModuleInputRecoverySchema } from "@suite/module-sdk/platform";
 import {
   changeModuleStorage,
+  cacheResourcePage,
+  resourcePageDownloadedAt,
   saveResourceDraft,
   resourceDraftKey,
   removeResourceDraft,
@@ -436,7 +438,26 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
       })) as ResourcePage;
       if (props.offlineEnabled && bootstrap.offlineHours > 0)
         await changeModuleStorage(platform, scope, (s) => {
-          s.pages[pageKey] = result;
+          const current = recoveryContext.current;
+          if (
+            mounted.current &&
+            current.scope.userId === scope.userId &&
+            current.scope.workspaceId === scope.workspaceId &&
+            current.module.id === moduleId &&
+            current.module.version === module.version &&
+            current.offlineEnabled &&
+            current.bootstrap.offlineHours > 0 &&
+            Date.now() <
+              Date.parse(current.bootstrap.authorizedAt) +
+                current.bootstrap.offlineHours * 3600000 &&
+            canUse(
+              current.bootstrap,
+              moduleId,
+              `${moduleId}.${resource}.read`,
+              current.moduleCatalog,
+            )
+          )
+            cacheResourcePage(s, pageKey, result);
         });
       return result;
     },
@@ -500,18 +521,24 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         description="Ask your administrator for access to this module."
       />
     );
-  const candidatePage = online
-    ? query.data
-    : storage?.pages[pageKey] !== undefined
-      ? storage.pages[pageKey]
+  const cachedPageKey =
+    storage?.pages[pageKey] !== undefined
+      ? pageKey
       : limit === 50 &&
           Object.keys(where).length === 0 &&
           Object.keys(ranges).length === 0 &&
           orderBy.length === 0
-        ? storage?.pages[
-            `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`
-          ]
+        ? `${moduleId}@${module.version}/${resource}/${search}/${cursor ?? ""}/${archived}`
         : undefined;
+  const candidatePage = online
+    ? query.data
+    : cachedPageKey
+      ? storage?.pages[cachedPageKey]
+      : undefined;
+  const downloadedAt =
+    storage && cachedPageKey
+      ? resourcePageDownloadedAt(storage, cachedPageKey)
+      : undefined;
   let page: ResourcePage | undefined;
   let responseError: unknown;
   if (candidatePage !== undefined) {
@@ -1266,7 +1293,27 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         </div>
         {!online && (
           <p role="status">
-            Offline copy. Changes remain pending until the server accepts them.
+            <span>
+              {page ? "Offline copy." : "This page is not available offline."}{" "}
+              Changes remain pending until the server accepts them.
+            </span>
+            {page && (
+              <>
+                {" "}
+                {downloadedAt ? (
+                  <>
+                    Downloaded{" "}
+                    <time dateTime={new Date(downloadedAt).toISOString()}>
+                      {new Date(downloadedAt).toLocaleString()}
+                    </time>
+                    .{" "}
+                  </>
+                ) : (
+                  "Download time unavailable. "
+                )}
+                This information may be out of date.
+              </>
+            )}
           </p>
         )}
         <ErrorMessage

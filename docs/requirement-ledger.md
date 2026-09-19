@@ -282,3 +282,8 @@ CORE-003/UI-003 gain partial [OFF-01-COLLISION-OUTCOME evidence](verification/co
 ## Shared simulation scheduling, 19 September 2026
 
 CORE-003 and SDK developer experience gain [OFF-01-SIM evidence](verification/simulation-order/README.md): typed/preview captures share the host’s same-record and nested-reference prerequisites, reject cycles before mutation and preserve retry identity when prerequisite order changes. Five failing-before cases, 109 focused tests, 605 isolated tests, strict checks/four fresh builds and four headless preview/host journeys passed. This is scoped simulation acceptance; historical recovery, native collision outcomes and full OFF-01 remain open.
+
+
+## Bounded resource-page retention, 19 September 2026
+
+CORE-003/SHELL-001 gain [scoped OFF-02 evidence](verification/resource-cache/README.md): bounded recent query pages, persisted download times, legacy cache migration and unchanged pending work under the account/workspace storage lock. Verification passed 611 isolated tests, strict checks/four fresh builds and four distinct headless journeys, with wide/narrow captures inspected. The evidence distinguishes the corrected redundant-network-wait fixture from product behavior. Native acceptance, explicit working-set selection, reference-cache bounds and full lease/revocation journeys remain open; no original requirement is broadly completed.

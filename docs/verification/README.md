@@ -862,3 +862,8 @@ Verification passed 600 isolated unit/PostgreSQL tests, 99 focused tests, strict
 ## Shared simulation scheduling, 19 September 2026
 
 [OFF-01-SIM](simulation-order/README.md) now verifies host-equivalent same-record/reference ordering for typed captures and the development preview, atomic cycle rejection and exact retries independent of prerequisite order. Five original failures now pass; verification includes 109 focused tests, 605 isolated unit/PostgreSQL tests, strict checks/four fresh bundles, two preview and two real-host headless journeys. No layout changed. Native collision acceptance and broader offline/profile recovery remain required.
+
+
+## Bounded resource-page cache, 19 September 2026
+
+[OFF-02 cache evidence](resource-cache/README.md) records bounded recent-page retention, legacy migration, preserved saved work and visible download freshness. 611 isolated tests, strict checks/four fresh builds and four distinct headless journeys passed. Two new captures were inspected. The initial sort test required a redundant network response; after correcting that fixture assumption its existing record/offline-pagination assertions passed. Native acceptance and the rest of OFF-02 remain required.
