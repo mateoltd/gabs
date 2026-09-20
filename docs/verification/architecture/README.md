@@ -290,3 +290,20 @@ No new production restructuring was justified. Client recovery owns parsing, cur
 The delegate replaced two independent optional test-helper fields with a `draft`/`command` discriminated union. Each scenario now requires its own fields; callers declare their mode and branches narrow it explicitly. This is confined to three shared acceptance-helper files. It adds no package, runtime abstraction, public API or stylesheet change.
 
 Parent verification after the cleanup passed strict TypeScript environment checks, boundary/copy checks, three headless browser journeys and three hidden/minimized desktop journeys. Scoped helper formatting, local documentation links, all 29 original requirement IDs and 104 cycle-free tracker dependencies were checked. The [command acceptance record](../imported-snapshots/README.md#command-exported-file-acceptance) records logs and controlled native/provider limits. This closes the scoped architecture checkpoint/review only; full parity, encrypted corporate archives, actual provider/platform acceptance and later UI refinement remain open.
+
+
+## Encrypted archive checkpoint review, 20 September 2026
+
+Checkpoint `0733512` preserves the current checkout, including three unfinished archive-capacity acceptance files, and was pushed before the requested `gpt-5.6-sol` review at `xhigh`. The earlier physical migration remains in place: `sdk`, `client`, `server`, `shell`, `ui/web` and `ui/tokens`. No further package move or published identifier rename was justified.
+
+The delegate moved source enumeration, snapshot collection, digest deduplication, unavailable counting and per-copy authorization orchestration into client recovery `archive/collect.ts`, exposed through the existing work-archive entry. The shell reads one storage snapshot and owns React lifecycle, live host authority bindings, labels and selection. The parent independently reviewed the diff and verified cancellation propagation and final authority rechecks before presentation. The focused test exercises partial denial, cancellation, expired earlier authority, exact deduplication and source preservation.
+
+Final parent verification:
+
+- Strict TypeScript checks across all environments and dependency/copy checks passed: `/tmp/gabs-archive-architecture-final-types.log` and `/tmp/gabs-archive-architecture-final-lint.log`.
+- 133 focused tests across archive cryptography/collection, native publication, recovery authority and saved-work import passed: `/tmp/gabs-archive-architecture-final-unit.log`.
+- Fresh web and desktop builds passed: `/tmp/gabs-archive-architecture-build.log`.
+- Three headless browser/cross-surface journeys and one hidden/minimized native journey passed, covering all four web/desktop file-transfer directions: `/tmp/gabs-archive-architecture-web.log` and `/tmp/gabs-archive-architecture-native.log`. Both disposable databases were removed.
+- Scoped Axe and narrow overflow assertions passed. Parent inspected wide export and narrow import captures on web and desktop. Nineteen recorded source hashes confirm unchanged generated contracts, tokens/styles, dialog markup, encryption format, admission transaction and native publication implementation. Historical rerun captures were restored after inspection.
+
+This accepts the scoped ownership refactor, not whole-product parity or final UI design. Native acceptance uses development authentication and controlled OS keys; actual provider and signed-platform gates remain open. The checkpointed capacity fixture is unverified: its 560,000-character text exceeds the SDK text field's default 500-character limit, so it fails before exercising large archive admission. Correct that fixture without weakening product limits; capacity, lease/scope transitions and process-failure gates remain in ID-03-BACKUP-ARCHIVE.

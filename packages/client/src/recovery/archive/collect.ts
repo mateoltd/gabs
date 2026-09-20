@@ -13,6 +13,12 @@ export type ArchiveWorkSelection =
   | { kind: "draft"; draftKey: string }
   | { kind: "retained"; digest: string };
 
+export interface AvailableArchiveWork {
+  input: SavedWorkArchive["copies"][number];
+  digest: string;
+  check(): void;
+}
+
 /** Capture explicit source selections. Authorization and file delivery belong to the host. */
 export async function collectSavedWorkArchive(
   source: ModuleStorage,
@@ -71,4 +77,59 @@ export async function collectSavedWorkArchive(
     }),
     scope,
   );
+}
+
+/** Discover every currently available source copy from one storage snapshot. */
+export async function collectAvailableArchiveWork(
+  source: ModuleStorage,
+  scope: Scope,
+  authorize: (input: SavedWorkArchive["copies"][number]) => Promise<() => void>,
+  check: () => void,
+): Promise<{ copies: AvailableArchiveWork[]; unavailable: number }> {
+  check();
+  const selections: ArchiveWorkSelection[] = [
+    ...source.journal
+      .filter(
+        (entry) =>
+          !entry.supersededBy &&
+          entry.userId === scope.userId &&
+          entry.workspaceId === scope.workspaceId,
+      )
+      .map((entry) => ({ kind: "request" as const, requestId: entry.id })),
+    ...Object.keys(source.drafts).map((draftKey) => ({
+      kind: "draft" as const,
+      draftKey,
+    })),
+    ...Object.keys(source.recoveryImports ?? {}).map((digest) => ({
+      kind: "retained" as const,
+      digest,
+    })),
+  ];
+  const copies = new Map<string, AvailableArchiveWork>();
+  let unavailable = 0;
+  for (const selection of selections) {
+    check();
+    try {
+      const archive = await collectSavedWorkArchive(
+        source,
+        scope,
+        [selection],
+        check,
+      );
+      const input = archive.copies[0];
+      const digest = await savedWorkFingerprint(input);
+      check();
+      if (copies.has(digest)) continue;
+      const guard = await authorize(input);
+      check();
+      copies.set(digest, { input, digest, check: guard });
+    } catch {
+      check();
+      unavailable++;
+    }
+  }
+  check();
+  for (const copy of copies.values()) copy.check();
+  check();
+  return { copies: [...copies.values()], unavailable };
 }

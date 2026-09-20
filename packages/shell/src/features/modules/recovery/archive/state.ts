@@ -4,12 +4,10 @@ import type { FeatureProps } from "@suite/client";
 import { saveWorkArchive } from "@suite/client/browser";
 import { readModuleStorage } from "@suite/client/module-storage";
 import {
-  collectSavedWorkArchive,
+  collectAvailableArchiveWork,
   inspectSavedWorkArchive,
   openSavedWorkArchive,
   encryptedWorkArchiveLimit,
-  savedWorkFingerprint,
-  type ArchiveWorkSelection,
 } from "@suite/client/work-archive";
 import {
   stageSavedWorkImports,
@@ -199,59 +197,26 @@ export function useArchive(props: FeatureProps) {
   const load = async (options: SavedWorkImportOptions) => {
     const state = await readModuleStorage(options.platform, options.scope);
     options.check();
-    const selections: ArchiveWorkSelection[] = [
-      ...state.journal
-        .filter(
-          (entry) =>
-            !entry.supersededBy &&
-            entry.userId === options.scope.userId &&
-            entry.workspaceId === options.scope.workspaceId,
-        )
-        .map((entry) => ({ kind: "request" as const, requestId: entry.id })),
-      ...Object.keys(state.drafts).map((draftKey) => ({
-        kind: "draft" as const,
-        draftKey,
-      })),
-      ...Object.keys(state.recoveryImports ?? {}).map((digest) => ({
-        kind: "retained" as const,
-        digest,
-      })),
-    ];
-    const next = new Map<string, Copy>();
-    let failed = 0;
-    for (const selection of selections) {
-      options.check();
-      try {
-        const archive = await collectSavedWorkArchive(
-          state,
-          options.scope,
-          [selection],
-          () => options.check(),
-        );
-        const input = archive.copies[0],
-          digest = await savedWorkFingerprint(input);
-        if (next.has(digest)) continue;
-        const check = await authorize(options, input);
-        next.set(digest, {
-          input,
-          digest,
-          check,
-          moduleName:
-            latest.current.moduleCatalog.definition(input.moduleId)?.name ??
-            input.moduleId,
-        });
-      } catch (failure) {
-        options.check();
-        failed++;
-      }
-    }
+    const result = await collectAvailableArchiveWork(
+      state,
+      options.scope,
+      (input) => authorize(options, input),
+      () => options.check(),
+    );
     options.check();
-    for (const copy of next.values()) copy.check();
-    setCopies([...next.values()]);
+    const next = result.copies.map((copy): Copy => ({
+      ...copy,
+      moduleName:
+        latest.current.moduleCatalog.definition(copy.input.moduleId)?.name ??
+        copy.input.moduleId,
+    }));
+    for (const copy of next) copy.check();
+    options.check();
+    setCopies(next);
     setSelected([]);
-    setUnavailable(failed);
+    setUnavailable(result.unavailable);
     setRevision(latest.current.bootstrap.policyRevision);
-    if (!next.size && !failed)
+    if (!next.length && !result.unavailable)
       setNotice("There is no saved work to archive in this workspace.");
   };
   const chosen = visible.filter((copy) => selected.includes(copy.digest));

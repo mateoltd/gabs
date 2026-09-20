@@ -12,6 +12,7 @@ import {
   openSavedWorkArchive,
   sealSavedWorkArchive,
   parseSavedWorkArchive,
+  collectAvailableArchiveWork,
   collectSavedWorkArchive,
   encryptedWorkArchiveLimit,
   savedWorkArchiveLimit,
@@ -385,6 +386,54 @@ it("collects requests, drafts and retained copies without credentials, cached da
   expect(state).toEqual(before);
   expect(canonical(collected)).not.toContain("promotion");
   expect(canonical(collected)).not.toContain("responseContracts");
+  const requestGuard = vi.fn();
+  const available = await collectAvailableArchiveWork(
+    state,
+    archive,
+    async (input) => {
+      if (input.selection === "draft") throw Error("Draft access denied");
+      return requestGuard;
+    },
+    check,
+  );
+  expect(available.copies.map((item) => item.input)).toEqual([copy]);
+  expect(available.unavailable).toBe(1);
+  expect(requestGuard).toHaveBeenCalledOnce();
+  expect(state).toEqual(before);
+
+  let cancelled = false;
+  await expect(
+    collectAvailableArchiveWork(
+      state,
+      archive,
+      async (input) => {
+        if (input.selection === "draft") {
+          cancelled = true;
+          throw Error("Draft access denied");
+        }
+        return check;
+      },
+      () => {
+        if (cancelled) throw Error("Profile locked");
+      },
+    ),
+  ).rejects.toThrow(/Profile locked/);
+
+  let requestStillAllowed = true;
+  await expect(
+    collectAvailableArchiveWork(
+      state,
+      archive,
+      async (input) => {
+        if (input.selection === "draft") requestStillAllowed = false;
+        return () => {
+          if (input.selection === "request" && !requestStillAllowed)
+            throw Error("Request access expired");
+        };
+      },
+      check,
+    ),
+  ).rejects.toThrow(/Request access expired/);
   await expect(
     collectSavedWorkArchive(
       state,
