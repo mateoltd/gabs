@@ -479,7 +479,13 @@ export function Organization(props: FeatureProps) {
         <Field label="Module">
           <Select value={filter} onValueChange={setFilter}>
             <SelectOption value="">All modules</SelectOption>
-            {state.data.modules.map((m) => (
+            {[
+              ...state.data.modules,
+              ...(state.data.unavailableModules ?? []).map((m) => ({
+                id: m.moduleId,
+                name: m.name,
+              })),
+            ].map((m) => (
               <SelectOption value={m.id} key={m.id}>
                 {m.name}
               </SelectOption>

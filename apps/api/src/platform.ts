@@ -60,21 +60,18 @@ import {
 import {
   InstallationReportSchema,
   type InstallationReport,
-  ModuleRolloutSchema,
   SignedArtifactSchema,
 } from "@suite/module-sdk/platform";
 import {
   clientModule,
   receiptContract,
-  compatibleClientRelease,
-  validateConfiguredRollouts,
+  releasePolicySnapshot,
+  validateReleasePolicyChange,
+  type ReleasePolicySnapshot,
 } from "@suite/server-core/registry/module-rollout";
 import { changeDeviceInstallation } from "@suite/server-core/registry/module-installations";
 import { migrateModuleStorage } from "@suite/server-core/persistence/module-migrations";
-import {
-  assertModuleStorage,
-  lockModuleStorage,
-} from "@suite/server-core/persistence/module-storage";
+import { lockModuleStorage } from "@suite/server-core/persistence/module-storage";
 import { executeModuleOperation } from "@suite/server-core/runtime/services";
 import { moduleServers } from "@suite/module-catalog/server";
 import {
@@ -82,6 +79,7 @@ import {
   workspaceModule,
   workspaceBusinessPermissions,
   workspacePermissionCatalog,
+  workspaceModuleSelections,
   registeredModuleIds,
 } from "@suite/server-core/registry/module-releases";
 import { readFile } from "node:fs/promises";
@@ -745,20 +743,19 @@ export async function registerPlatform(
         // Include releases published after server startup; executable client-only
         // modules require neither a host rebuild nor a server restart.
         const candidates = await registeredModuleIds(tx, runtime.catalog);
-        const definitions = await Promise.all(
-          candidates
-            .filter(
-              (m) =>
-                admin ||
-                ctx.permissions.includes("roles.manage") ||
-                activations.some(
-                  (a) => a.module_id === m && a.state === "enabled",
-                ),
-            )
-            .map((m) =>
-              workspaceModule(tx, ctx.workspaceId, m, runtime.catalog),
-            ),
+        const visible = candidates.filter(
+          (m) =>
+            admin ||
+            ctx.permissions.includes("roles.manage") ||
+            activations.some((a) => a.module_id === m && a.state === "enabled"),
         );
+        const { modules: definitions, unavailableModules } =
+          await workspaceModuleSelections(
+            tx,
+            ctx.workspaceId,
+            runtime.catalog,
+            visible,
+          );
         for (const definition of definitions)
           if (!runtime.catalog.definition(definition.id))
             runtime.catalog.register(definition);
@@ -776,6 +773,7 @@ export async function registerPlatform(
           .execute();
         return {
           modules: definitions,
+          unavailableModules,
           permissionCatalog: ctx.permissions.includes("roles.manage")
             ? await workspacePermissionCatalog(
                 tx,
@@ -790,9 +788,7 @@ export async function registerPlatform(
             .where("workspace_id", "=", ctx.workspaceId)
             .execute(),
           installations: installs,
-          releases: releases.filter((r) =>
-            definitions.some((m) => m.id === r.module_id),
-          ),
+          releases: releases.filter((r) => visible.includes(r.module_id)),
           organization: ctx.permissions.includes("roles.manage")
             ? { ...policy, version: org?.version ?? 0 }
             : null,
@@ -1140,6 +1136,7 @@ export async function registerPlatform(
               );
             }
             let key = "";
+            let releaseModuleId: string | undefined;
             let previousModuleIntents: ModulePolicyIntents | undefined;
             if (req.body.action === "organization") {
               previousModuleIntents = await modulePolicyIntents(
@@ -1382,6 +1379,7 @@ export async function registerPlatform(
                 "INVALID_ROLLOUT",
                 "A mandatory update cannot also accept older releases.",
               );
+              releaseModuleId = value.moduleId;
               key = `pin:${value.moduleId}`;
             } else {
               assertSchema(
@@ -1420,6 +1418,14 @@ export async function registerPlatform(
               "VERSION_CONFLICT",
               "Settings changed. Reload before saving.",
             );
+            let previousReleasePolicy: ReleasePolicySnapshot | undefined;
+            if (releaseModuleId)
+              previousReleasePolicy = await releasePolicySnapshot(
+                tx,
+                ctx.workspaceId,
+                runtime.catalog,
+                releaseModuleId,
+              );
             await tx
               .insertInto("suite.platform_settings")
               .values({
@@ -1434,81 +1440,13 @@ export async function registerPlatform(
                   .doUpdateSet({ value, version: (old?.version ?? 0) + 1 }),
               )
               .execute();
-            if (req.body.action === "pin" || req.body.action === "rollout") {
-              const active = await tx
-                .selectFrom("suite.module_activations")
-                .select("module_id")
-                .where("workspace_id", "=", ctx.workspaceId)
-                .where("state", "=", "enabled")
-                .execute();
-              const pinnedModuleId = String(
-                (value as Record<string, unknown>).moduleId,
-              );
-              const modules = new Set([
-                pinnedModuleId,
-                ...active.map((m) => m.module_id),
-              ]);
-              for (const moduleId of modules) {
-                const plan = await resolveWorkspaceRelease(
-                  tx,
-                  ctx.workspaceId,
-                  moduleId,
-                );
-                if (
-                  !plan.some((release) => release.module_id === pinnedModuleId)
-                )
-                  continue;
-                for (const release of plan) {
-                  await assertModuleStorage(
-                    tx,
-                    ctx.workspaceId,
-                    hydrateModule(
-                      release.artifact as unknown as import("@suite/module-sdk").ModuleDefinition,
-                    ),
-                  );
-                  const selected = await workspaceModule(
-                    tx,
-                    ctx.workspaceId,
-                    release.module_id,
-                    runtime.catalog,
-                  );
-                  requireCondition(
-                    selected.version === release.version,
-                    409,
-                    "DEPENDENCY_POLICY_CONFLICT",
-                    `${moduleId} requires ${release.module_id}@${release.version}, but the workspace selects ${selected.version}. Choose compatible version pins.`,
-                  );
-                }
-              }
-            }
-            if (req.body.action === "rollout") {
-              assertSchema(ModuleRolloutSchema, value);
-              const moduleId = String(value.moduleId);
-              const current = await workspaceModule(
+            if (previousReleasePolicy)
+              await validateReleasePolicyChange(
                 tx,
                 ctx.workspaceId,
-                moduleId,
                 runtime.catalog,
-              );
-              for (const version of new Set([
-                current.version,
-                ...(value.acceptedVersions as string[]),
-              ]))
-                await compatibleClientRelease(
-                  tx,
-                  ctx.workspaceId,
-                  ctx.runtime.catalog,
-                  moduleId,
-                  version,
-                  moduleServers,
-                );
-            }
-            if (req.body.action === "pin" || req.body.action === "rollout")
-              await validateConfiguredRollouts(
-                tx,
-                ctx.workspaceId,
-                ctx.runtime.catalog,
                 moduleServers,
+                previousReleasePolicy,
               );
             if (req.body.action === "organization")
               await reconcileModulePolicies(

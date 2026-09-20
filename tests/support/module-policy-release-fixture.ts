@@ -10,7 +10,9 @@ import {
   publishRelease,
 } from "../../tooling/modules/registry-review";
 
-export async function modulePolicyReleaseFixture() {
+export async function modulePolicyReleaseFixture(
+  name = "Release policy checks",
+) {
   if (!process.env.MIGRATION_DATABASE_URL)
     throw Error("Explicit local fixture database is required.");
   const admin = new Pool({
@@ -20,15 +22,18 @@ export async function modulePolicyReleaseFixture() {
     connectionString: process.env.MIGRATION_DATABASE_URL,
     options: "-c role=suite_registry",
   });
-  const id = `policy-release-${randomUUID().slice(0, 8)}`,
-    name = "Release policy checks";
+  const id = `policy-release-${randomUUID().slice(0, 8)}`;
   const keys = process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys";
   const privateKey = await readFile(`${keys}/private.pem`, "utf8"),
     publicKey = await readFile(`${keys}/public.pem`, "utf8");
   return {
     id,
     name,
-    async publish(version: string, dependencies: Record<string, string>) {
+    async publish(
+      version: string,
+      dependencies: Record<string, string>,
+      permissions: string[] = [],
+    ) {
       const pkg = signPackage(
         defineModule({
           id,
@@ -39,7 +44,7 @@ export async function modulePolicyReleaseFixture() {
           host: "^1.0.0",
           backend: "^1.0.0",
           dependencies,
-          permissions: [],
+          permissions,
           configuration: Type.Object({}),
           operations: {},
           resources: {},
@@ -55,6 +60,12 @@ export async function modulePolicyReleaseFixture() {
         publicKey,
       );
       await publishRelease(registry, submitted, publicKey);
+    },
+    async withdraw(version: string) {
+      await admin.query(
+        "delete from suite.module_releases where module_id=$1 and version=$2",
+        [id, version],
+      );
     },
     async entitle(workspaceId: string) {
       await admin.query(

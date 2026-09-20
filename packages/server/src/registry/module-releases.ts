@@ -1,4 +1,7 @@
-import type { ModulePermission } from "@suite/module-sdk/platform";
+import type {
+  ModulePermission,
+  ModuleReleaseIssue,
+} from "@suite/module-sdk/platform";
 import { sql } from "kysely";
 import { moduleStorageVersions } from "../persistence/module-storage";
 import { readFile } from "node:fs/promises";
@@ -259,6 +262,41 @@ export async function registeredModuleIds(tx: Tx, catalog: ModuleCatalog) {
   ];
 }
 
+/** Only selection failures can be isolated. Invalid signatures and storage faults fail closed. */
+export function isUnavailableRelease(error: unknown): error is AppError & {
+  code: ModuleReleaseIssue["code"];
+} {
+  return (
+    error instanceof AppError &&
+    (error.code === "RELEASE_INCOMPATIBLE" || error.code === "NOT_FOUND")
+  );
+}
+
+/** Administration retains healthy selections without inventing a runtime fallback. */
+export async function workspaceModuleSelections(
+  tx: Tx,
+  workspaceId: string,
+  catalog: ModuleCatalog,
+  ids: readonly string[],
+) {
+  const modules: ModuleDefinition[] = [];
+  const unavailableModules: ModuleReleaseIssue[] = [];
+  for (const id of ids) {
+    try {
+      modules.push(await workspaceModule(tx, workspaceId, id, catalog));
+    } catch (error) {
+      if (!isUnavailableRelease(error)) throw error;
+      unavailableModules.push({
+        moduleId: id,
+        name: catalog.definition(id)?.name ?? id,
+        code: error.code,
+        message: error.message,
+      });
+    }
+  }
+  return { modules, unavailableModules };
+}
+
 /** Selected contracts and signed published history share one administration catalogue.
  * Historical declarations do not enable a module or authorize an actor themselves.
  */
@@ -268,13 +306,10 @@ export async function workspacePermissionCatalog(
   catalog: ModuleCatalog,
   selected?: readonly ModuleDefinition[],
 ): Promise<ModulePermission[]> {
+  const ids = await registeredModuleIds(tx, catalog);
   const definitions =
     selected ??
-    (await Promise.all(
-      (await registeredModuleIds(tx, catalog)).map((id) =>
-        workspaceModule(tx, workspaceId, id, catalog),
-      ),
-    ));
+    (await workspaceModuleSelections(tx, workspaceId, catalog, ids)).modules;
   const entries = new Map<string, ModulePermission>();
   const add = (module: ModuleDefinition, current: boolean) => {
     for (const permission of module.permissions) {
@@ -296,7 +331,7 @@ export async function workspacePermissionCatalog(
     }
   };
   for (const definition of definitions) add(definition, true);
-  if (!definitions.length) return [];
+  if (!ids.length) return [];
   const releases = await tx
     .selectFrom("suite.module_releases")
     .select([
@@ -307,11 +342,7 @@ export async function workspacePermissionCatalog(
       'artifact', artifact, 'digest', digest, 'signature', signature, 'key_id', key_id
     )::text`.as("content"),
     ])
-    .where(
-      "module_id",
-      "in",
-      definitions.map((m) => m.id),
-    )
+    .where("module_id", "in", ids)
     .execute();
   if (releases.length) {
     const publicKey = await registryPublicKey();

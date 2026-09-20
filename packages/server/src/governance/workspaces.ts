@@ -15,6 +15,7 @@ import {
   workspaceDependencyIds,
   workspaceBusinessPermissions,
   registeredModuleIds,
+  isUnavailableRelease,
 } from "../registry/module-releases";
 import { type Tx } from "../persistence/database";
 import {
@@ -110,18 +111,22 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
         const rollout = releasePolicies.find(
           (p) => p.key === `pin:${id}`,
         )?.value;
-        const selectedVersion =
-          typeof rollout?.version === "string"
-            ? rollout.version ||
-              (
-                await workspaceModule(
-                  tx,
-                  ctx.workspaceId,
-                  id,
-                  ctx.runtime.catalog,
-                )
-              ).version
-            : undefined;
+        let selectedVersion: string | undefined;
+        if (typeof rollout?.version === "string") {
+          try {
+            selectedVersion = (
+              await workspaceModule(
+                tx,
+                ctx.workspaceId,
+                id,
+                ctx.runtime.catalog,
+              )
+            ).version;
+          } catch (error) {
+            if (!isUnavailableRelease(error)) throw error;
+            // Keep workspace recovery reachable without asserting an accepted release.
+          }
+        }
         const acceptedVersions = selectedVersion
           ? [
               ...new Set([
@@ -711,11 +716,13 @@ export async function configureModule(
   },
 ) {
   await lockWorkspace(tx, ctx.workspaceId);
-  const definition = await workspaceModule(
+  ctx = await authorize(
     tx,
+    ctx.actor,
     ctx.workspaceId,
-    id,
-    ctx.runtime.catalog,
+    ctx.requestId,
+    ctx.runtime,
+    "modules.manage",
   );
   const entitlement = await tx
     .selectFrom("suite.entitlements")
@@ -730,7 +737,20 @@ export async function configureModule(
     .where("module_id", "=", id)
     .executeTakeFirst();
   const config = input.config ?? existing?.config ?? {};
+  requireCondition(
+    existing ||
+      (await registeredModuleIds(tx, ctx.runtime.catalog)).includes(id),
+    404,
+    "NOT_FOUND",
+    "This module is not registered.",
+  );
   if (input.state === "enabled") {
+    const definition = await workspaceModule(
+      tx,
+      ctx.workspaceId,
+      id,
+      ctx.runtime.catalog,
+    );
     await assertModuleStorage(tx, ctx.workspaceId, definition);
     assertSchema(definition.configuration, config);
     requireCondition(

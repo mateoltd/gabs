@@ -13,6 +13,8 @@ import {
   registryPublicKey,
   resolveWorkspaceRelease,
   workspaceModule,
+  workspaceModuleSelections,
+  isUnavailableRelease,
 } from "./module-releases";
 import { assertModuleStorage } from "../persistence/module-storage";
 import { stagedModuleServer } from "./staged-module-server";
@@ -214,6 +216,7 @@ export async function validateConfiguredRollouts(
   workspaceId: string,
   catalog: ModuleCatalog,
   servers: readonly InstalledModuleServer[],
+  moduleIds?: ReadonlySet<string>,
 ) {
   const rows = await tx
     .selectFrom("suite.platform_settings as p")
@@ -229,6 +232,7 @@ export async function validateConfiguredRollouts(
     .where("a.state", "=", "enabled")
     .execute();
   for (const row of rows) {
+    if (moduleIds && !moduleIds.has(row.module_id)) continue;
     if (!Array.isArray(row.value.acceptedVersions)) continue;
     const current = await workspaceModule(
       tx,
@@ -249,4 +253,110 @@ export async function validateConfiguredRollouts(
         servers,
       );
   }
+}
+
+/** Preserve pre-existing selection failures while an administrator repairs one module. */
+export async function releasePolicySnapshot(
+  tx: Tx,
+  workspaceId: string,
+  catalog: ModuleCatalog,
+  moduleId: string,
+) {
+  const active = await tx
+    .selectFrom("suite.module_activations")
+    .select("module_id")
+    .where("workspace_id", "=", workspaceId)
+    .where("state", "=", "enabled")
+    .execute();
+  const moduleIds = [...new Set([moduleId, ...active.map((m) => m.module_id)])];
+  const { unavailableModules } = await workspaceModuleSelections(
+    tx,
+    workspaceId,
+    catalog,
+    moduleIds,
+  );
+  return {
+    moduleId,
+    moduleIds,
+    unavailable: new Set(unavailableModules.map((m) => m.moduleId)),
+  };
+}
+export type ReleasePolicySnapshot = Awaited<
+  ReturnType<typeof releasePolicySnapshot>
+>;
+
+/** A repaired target must work; previously healthy dependants and client releases stay compatible. */
+export async function validateReleasePolicyChange(
+  tx: Tx,
+  workspaceId: string,
+  catalog: ModuleCatalog,
+  servers: readonly InstalledModuleServer[],
+  previous: ReleasePolicySnapshot,
+) {
+  const { moduleId } = previous;
+  const compatible = new Set<string>();
+  for (const root of previous.moduleIds) {
+    let plan: Awaited<ReturnType<typeof resolveWorkspaceRelease>>;
+    try {
+      plan = await resolveWorkspaceRelease(tx, workspaceId, root);
+    } catch (error) {
+      if (
+        root !== moduleId &&
+        previous.unavailable.has(root) &&
+        isUnavailableRelease(error)
+      )
+        continue;
+      throw error;
+    }
+    compatible.add(root);
+    if (!plan.some((release) => release.module_id === moduleId)) continue;
+    for (const release of plan) {
+      await assertModuleStorage(
+        tx,
+        workspaceId,
+        hydrateModule(release.artifact as unknown as ModuleDefinition),
+      );
+      const selected = await workspaceModule(
+        tx,
+        workspaceId,
+        release.module_id,
+        catalog,
+      );
+      requireCondition(
+        selected.version === release.version,
+        409,
+        "DEPENDENCY_POLICY_CONFLICT",
+        `${root} requires ${release.module_id}@${release.version}, but the workspace selects ${selected.version}. Choose compatible version pins.`,
+      );
+    }
+  }
+  const rollout = await tx
+    .selectFrom("suite.platform_settings")
+    .select("value")
+    .where("workspace_id", "=", workspaceId)
+    .where("key", "=", `pin:${moduleId}`)
+    .executeTakeFirstOrThrow();
+  if (Array.isArray(rollout.value.acceptedVersions)) {
+    const current = await workspaceModule(tx, workspaceId, moduleId, catalog);
+    for (const version of new Set([
+      current.version,
+      ...(rollout.value.acceptedVersions as string[]),
+    ]))
+      await compatibleClientRelease(
+        tx,
+        workspaceId,
+        catalog,
+        moduleId,
+        version,
+        servers,
+      );
+  }
+  compatible.delete(moduleId);
+  await validateConfiguredRollouts(
+    tx,
+    workspaceId,
+    catalog,
+    servers,
+    compatible,
+  );
 }

@@ -9,10 +9,22 @@ export const ModulePermissionSchema = Type.Object({
   versions: Type.Array(Type.String()),
 });
 export type ModulePermission = Static<typeof ModulePermissionSchema>;
+export const ModuleReleaseIssueSchema = Type.Object({
+  moduleId: Type.String(),
+  name: Type.String(),
+  code: Type.Union([
+    Type.Literal("RELEASE_INCOMPATIBLE"),
+    Type.Literal("NOT_FOUND"),
+  ]),
+  message: Type.String(),
+});
+export type ModuleReleaseIssue = Static<typeof ModuleReleaseIssueSchema>;
 export interface PlatformState {
   /** Verified declarations for policy administration, not effective actor grants. */
   permissionCatalog?: ModulePermission[];
   modules: ModuleDefinition[];
+  /** Unresolved selections are administrative information, never runtime contracts. */
+  unavailableModules?: ModuleReleaseIssue[];
   storage?: {
     module_id: string;
     schema_version: number;

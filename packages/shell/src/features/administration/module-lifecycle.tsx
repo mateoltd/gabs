@@ -30,6 +30,7 @@ import {
 } from "../modules/installation";
 import { BusinessCutover } from "./business-cutover";
 import { ModuleFleetDialog } from "./module-fleet";
+import { ModuleReleaseRecovery } from "./module-release-recovery";
 const archetypes = [
   "modern-dark",
   "chromatic-playful",
@@ -168,6 +169,7 @@ export function ModuleLifecycle(
             : (error ?? state.error)
         }
       />
+      {state.data && <ModuleReleaseRecovery {...props} state={state.data} />}
       <div className="module-grid">
         {state.data?.modules.map((module) => {
           const installation = state.data.installations.find(
