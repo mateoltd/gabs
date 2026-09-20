@@ -1180,3 +1180,8 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 ### 20 September 2026: recovery-session expiry during held settlement
 
 [Server-enforced expiry acceptance](corporate-promotion-interruption/README.md#server-enforced-recovery-expiry-during-settlement) passes on headless web and hidden/minimized desktop. Aging the exact recovering database session yields real recovery refusal; releasing the settlement reply leaves copies, journal and unrelated drafts unchanged. Normal UI sign-in creates a fresh session before explicit restoration, retaining one cancellation audit and one independent draft effect. Two journeys, strict checks and eight inspected captures passed; the database was removed. Production/UI source is unchanged. Controlled session aging does not establish actual-provider or elapsed endurance acceptance. Profile-lock/replacement late completion and overall parity remain open.
+
+
+## Session ownership architecture review, 20 September 2026
+
+[Checkpoint, delegated review and parent acceptance](architecture/README.md#session-ownership-checkpoint-review-20-september-2026) preserve `08e09fe`, confirm the existing responsibility-based layout and correct stale logout completion erasing a fresh session's workspace choice. A minimized native regression reproduces the pre-fix failure and verifies persistence after the fix and reload. Focused boundary/recovery tests, strict checks, four fresh builds and two native journeys passed; scoped archive captures were inspected. Provider/platform gates, promotion interruption acceptance, full parity and later UI refinement remain open.

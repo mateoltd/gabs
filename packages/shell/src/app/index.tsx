@@ -248,10 +248,10 @@ function Session() {
       if (window.suiteDesktop) await window.suiteDesktop.logout();
       if (online || window.suiteDesktop) acknowledgeSignOut(record);
     } finally {
-      localStorage.removeItem("suite-workspace");
       // Desktop profile changes remount Session before native cleanup finishes.
-      // Its old completion must not remove the new session's observed queries.
+      // Its old completion must not clear the new session's workspace or queries.
       if (mounted.current) {
+        localStorage.removeItem("suite-workspace");
         qc.clear();
         setWorkspaceId("");
         setEndingSession(false);

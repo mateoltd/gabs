@@ -307,3 +307,24 @@ Final parent verification:
 - Scoped Axe and narrow overflow assertions passed. Parent inspected wide export and narrow import captures on web and desktop. Nineteen recorded source hashes confirm unchanged generated contracts, tokens/styles, dialog markup, encryption format, admission transaction and native publication implementation. Historical rerun captures were restored after inspection.
 
 This accepts the scoped ownership refactor, not whole-product parity or final UI design. Native acceptance uses development authentication and controlled OS keys; actual provider and signed-platform gates remain open. The checkpointed capacity fixture is unverified: its 560,000-character text exceeds the SDK text field's default 500-character limit, so it fails before exercising large archive admission. Correct that fixture without weakening product limits; capacity, lease/scope transitions and process-failure gates remain in ID-03-BACKUP-ARCHIVE.
+
+
+## Session ownership checkpoint review, 20 September 2026
+
+Annotated tag `checkpoint/architecture-review-08e09fe` preserves the clean checkout at `08e09fe` and was pushed before the explicitly requested `gpt-5.6-sol` review at `xhigh`. The delegate audited every non-document source change since the previous archive architecture review, alongside the adjacent desktop storage, utility, preload and shell boundaries. The parent independently reviewed the diff, package manifests, environment configurations, build/CI paths and dependency checker.
+
+The requested physical layout is already implemented: `sdk`, `client`, `server`, `shell`, `ui/web` and `ui/tokens`, with subsystem directories and outermost product composition. Recovery validation and promotion stay in the client; interaction stays in the shell; retained-root replacement and OS-key handling stay in desktop main/utility. Existing public package identifiers remain compatible. Further moves or generic test abstractions were not justified.
+
+The delegate corrected one ownership defect: an old, unmounted shell session could remove `suite-workspace` after a fresh session selected its company workspace. Workspace cleanup now shares the existing mounted-session guard with query and React state cleanup. The parent reproduced the defect in real minimized Electron before accepting the fix. A test-only bootstrap holds the actual logout IPC acknowledgement after native cleanup has completed, permits normal UI sign-in and company selection, then releases the old continuation. Before the fix the stored workspace became null; afterward it survives the acknowledgement and a renderer reload. No renderer bridge, production test hook, stylesheet or signed artifact changed.
+
+Verification:
+
+- 34 focused architecture-boundary and retained-root recovery tests passed: `/tmp/gabs-architecture-08e09fe-tests.log`. These precede the shell-only correction; that correction is covered by native acceptance below.
+- Final strict root/browser/Node/preload/worker checks, dependency/copy checks and four fresh builds passed: `/tmp/gabs-architecture-08e09fe-final-build.log`. Existing bundle-size warnings remain.
+- The pre-fix native regression failed at the expected persisted-workspace assertion: `/tmp/gabs-session-completion-before.log`.
+- Two native journeys passed on the fixed product: delayed logout acknowledgement and existing archive profile isolation/recovery, `/tmp/gabs-architecture-08e09fe-final-native.log`. Both remained hidden/minimized and unfocused. The archive journey's scoped accessibility/overflow checks passed; four regenerated captures were inspected and their incidental byte changes discarded.
+- After review tightened the new fixture's launch/close cleanup, root type checking and its final native rerun passed: `/tmp/gabs-session-completion-final-types.log` and `/tmp/gabs-session-completion-final.log`. All disposable test databases were removed. Scoped source formatting and local documentation links passed; the ledger retains 29 unique requirements and the tracker 106 unique IDs.
+
+The regression uses development authentication and deliberately unavailable OS storage; the archive journey uses its recorded controlled protection adapter. Neither establishes actual identity/OS-provider, platform signing or physical durability acceptance. The reviewed maintenance orchestration in Electron `main.ts` remains a candidate for extraction if another maintenance workflow introduces a distinct responsibility; its current size alone does not justify a new layer. The shared corporate-portability callback surface is a maintainability watchpoint.
+
+ARCH-01 through ARCH-06 retain their existing scoped acceptance. ID-03-BACKUP-INTERRUPTION remains active: this logout correction does not verify locking/replacing a profile during saved-work promotion or acknowledgement of a committed promotion write. Full parity and the later UI-refinement goal remain incomplete.
