@@ -1,19 +1,19 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-export type AdmissionCrash = {
+export type StorageCrash = {
   target: "main" | "utility";
   phase: "before" | "committed";
 };
 
 /** Wrap the real storage worker's request/reply boundary without changing its writes. */
-export async function admissionWorker(
+export async function storageCrashWorker(
   directory: string,
-  crash: AdmissionCrash,
+  crash: StorageCrash,
 ) {
-  const entry = resolve(directory, "admission-worker.cjs");
-  const arm = resolve(directory, "admission-arm.txt");
-  const marker = resolve(directory, "admission-crash.json");
+  const entry = resolve(directory, "storage-crash-worker.cjs");
+  const arm = resolve(directory, "storage-crash-arm.json");
+  const marker = resolve(directory, "storage-crash.json");
   await writeFile(
     entry,
     `
@@ -30,10 +30,12 @@ port.on=(name,listener)=>on(name,name!=='message'?listener:(event)=>{
   const message=event.data;
   if(message?.action==='write' && typeof message.key==='string' &&
     message.key.endsWith('/module-state') &&
-    Object.keys(message.value?.recoveryImports??{}).length===2 &&
     existsSync(arm)){
     const expected=JSON.parse(readFileSync(arm,'utf8'));
-    if(expected.key===message.key && Number.isInteger(expected.mainPid) && expected.mainPid===process.ppid){
+    const matches=expected.promotion
+      ? !!message.value?.recoveryImports?.[expected.promotion]?.promotion
+      : Object.keys(message.value?.recoveryImports??{}).length===2;
+    if(matches && expected.key===message.key && Number.isInteger(expected.mainPid) && expected.mainPid===process.ppid){
       owner=expected.mainPid;
       selected=message.id;
       if(crash.phase==='before') terminate();

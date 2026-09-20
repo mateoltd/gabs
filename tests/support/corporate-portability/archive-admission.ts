@@ -3,10 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { openSavedWorkArchive } from "../../../packages/client/src/recovery/archive";
 import { selectValue } from "../../e2e/controls.helpers";
 import type { ArchiveReviewContext } from "./archive-lifecycle";
-import type {
-  AdmissionCrash,
-  admissionWorker,
-} from "./archive-admission-worker";
+import type { StorageCrash, storageCrashWorker } from "./storage-crash";
 import { captureArchive } from "./archives";
 import { nativePortabilityDevice, portabilityStorage } from "./devices";
 
@@ -15,8 +12,8 @@ type NativeDevice = Awaited<ReturnType<typeof nativePortabilityDevice>>;
 export async function archiveAdmission(
   context: ArchiveReviewContext,
   options: {
-    crash: AdmissionCrash;
-    worker: Awaited<ReturnType<typeof admissionWorker>>;
+    crash: StorageCrash;
+    worker: Awaited<ReturnType<typeof storageCrashWorker>>;
     device: NativeDevice;
     restart(): Promise<NativeDevice>;
   },

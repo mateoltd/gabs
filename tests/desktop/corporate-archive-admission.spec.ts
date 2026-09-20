@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { archiveAdmission } from "../support/corporate-portability/archive-admission";
-import { admissionWorker } from "../support/corporate-portability/archive-admission-worker";
+import { storageCrashWorker } from "../support/corporate-portability/storage-crash";
 import { corporatePortability } from "../support/corporate-portability/journey";
 import { nativePortabilityDevice } from "../support/corporate-portability/devices";
 
@@ -22,7 +22,7 @@ for (const target of ["utility", "main"] as const)
         Awaited<ReturnType<typeof nativePortabilityDevice>> | undefined;
       try {
         const crash = { target, phase };
-        const worker = await admissionWorker(directory, crash);
+        const worker = await storageCrashWorker(directory, crash);
         expect(
           (
             await api.post("/auth/development", {

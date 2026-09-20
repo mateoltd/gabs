@@ -9,9 +9,19 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { assertSchema } from "@suite/module-sdk";
-import { SavedWorkRecoverySchema } from "@suite/module-sdk/platform";
+import {
+  SavedWorkRecoverySchema,
+  type SavedWorkRecovery,
+} from "@suite/module-sdk/platform";
 import { selectValue } from "../../e2e/controls.helpers";
 import { exportArchive, importArchive } from "./archives";
+
+export interface RestorationContext {
+  page: Page;
+  scope: { userId: string; workspaceId: string };
+  input: SavedWorkRecovery;
+  path: string;
+}
 
 /** Two independent stores exchange only the actual files produced by the source UI. */
 export async function corporatePortability(options: {
@@ -24,6 +34,7 @@ export async function corporatePortability(options: {
     context: ArchiveReviewContext,
   ): Promise<void | ArchiveReviewContext["file"]>;
   archiveReviewCheck?(context: ArchiveReviewContext): Promise<Page>;
+  confirmRestoration?(context: RestorationContext): Promise<Page>;
   offline(value: boolean): Promise<void>;
   exportFile(button: Locator, path: string): Promise<void>;
   replaceDevice(): Promise<Page>;
@@ -172,7 +183,7 @@ export async function corporatePortability(options: {
   await page
     .getByRole("button", { name: "Import saved work", exact: true })
     .click();
-  const imported = page.getByRole("dialog", {
+  let imported = page.getByRole("dialog", {
     name: "Imported saved work",
     exact: true,
   });
@@ -195,9 +206,21 @@ export async function corporatePortability(options: {
       .getByRole("button", { name: "Restore for review", exact: true })
       .first()
       .click();
-    await imported
-      .getByRole("button", { name: "Confirm restoration", exact: true })
-      .click();
+    if (options.confirmRestoration) {
+      page = await options.confirmRestoration({
+        page,
+        scope: { userId: request.userId, workspaceId },
+        input: index === 0 ? request : draft,
+        path,
+      });
+      imported = page.getByRole("dialog", {
+        name: "Imported saved work",
+        exact: true,
+      });
+    } else
+      await imported
+        .getByRole("button", { name: "Confirm restoration", exact: true })
+        .click();
     await expect(
       imported.getByRole("button", { name: "Restore for review", exact: true }),
     ).toHaveCount(archive ? 1 - index : 0);
