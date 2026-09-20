@@ -432,3 +432,12 @@ Checkpoint `99f6309`, preserved by the pushed annotated tag `checkpoint/invitati
 Invitation creation, response and revocation now share one server governance owner instead of the broad workspace service and an inline API mutation. Parent and delegate review preserve receipt-to-workspace lock ordering, transaction atomicity and public wire schemas. The delegate identified an ownership-specific replay gap: generic administrator reauthorization alone could return an ownership-invitation receipt to its demoted creator. A typed replay hook now invokes the same service-owned role-authority check used for creation after fresh workspace authorization. This changes receipt admission without repeating business effects.
 
 Parent review adds real lost-response journeys and plain uncertain-result instructions. The existing UI design remains intact; invitation fields are disabled while saving. [Invitation transition evidence](../invitation-transitions/README.md) records verification and its limits. Broader GOV-01, full parity and the later UI-refinement goal remain open.
+
+
+## Invitation pagination checkpoint review, 21 September 2026
+
+Checkpoint `9d2832e` and pushed tag `checkpoint/invitation-pages-architecture-2026-09-21` preserve unfinished pagination before the expressly requested `gpt-5.6-sol` delegation at `xhigh`. The existing physical migration remains in place: `sdk`, `client`, `server`, `shell`, `ui/web`, `ui/tokens` and outer `composition`. The delegate and parent found no justified repeat migration or public package rename.
+
+The delegate extracted the invitation item, query and page protocol into `contracts/src/workspaces/invitations.ts`, retaining root exports. Server governance owns pagination, stable database ordering, workspace isolation and current authority. API code remains transport orchestration; the shell owns scoped query state and recovery interaction. Parent review accepted the extraction, checked schema equivalence and reviewed read-error copy, total-based pluralization, cancellation and workspace remount behavior. No styling changes were made.
+
+[Invitation-page evidence](../invitation-pages/README.md) records final verification, eight inspected captures and limits. The checkpoint is distinct from accepted feature behavior. GOV-01, full parity and the separately authorized later UI-refinement goal remain open.

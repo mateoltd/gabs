@@ -1,6 +1,6 @@
-import { sql } from "kysely";
-import type { InvitationQuery, InvitationPage } from "@suite/contracts";
 import { randomUUID } from "node:crypto";
+import type { InvitationPage, InvitationQuery } from "@suite/contracts";
+import { sql } from "kysely";
 import type { Tx } from "../persistence/database";
 import {
   type Context,

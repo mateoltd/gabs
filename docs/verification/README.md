@@ -1290,3 +1290,8 @@ Final verification passes 27 focused tests, strict checks/four fresh builds, fiv
 ## Role editing and concurrent permission changes, 21 September 2026
 
 [Role-edit acceptance](role-edits/README.md) covers canonical contracts, conflicting direct-grant changes, exact retries after committed replies are lost, current authority after receipt/workspace waits, explicit People and central-matrix review and keyboard recovery. Local checks and inspected images are recorded there. Invitation pagination, wider employee administration, actual providers/platforms and full parity remain open.
+
+
+## Invitation pagination and checkpoint review, 21 September 2026
+
+[Invitation-page acceptance](invitation-pages/README.md) extends GOV-01 and ORG-001/ORG-003 with full-history pagination, server search, current totals, stable cursor ordering and explicit read recovery. The requested Sol xhigh [checkpoint review](architecture/README.md#invitation-pagination-checkpoint-review-21-september-2026) moves the protocol into workspace contracts while preserving root exports and existing package ownership. Final checks and inspected captures are recorded in the evidence. Broader employee administration, actual providers/platforms, full parity and later UI refinement remain open.

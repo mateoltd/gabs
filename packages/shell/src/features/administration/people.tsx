@@ -340,7 +340,16 @@ export function People(props: FeatureProps) {
       <ErrorMessage
         error={
           !invite && !member && !role
-            ? (error ?? members.error ?? roles.error ?? invitations.error)
+            ? (error ??
+              members.error ??
+              roles.error ??
+              (invitations.error instanceof ApiError
+                ? invitations.error
+                : invitations.error
+                  ? new Error(
+                      "The invitation page could not be loaded. Check your connection and try again.",
+                    )
+                  : undefined))
             : undefined
         }
       />
@@ -595,7 +604,9 @@ export function People(props: FeatureProps) {
               invitations.data.total !== visibleCount
                 ? ` of ${invitations.data.total}`
                 : ""}{" "}
-              {visibleCount === 1
+              {(tab === "invitations"
+                ? invitations.data?.total
+                : visibleCount) === 1
                 ? tab === "members"
                   ? "member"
                   : tab === "roles"
