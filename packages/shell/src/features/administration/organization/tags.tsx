@@ -1,18 +1,11 @@
+import { PolicyPermissions } from "./permissions";
 import { PolicyModules } from "./modules";
 import { useRef, useState } from "react";
 import type {
   OrganizationPolicy,
   PolicyTag,
 } from "@suite/module-sdk/governance";
-import {
-  Button,
-  Checkbox,
-  Field,
-  Input,
-  Select,
-  SelectOption,
-  SearchSelect,
-} from "@suite/ui-web";
+import { Button, Checkbox, Field, Input, SearchSelect } from "@suite/ui-web";
 
 export function OrganizationTags({
   policy,
@@ -129,11 +122,12 @@ export function OrganizationTags({
             disabled={disabled || !canAssignModules}
             onChange={(modules) => update({ ...tag, modules })}
           />
-          <TagPermissions
+          <PolicyPermissions
             key={tag.id}
-            tag={tag}
+            value={tag}
+            kind="Tag"
             permissions={permissions}
-            onChange={update}
+            onChange={(decisions) => update({ ...tag, ...decisions })}
           />
           <Button
             onClick={() => {
@@ -150,74 +144,5 @@ export function OrganizationTags({
         </fieldset>
       )}
     </section>
-  );
-}
-function TagPermissions({
-  tag,
-  permissions,
-  onChange,
-}: {
-  tag: PolicyTag;
-  permissions: string[];
-  onChange(tag: PolicyTag): void;
-}) {
-  const [permission, setPermission] = useState("");
-  const decisions = [...new Set([...tag.grants, ...tag.denies])].sort();
-  const choice = (value: string) =>
-    tag.denies.includes(value)
-      ? "deny"
-      : tag.grants.includes(value)
-        ? "grant"
-        : "none";
-  const set = (value: string, effect: string) =>
-    onChange({
-      ...tag,
-      grants: [
-        ...tag.grants.filter((item) => item !== value),
-        ...(effect === "grant" ? [value] : []),
-      ],
-      denies: [
-        ...tag.denies.filter((item) => item !== value),
-        ...(effect === "deny" ? [value] : []),
-      ],
-    });
-  return (
-    <>
-      <Field label="Tag permission">
-        <Select value={permission} onValueChange={setPermission}>
-          <SelectOption value="">Choose a permission</SelectOption>
-          {permissions.map((value) => (
-            <SelectOption value={value} key={value}>
-              {value}
-            </SelectOption>
-          ))}
-        </Select>
-      </Field>
-      {permission && (
-        <Field label={`Policy for ${permission}`}>
-          <Select
-            value={choice(permission)}
-            onValueChange={(effect) => set(permission, effect)}
-          >
-            <SelectOption value="none">Not set</SelectOption>
-            <SelectOption value="grant">Allow</SelectOption>
-            <SelectOption value="deny">Deny</SelectOption>
-          </Select>
-        </Field>
-      )}
-      <div aria-live="polite">
-        {!decisions.length ? (
-          <p>No permissions set on this tag.</p>
-        ) : (
-          <ul>
-            {decisions.map((value) => (
-              <li key={value}>
-                {tag.denies.includes(value) ? "Deny" : "Allow"} {value}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </>
   );
 }

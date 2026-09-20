@@ -1260,3 +1260,9 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 [Classification acceptance](organization-classification/README.md) closes the concrete GOV-01 chart-filter/autocomplete gap. Groups and independent role tags are searchable, matching chart/minimap roles retain explicit text and accessible explanations, and draft changes update previews without mutating authority. The requested checkpoint and Sol xhigh review are recorded in [architecture evidence](architecture/README.md#classification-checkpoint-review-20-september-2026).
 
 Final acceptance includes 26 focused checks, strict environment/boundary/copy checks, four fresh builds, two headless browser and two minimized native journeys, and eight inspected captures. Two existing browser control journeys passed before the final spacing-only correction. The popup accessibility failure is fixed without rule suppression. Broader employee/group management, large organizations, actual providers/platforms and full parity remain open; final UI-polish approval is not claimed.
+
+## 20 September 2026: group administration
+
+[Group-administration acceptance](group-administration/README.md) replaces raw permission text fields with shared explicit decisions and adds searchable single-group editing, metadata preservation, distinct default names and focus recovery after removal. Drafts remain provisional; the server and shared evaluator retain authority.
+
+Verification includes 27 focused checks, strict checks/four fresh builds, four affected browser journeys, four minimized native journeys, final expanded group journeys on both clients and eight inspected captures. The final fixtures exercise the supported 100-group limit and prove exact preservation of the other 99 groups and hierarchy. GOV-01 remains active for employee administration and combined organization-scale/provider acceptance; the separate UI-refinement goal has not begun.

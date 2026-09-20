@@ -1,4 +1,4 @@
-import { PolicyModules } from "./organization/modules";
+import { OrganizationGroups } from "./organization/groups";
 import { OrganizationTags } from "./organization/tags";
 import "./organization/classification.css";
 import { PermissionOrigin } from "./permission-origin";
@@ -102,13 +102,14 @@ export function Organization(props: FeatureProps) {
   const grantMap = Object.fromEntries(
     state.data.roles.map((r) => [r.id, r.permissions]),
   );
-  const permissions = [
+  const policyPermissions = [
     ...new Set([
       ...productPermissions,
       ...(state.data.permissionCatalog?.map((entry) => entry.permission) ??
         state.data.modules.flatMap((m) => m.permissions)),
     ]),
-  ].filter(
+  ];
+  const permissions = policyPermissions.filter(
     (permission) =>
       !filter ||
       (state.data.permissionCatalog
@@ -358,178 +359,23 @@ export function Organization(props: FeatureProps) {
           ))}
         </svg>
       </div>
-      <section className="panel organization-section">
-        <div className="row-between">
-          <h2>Groups</h2>
-          <Button
-            onClick={() =>
-              update((p) => ({
-                ...p,
-                groups: [
-                  ...p.groups,
-                  {
-                    id: crypto.randomUUID(),
-                    name: "New group",
-                    rankIds: [],
-                    tags: [],
-                    grants: [],
-                    denies: [],
-                  },
-                ],
-              }))
-            }
-          >
-            Add group
-          </Button>
-        </div>
-        {!policy.groups.length && (
-          <p className="organization-empty">
-            No groups yet. Group roles to apply shared permissions and labels.
-          </p>
+      <OrganizationGroups
+        policy={policy}
+        modules={state.data.modules}
+        canAssignModules={props.bootstrap.permissions.includes(
+          "modules.manage",
         )}
-        {policy.groups.map((g) => (
-          <fieldset key={g.id} className="form-stack organization-group">
-            <legend>{g.name}</legend>
-            <Field label="Group name">
-              <Input
-                value={g.name}
-                onChange={(e) =>
-                  update((p) => ({
-                    ...p,
-                    groups: p.groups.map((x) =>
-                      x.id === g.id ? { ...x, name: e.target.value } : x,
-                    ),
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Group labels (comma separated)">
-              <Input
-                value={g.tags.join(", ")}
-                onChange={(e) =>
-                  update((p) => ({
-                    ...p,
-                    groups: p.groups.map((x) =>
-                      x.id === g.id
-                        ? {
-                            ...x,
-                            tags: e.target.value
-                              .split(",")
-                              .map((v) => v.trim()),
-                          }
-                        : x,
-                    ),
-                  }))
-                }
-              />
-            </Field>
-            <div className="module-toolbar">
-              {policy.ranks.map((r) => (
-                <label key={r.id} className="check-row">
-                  <Checkbox
-                    checked={g.rankIds.includes(r.id)}
-                    onCheckedChange={(checked) =>
-                      update((p) => ({
-                        ...p,
-                        groups: p.groups.map((x) =>
-                          x.id === g.id
-                            ? {
-                                ...x,
-                                rankIds: checked
-                                  ? [...x.rankIds, r.id]
-                                  : x.rankIds.filter((id) => id !== r.id),
-                              }
-                            : x,
-                        ),
-                      }))
-                    }
-                  />
-                  {r.name}
-                </label>
-              ))}
-            </div>
-            <PolicyModules
-              modules={state.data.modules}
-              selected={g.modules}
-              disabled={
-                busy || !props.bootstrap.permissions.includes("modules.manage")
-              }
-              onChange={(modules) =>
-                update((p) => ({
-                  ...p,
-                  groups: p.groups.map((x) =>
-                    x.id === g.id ? { ...x, modules } : x,
-                  ),
-                }))
-              }
-            />
-            <Field label="Granted permissions (comma separated)">
-              <Input
-                value={g.grants.join(", ")}
-                onChange={(e) =>
-                  update((p) => ({
-                    ...p,
-                    groups: p.groups.map((x) =>
-                      x.id === g.id
-                        ? {
-                            ...x,
-                            grants: e.target.value
-                              .split(",")
-                              .map((v) => v.trim()),
-                          }
-                        : x,
-                    ),
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Denied permissions (comma separated)">
-              <Input
-                value={g.denies.join(", ")}
-                onChange={(e) =>
-                  update((p) => ({
-                    ...p,
-                    groups: p.groups.map((x) =>
-                      x.id === g.id
-                        ? {
-                            ...x,
-                            denies: e.target.value
-                              .split(",")
-                              .map((v) => v.trim()),
-                          }
-                        : x,
-                    ),
-                  }))
-                }
-              />
-            </Field>
-            <Button
-              onClick={() =>
-                update((p) => ({
-                  ...p,
-                  groups: p.groups.filter((x) => x.id !== g.id),
-                }))
-              }
-            >
-              Remove group
-            </Button>
-          </fieldset>
-        ))}
-      </section>
+        permissions={policyPermissions}
+        disabled={busy}
+        onChange={(value) => update(() => value)}
+      />
       <OrganizationTags
         policy={policy}
         modules={state.data.modules}
         canAssignModules={props.bootstrap.permissions.includes(
           "modules.manage",
         )}
-        permissions={[
-          ...new Set([
-            ...productPermissions,
-            ...(state.data.permissionCatalog?.map(
-              (entry) => entry.permission,
-            ) ?? state.data.modules.flatMap((module) => module.permissions)),
-          ]),
-        ]}
+        permissions={policyPermissions}
         disabled={busy}
         onChange={(value) => update(() => value)}
       />
