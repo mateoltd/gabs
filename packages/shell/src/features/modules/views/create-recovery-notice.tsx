@@ -9,8 +9,8 @@ export function CreateRecoveryNotice({
   return (
     <div role="status">
       <p>
-        A prerequisite record was replaced. Review which references should use
-        the separate record. Original input is unchanged.
+        Review these saved reference hints before submitting a correction. The
+        original request input is unchanged.
       </p>
       <ul>
         {context.map((recovery) => (

@@ -12,6 +12,7 @@ import {
   type ImportedDraftSource,
   importedDraftChoices,
   importedRequestTargets,
+  importedReferenceHints,
 } from "@suite/client/work-import";
 import {
   Button,
@@ -24,6 +25,7 @@ import {
   SelectOption,
 } from "@suite/ui-web";
 import { canReadSavedWork } from "./access";
+import { CreateRecoveryNotice } from "../views/create-recovery-notice";
 type Imported = Awaited<ReturnType<typeof inspectSavedWorkImport>>;
 
 /** File copies remain explicitly reviewed, with no automatic submission or restoration. */
@@ -422,6 +424,11 @@ export function SavedWorkImports(props: FeatureProps) {
                       : "This restores an independent draft. It does not confirm or recreate the prerequisite request named in the file."}
                   </p>
                 </>
+              )}
+              {confirm?.action === "restore" && (
+                <CreateRecoveryNotice
+                  context={importedReferenceHints(selected.input)}
+                />
               )}
               <div className="actions">
                 <Button

@@ -1511,3 +1511,148 @@ it("captures request target intent before asynchronous recovery", async () => {
     (await promoteSavedWorkImport(f.options, digest, choice)).recordTarget,
   ).toBe("reassigned");
 });
+
+it("retains mixed command reference hints without remapping calls or approving saved corrections", async () => {
+  const f = fixture();
+  if (f.input.selection !== "request") throw Error("request expected");
+  const first = {
+    moduleId: "contacts",
+    resource: "people",
+    originalId: "old",
+    replacementId: "new",
+  };
+  const second = {
+    moduleId: "projects",
+    resource: "tasks",
+    originalId: "old-task",
+    replacementId: "new-task",
+  };
+  f.input.entry.createRecovery = [first];
+  f.input.review!.createRecovery = [first, second];
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  await f.promote(digest);
+  const state = await f.read();
+  expect(state.journal[0].createRecovery).toEqual([first, second]);
+  expect(state.journal[0].call).toEqual(f.input.entry.call);
+  expect(state.journal[0].dependencies).toEqual(f.input.entry.dependencies);
+  expect(state.commandReviews![f.input.entry.id].input).toEqual(
+    f.input.review!.input,
+  );
+  expect(
+    state.commandReviews![f.input.entry.id].createRecovery,
+  ).toBeUndefined();
+  expect(state.commandReviews![f.input.entry.id].continuations).toBeUndefined();
+  expect(state.recoveryImports![digest].input).toEqual(f.input);
+  expect(f.calls).not.toContain("moduleRequest");
+});
+
+it("rejects conflicting copied reference snapshots before settling the original", async () => {
+  const f = fixture();
+  if (f.input.selection !== "request") throw Error("request expected");
+  const hint = {
+    moduleId: "contacts",
+    resource: "people",
+    originalId: "old",
+    replacementId: "first",
+  };
+  f.input.entry.createRecovery = [hint];
+  f.input.review!.createRecovery = [{ ...hint, replacementId: "second" }];
+  const { digest } = await f.stage();
+  await expect(f.promote(digest)).rejects.toThrow(
+    /conflicting reference hints/,
+  );
+  expect(f.calls).not.toContain("moduleAttemptSettle");
+  expect((await f.read()).journal).toEqual([]);
+});
+
+it("discards reference suggestions when the original command was already accepted", async () => {
+  const f = fixture();
+  if (f.input.selection !== "request") throw Error("request expected");
+  f.input.entry.createRecovery = [
+    {
+      moduleId: "contacts",
+      resource: "people",
+      originalId: "old",
+      replacementId: "new",
+    },
+  ];
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "accepted",
+    result: { id: "actual" },
+  };
+  await f.promote(digest);
+  expect((await f.read()).journal[0]).toMatchObject({
+    state: "accepted",
+    result: { id: "actual" },
+  });
+  expect((await f.read()).journal[0].createRecovery).toBeUndefined();
+});
+
+it.each(["existing", "arriving"])(
+  "preserves %s command review during reference import",
+  async (timing) => {
+    const f = fixture();
+    if (f.input.selection !== "request") throw Error("request expected");
+    f.input.entry.createRecovery = [
+      {
+        moduleId: "contacts",
+        resource: "people",
+        originalId: "old",
+        replacementId: "new",
+      },
+    ];
+    const { digest } = await f.stage();
+    const local = { ...f.input.review!, input: { name: "Newer local review" } };
+    if (timing === "existing") {
+      f.state()!.journal = [{ ...f.input.entry, createRecovery: undefined }];
+      f.state()!.commandReviews = { [f.input.entry.id]: local };
+    }
+    f.replies.moduleAttemptSettle = {
+      key: f.input.entry.id,
+      outcome: "cancelled",
+    };
+    f.onRequest((operation) => {
+      if (timing === "arriving" && operation === "moduleAttemptSettle")
+        f.state()!.commandReviews = { [f.input.entry!.id]: local };
+    });
+    await expect(f.promote(digest)).rejects.toThrow(
+      /local recovery|local review/,
+    );
+    expect((await f.read()).commandReviews![f.input.entry.id]).toEqual(local);
+    expect((await f.read()).recoveryImports![digest].promotion).toBeUndefined();
+  },
+);
+
+it.each(["update", "archive"] as const)(
+  "restores %s target choice alongside unrelated reference hints",
+  async (action) => {
+    const f = fixture();
+    const { input, target } = reassignedRequest(f, action);
+    const hint = {
+      moduleId: "contacts",
+      resource: "people",
+      originalId: "old",
+      replacementId: "new",
+    };
+    input.entry.createRecovery!.push(hint);
+    const { digest } = await f.stage(input);
+    f.replies.moduleAttemptSettle = {
+      key: input.entry.id,
+      outcome: "cancelled",
+    };
+    f.replies.moduleRequest = target;
+    await promoteSavedWorkImport(f.options, digest, {
+      recordTarget: "reassigned",
+    });
+    const restored = (await f.read()).journal[0];
+    expect(restored.recordRecovery?.targetId).toBe(target.id);
+    expect(restored.createRecovery).toEqual([hint]);
+    expect(restored.call).toEqual(input.entry.call);
+  },
+);

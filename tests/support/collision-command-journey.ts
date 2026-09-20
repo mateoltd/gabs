@@ -7,9 +7,28 @@ import { selectValue } from "../e2e/controls.helpers";
 import type { CommandCorrectionOptions } from "./command-correction-journey";
 import module from "../fixtures/queued-resources/module";
 import { recoverCollisionOutcome } from "./collision-outcome-recovery";
+import type { JournalEntry } from "@suite/module-sdk/sync";
+
+type CaptureOptions = Pick<
+  CommandCorrectionOptions,
+  "page" | "api" | "pool" | "kind" | "offline" | "reconnect" | "storage"
+> & {
+  mode: "capture";
+  afterCollision(capture: {
+    page: CommandCorrectionOptions["page"];
+    scope: { userId: string; workspaceId: string };
+    moduleId: string;
+    name: string;
+    headers: Record<string, string>;
+    originalTarget: string;
+    separateTarget: string;
+    child: JournalEntry;
+    parent: JournalEntry;
+  }): Promise<void>;
+};
 
 export async function collisionCommandJourney(
-  options: CommandCorrectionOptions,
+  options: CommandCorrectionOptions | CaptureOptions,
 ) {
   let page = options.page;
   const { api, pool } = options;
@@ -194,7 +213,7 @@ export async function collisionCommandJourney(
   await card.getByRole("button", { name: "Update", exact: true }).click();
   await expect(card).toContainText(`Installed ${next.version}`);
   await page.getByRole("link", { name, exact: true }).click();
-  if (outcome) {
+  if (outcome && options.mode !== "capture") {
     page = await recoverCollisionOutcome({
       options,
       page,
@@ -239,6 +258,18 @@ export async function collisionCommandJourney(
     ]);
   const recovered = (await read()).journal;
   const separateTarget = (recovered[2].call.input as { id: string }).id;
+  if (options.mode === "capture")
+    return options.afterCollision({
+      page,
+      scope,
+      moduleId: id,
+      name,
+      headers,
+      originalTarget,
+      separateTarget,
+      child: recovered[1],
+      parent: recovered[2],
+    });
   const target = destination === "existing" ? originalTarget : separateTarget;
   expect(recovered[1].call).toEqual(before[1].call);
   expect(recovered[1].id).toBe(before[1].id);

@@ -21,6 +21,10 @@ import { assertJournalOrder } from "../../modules/journal";
 import { authorizeWorkImport, type SavedWorkImportOptions } from "./authority";
 import type { SavedWorkImport } from "./format";
 import { readImportSource } from "./stored";
+import {
+  importedReferenceHints,
+  checkImportedReferenceHints,
+} from "./references";
 
 import {
   checkImportedRecordTarget,
@@ -74,21 +78,24 @@ export async function promoteSavedWorkImport(
       const entry = input.entry;
       if (entry) assertSchema(RequestKeySchema, entry.id);
       const existing = matchingRequest(before, entry);
+      const referenceHints = importedReferenceHints(input);
+      checkImportedReferenceHints(referenceHints);
       const choosingTarget =
         input.selection === "request" && !!entry?.recordRecovery;
-      if (choosingTarget) {
-        checkImportedRecordTarget(input, recordTarget);
+      if (choosingTarget) checkImportedRecordTarget(input, recordTarget);
+      if (choosingTarget || referenceHints.length) {
         if (
           existing &&
           (existing.supersededBy ||
             existing.recordRecovery ||
             existing.createRecovery?.length ||
+            before.commandReviews?.[existing.id] ||
             Object.values(before.draftReviews ?? {}).some(
               (review) => review.entryId === existing.id,
             ))
         )
           throw Error(
-            "This request already has local recovery work. Preserve its current review before choosing another imported target.",
+            "This request already has local recovery work. Preserve its current review before restoring another imported copy.",
           );
       }
       const destinations = importedDraftKeys(input, digest, draftSource);
@@ -185,6 +192,18 @@ export async function promoteSavedWorkImport(
               "This import changed during restoration. Reload its current state.",
             );
           const present = matchingRequest(state, entry);
+          if (
+            referenceHints.length &&
+            entry &&
+            (canonical(state.commandReviews?.[entry.id] ?? null) !==
+              canonical(before.commandReviews?.[entry.id] ?? null) ||
+              Object.values(state.draftReviews ?? {}).some(
+                (review) => review.entryId === entry.id,
+              ))
+          )
+            throw Error(
+              "A local review appeared during restoration. Preserve it before restoring these reference hints.",
+            );
           if (canonical(present ?? null) !== canonical(existing ?? null))
             throw Error(
               "The existing request changed during restoration. Retry with its current state.",
@@ -259,6 +278,14 @@ export async function promoteSavedWorkImport(
             }
           }
           const selectedTarget = draft?.recordRecovery ?? requestTarget;
+          if (referenceHints.length && outcome?.outcome === "cancelled") {
+            const restored = state.journal.find(
+              (item) => item.id === entry?.id,
+            )!;
+            // These observations only prompt a fresh correction review. Original
+            // calls, saved input and dependency identities are never remapped.
+            restored.createRecovery = structuredClone(referenceHints);
+          }
           if (selectedTarget) {
             const restored = state.journal.find(
               (item) => item.id === entry?.id,
