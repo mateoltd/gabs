@@ -39,4 +39,4 @@ These are actual scrollable viewport positions, not staged full-page composites.
 
 ## Remaining acceptance
 
-GOV-01 remains active for classification filters/autocomplete and broader employee/group administration. Large organizations, dependency changes across released/pinned versions, actual provider events and full rollout/recovery acceptance remain separate requirements. This milestone does not establish whole-product parity, all-theme accessibility or final UI approval.
+GOV-01 remains active for classification filters/autocomplete and broader employee/group administration. Dependency changes across released/pinned versions now have [follow-up acceptance](../module-policy-releases/README.md), including pending admission and connected People refresh. Large organizations, unavailable-registry permission editing, actual provider events and full rollout/recovery acceptance remain separate requirements. This milestone does not establish whole-product parity, all-theme accessibility or final UI approval.

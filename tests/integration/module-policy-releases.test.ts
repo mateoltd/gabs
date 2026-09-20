@@ -30,6 +30,11 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
     connectionString: process.env.MIGRATION_DATABASE_URL,
     options: "-c role=suite_registry",
   });
+  const worker = new Pool({
+    connectionString:
+      process.env.WORKER_DATABASE_URL ??
+      process.env.DATABASE_URL?.replace("suite_app:", "suite_worker:"),
+  });
   const auth = {
     mode: "development" as const,
     origin: "http://localhost:4300",
@@ -114,7 +119,8 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
         })
       ).json<Static<typeof MemberSchema>[]>();
     const initial = await state(),
-      sales = initial.roles.find((r) => r.name === "Sales")!.id;
+      sales = initial.roles.find((r) => r.name === "Sales")!.id,
+      warehouse = initial.roles.find((r) => r.name === "Warehouse")!.id;
     const people = [] as {
       id: string;
       userId: string;
@@ -144,6 +150,22 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
         headers: { cookie: `suite_session=${s.token}` },
       });
     }
+    const directUser = await identify(db, {
+      issuer: "test",
+      subject: randomUUID(),
+      email: `${randomUUID()}@test.local`,
+      name: "Direct applicant",
+      emailVerified: true,
+    });
+    const directApplicant = randomUUID();
+    await admin.query(
+      "insert into suite.memberships(id,workspace_id,user_id) values($1,$2,$3)",
+      [directApplicant, workspace, directUser.id],
+    );
+    await admin.query(
+      "insert into suite.role_assignments(workspace_id,membership_id,role_id) values($1,$2,$3)",
+      [workspace, directApplicant, warehouse],
+    );
     const rows = async (member: string) =>
       (
         await admin.query<{ module_id: string; direct: boolean }>(
@@ -236,6 +258,43 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
     expect(await audit()).toBe(1);
     expect((await bootstrap()).statusCode).toBe(200);
     expect(await audit()).toBe(1);
+    // Recreate the obsolete derived dependency after proving refresh exactly once.
+    // Seat admission must ignore it because the current signed root no longer uses it.
+    await admin.query(
+      "insert into suite.module_assignments(workspace_id,membership_id,module_id,direct) values($1,$2,'contacts',false)",
+      [workspace, people[0].id],
+    );
+    const directSeats = Number(
+      (
+        await admin.query(
+          "select count(*)::int n from suite.module_assignments a join suite.memberships m on m.workspace_id=a.workspace_id and m.id=a.membership_id where a.workspace_id=$1 and a.module_id='contacts' and a.direct and m.active",
+          [workspace],
+        )
+      ).rows[0].n,
+    );
+    await admin.query(
+      "update suite.entitlements set seat_limit=$2 where workspace_id=$1 and module_id='contacts'",
+      [workspace, directSeats + 1],
+    );
+    const directAdmission = await server.app.inject({
+      method: "PATCH",
+      url: `/api/v1/workspaces/${workspace}/members/${directApplicant}`,
+      headers: { ...headers, "idempotency-key": randomUUID() },
+      payload: {
+        active: true,
+        roleIds: [warehouse],
+        modules: ["contacts"],
+        directModules: ["contacts"],
+      },
+    });
+    expect(directAdmission.statusCode, directAdmission.body).toBe(200);
+    expect(await rows(directApplicant)).toEqual([
+      { module_id: "contacts", direct: true },
+    ]);
+    await admin.query(
+      "update suite.entitlements set seat_limit=null where workspace_id=$1 and module_id='contacts'",
+      [workspace],
+    );
     // New dependencies require actual capacity. One pending member must not block another.
     await admin.query(
       "update suite.entitlements set seat_limit=2 where workspace_id=$1 and module_id='inventory'",
@@ -291,7 +350,6 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
     expect((await edit(1, [sales], ["contacts", "inventory"])).statusCode).toBe(
       409,
     );
-    const warehouse = initial.roles.find((r) => r.name === "Warehouse")!.id;
     expect((await edit(0, [warehouse], [])).statusCode).toBe(200);
     expect(await rows(people[0].id)).toEqual([]);
     expect((await rows(people[1].id)).map((r) => r.module_id)).toEqual(
@@ -352,6 +410,58 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
         ?.direct,
     ).toBe(true);
     expect(await audit()).toBe(2);
+    expect((await edit(0, [warehouse], [])).statusCode).toBe(200);
+    const retainedPin = await pin("1.3.0", 2);
+    expect(retainedPin.statusCode, retainedPin.body).toBe(200);
+    const beforeUnavailable = (await state()).organization!;
+    const appliedRevision = async () =>
+      (
+        await admin.query(
+          "select registry_revision from suite.module_policy_refresh where workspace_id=$1",
+          [workspace],
+        )
+      ).rows[0].registry_revision as string;
+    const cursorBefore = await appliedRevision();
+    await publish("1.4.0", {});
+    await admin.query(
+      "update suite.memberships set active=false where workspace_id=$1 and id=$2",
+      [workspace, people[0].id],
+    );
+    expect((await bootstrap()).statusCode).toBe(403);
+    expect(await appliedRevision()).toBe(cursorBefore);
+    await admin.query(
+      "update suite.memberships set active=true where workspace_id=$1 and id=$2",
+      [workspace, people[0].id],
+    );
+    // Lose the pinned release while other published versions remain. Removing
+    // every version would exercise the intentional development catalog fallback.
+    await admin.query(
+      "delete from suite.module_releases where module_id=$1 and version='1.3.0'",
+      [id],
+    );
+    const { version: unavailableVersion, ...unavailablePolicy } =
+      beforeUnavailable;
+    unavailablePolicy.tags![0].name = "Unavailable release team";
+    const unrelated = await server.app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${workspace}/platform`,
+      headers: { ...headers, "idempotency-key": randomUUID() },
+      payload: {
+        action: "organization",
+        value: unavailablePolicy,
+        version: unavailableVersion,
+      },
+    });
+    expect(unrelated.statusCode, unrelated.body).toBe(200);
+    expect((await edit(0, [sales], [])).statusCode).toBe(409);
+    expect(
+      (
+        await admin.query(
+          "select role_id from suite.role_assignments where workspace_id=$1 and membership_id=$2",
+          [workspace, people[0].id],
+        )
+      ).rows.map((row) => row.role_id),
+    ).toEqual([warehouse]);
     // The new checkpoint table retains tenant isolation.
     await expect(
       inWorkspace(db, randomUUID(), (tx) =>
@@ -361,10 +471,39 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
           .execute(),
       ),
     ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      inWorkspace(db, workspace, (tx) =>
+        tx
+          .updateTable("suite.registry_revision")
+          .set({ revision: "0" })
+          .where("id", "=", true)
+          .execute(),
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+    expect(
+      Number(
+        (await worker.query("select revision from suite.registry_revision"))
+          .rows[0].revision,
+      ),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      await worker.query(
+        "select has_table_privilege(current_user,'suite.module_policy_refresh','select') can_read, has_table_privilege(current_user,'suite.module_policy_refresh','update') can_write",
+      ),
+    ).toMatchObject({ rows: [{ can_read: true, can_write: false }] });
+    await expect(
+      worker.query("update suite.registry_revision set revision=0"),
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      worker.query(
+        "update suite.module_policy_refresh set registry_revision=0",
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
   } finally {
     await server.app.close();
     await db.destroy();
     await registry.end();
+    await worker.end();
     await admin.end();
   }
 });

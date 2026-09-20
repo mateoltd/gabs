@@ -1251,16 +1251,21 @@ export async function registerPlatform(
                   ...tag.denies,
                 ]),
               ];
-              const businessPermissions = await workspaceBusinessPermissions(
-                tx,
-                ctx.workspaceId,
-                runtime.catalog,
+              const permissionsToValidate = requested.filter(
+                (permission) => !ctx.permissions.includes(permission),
               );
+              // Already-held permissions need no registry lookup. An unrelated
+              // organization edit must survive an unavailable module release.
+              const businessPermissions = permissionsToValidate.length
+                ? await workspaceBusinessPermissions(
+                    tx,
+                    ctx.workspaceId,
+                    runtime.catalog,
+                  )
+                : [];
               requireCondition(
-                requested.every(
-                  (p) =>
-                    ctx.permissions.includes(p) ||
-                    businessPermissions.includes(p),
+                permissionsToValidate.every((p) =>
+                  businessPermissions.includes(p),
                 ),
                 403,
                 "DELEGATION_FORBIDDEN",

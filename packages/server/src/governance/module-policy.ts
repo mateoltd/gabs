@@ -75,7 +75,10 @@ export async function currentPolicyModules(
   );
 }
 
-export type ModulePolicyIntents = Map<string, Set<string>>;
+export interface ModulePolicyIntents {
+  byMember: Map<string, Set<string>>;
+  roots: Set<string>;
+}
 /** Capture accepted intent before changing the policy or role membership. */
 export async function modulePolicyIntents(
   tx: Tx,
@@ -99,10 +102,17 @@ export async function modulePolicyIntents(
       ...(roles.get(row.membership_id) ?? []),
       row.role_id,
     ]);
-  return new Map(
-    [...roles].map(([id, ids]) => [
-      id,
-      new Set(Object.keys(effectiveModulePolicies(ids, policy))),
-    ]),
-  );
+  return {
+    byMember: new Map(
+      [...roles].map(([id, ids]) => [
+        id,
+        new Set(Object.keys(effectiveModulePolicies(ids, policy))),
+      ]),
+    ),
+    roots: new Set(
+      [...(policy?.groups ?? []), ...(policy?.tags ?? [])].flatMap(
+        (source) => source.modules ?? [],
+      ),
+    ),
+  };
 }

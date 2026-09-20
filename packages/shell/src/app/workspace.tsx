@@ -480,6 +480,12 @@ export function Workspace({
             queryKey: [user.id, workspaceId, "platform"],
           }),
           qc.invalidateQueries({
+            queryKey: [user.id, workspaceId, "members"],
+          }),
+          qc.invalidateQueries({
+            queryKey: [user.id, workspaceId, "roles"],
+          }),
+          qc.invalidateQueries({
             queryKey: [user.id, workspaceId, "runtime-installation"],
           }),
         ]).catch(handleError);

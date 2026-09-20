@@ -7,25 +7,29 @@ import { reconcileModulePolicies } from "./module-assignments";
 
 /** Adopt already-authorized policy intent after reviewed registry publication. */
 export async function refreshModulePolicies(tx: Tx, ctx: Context) {
-  const revision = (
-    await tx
-      .selectFrom("suite.registry_revision")
-      .select("revision")
-      .where("id", "=", true)
-      .executeTakeFirstOrThrow()
-  ).revision;
+  const registryRevision = async () =>
+    (
+      await tx
+        .selectFrom("suite.registry_revision")
+        .select("revision")
+        .where("id", "=", true)
+        .executeTakeFirstOrThrow()
+    ).revision;
   const applied = () =>
     tx
       .selectFrom("suite.module_policy_refresh")
       .select("registry_revision")
       .where("workspace_id", "=", ctx.workspaceId)
       .executeTakeFirst();
-  const current = async () =>
+  const current = async (revision: string) =>
     BigInt((await applied())?.registry_revision ?? "-1") >= BigInt(revision);
-  if (await current()) return;
+  let revision = await registryRevision();
+  if (await current(revision)) return;
   await lockWorkspace(tx, ctx.workspaceId);
-  // Another request can finish this exact revision while we wait for the lock.
-  if (await current()) return;
+  // Include publications committed while this request waited for another
+  // workspace mutation. A later publication remains pending for the next poll.
+  revision = await registryRevision();
+  if (await current(revision)) return;
   const policy = await organizationPolicy(tx, ctx.workspaceId);
   if (
     [...(policy?.groups ?? []), ...(policy?.tags ?? [])].some(

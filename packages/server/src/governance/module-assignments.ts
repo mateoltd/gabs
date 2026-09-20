@@ -4,6 +4,7 @@ import type { Tx } from "../persistence/database";
 import { lockWorkspace } from "../identity/authorization";
 import { AppError, requireCondition, found } from "../errors";
 import {
+  currentPolicyModules,
   organizationPolicy,
   modulePolicyIntents,
   type ModulePolicyIntents,
@@ -85,18 +86,17 @@ export async function reconcileModulePolicies(
     ),
   ];
   const expanded = new Map<string, string[]>();
+  const unresolved = new Map<string, AppError>();
   for (const root of roots) {
     let ids: string[];
     try {
       ids = await expand(tx, workspaceId, [root], catalog);
     } catch (error) {
       // Entitlement reconciliation must finish even when an old release is unavailable.
-      if (
-        mode === "available" &&
-        error instanceof AppError &&
-        [400, 404, 409].includes(error.status)
-      )
+      if (error instanceof AppError && [400, 404, 409].includes(error.status)) {
+        if (mode === "strict") unresolved.set(root, error);
         continue;
+      }
       throw error;
     }
     const unavailable = ids.find(
@@ -150,6 +150,20 @@ export async function reconcileModulePolicies(
         a.order - b.order ||
         a.root.localeCompare(b.root),
     );
+  if (mode === "strict") {
+    for (const [root, error] of unresolved) {
+      const accepted =
+        previous?.roots.has(root) &&
+        requests
+          .filter((request) => request.root === root)
+          .every((request) =>
+            previous?.byMember.get(request.memberId)?.has(root),
+          );
+      // An unavailable release cannot invalidate already-authorized intent during
+      // an unrelated edit. Newly declared or newly inherited intent still fails.
+      if (!accepted) throw error;
+    }
+  }
   for (const request of requests) {
     const direct = new Set(
       assignments
@@ -167,7 +181,7 @@ export async function reconcileModulePolicies(
     if (full) {
       requireCondition(
         mode === "available" ||
-          previous?.get(request.memberId)?.has(request.root),
+          previous?.byMember.get(request.memberId)?.has(request.root),
         409,
         "NO_MODULE_SEATS",
         `No ${full} seats are available for this policy assignment.`,
@@ -239,6 +253,32 @@ export async function assignModules(
   );
   const ids = await expand(tx, workspaceId, moduleIds, catalog);
   const modules = await availability(tx, workspaceId);
+  const occupied = ids.length
+    ? await tx
+        .selectFrom("suite.module_assignments as a")
+        .innerJoin("suite.memberships as m", (j) =>
+          j
+            .onRef("a.workspace_id", "=", "m.workspace_id")
+            .onRef("a.membership_id", "=", "m.id"),
+        )
+        .select(["a.membership_id", "a.module_id", "a.direct"])
+        .where("a.workspace_id", "=", workspaceId)
+        .where("a.module_id", "in", ids)
+        .where("a.membership_id", "!=", membershipId)
+        .where("m.active", "=", true)
+        .execute()
+    : [];
+  const policyModules = new Map<string, Promise<Set<string>>>();
+  const inherited = (memberId: string) => {
+    let pending = policyModules.get(memberId);
+    if (!pending) {
+      pending = currentPolicyModules(tx, workspaceId, memberId, catalog).then(
+        (current) => new Set(current),
+      );
+      policyModules.set(memberId, pending);
+    }
+    return pending;
+  };
   for (const id of ids) {
     const module = modules.find((m) => m.module_id === id);
     requireCondition(
@@ -248,21 +288,17 @@ export async function assignModules(
       "Only entitled, enabled modules can be assigned.",
     );
     if (module.seat_limit !== null) {
-      const used = await tx
-        .selectFrom("suite.module_assignments as a")
-        .innerJoin("suite.memberships as m", (j) =>
-          j
-            .onRef("a.workspace_id", "=", "m.workspace_id")
-            .onRef("a.membership_id", "=", "m.id"),
+      const holders = occupied.filter((row) => row.module_id === id);
+      const used = (
+        await Promise.all(
+          holders.map(
+            async (row) =>
+              row.direct || (await inherited(row.membership_id)).has(id),
+          ),
         )
-        .select((eb) => eb.fn.countAll<number>().as("n"))
-        .where("a.workspace_id", "=", workspaceId)
-        .where("a.module_id", "=", id)
-        .where("a.membership_id", "!=", membershipId)
-        .where("m.active", "=", true)
-        .executeTakeFirstOrThrow();
+      ).filter(Boolean).length;
       requireCondition(
-        Number(used.n) < module.seat_limit,
+        used < module.seat_limit,
         409,
         "NO_MODULE_SEATS",
         `No ${id} seats are available.`,

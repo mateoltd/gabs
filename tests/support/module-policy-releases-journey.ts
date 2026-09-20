@@ -67,23 +67,22 @@ export async function modulePolicyReleasesJourney(
   await page
     .getByRole("link", { name: "People & access", exact: true })
     .click();
-  const row = page
-    .getByRole("row")
-    .filter({
-      has: page.getByRole("button", {
-        name: `Manage ${self.name}`,
-        exact: true,
-      }),
-    });
+  const row = page.getByRole("row").filter({
+    has: page.getByRole("button", {
+      name: `Manage ${self.name}`,
+      exact: true,
+    }),
+  });
   await expect(row).toContainText("Inventory");
   await releases.publish("1.1.0", { contacts: "^1.0.0" });
-  // Only the actual client's policy delivery loop triggers reconciliation here.
+  // Reads immediately filter obsolete access; the client adopts the new policy
+  // through its existing delivery loop, whose idle interval is 15 seconds.
   await expect
     .poll(async () => (await members())[0].modules.slice().sort(), {
       timeout: 25000,
     })
     .toEqual(["contacts", releases.id].sort());
-  await expect(row).not.toContainText("Inventory");
+  await expect(row).not.toContainText("Inventory", { timeout: 25000 });
   await expect(row).toContainText(releases.name);
   await row
     .getByRole("button", { name: `Manage ${self.name}`, exact: true })
@@ -115,11 +114,9 @@ export async function modulePolicyReleasesJourney(
   ).toEqual([]);
   await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "Modules", exact: true }).click();
-  const card = page
-    .locator(".module-install-card")
-    .filter({
-      has: page.getByRole("heading", { name: releases.name, exact: true }),
-    });
+  const card = page.locator(".module-install-card").filter({
+    has: page.getByRole("heading", { name: releases.name, exact: true }),
+  });
   const update = async (version: string) => {
     await card.getByRole("button", { name: "Configure", exact: true }).click();
     await page
