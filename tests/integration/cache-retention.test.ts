@@ -126,6 +126,14 @@ it("the real encrypted SQLite worker refuses deletion of pending work without ch
         lifecycle: { installing: { requestId: "original-install" } },
       },
     ],
+    [
+      "module-state",
+      {
+        journal: [],
+        drafts: {},
+        recoveryImports: { original: { input: "retained imported work" } },
+      },
+    ],
     ["relay-inbox", [{ id: "unreviewed-envelope" }]],
   ] as const;
   for (const [key, value] of cases) {

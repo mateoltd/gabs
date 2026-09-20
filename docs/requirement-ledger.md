@@ -406,3 +406,7 @@ SEC-002/SEC-003/AUTH-002 gain [additive local-profile restore evidence](verifica
 ## 20 September 2026: retained-original local recovery
 
 SEC-002/SEC-003/AUTH-002 gain [in-place recovery evidence](verification/local-root-recovery/README.md): validated independent-key activation, complete encrypted original retention, pre-UI restart recovery, safe exact retry, deliberate second recovery and registered staging cleanup. Full regression passed 823 tests across 119 files, strict checks/four fresh builds and six development plus six packaged-code native journeys. Protection callbacks are explicitly controlled. Corporate authority recovery, actual OS-provider/physical biometric and signed-platform durability acceptance remain open; no entire original requirement or overall parity is complete.
+
+## 20 September 2026: corporate import admission foundation
+
+SEC-002/CORE-003 gain [saved-work admission implementation](verification/corporate-work-import/README.md). Existing exported requests/drafts are admitted only with recent account-bound server authentication, current permissions and verified original contracts, then retained as inert copies. Imported outcomes never grant execution or receipt authority. Exact replay and shared browser/SQLite retention guards preserve copies. Product file handling/inspection, authoritative reconciliation, reviewed promotion, larger encrypted corporate backups and native/browser recovery acceptance remain unfinished under ID-03-BACKUP-CORPORATE. No original requirement is promoted to complete.

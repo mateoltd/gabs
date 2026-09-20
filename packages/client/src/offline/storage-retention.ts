@@ -38,7 +38,7 @@ export function assertWorkspacePurgeable(values: {
   if (values.modules === undefined) return;
   const state = object(values.modules);
   if (
-    ["drafts", "draftReviews", "commandReviews"].some(
+    ["drafts", "draftReviews", "commandReviews", "recoveryImports"].some(
       (key) => entries(state[key]).length,
     )
   )

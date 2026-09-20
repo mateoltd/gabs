@@ -1,3 +1,4 @@
+import type { SavedWorkImport } from "../recovery/import";
 import {
   pruneReferenceCache,
   type ReferenceCacheState,
@@ -60,6 +61,7 @@ export interface InstallationAttempt {
   retry?: { failures: number; nextAttemptAt: number };
 }
 export interface ModuleStorage extends ResourcePageCache, ReferenceCacheState {
+  recoveryImports?: Record<string, SavedWorkImport>;
   /** Last device contract retained for leased inspection after uninstall, never execution. */
   recoveryVersions?: Record<string, string>;
   commandReviews?: Record<string, CommandReview>;
@@ -153,6 +155,7 @@ export async function changeModuleStorage(
   platform: Platform,
   scope: Scope,
   fn: (state: ModuleStorage) => void | Promise<void>,
+  beforeCommit?: () => void,
 ) {
   const change = async () => {
     const previous = await platform.load<StoredModuleState>(
@@ -174,6 +177,8 @@ export async function changeModuleStorage(
     pruneResourcePages(state);
     pruneReferenceCache(state);
     const stored = await persistModuleArtifacts(platform, scope, state);
+    // Recheck time-sensitive authority after asynchronous artifact persistence.
+    beforeCommit?.();
     // This single durable write commits the release set and journal together, after all bytes exist.
     await platform.save(scope, "module-state", stored);
     return state;

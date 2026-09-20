@@ -21,6 +21,7 @@
     "./module-transport": "./src/modules/transport.ts",
     "./command-recovery": "./src/modules/command-recovery.ts",
     "./work-recovery": "./src/recovery/work.ts",
+    "./work-import": "./src/recovery/import.ts",
     "./module-dispatch": "./src/modules/dispatch.ts",
     "./module-synchronization": "./src/modules/synchronization.ts",
     "./archive-recovery": "./src/modules/archive-recovery.ts",
