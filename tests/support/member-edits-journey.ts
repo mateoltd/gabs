@@ -5,7 +5,7 @@ import type { MemberSchema, Static } from "@suite/contracts";
 import type { PlatformState } from "@suite/module-sdk/platform";
 import type { ReviewTransport } from "./capability-review-journey";
 import { selectValue } from "../e2e/controls.helpers";
-import { dropMemberReply } from "./member-edit-reply";
+import { dropAcceptedReply } from "./drop-reply";
 
 export async function memberEditsJourney(
   page: Page,
@@ -120,9 +120,10 @@ export async function memberEditsJourney(
   await page.setViewportSize({ width: 1280, height: 900 });
   await manage.click();
   await warehouseChoice.uncheck();
-  const lost = await dropMemberReply(
+  const lost = await dropAcceptedReply(
     page,
     `/api/v1/workspaces/${workspaceId}/members/${before.id}`,
+    "PATCH",
     app,
   );
   try {

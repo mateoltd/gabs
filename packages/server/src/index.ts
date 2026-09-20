@@ -6,6 +6,7 @@ export * from "./persistence/transactions";
 export * from "./identity/provision";
 export * from "./governance/workspaces";
 export * from "./governance/members";
+export * from "./governance/invitations";
 export type { ServerRuntime, WorkspacePreset } from "./runtime/host";
 export {
   registeredModuleIds,

@@ -55,6 +55,7 @@ import {
   saveRole,
   createInvitation,
   acceptInvitation,
+  revokeInvitation,
   configureModule,
   requestAccess,
   resolveAccess,
@@ -1031,49 +1032,13 @@ export async function createApp(
     ),
     response: S.InvitationSchema,
     permission: "members.manage",
+    reauthorizeReplay: true,
     handler: (tx, ctx, req) => createInvitation(tx, ctx, req.body),
   });
   route("inviteRevoke", {
     response: S.OkSchema,
     permission: "members.manage",
-    handler: async (tx, ctx, req) => {
-      const i = found(
-        await tx
-          .selectFrom("suite.invitations")
-          .selectAll()
-          .where("workspace_id", "=", ctx.workspaceId)
-          .where("id", "=", req.params.id)
-          .executeTakeFirst(),
-      );
-      const role = found(
-        await tx
-          .selectFrom("suite.roles")
-          .select("name")
-          .where("workspace_id", "=", ctx.workspaceId)
-          .where("id", "=", i.role_id)
-          .executeTakeFirst(),
-      );
-      requireCondition(
-        role.name !== "Owner" || ctx.roleNames.includes("Owner"),
-        403,
-        "OWNER_REQUIRED",
-        "Only owners can manage ownership invitations.",
-      );
-      requireCondition(
-        i.state === "pending",
-        409,
-        "INVITATION_RESOLVED",
-        "This invitation is no longer pending.",
-      );
-      await tx
-        .updateTable("suite.invitations")
-        .set({ state: "revoked" })
-        .where("id", "=", req.params.id)
-        .where("workspace_id", "=", ctx.workspaceId)
-        .execute();
-      await audit(tx, ctx, "invitations.revoked", req.params.id);
-      return { ok: true };
-    },
+    handler: (tx, ctx, req) => revokeInvitation(tx, ctx, req.params.id),
   });
   route("workspaceEdit", {
     body: T.Object(
