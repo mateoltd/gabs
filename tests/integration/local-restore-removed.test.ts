@@ -58,7 +58,19 @@ it("activates a removed backup and its safeguards in one durable update", async 
     records: {},
     capabilityGrants: [{ id: "old-device" }],
     deviceRequests: {
-      effect: { id: "effect", state: "pending", attemptId: "retained-attempt" },
+      effect: {
+        id: "effect",
+        state: "pending",
+        attemptId: "retained-attempt",
+        createdAt: 1,
+        grantId: "old-device",
+        call: {
+          moduleId: "contacts",
+          moduleVersion: "1.0.0",
+          capability: "export",
+          input: { filename: "contact.txt", content: "Captured work" },
+        },
+      },
     },
   });
   const update = vi.spyOn(f.store, "update");
@@ -100,4 +112,23 @@ it("does not activate a removed backup if cancellation wins before its commit", 
   ).rejects.toThrow();
   expect(await f.store.get(f.original.id)).toEqual(f.original);
   expect(f.changed).not.toHaveBeenCalled();
+});
+
+it("retains a removed profile whose device request is missing its call description", async () => {
+  const f = await fixture({
+    records: {},
+    deviceRequests: {
+      pending: {
+        id: "pending",
+        state: "pending",
+        createdAt: 1,
+        grantId: "old-device",
+      },
+    },
+  });
+  await expect(
+    f.engine.restoreVault(f.original.id, "original profile passphrase"),
+  ).rejects.toThrow("device journal");
+  expect(await f.store.get(f.original.id)).toEqual(f.original);
+  expect(await f.engine.listLocalProfiles()).toEqual([]);
 });

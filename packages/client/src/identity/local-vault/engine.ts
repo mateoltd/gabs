@@ -117,7 +117,8 @@ export function createVaultEngine(store: LocalVaultStore) {
         updatedAt: Date.now(),
       };
     });
-    store.changed(vault.id);
+    // Recovery-marked profiles cannot issue a grant before this update. Concurrent unlocks
+    // are fenced by revision above; a list-change event would cancel this same unlock in the UI.
     return { ...recovered, vault: saved };
   }
   async function unlockVault<T>(

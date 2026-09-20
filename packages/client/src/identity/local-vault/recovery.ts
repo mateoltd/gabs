@@ -16,15 +16,22 @@ function assertRecoveryDeviceRequest(
     value.id !== id ||
     typeof value.state !== "string" ||
     !states.has(value.state) ||
-    (value.createdAt !== undefined &&
-      (typeof value.createdAt !== "number" ||
-        !Number.isSafeInteger(value.createdAt) ||
-        value.createdAt < 0)) ||
+    typeof value.createdAt !== "number" ||
+    !Number.isSafeInteger(value.createdAt) ||
+    value.createdAt < 0 ||
     (value.attemptId !== undefined && typeof value.attemptId !== "string") ||
-    (value.grantId !== undefined && typeof value.grantId !== "string") ||
+    typeof value.grantId !== "string" ||
+    !value.grantId ||
     (value.retryOf !== undefined && typeof value.retryOf !== "string") ||
     (value.error !== undefined && typeof value.error !== "string") ||
-    (value.call !== undefined && !object(value.call))
+    !object(value.call) ||
+    typeof value.call.moduleId !== "string" ||
+    !value.call.moduleId ||
+    typeof value.call.moduleVersion !== "string" ||
+    !value.call.moduleVersion ||
+    typeof value.call.capability !== "string" ||
+    !value.call.capability ||
+    !Object.hasOwn(value.call, "input")
   )
     throw Error("The restored device journal is invalid.");
 }

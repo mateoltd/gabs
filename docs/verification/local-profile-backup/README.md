@@ -35,3 +35,8 @@ This is a machine-owner maintenance operation, not a renderer or module capabili
 - Actual Keychain/DPAPI/Secret Service, physical biometric, signed installer and full packaged-main environment acceptance remain required. A development Electron harness supplies the controlled OS callbacks for packaged-code verification.
 
 All disposable PostgreSQL databases were removed. Changed-source formatting, diff whitespace, documentation links and all 29 original requirement mappings pass. No UI source or styles changed. Original browser-only profiles must complete the existing native migration before this native-store maintenance command can export them.
+
+
+## Product restore follow-up
+
+The [additive restore acceptance](../local-profile-restore/README.md) supersedes this document's earlier absence of a product restore command. `--restore-local-profiles=<archive>` now restores into a fresh/readable store, and the native portability test uses that real command instead of manually staging the database/key. The prior archive-only evidence above remains historical. In-place unreadable-store recovery and authenticated corporate backup/recovery are still unfinished.

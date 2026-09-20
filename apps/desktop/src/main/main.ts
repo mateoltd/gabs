@@ -1,3 +1,4 @@
+import { restoreLocalProfiles } from "./storage/restore";
 import { createLocalBackup } from "./storage/backup";
 import { readBackupPassphrase } from "./storage/passphrase";
 import { assertLocalVaultRequest } from "@suite/client/vault-protocol";
@@ -27,6 +28,8 @@ import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
   openLocalBackup,
+  openRestoration,
+  cacheMergeRestoration,
   closeCache,
   setVaultHost,
   cacheVaultRequest,
@@ -1415,44 +1418,65 @@ async function start() {
     mkdirSync(profile, { recursive: true });
     app.setPath("userData", profile);
   }
+  const backup = app.commandLine.hasSwitch("backup-local-profiles");
+  const restore = app.commandLine.hasSwitch("restore-local-profiles");
   if (!app.requestSingleInstanceLock()) {
-    if (app.commandLine.hasSwitch("backup-local-profiles")) {
+    if (backup || restore) {
       process.stderr.write(
-        "Quit the running application before creating a local profile backup.\n",
+        "Quit the running application before local profile maintenance.\n",
       );
       app.exit(1);
     } else app.quit();
     return;
   }
   await app.whenReady();
-  if (app.commandLine.hasSwitch("backup-local-profiles")) {
+  if (backup || restore) {
     app.dock?.hide();
     try {
-      if (app.commandLine.hasSwitch("rotate-storage-key"))
-        throw Error(
-          "Run local backup and key rotation as separate maintenance operations.",
-        );
-      const destination = app.commandLine.getSwitchValue(
-        "backup-local-profiles",
+      if (
+        (backup && restore) ||
+        app.commandLine.hasSwitch("rotate-storage-key")
+      )
+        throw Error("Choose one maintenance operation.");
+      const path = app.commandLine.getSwitchValue(
+        backup ? "backup-local-profiles" : "restore-local-profiles",
       );
-      if (!destination)
-        throw Error("Specify a destination file for --backup-local-profiles.");
+      if (!path) throw Error("Specify a maintenance file.");
       const passphrase = await readBackupPassphrase(process.stdin);
-      await createLocalBackup({
+      const storage = {
         root: root(),
         files: protectedFiles,
         open: openCache,
         close: closeCache,
-        snapshot: openLocalBackup,
-        destination,
         passphrase,
-      });
-      process.stdout.write("Encrypted local profile backup saved.\n");
+      };
+      if (backup) {
+        await createLocalBackup({
+          ...storage,
+          snapshot: openLocalBackup,
+          destination: path,
+        });
+        process.stdout.write("Encrypted local profile backup saved.\n");
+      } else {
+        const restored = await restoreLocalProfiles({
+          ...storage,
+          prepare: openRestoration,
+          merge: cacheMergeRestoration,
+          archive: path,
+        });
+        process.stdout.write(
+          restored.alreadyRestored
+            ? "Archive already restored. Existing profiles were preserved.\n"
+            : "Local profiles restored. Unlock each with its original passphrase.\n",
+        );
+      }
       app.exit(0);
     } catch {
       // Provider/filesystem errors can embed paths or data; retain a fixed, non-secret CLI error.
       process.stderr.write(
-        "Local profile backup failed. Check the destination, protected storage and piped passphrase. Existing data was retained.\n",
+        backup
+          ? "Local profile backup failed. Check the destination, protected storage and piped passphrase. Existing data was retained.\n"
+          : "Local profile restore failed. Check the archive, protected storage and piped passphrase. Existing profiles are never replaced; retrying the same archive is safe.\n",
       );
       app.exit(1);
     }
@@ -1580,7 +1604,9 @@ async function start() {
       args.some(
         (arg) =>
           arg === "--backup-local-profiles" ||
-          arg.startsWith("--backup-local-profiles="),
+          arg.startsWith("--backup-local-profiles=") ||
+          arg === "--restore-local-profiles" ||
+          arg.startsWith("--restore-local-profiles="),
       )
     )
       return;

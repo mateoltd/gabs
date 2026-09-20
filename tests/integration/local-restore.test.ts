@@ -57,16 +57,38 @@ async function fixture() {
         [pending]: {
           id: pending,
           state: "pending",
-          call: { capability: "download" },
+          createdAt: 1,
+          grantId: "old-device",
+          call: {
+            moduleId: "contacts",
+            moduleVersion: "1.0.0",
+            capability: "export",
+            input: { filename: "contact.txt", content: "Captured work" },
+          },
         },
         [running]: {
           id: running,
           state: "running",
           attemptId: "exact-attempt",
-          call: { capability: "download" },
+          createdAt: 1,
+          grantId: "old-device",
+          call: {
+            moduleId: "contacts",
+            moduleVersion: "1.0.0",
+            capability: "export",
+            input: { filename: "contact.txt", content: "Captured work" },
+          },
         },
         [completed]: {
           id: completed,
+          createdAt: 1,
+          grantId: "old-device",
+          call: {
+            moduleId: "contacts",
+            moduleVersion: "1.0.0",
+            capability: "export",
+            input: { filename: "contact.txt", content: "Captured work" },
+          },
           state: "completed",
           result: { saved: true },
         },
@@ -304,4 +326,28 @@ it("keeps the recovery marker when unlock is cancelled before its atomic update"
   ).rejects.toThrow();
   expect((await store.get(f.created.vault.id))?.recoveryRequired).toBe(true);
   expect((await store.get(f.created.vault.id))?.revision).toBe(0);
+});
+
+it("fences competing first unlocks without granting stale recovered state", async () => {
+  const f = await fixture();
+  f.prepare();
+  const engine = createVaultEngine(
+    localVaultStore(f.open(f.prepared, f.restoredKey), () => {}),
+  );
+  const outcomes = await Promise.allSettled([
+    engine.unlockVault(f.created.vault.id, "original profile passphrase"),
+    engine.unlockVault(f.created.vault.id, "original profile passphrase"),
+  ]);
+  expect(
+    outcomes.filter((outcome) => outcome.status === "fulfilled"),
+  ).toHaveLength(1);
+  expect(
+    outcomes.filter((outcome) => outcome.status === "rejected"),
+  ).toHaveLength(1);
+  const reopened = await engine.unlockVault<LocalData>(
+    f.created.vault.id,
+    "original profile passphrase",
+  );
+  expect(reopened.data.capabilityGrants).toEqual([]);
+  expect(reopened.data.deviceRequests?.[f.pending].state).toBe("uncertain");
 });
