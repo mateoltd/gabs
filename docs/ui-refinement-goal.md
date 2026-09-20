@@ -15,3 +15,7 @@ Refine the complete web and Electron business suite into a consistent, cohesive 
 - Recoverable Git checkpoints and a final visual gallery. Candidly distinguish engineering verification from user design approval.
 
 The protected reference is user intent and good product design, not every pixel of the current implementation. Follow `docs/ui.md` for surviving constraints, while correcting its documented deficiencies as needed. Keep the parity acceptance results intact and link any behavior changes to fresh tests.
+
+## Observed deficiencies to carry into refinement
+
+- Corporate saved-work archive storage failures expose Electron's raw IPC prefix before the useful recovery instruction. Present a concise user-facing error while retaining technical details in diagnostics. [Wide and narrow failure evidence](verification/corporate-work-archives/README.md#durable-batch-admission-and-lost-acknowledgement), 20 September 2026. This observation does not start the queued goal or grant visual approval to the current dialog.

@@ -64,6 +64,7 @@ export async function nativePortabilityDevice(
   profile: string,
   options: {
     reuse?: boolean;
+    storageWorker?: string;
     beforeSignIn?(app: ElectronApplication, page: Page): Promise<void>;
   } = {},
 ) {
@@ -74,7 +75,14 @@ export async function nativePortabilityDevice(
     await writeFile(
       entry,
       `
-    const {safeStorage}=require('electron');
+    const {safeStorage,utilityProcess}=require('electron');
+    if(process.env.SUITE_TEST_ARCHIVE_STORAGE_WORKER){
+      const fork=utilityProcess.fork.bind(utilityProcess);
+      utilityProcess.fork=(entry,...args)=>fork(
+        entry.endsWith('cache-worker.cjs') ? process.env.SUITE_TEST_ARCHIVE_STORAGE_WORKER : entry,
+        ...args
+      );
+    }
     const {createCipheriv,createDecipheriv,randomBytes}=require('node:crypto');
     const key=Buffer.from(${JSON.stringify(randomBytes(32).toString("hex"))},'hex');
     safeStorage.isEncryptionAvailable=()=>true;
@@ -103,6 +111,7 @@ export async function nativePortabilityDevice(
       NODE_ENV: "development",
       SUITE_DESKTOP_DEV_AUTH: "1",
       SUITE_DESKTOP_TEST_MINIMIZED: "1",
+      SUITE_TEST_ARCHIVE_STORAGE_WORKER: options.storageWorker ?? "",
     },
   });
   const child = app.process();

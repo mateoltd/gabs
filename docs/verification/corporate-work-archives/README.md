@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry and normal workspace transitions now have browser/native acceptance. Saved-profile transitions are covered below. Main-process publication interruption is covered below. Durable admission interruption remains required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **verified within the evidence below**. The portable format, four-direction file transfer, mixed-module retained reviews, bounded batches, inspection/lease expiry, workspace/profile transitions, renderer interruption, native file publication and durable batch admission have scoped acceptance. This does not close broader corporate recovery, actual providers/platforms or physical durability gates.
 
 ## Implemented boundary
 
@@ -222,9 +222,38 @@ Final verification:
 | Prepared file | [Wide](native-publication-prepared.png), [narrow](native-publication-prepared-narrow.png) |
 | Published file | [Wide](native-publication-published.png), [narrow](native-publication-published-narrow.png) |
 
-## Required next work
+## Durable batch admission and lost acknowledgement
 
-- Exercise main/utility process interruption during durable admission of a selected batch. File-publication crashes, profile/workspace switching, inspection/lease expiry and a renderer crash before admission do not establish this remaining gate; unit guards/atomic-store tests remain separate evidence.
-- Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
+Four native journeys terminate the actual storage utility process, or main and its utility process, at the selected batch's write boundary. A temporary test bootstrap wraps the real compiled worker's request/reply boundary. It matches the selected workspace key and two-copy batch and verifies the explicitly armed main PID before sending `SIGKILL`. It does not replace SQLite writes or server responses.
 
-Broader corporate recovery graphs/transitions and key loss remain parent gates. Overall parity and later UI refinement remain open.
+| Boundary | State after same-store/key restart and fresh authorization |
+| --- | --- |
+| Before forwarding the selected write | Neither copy admitted. Explicit retry imports both copies. |
+| After the real SQLite statement commits, before its reply reaches main | Both copies retained with exact input and original admission timestamps. Explicit retry adds zero copies. |
+
+Both boundaries pass for main and utility termination. Utility-only failure leaves main alive and shows a protected-storage failure without reporting import success. The test observes the phase marker, utility exit and, where applicable, the captured main process's `SIGKILL`. Main remains hidden/minimized and unfocused throughout.
+
+The destination starts with an unrelated Projects draft created through the real form. Its journal, drafts and draft versions survive restart exactly. After fresh account/workspace authorization, the archive must be selected and unlocked again. Imported copies contain only input and admission time, without copied promotion metadata. Repeated import preserves the exact retained map. The encrypted source file remains byte-for-byte unchanged.
+
+After verifying retry idempotency, the journey explicitly removes the two inert copies using the review UI, then completes the shared denial/regrant, original cancellation and one-draft-effect recovery journey. The unrelated Projects draft is finally resumed through **Resume saved draft**, with its original name intact. An earlier fixture incorrectly used **New projects**, which intentionally opens a blank form; all four final journeys use the actual resume control.
+
+Final verification:
+
+- Four main/utility crash journeys passed: `/tmp/gabs-archive-admission-native-final.log`.
+- Four native shared-harness regressions passed: three publication interruptions and independent-key native archive transfer, `/tmp/gabs-archive-admission-native-regression.log`.
+- Three headless browser/cross-surface file transfers passed: `/tmp/gabs-archive-admission-web-regression.log`. The runner built the unchanged web application.
+- Strict environment/type, dependency/copy and scoped formatting checks passed: `/tmp/gabs-archive-admission-types.log`, `/tmp/gabs-archive-admission-lint.log`, `/tmp/gabs-archive-admission-format-check.log`.
+- All 12 new wide/narrow captures were inspected. Scoped Axe and overflow checks passed. Disposable databases/profiles were removed; historical rerun captures were restored.
+- Visual review identified an existing raw Electron IPC prefix in the storage-error message. It is recorded in the separately queued UI-refinement inventory; these captures establish readable failure/recovery states, not final design approval.
+- Production source is unchanged from `796cdd8`. No new full unit regression or desktop/server build is claimed. These are actual process crashes at the request/committed-reply boundary, not power loss or interruption inside a native SQLite instruction. Development authentication and controlled OS-protection keys do not establish actual provider/MFA, OS key protection or cross-platform durability acceptance.
+
+| Process / phase | Failure | Recovered retry |
+| --- | --- | --- |
+| Utility / before write | [Wide](native-admission-utility-before-failed.png), [narrow](native-admission-utility-before-failed-narrow.png) | [Wide](native-admission-utility-before-recovered.png), [narrow](native-admission-utility-before-recovered-narrow.png) |
+| Utility / committed | [Wide](native-admission-utility-committed-failed.png), [narrow](native-admission-utility-committed-failed-narrow.png) | [Wide](native-admission-utility-committed-recovered.png), [narrow](native-admission-utility-committed-recovered-narrow.png) |
+| Main / before write | Application terminated | [Wide](native-admission-main-before-recovered.png), [narrow](native-admission-main-before-recovered-narrow.png) |
+| Main / committed | Application terminated | [Wide](native-admission-main-committed-recovered.png), [narrow](native-admission-main-committed-recovered-narrow.png) |
+
+## Required parent work
+
+ID-03-BACKUP-ARCHIVE is verified within the recorded implementation-specific evidence. ID-03-BACKUP-CORPORATE remains active for broader recovery graphs/source transitions, promotion interruption and corporate old-key/unreadable-store recovery. Actual provider/MFA, signed-platform and physical/filesystem durability acceptance remain required. No credentials or offline authority may be restored. Overall parity and later UI refinement remain open.
