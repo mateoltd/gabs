@@ -1207,3 +1207,11 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 ## Restoration interruption matrix, 20 September 2026
 
 [Browser committed-write acceptance and matrix reconciliation](corporate-promotion-interruption/README.md#browser-committed-write-and-matrix-reconciliation) close ID-03-BACKUP-INTERRUPTION within its scoped evidence. A real IndexedDB commit holds profile serialization until its acknowledgement is delivered; queued cross-tab locking then hides the preserved surface, and unlock/refresh observes the existing receipt without duplicate restoration. All three browser transition cases, strict checks and scoped formatting passed; two new captures were inspected with scoped accessibility/overflow checks. Production source is unchanged. Source/schema/target reconciliation and actual provider/platform/physical durability gates remain in the corporate parent; parity and later UI refinement are incomplete.
+
+## Imported schema and corporate recovery reconciliation, 20 September 2026
+
+[Source-schema and archived-target journeys](imported-schema/README.md) verify real exported files through retired resources, changed required fields and current target archival on independent browser/native stores. Both complete final journeys, 104 focused tests, strict checks and scoped lint/format checks passed; 12 final captures were inspected. Recovery retains exact original input and prevents invalid writes. No production source or styles changed. [The corporate acceptance map](corporate-recovery/README.md) consolidates the scoped evidence and leaves actual provider/platform/physical durability acceptance open. ID-03 and its corporate recovery parent are at **verify**, not verified; ID-04 is the next independent engineering item.
+
+## Schema recovery architecture checkpoint, 20 September 2026
+
+[The requested Sol xhigh audit and parent review](architecture/README.md#schema-recovery-checkpoint-review-20-september-2026) preserve checkpoint `80fe063` and confirm the existing responsibility-based hierarchy. Fourteen boundary fixtures, strict environment checks and all four cached build targets passed. No further source move was justified; public package identities and UI sources remain unchanged. The preserved recovery evidence is reconciled separately above. Full parity remains active.
