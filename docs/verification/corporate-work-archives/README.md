@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry and normal workspace transitions now have browser/native acceptance. Saved-profile transitions are covered below. Full native write interruption remains required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry and normal workspace transitions now have browser/native acceptance. Saved-profile transitions are covered below. Main-process publication interruption is covered below. Durable admission interruption remains required before this item is verified.
 
 ## Implemented boundary
 
@@ -189,9 +189,42 @@ Final verification:
 | Browser | [Wide](web-profile-denied.png), [narrow](web-profile-denied-narrow.png) |
 | Desktop | [Wide](native-profile-denied.png), [narrow](native-profile-denied-narrow.png) |
 
+## Main-process interruption during file publication
+
+Three actual native UI export journeys terminate Electron main with `SIGKILL` at the filesystem boundary:
+
+| Interruption | Observed result |
+| --- | --- |
+| Half the encrypted temporary file written | No published file. The private partial file cannot be unlocked. |
+| Complete file flushed and closed, before publication | No published file. The private temporary file contains the complete authenticated archive. |
+| Publication completed, before directory flush/acknowledgement | The published file is complete, private and authenticated despite the missing UI acknowledgement. |
+
+The fixture records the reached boundary and observes the captured child-process handle terminate. Files use mode `0600`; neither temporary nor published bytes expose the known record name or account ID. The earlier valid archive remains byte-for-byte unchanged. A crash may leave an encrypted temporary file beside the destination; this evidence does not claim automatic cleanup of arbitrary external directories.
+
+After same-store/key restart, journal entries, drafts and draft versions match exactly before reconnecting the company workspace. Development credentials are process-local, so the final flow obtains fresh company authorization and explicitly re-enables offline storage when needed. A simulated connection failure only for corporate module writes keeps the original request for later destination settlement; authentication, permissions, contracts and export authorization use actual server responses. Retry metadata may advance after reconnecting, while original request identity, call, dependencies and capture time remain unchanged, and the independent draft matches exactly.
+
+A fresh UI export succeeds. An independent device then receives the surviving published file in the post-publication case, or the fresh retry file in the other cases. Existing tamper/permission/replay checks, original server cancellation and one explicit draft effect complete successfully. No credentials or leases are transferred.
+
+Earlier fixture attempts incorrectly queried Playwright's process proxy after it had been disposed; the final fixture retains the live child handle before termination. Assuming immediate offline re-export after a development-session restart also failed authorization/readiness guards. The final flow refreshes actual authority instead of bypassing those guards. It does not establish real-provider offline cold-start acceptance.
+
+Final verification:
+
+- All three crash/restart/file-recovery cases passed: `/tmp/gabs-archive-publication-native-authorized.log`.
+- Four browser-suite regressions passed: corporate lease expiry and web/web, web/desktop and desktop/web archive transfers. The browser runner built the unchanged web application: `/tmp/gabs-archive-publication-web-regression.log`. Disposable databases and profiles were removed.
+- Native profile switching and inspection/renderer interruption individually passed with the shared harness: `/tmp/gabs-archive-publication-native.log`. That exploratory run also contained a subsequently corrected publication-fixture failure; it is not represented as a wholly passing suite.
+- Strict environment/type, dependency/copy and scoped formatting checks passed: `/tmp/gabs-archive-publication-types.log`, `/tmp/gabs-archive-publication-lint.log`, `/tmp/gabs-archive-publication-format.log`.
+- All six new wide/narrow captures were inspected. Scoped Axe/overflow checks passed; native windows remained hidden/minimized and unfocused.
+- Production code is unchanged from `796cdd8`. No fresh full unit regression or desktop/server build is claimed. Process death is not power loss, disk failure, real OS key protection or cross-platform filesystem acceptance; those remain separate gates.
+
+| Phase | Recovered export UI |
+| --- | --- |
+| Partial write | [Wide](native-publication-writing.png), [narrow](native-publication-writing-narrow.png) |
+| Prepared file | [Wide](native-publication-prepared.png), [narrow](native-publication-prepared-narrow.png) |
+| Published file | [Wide](native-publication-published.png), [narrow](native-publication-published-narrow.png) |
+
 ## Required next work
 
-- Exercise full main/utility process interruption during native publication or durable admission. Profile/workspace switching, inspection/lease expiry and a renderer crash before admission do not establish this remaining gate; unit guards/atomic-store tests remain separate evidence.
+- Exercise main/utility process interruption during durable admission of a selected batch. File-publication crashes, profile/workspace switching, inspection/lease expiry and a renderer crash before admission do not establish this remaining gate; unit guards/atomic-store tests remain separate evidence.
 - Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
 
 Broader corporate recovery graphs/transitions and key loss remain parent gates. Overall parity and later UI refinement remain open.

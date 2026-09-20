@@ -2,6 +2,7 @@ import {
   expect,
   _electron as electron,
   type Browser,
+  type ElectronApplication,
   type Locator,
   type Page,
 } from "@playwright/test";
@@ -61,7 +62,10 @@ export async function browserPortabilityDevice(browser: Browser) {
 /** Actual main/utility storage with an independent controlled OS key before startup. */
 export async function nativePortabilityDevice(
   profile: string,
-  options: { reuse?: boolean } = {},
+  options: {
+    reuse?: boolean;
+    beforeSignIn?(app: ElectronApplication, page: Page): Promise<void>;
+  } = {},
 ) {
   if (!options.reuse) await mkdir(profile);
   const entry = resolve(profile, "entry.cjs");
@@ -101,6 +105,7 @@ export async function nativePortabilityDevice(
       SUITE_DESKTOP_TEST_MINIMIZED: "1",
     },
   });
+  const child = app.process();
   try {
     const page = await app.firstWindow();
     const signIn = page.getByRole("button", {
@@ -109,6 +114,7 @@ export async function nativePortabilityDevice(
     });
     // Development credentials are process-local. Cached startup UI is not authenticated readiness.
     await expect(signIn).toBeVisible();
+    await options.beforeSignIn?.(app, page);
     await signIn.click();
     await expect(
       page.getByRole("button", { name: "Switch workspace", exact: true }),
@@ -157,6 +163,8 @@ export async function nativePortabilityDevice(
       close: async () => {
         if (closed) return;
         closed = true;
+        // A crash journey already observed this process terminate.
+        if (child.exitCode !== null || child.signalCode !== null) return;
         try {
           expect(
             await app.evaluate(({ BrowserWindow }) =>

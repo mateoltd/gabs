@@ -20,7 +20,9 @@ export async function corporatePortability(options: {
   directory: string;
   evidenceName?: string;
   archive?: boolean;
-  archiveExportCheck?(context: ArchiveReviewContext): Promise<void>;
+  archiveExportCheck?(
+    context: ArchiveReviewContext,
+  ): Promise<void | ArchiveReviewContext["file"]>;
   archiveReviewCheck?(context: ArchiveReviewContext): Promise<Page>;
   offline(value: boolean): Promise<void>;
   exportFile(button: Locator, path: string): Promise<void>;
@@ -133,23 +135,27 @@ export async function corporatePortability(options: {
   if (request.entry.call.action !== "create")
     throw Error("The source did not export the captured create request.");
 
-  const archive = options.archive
-    ? await exportArchive({
-        page,
-        directory: options.directory,
-        evidenceName: options.evidenceName ?? "native-to-native",
-        expected: [request, draft],
-        exportFile: options.exportFile,
-      })
-    : undefined;
-  if (archive && options.archiveExportCheck)
-    await options.archiveExportCheck({
+  let archive:
+    (ArchiveReviewContext["file"] & { passphrase: string }) | undefined =
+    options.archive
+      ? await exportArchive({
+          page,
+          directory: options.directory,
+          evidenceName: options.evidenceName ?? "native-to-native",
+          expected: [request, draft],
+          exportFile: options.exportFile,
+        })
+      : undefined;
+  if (archive && options.archiveExportCheck) {
+    const checked = await options.archiveExportCheck({
       page,
       scope: { userId: request.userId, workspaceId: request.workspaceId },
       file: archive,
       passphrase: archive.passphrase,
     });
-  // The source stays offline and is closed; destination receives no cookies, cache or protected key.
+    if (checked) archive = { ...archive, ...checked };
+  }
+  // Close the source; destination receives no cookies, cache or protected key.
   page = await options.replaceDevice();
   await enable();
   await expect(
