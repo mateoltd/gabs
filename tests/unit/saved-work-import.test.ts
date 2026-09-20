@@ -12,6 +12,7 @@ import {
   promoteSavedWorkImport,
   inspectSavedWorkImport,
   discardSavedWorkImport,
+  type ImportedDraftSource,
 } from "../../packages/client/src/recovery/import";
 import {
   readModuleStorage,
@@ -157,7 +158,12 @@ function fixture() {
     records,
     state: () => records.get("module-state") as ModuleStorage | undefined,
     read: () => readModuleStorage(platform, scope),
-    promote: (digest: string) => promoteSavedWorkImport(options, digest),
+    promote: (digest: string, draftSource?: ImportedDraftSource) =>
+      promoteSavedWorkImport(
+        options,
+        digest,
+        draftSource ? { draftSource } : undefined,
+      ),
     stage: (value: SavedWorkRecovery = input) =>
       stageSavedWorkImport(options, JSON.stringify(value)),
     lock: () => {
@@ -653,7 +659,7 @@ it("serializes duplicate promotion and requires the retained copy to match its f
   f.state()!.recoveryImports![digest].input.moduleVersion = "other";
   await expect(f.promote(digest)).rejects.toThrow();
 });
-it("restores drafts into a deterministic independent slot and keeps collision provenance inert", async () => {
+it("requires a new collision choice before restoring a deterministic independent draft", async () => {
   const f = fixture();
   const input: SavedWorkRecovery = {
     kind: "module-work-recovery",
@@ -679,8 +685,11 @@ it("restores drafts into a deterministic independent slot and keeps collision pr
   };
   const { digest } = await f.stage(input);
   f.state()!.drafts[input.key] = { name: "Newer ordinary draft" };
-  const result = await f.promote(digest);
+  await expect(f.promote(digest)).rejects.toThrow(/Choose the original/);
+  expect(Object.keys(f.state()!.drafts)).toEqual([input.key]);
+  const result = await f.promote(digest, "reassigned");
   const state = await f.read();
+  expect(result.draftSource).toBe("reassigned");
   expect(result.draftKey).toBe(
     `${module.id}/notes/review/direct/import-${digest}`,
   );
@@ -1001,4 +1010,142 @@ it("refuses a reset monotonic clock while an import authorization is held", asyn
   const authority = await authorizeWorkImport(f.options, f.input);
   monotonic = 0;
   expect(() => authority.check()).toThrow(/clock is unavailable/);
+});
+
+function collisionDraft(f: ReturnType<typeof fixture>) {
+  const { input, record } = linkedDraft(f);
+  delete input.entry;
+  const reassigned = {
+    ...record,
+    id: randomUUID(),
+    data: { name: "Reassigned base" },
+  };
+  input.key = `${module.id}/notes/review/direct/source-copy`;
+  input.target = record;
+  input.data = { name: "Reassigned local edit" };
+  input.review = {
+    collision: {
+      parentId: "copied-prerequisite",
+      moduleVersion: module.version,
+      sourceData: { name: "Original local edit" },
+      sourceTarget: record,
+      targetId: reassigned.id,
+      ready: true,
+    },
+    comparison: {
+      base: record.data,
+      local: input.data,
+      remote: reassigned.data,
+      conflicts: ["name"],
+      choices: { name: "local" },
+    },
+  };
+  return { input, record, reassigned };
+}
+
+it.each(["original", "reassigned"] as const)(
+  "restores the explicitly selected %s target against fresh values",
+  async (choice) => {
+    const f = fixture();
+    const { input, record, reassigned } = collisionDraft(f);
+    const { digest } = await f.stage(input);
+    const current = {
+      ...(choice === "original" ? record : reassigned),
+      version: 4,
+      data: { name: "Current server value" },
+    };
+    f.replies.moduleRequest = current;
+    const result = await f.promote(digest, choice);
+    const state = await f.read();
+    const review = state.draftReviews![result.draftKey!];
+    expect(state.draftTargets![result.draftKey!]).toEqual(current);
+    expect(review.comparison).toMatchObject({
+      local:
+        choice === "original"
+          ? input.review!.collision!.sourceData
+          : input.data,
+      remote: current.data,
+      choices: {},
+      conflicts: ["name"],
+    });
+    expect(state.drafts[result.draftKey!]).toEqual(current.data);
+    expect(state.journal).toEqual([]);
+    expect(f.calls).not.toContain("moduleAttemptSettle");
+    expect(state.recoveryImports![digest].input).toEqual(input);
+    expect(result.draftSource).toBe(choice);
+    expect(
+      (
+        await f.promote(
+          digest,
+          choice === "original" ? "reassigned" : "original",
+        )
+      ).draftSource,
+    ).toBe(choice);
+    expect(Object.keys((await f.read()).drafts)).toEqual([result.draftKey]);
+  },
+);
+
+it.each(["wrong-record", "denial", "lock", "abort"] as const)(
+  "retains both collision copies when %s interrupts the chosen target read",
+  async (failure) => {
+    const f = fixture();
+    const { input, reassigned } = collisionDraft(f);
+    const { digest } = await f.stage(input);
+    f.replies.moduleRequest = {
+      ...reassigned,
+      ...(failure === "wrong-record" ? { id: randomUUID() } : {}),
+    };
+    f.onRequest((operation) => {
+      if (operation !== "moduleRequest") return;
+      if (failure === "denial") f.policy.permissions = [];
+      if (failure === "lock") f.lock();
+      if (failure === "abort") f.abort.abort();
+    });
+    await expect(f.promote(digest, "reassigned")).rejects.toThrow();
+    const state = await f.read();
+    expect(state.drafts).toEqual({});
+    expect(state.journal).toEqual([]);
+    expect(state.recoveryImports![digest].input).toEqual(input);
+    expect(state.recoveryImports![digest].promotion).toBeUndefined();
+  },
+);
+
+it("preserves an archived reassigned target and rejects a missing target identity", async () => {
+  const f = fixture();
+  const { input, reassigned } = collisionDraft(f);
+  const { digest } = await f.stage(input);
+  f.replies.moduleRequest = { ...reassigned, archived: true, version: 2 };
+  const result = await f.promote(digest, "reassigned");
+  const state = await f.read();
+  expect(state.drafts[result.draftKey!]).toEqual(input.data);
+  expect(state.draftTargets![result.draftKey!]!.archived).toBe(true);
+  expect(state.draftReviews![result.draftKey!].recoveryInput?.recordId).toBe(
+    reassigned.id,
+  );
+  const missing = fixture();
+  const malformed = collisionDraft(missing).input;
+  delete malformed.review!.collision!.targetId;
+  const staged = await missing.stage(malformed);
+  await expect(missing.promote(staged.digest, "reassigned")).rejects.toThrow(
+    /target is missing/,
+  );
+  expect(missing.calls).not.toContain("moduleRequest");
+});
+
+it("captures the user's source choice before asynchronous recovery starts", async () => {
+  const f = fixture();
+  const { input, record } = collisionDraft(f);
+  const { digest } = await f.stage(input);
+  f.replies.moduleRequest = record;
+  const choice: { draftSource: ImportedDraftSource } = {
+    draftSource: "original",
+  };
+  f.onRequest((operation) => {
+    if (operation === "profileRecovery") choice.draftSource = "reassigned";
+  });
+  const restored = await promoteSavedWorkImport(f.options, digest, choice);
+  expect(restored.draftSource).toBe("original");
+  expect((await f.read()).draftTargets![restored.draftKey!]?.id).toBe(
+    record.id,
+  );
 });

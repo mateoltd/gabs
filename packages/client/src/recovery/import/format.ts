@@ -18,6 +18,7 @@ export interface SavedWorkImport {
     draftKey?: string;
     existingRequest: boolean;
     outcome?: "accepted" | "cancelled";
+    draftSource?: import("./draft").ImportedDraftSource;
     restoredAt: number;
   };
 }

@@ -11,6 +11,8 @@ import { validateModuleResponse } from "../../modules/response";
 import type { settleModuleCall } from "../../modules/settlement";
 import type { authorizeWorkImport, SavedWorkImportOptions } from "./authority";
 
+export type ImportedDraftSource = "original" | "reassigned";
+
 type ImportedDraft = Extract<SavedWorkRecovery, { selection: "draft" }>;
 type Authority = Awaited<ReturnType<typeof authorizeWorkImport>>;
 type Outcome = Awaited<ReturnType<typeof settleModuleCall>>;
@@ -20,7 +22,11 @@ const recordInput = Type.Object({
 });
 
 /** Check prospective destinations before permanently settling the original request. */
-export function importedDraftKeys(input: SavedWorkRecovery, digest: string) {
+export function importedDraftKeys(
+  input: SavedWorkRecovery,
+  digest: string,
+  draftSource?: ImportedDraftSource,
+) {
   if (input.selection !== "draft") return [];
   const direct = resourceDraftKey(input.moduleId, input.resource, {
     draftId: `import-${digest}`,
@@ -29,6 +35,18 @@ export function importedDraftKeys(input: SavedWorkRecovery, digest: string) {
     if (input.review?.entryId)
       throw Error(
         "This saved review is missing its original request. Retain the source file.",
+      );
+    if (input.review?.createRecovery?.length)
+      throw Error(
+        "This saved draft is missing its original dependency review. Retain the source file.",
+      );
+    if (
+      input.review?.collision &&
+      draftSource !== "original" &&
+      draftSource !== "reassigned"
+    )
+      throw Error(
+        "Choose the original or reassigned draft before restoring this copy.",
       );
     return [direct];
   }
@@ -67,10 +85,52 @@ export async function prepareImportedDraft(
   digest: string,
   authority: Authority,
   outcome?: Outcome,
+  draftSource?: ImportedDraftSource,
 ) {
   let review: DraftReview = { draftId: `import-${digest}` };
   let target = structuredClone(input.target);
   let data = structuredClone(input.data);
+  if (!input.entry && input.review?.collision) {
+    const source = input.review.collision;
+    if (draftSource !== "original" && draftSource !== "reassigned")
+      throw Error(
+        "Choose the original or reassigned draft before restoring this copy.",
+      );
+    const original = draftSource === "original";
+    const version = original ? source.moduleVersion : input.draftVersion;
+    data = structuredClone(original ? source.sourceData : input.data);
+    const snapshot = original ? source.sourceTarget : input.target;
+    const targetId = original ? source.sourceTarget?.id : source.targetId;
+    if (!original && snapshot && !targetId)
+      throw Error(
+        "The reassigned record target is missing. Retain the source file.",
+      );
+    target = null;
+    if (targetId) {
+      target = await readCurrentTarget(options, input, authority, targetId);
+      if (!target.archived) {
+        const compared = reviewFields(snapshot?.data, data, target.data);
+        data = compared.data;
+        review.comparison = compared.review;
+      } else {
+        review.recoveryInput = {
+          moduleVersion: version,
+          recordId: target.id,
+          ...(snapshot ? { baseVersion: snapshot.version } : {}),
+        };
+      }
+      await authority.refresh();
+    }
+    // This is an independently reviewed draft. The copied collision envelope
+    // stays in recoveryImports; it must not become a live journal prerequisite.
+    return {
+      key: resourceDraftKey(input.moduleId, input.resource, review),
+      data,
+      target,
+      review,
+      version,
+    };
+  }
   if (!input.entry) {
     review = {
       ...review,
@@ -105,29 +165,7 @@ export async function prepareImportedDraft(
       review.recoveryInput = structuredClone(input.review.recoveryInput);
     target = null;
     if (targetId) {
-      authority.check();
-      const call = {
-        moduleId: input.moduleId,
-        moduleVersion: authority.module.version,
-        resource: input.resource,
-        action: "get" as const,
-        input: { id: targetId },
-      };
-      const current = await sendModuleCall(
-        options.client.forUser(options.scope.userId),
-        options.scope,
-        call,
-        { signal: options.signal },
-      );
-      authority.check();
-      validateModuleResponse(authority.module, call, current);
-      assertSchema(
-        resourceRecordSchema(Type.Record(Type.String(), Type.Unknown())),
-        current,
-      );
-      if (current.id !== targetId)
-        throw Error("The server returned a different recovery record.");
-      target = current;
+      target = await readCurrentTarget(options, input, authority, targetId);
       if (!target.archived) {
         const compared = reviewFields(base, input.data, target.data);
         data = compared.data;
@@ -149,4 +187,35 @@ export async function prepareImportedDraft(
     review,
     version: input.draftVersion,
   };
+}
+
+async function readCurrentTarget(
+  options: SavedWorkImportOptions,
+  input: ImportedDraft,
+  authority: Authority,
+  targetId: string,
+) {
+  authority.check();
+  const call = {
+    moduleId: input.moduleId,
+    moduleVersion: authority.module.version,
+    resource: input.resource,
+    action: "get" as const,
+    input: { id: targetId },
+  };
+  const current = await sendModuleCall(
+    options.client.forUser(options.scope.userId),
+    options.scope,
+    call,
+    { signal: options.signal },
+  );
+  authority.check();
+  validateModuleResponse(authority.module, call, current);
+  assertSchema(
+    resourceRecordSchema(Type.Record(Type.String(), Type.Unknown())),
+    current,
+  );
+  if (current.id !== targetId)
+    throw Error("The server returned a different recovery record.");
+  return current;
 }

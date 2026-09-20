@@ -13,6 +13,7 @@ export {
   type SavedWorkImport,
 } from "./format";
 export type { SavedWorkImportOptions, ImportAccess } from "./authority";
+export type { ImportedDraftSource } from "./draft";
 export { promoteSavedWorkImport } from "./promote";
 export { inspectSavedWorkImport, discardSavedWorkImport } from "./stored";
 

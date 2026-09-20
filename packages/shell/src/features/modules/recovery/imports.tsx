@@ -9,6 +9,7 @@ import {
   savedWorkImportLimit,
   type SavedWorkImportOptions,
   type ImportAccess,
+  type ImportedDraftSource,
 } from "@suite/client/work-import";
 import {
   Button,
@@ -17,6 +18,8 @@ import {
   Input,
   Modal,
   ResourceValue,
+  Select,
+  SelectOption,
 } from "@suite/ui-web";
 import { canReadSavedWork } from "./access";
 type Imported = Awaited<ReturnType<typeof inspectSavedWorkImport>>;
@@ -36,6 +39,7 @@ export function SavedWorkImports(props: FeatureProps) {
   const [confirm, setConfirm] = useState<{
     digest: string;
     action: "restore" | "remove";
+    draftSource?: ImportedDraftSource;
   }>();
   useLayoutEffect(() => {
     mounted.current = true;
@@ -150,6 +154,10 @@ export function SavedWorkImports(props: FeatureProps) {
       );
   };
   const selected = visible.find((copy) => copy.digest === confirm?.digest);
+  const collision =
+    selected?.input.selection === "draft" && !selected.input.entry
+      ? selected.input.review?.collision
+      : undefined;
   if (!props.offlineEnabled) return null;
   return (
     <>
@@ -275,8 +283,9 @@ export function SavedWorkImports(props: FeatureProps) {
                         </>
                       )}
                       <p>
-                        Outcome and approval claims in this file are unverified.
-                        Restoration checks the original request with the server.
+                        {copy.input.entry
+                          ? "Outcome and approval claims in this file are unverified. Restoration checks the original request with the server."
+                          : "Saved record and review choices are unverified. Restoration uses current workspace access."}
                       </p>
                     </details>
                     <div className="actions">
@@ -321,7 +330,7 @@ export function SavedWorkImports(props: FeatureProps) {
                     : "This creates a separate saved draft for review. Existing drafts stay in place."
                   : "This removes only the imported copy. Restored requests, drafts and the original file stay in place. Keep the source file if you may need this copy again."}
               </p>
-              {confirm?.action === "restore" && (
+              {confirm?.action === "restore" && !collision && (
                 <p>
                   Saved continuation and collision choices remain in the
                   imported copy. Choose them again when reviewing the restored
@@ -338,15 +347,77 @@ export function SavedWorkImports(props: FeatureProps) {
                     conflicting fields need fresh choices.
                   </p>
                 )}
+              {confirm?.action === "restore" && collision && (
+                <>
+                  <Field
+                    label="Draft to restore"
+                    hint="Choose again for this import. Current record values will be fetched, and conflicting fields need fresh choices."
+                  >
+                    <Select
+                      value={confirm.draftSource ?? ""}
+                      disabled={busy}
+                      onValueChange={(value) => {
+                        setConfirm({
+                          ...confirm,
+                          draftSource:
+                            value === "original" || value === "reassigned"
+                              ? value
+                              : undefined,
+                        });
+                      }}
+                    >
+                      <SelectOption value="">Choose a draft</SelectOption>
+                      <SelectOption value="original">
+                        Original draft before reassignment
+                      </SelectOption>
+                      <SelectOption value="reassigned">
+                        Reassigned draft
+                      </SelectOption>
+                    </Select>
+                  </Field>
+                  <details>
+                    <summary>Compare original and reassigned input</summary>
+                    <p>Original draft</p>
+                    <ResourceValue value={collision.sourceData} />
+                    <p>
+                      Original record:{" "}
+                      {collision.sourceTarget?.id ?? "New record"}
+                    </p>
+                    <p>Reassigned draft</p>
+                    <ResourceValue
+                      value={
+                        selected.input.selection === "draft"
+                          ? selected.input.data
+                          : {}
+                      }
+                    />
+                    <p>
+                      Reassigned record: {collision.targetId ?? "New record"}
+                    </p>
+                  </details>
+                  <p>
+                    This restores an independent draft. It does not confirm or
+                    recreate the prerequisite request named in the file.
+                  </p>
+                </>
+              )}
               <div className="actions">
                 <Button
-                  disabled={busy}
+                  disabled={
+                    busy ||
+                    (confirm?.action === "restore" &&
+                      !!collision &&
+                      !confirm.draftSource)
+                  }
                   onClick={() =>
                     void run(async (options) => {
                       if (confirm!.action === "restore") {
                         const result = await promoteSavedWorkImport(
                           options,
                           selected.digest,
+                          confirm!.draftSource
+                            ? { draftSource: confirm!.draftSource }
+                            : undefined,
                         );
                         setNotice(
                           result.alreadyRestored

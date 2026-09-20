@@ -7,7 +7,11 @@ import {
   readModuleStorage,
   type ModuleStorage,
 } from "../../modules/storage";
-import { importedDraftKeys, prepareImportedDraft } from "./draft";
+import {
+  importedDraftKeys,
+  prepareImportedDraft,
+  type ImportedDraftSource,
+} from "./draft";
 import { settleModuleCall } from "../../modules/settlement";
 import {
   responseContract,
@@ -38,8 +42,10 @@ function matchingRequest(state: ModuleStorage, entry?: JournalEntry) {
 export async function promoteSavedWorkImport(
   options: SavedWorkImportOptions,
   digest: string,
+  choice?: { draftSource: ImportedDraftSource },
 ) {
   const scope = { ...options.scope };
+  const draftSource = choice?.draftSource;
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
     async () => {
@@ -57,7 +63,7 @@ export async function promoteSavedWorkImport(
       const entry = input.entry;
       if (entry) assertSchema(RequestKeySchema, entry.id);
       const existing = matchingRequest(before, entry);
-      const destinations = importedDraftKeys(input, digest);
+      const destinations = importedDraftKeys(input, digest, draftSource);
       if (input.selection === "draft" && existing?.supersededBy)
         throw Error(
           "This original request already has a correction on this device. Inspect the retained imported copy alongside the current work.",
@@ -110,6 +116,7 @@ export async function promoteSavedWorkImport(
               digest,
               authority,
               outcome,
+              draftSource,
             )
           : undefined;
       const draftKey = draft?.key;
@@ -118,6 +125,11 @@ export async function promoteSavedWorkImport(
         ...(draftKey ? { draftKey } : {}),
         ...(outcome ? { outcome: outcome.outcome } : {}),
         existingRequest: !!existing,
+        ...(input.selection === "draft" &&
+        input.review?.collision &&
+        draftSource
+          ? { draftSource }
+          : {}),
         restoredAt: Date.now(),
       };
       await changeModuleStorage(
