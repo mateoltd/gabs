@@ -64,6 +64,7 @@ export async function nativePortabilityDevice(
   profile: string,
   options: {
     reuse?: boolean;
+    mainEntry?: string;
     storageWorker?: string;
     protectionKey?: string;
     beforeSignIn?(app: ElectronApplication, page: Page): Promise<void>;
@@ -101,7 +102,7 @@ export async function nativePortabilityDevice(
     globalThis.portableOffline=false;
     globalThis.fetch=(...args)=>globalThis.portableOffline
       ? Promise.reject(new TypeError('fetch failed',{cause:{code:'ECONNREFUSED'}})) : original(...args);
-    require(${JSON.stringify(resolve("apps/desktop/dist/main.cjs"))});
+    require(${JSON.stringify(options.mainEntry ?? resolve("apps/desktop/dist/main.cjs"))});
   `,
     );
   const app = await electron.launch({

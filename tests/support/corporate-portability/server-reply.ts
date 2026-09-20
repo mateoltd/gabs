@@ -17,42 +17,53 @@ export async function holdServerReply(
   page: Page,
   path: string,
   app?: ElectronApplication,
+  options: { method?: string; requestId?: string } = {},
 ): Promise<ReplyGate> {
   if (app) {
     const child = app.process();
-    await app.evaluate((_, path) => {
-      const root = globalThis as typeof globalThis & {
-        serverReplyGate?: NativeGate;
-      };
-      const original = globalThis.fetch;
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const gate: NativeGate = {
-        arrived: false,
-        done: false,
-        release,
-        dispose: () => {
-          globalThis.fetch = original;
-          release();
-        },
-      };
-      root.serverReplyGate = gate;
-      globalThis.fetch = async (...args) => {
-        const response = await original(...args);
-        if (!gate.arrived && new URL(response.url).pathname === path) {
-          gate.arrived = true;
-          try {
-            await held;
-          } finally {
-            gate.done = true;
+    await app.evaluate(
+      (_, { path, method, requestId }) => {
+        const root = globalThis as typeof globalThis & {
+          serverReplyGate?: NativeGate;
+        };
+        const original = globalThis.fetch;
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const gate: NativeGate = {
+          arrived: false,
+          done: false,
+          release,
+          dispose: () => {
             globalThis.fetch = original;
+            release();
+          },
+        };
+        root.serverReplyGate = gate;
+        globalThis.fetch = async (...args) => {
+          const response = await original(...args);
+          if (
+            !gate.arrived &&
+            new URL(response.url).pathname === path &&
+            (!method || args[1]?.method === method) &&
+            (!requestId ||
+              new Headers(args[1]?.headers).get("idempotency-key") ===
+                requestId)
+          ) {
+            gate.arrived = true;
+            try {
+              await held;
+            } finally {
+              gate.done = true;
+              globalThis.fetch = original;
+            }
           }
-        }
-        return response;
-      };
-    }, path);
+          return response;
+        };
+      },
+      { path, method: options.method, requestId: options.requestId },
+    );
     return {
       dispose: async () => {
         if (child.exitCode !== null || child.signalCode !== null) return;
@@ -107,6 +118,13 @@ export async function holdServerReply(
   });
   const pattern = `**${path}`;
   await page.route(pattern, async (route) => {
+    if (options.method && route.request().method() !== options.method)
+      return route.continue();
+    if (
+      options.requestId &&
+      route.request().headers()["idempotency-key"] !== options.requestId
+    )
+      return route.continue();
     try {
       const response = await route.fetch();
       arrived = true;

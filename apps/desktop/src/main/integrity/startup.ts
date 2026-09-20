@@ -9,7 +9,7 @@ import {
 import { IntegrityJournal } from "./journal";
 
 const execute = promisify(execFile);
-export async function checkApplicationIntegrity(options: {
+export interface ApplicationIntegrityOptions {
   assets: string;
   manifest: AssetManifest;
   profile: string;
@@ -17,11 +17,10 @@ export async function checkApplicationIntegrity(options: {
   packaged: boolean;
   platform: NodeJS.Platform;
   appPath: string;
-  beforeRecovery?(): Promise<void>;
-}): Promise<
-  | { allowed: true }
-  | { allowed: false; reason: IntegrityFailure["code"] | "audit-unavailable" }
-> {
+}
+export async function inspectApplication(
+  options: ApplicationIntegrityOptions,
+): Promise<IntegrityFailure | undefined> {
   let failure: IntegrityFailure | undefined;
   const macSignedNative = options.packaged && options.platform === "darwin";
   if (macSignedNative) {
@@ -47,6 +46,17 @@ export async function checkApplicationIntegrity(options: {
     options.manifest,
     macSignedNative && !failure,
   );
+  return failure;
+}
+export async function checkApplicationIntegrity(
+  options: ApplicationIntegrityOptions & {
+    beforeRecovery?(): Promise<void>;
+  },
+): Promise<
+  | { allowed: true }
+  | { allowed: false; reason: IntegrityFailure["code"] | "audit-unavailable" }
+> {
+  const failure = await inspectApplication(options);
   try {
     await new IntegrityJournal(
       resolve(options.profile, "integrity"),

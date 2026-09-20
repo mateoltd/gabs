@@ -1,5 +1,5 @@
 import {
-  ipcMain,
+  type IpcMain,
   dialog,
   Notification,
   type BrowserWindow,
@@ -20,23 +20,26 @@ export function createLocalDeviceHost(
   });
   return {
     clear: () => sessions.clear(),
-    register(sender: (event: IpcMainInvokeEvent) => void) {
-      ipcMain.handle("suite:local-device-open", (event, request) => {
+    register(
+      sender: (event: IpcMainInvokeEvent) => void,
+      handle: IpcMain["handle"],
+    ) {
+      handle("suite:local-device-open", (event, request) => {
         sender(event);
         return sessions.open(request);
       });
-      ipcMain.handle("suite:local-device-close", (event, handle) => {
+      handle("suite:local-device-close", (event, handle) => {
         sender(event);
         sessions.close(handle);
       });
-      ipcMain.handle(
+      handle(
         "suite:local-device-reply",
         (event, handle, nonce, allowed, message) => {
           sender(event);
           sessions.reply(handle, nonce, allowed, message);
         },
       );
-      ipcMain.handle("suite:local-device-execute", async (event, handle) => {
+      handle("suite:local-device-execute", async (event, handle) => {
         sender(event);
         try {
           const result = await sessions.execute(

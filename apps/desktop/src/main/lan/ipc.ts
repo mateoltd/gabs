@@ -1,5 +1,5 @@
 import {
-  ipcMain,
+  type IpcMain,
   dialog,
   type BrowserWindow,
   type IpcMainInvokeEvent,
@@ -15,13 +15,14 @@ export function registerLanRecovery(
     sender(event: IpcMainInvokeEvent): void;
     validateScope(scope: Scope): void;
     window(): BrowserWindow;
+    handle: IpcMain["handle"];
   },
 ) {
   function handle<Args extends unknown[], Result>(
     channel: string,
     action: (scope: Scope, ...args: Args) => Promise<Result>,
   ) {
-    ipcMain.handle(channel, async (event, scope: Scope, ...args: Args) => {
+    host.handle(channel, async (event, scope: Scope, ...args: Args) => {
       host.sender(event);
       try {
         host.validateScope(scope);

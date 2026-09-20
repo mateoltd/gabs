@@ -1,6 +1,6 @@
 # Desktop startup integrity gate
 
-Scope: the first implementation slice of **ID-04**. Startup asset checks and local incident/recovery records are implemented. ID-04 remains **active**: continuous runtime response, support recovery tools and signed-platform acceptance remain unfinished.
+Scope: the first implementation slice of **ID-04**. Startup asset checks and local incident/recovery records are implemented. ID-04 remains **active**: [runtime response](../integrity-runtime/README.md) now has scoped acceptance; support recovery tools and signed-platform acceptance remain unfinished.
 
 ## Implemented behavior
 
@@ -22,7 +22,7 @@ The initial typecheck found a fixture environment typing error, corrected before
 
 ## Remaining gates and boundaries
 
-1. Continuous runtime monitoring and supported-signal response, including fencing in-flight capability/IPC calls, closing privileged sessions, preserving committed and uncommitted work, and requiring fresh authority after recovery.
+1. [Runtime monitoring, IPC fencing and persisted-work recovery](../integrity-runtime/README.md) now have scoped native acceptance, including the exact server commitment whose reply is lost during lockdown. Keep actual-platform and operational limits distinct.
 2. Inspect/export of integrity evidence and an explicit, data-preserving repair path for unreadable audit state; false-positive operational journeys. Current error handling retains the records and requires filesystem repair; it does not yet provide that support workflow.
 3. Real signed/installed macOS and Windows acceptance, Linux release trust, actual signing/provider success/failure and physical durability. A failed `codesign` fixture is not proof of a valid distribution signature.
 4. Whole-product operational audit/monitoring acceptance and fresh real authentication after repair. Local receipts do not establish server-side audit delivery.

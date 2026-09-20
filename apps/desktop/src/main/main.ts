@@ -1,4 +1,9 @@
-import { checkApplicationIntegrity } from "./integrity/startup";
+import {
+  checkApplicationIntegrity,
+  inspectApplication,
+} from "./integrity/startup";
+import { IntegrityJournal } from "./integrity/journal";
+import { IntegrityMonitor, guardedHandle } from "./integrity/runtime";
 import type { AssetManifest } from "./integrity/assets";
 import { cleanImportStaging } from "./storage/import-staging";
 import {
@@ -393,7 +398,8 @@ const lanPackages: LanPackages = new LanPackages({
 });
 let cacheReady: Promise<void> | undefined;
 async function ensureCache() {
-  return (cacheReady ??= (async () => {
+  runtimeIntegrity.assertAvailable();
+  await (cacheReady ??= (async () => {
     if (!secureAvailable()) throw Error("Protected storage is unavailable.");
     await openManagedStorage({
       root: root(),
@@ -407,8 +413,10 @@ async function ensureCache() {
     cacheReady = undefined;
     throw error;
   }));
+  runtimeIntegrity.assertAvailable();
 }
 async function writeSecure(key: string, value: unknown) {
+  runtimeIntegrity.assertAvailable();
   if (!secureAvailable()) {
     volatile.set(key, value);
     return false;
@@ -422,6 +430,7 @@ async function writeSecure(key: string, value: unknown) {
   return true;
 }
 async function readSecure<T>(key: string): Promise<T | undefined> {
+  runtimeIntegrity.assertAvailable();
   if (!secureAvailable()) return volatile.get(key) as T | undefined;
   if (key.includes("/")) {
     await ensureCache();
@@ -457,7 +466,95 @@ const authorityHost: ConstructorParameters<
 const nativeAuthority = new NativeCapabilityAuthority(authorityHost);
 const inputRecovery = new NativeInputRecovery(authorityHost);
 
+const integrityOptions = () => ({
+  assets: __dirname,
+  manifest: __INTEGRITY_MANIFEST__,
+  profile: app.getPath("userData"),
+  release: app.getVersion(),
+  packaged: app.isPackaged,
+  platform: process.platform,
+  appPath: app.getAppPath(),
+});
+let integrityCleanup: Promise<unknown> = Promise.resolve();
+let integrityDeadline: ReturnType<typeof setTimeout> | undefined;
+async function boundedShutdown(tasks: Promise<unknown>[]) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled(tasks),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 5000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const runtimeIntegrity = new IntegrityMonitor({
+  inspect: () => inspectApplication(integrityOptions()),
+  lock: () => {
+    integrityDeadline = setTimeout(() => app.exit(1), 15000);
+    integrityDeadline.unref();
+    identityEpoch++;
+    userId = undefined;
+    onlineProfileUser = undefined;
+    devCookie = csrfToken = undefined;
+    signInRequests.cancel("Application integrity failed.");
+    moduleHosts.clear();
+    localDeviceHosts.clear();
+    nativeAuthority.clear();
+    inputRecovery.clear();
+    lanRecovery.invalidate();
+    lanPackages.invalidate();
+    closeVaultSessions();
+    volatile.clear();
+    integrityCleanup = Promise.allSettled([
+      credentials.clear(),
+      protectedFiles.remove("identity"),
+      profileLock.activate(),
+      lan.stop(),
+    ]);
+    // Close the view immediately. Persisted requests remain recoverable; no late
+    // reply can display success or reveal data through the stopped renderer.
+    win?.destroy();
+    win = undefined;
+  },
+  record: (failure) =>
+    new IntegrityJournal(
+      resolve(app.getPath("userData"), "integrity"),
+      app.getVersion(),
+    ).record(failure),
+  stop: async (auditFailed) => {
+    await boundedShutdown([
+      runtimeIntegrity.drain(),
+      integrityCleanup,
+      cacheReady ?? Promise.resolve(),
+    ]);
+    await boundedShutdown([closeCache()]);
+    clearTimeout(integrityDeadline);
+    process.stderr.write(
+      `Application integrity failed during use.${auditFailed ? " Integrity recording needs attention." : ""}\n`,
+    );
+    try {
+      if (!minimizedTest)
+        await dialog.showMessageBox({
+          type: "error",
+          message:
+            "Common closed access because this installation could not be verified.",
+          detail:
+            "Saved work remains on this device. A request already sent may have reached the server; review its outcome after recovery. Repair or reinstall the approved release, then restart and sign in again. Keep the application data folder.",
+          buttons: ["Quit"],
+          noLink: true,
+        });
+    } finally {
+      app.exit(1);
+    }
+  },
+});
+const handle = guardedHandle(ipcMain, runtimeIntegrity);
+
 function sender(event: IpcMainInvokeEvent, allowLocked = false) {
+  runtimeIntegrity.assertAvailable();
   if (
     event.sender !== win?.webContents ||
     !event.senderFrame ||
@@ -511,6 +608,7 @@ async function execute(
   timeoutMs?: number,
   authenticating = false,
 ) {
+  runtimeIntegrity.assertAvailable();
   const actor = userId;
   const validated = validateOperation(raw);
   let lockEpoch = profileLock.epoch;
@@ -531,10 +629,11 @@ async function execute(
   const sequence =
     validated.operation === "me" ? ++identitySequence : undefined;
   const current = () =>
-    validated.operation === "connection" ||
-    (epoch === identityEpoch &&
-      lockEpoch === profileLock.epoch &&
-      (sequence === undefined || sequence === identitySequence));
+    !runtimeIntegrity.locked &&
+    (validated.operation === "connection" ||
+      (epoch === identityEpoch &&
+        lockEpoch === profileLock.epoch &&
+        (sequence === undefined || sequence === identitySequence)));
   const stale = () =>
     lockEpoch !== profileLock.epoch
       ? lockFailure()
@@ -563,7 +662,10 @@ async function execute(
       : undefined;
   if (request.operation === "connection") {
     const response = await fetch(config.apiOrigin + op.path, {
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.any([
+        runtimeIntegrity.signal,
+        AbortSignal.timeout(4000),
+      ]),
     });
     return { status: response.status, body: await response.json() };
   }
@@ -611,9 +713,14 @@ async function execute(
     method: op.method,
     headers,
     body: request.body === undefined ? undefined : JSON.stringify(request.body),
-    signal: AbortSignal.timeout(
-      request.operation === "installationReport" ? 2000 : (timeoutMs ?? 20000),
-    ),
+    signal: AbortSignal.any([
+      runtimeIntegrity.signal,
+      AbortSignal.timeout(
+        request.operation === "installationReport"
+          ? 2000
+          : (timeoutMs ?? 20000),
+      ),
+    ]),
     redirect: "error",
   }).catch((error: unknown) => {
     if (isCapabilityTransportFailure(error))
@@ -875,7 +982,7 @@ setVaultHost(localUnlock, (change) => {
     win.webContents.send("suite:local-vault-changed", change);
 });
 function handlers() {
-  ipcMain.handle("suite:local-vault", (event, id, action, input) => {
+  handle("suite:local-vault", (event, id, action, input) => {
     sender(event, true);
     return localUnlockAction(async () => {
       if (
@@ -904,26 +1011,26 @@ function handlers() {
       }
     });
   });
-  ipcMain.handle("suite:local-vault-cancel", (event, id) => {
+  handle("suite:local-vault-cancel", (event, id) => {
     sender(event, true);
     if (typeof id !== "string" || id.length !== 36)
       throw Error("Invalid local vault request identifier.");
     vaultRequests.get(id)?.abort();
     cacheVaultCancel(id);
   });
-  ipcMain.handle("suite:profile-lock-status", (event) => {
+  handle("suite:profile-lock-status", (event) => {
     sender(event, true);
     return profileLock.status();
   });
-  ipcMain.handle("suite:profile-lock", (event) => {
+  handle("suite:profile-lock", (event) => {
     sender(event, true);
     return profileAction(() => profileLock.lock());
   });
-  ipcMain.handle("suite:profile-unlock", (event, method, pin) => {
+  handle("suite:profile-unlock", (event, method, pin) => {
     sender(event, true);
     return profileAction(() => profileLock.unlock(method, pin));
   });
-  ipcMain.handle(
+  handle(
     "suite:profile-lock-configure",
     (event, pin, biometric, previousPin) => {
       sender(event);
@@ -932,16 +1039,16 @@ function handlers() {
       );
     },
   );
-  ipcMain.handle("suite:profile-lock-remove", (event, pin, recover = false) => {
+  handle("suite:profile-lock-remove", (event, pin, recover = false) => {
     sender(event);
     if (typeof recover !== "boolean") throw Error("Invalid recovery request.");
     return profileAction(() => profileLock.remove(pin, recover));
   });
-  ipcMain.handle("suite:online-profiles", (event) => {
+  handle("suite:online-profiles", (event) => {
     sender(event, true);
     return onlineProfiles.list();
   });
-  ipcMain.handle("suite:online-profile-remember", (event, explicit) => {
+  handle("suite:online-profile-remember", (event, explicit) => {
     sender(event);
     if (
       typeof explicit !== "boolean" ||
@@ -957,12 +1064,12 @@ function handlers() {
       () => epoch === identityEpoch && profile.id === userId,
     );
   });
-  ipcMain.handle("suite:online-profile-forget", (event, id) => {
+  handle("suite:online-profile-forget", (event, id) => {
     sender(event, true);
     return onlineProfiles.forget(id);
   });
-  localDeviceHosts.register((event) => sender(event, true));
-  ipcMain.handle(
+  localDeviceHosts.register((event) => sender(event, true), handle);
+  handle(
     "suite:module-offline",
     async (
       event,
@@ -979,7 +1086,7 @@ function handlers() {
       return nativeAuthority.prepare(scope, moduleId, version, enabled);
     },
   );
-  ipcMain.handle(
+  handle(
     "suite:module-host-open",
     (event, scope: Scope, moduleId: string, version: string) => {
       sender(event);
@@ -987,11 +1094,11 @@ function handlers() {
       return moduleHosts.open(scope, moduleId, version);
     },
   );
-  ipcMain.handle("suite:module-host-close", (event, handle) => {
+  handle("suite:module-host-close", (event, handle) => {
     sender(event);
     moduleHosts.close(handle);
   });
-  ipcMain.handle(
+  handle(
     "suite:module-capability",
     async (event, handle, capability, input) => {
       sender(event);
@@ -1091,7 +1198,7 @@ function handlers() {
         );
     },
   );
-  ipcMain.handle("suite:billing-open", async (event, value: unknown) => {
+  handle("suite:billing-open", async (event, value: unknown) => {
     sender(event);
     if (typeof value !== "string" || value.length > 4096)
       throw Error("Invalid billing destination.");
@@ -1106,7 +1213,7 @@ function handlers() {
       throw Error("Invalid billing destination.");
     await shell.openExternal(url.href);
   });
-  ipcMain.handle(
+  handle(
     "suite:lan-package",
     (
       event,
@@ -1118,20 +1225,18 @@ function handlers() {
       return profileRead(() => lanPackages.get(scope, selection));
     },
   );
-  ipcMain.handle(
-    "suite:lan-package-ack",
-    (event, scope: Scope, transferId: string) => {
-      sender(event);
-      validateScope(scope, userId);
-      return lanPackages.acknowledge(scope, transferId);
-    },
-  );
+  handle("suite:lan-package-ack", (event, scope: Scope, transferId: string) => {
+    sender(event);
+    validateScope(scope, userId);
+    return lanPackages.acknowledge(scope, transferId);
+  });
   registerLanRecovery(lanRecovery, {
+    handle,
     sender,
     validateScope: (scope) => validateScope(scope, userId),
     window: () => win!,
   });
-  ipcMain.handle("suite:lan-status", async (event, scope: Scope) => {
+  handle("suite:lan-status", async (event, scope: Scope) => {
     sender(event);
     validateScope(scope, userId);
     return profileRead(async () => {
@@ -1139,7 +1244,7 @@ function handlers() {
       return lanStatus(scope);
     });
   });
-  ipcMain.handle(
+  handle(
     "suite:lan-set",
     async (
       event,
@@ -1169,17 +1274,17 @@ function handlers() {
       return lanStatus(scope);
     },
   );
-  ipcMain.handle("suite:auth-status", (event) => {
+  handle("suite:auth-status", (event) => {
     sender(event, true);
     return {
       mode: devAuth ? "development" : oidcConfigured ? "oidc" : "unconfigured",
     };
   });
-  ipcMain.handle("suite:execute", (event, request) => {
+  handle("suite:execute", (event, request) => {
     sender(event, true);
     return execute(request);
   });
-  ipcMain.handle("suite:login", (event, value) => {
+  handle("suite:login", (event, value) => {
     sender(event, true);
     const options = validateLogin(value);
     return signInRequests.run(async (signal) => {
@@ -1197,7 +1302,7 @@ function handlers() {
       signal.throwIfAborted();
     });
   });
-  ipcMain.handle("suite:logout", (event) => {
+  handle("suite:logout", (event) => {
     sender(event, true);
     return (logoutPromise ??= (async () => {
       identityEpoch++;
@@ -1243,7 +1348,7 @@ function handlers() {
       logoutPromise = undefined;
     }));
   });
-  ipcMain.handle("suite:account-revision", async (event, accountId) => {
+  handle("suite:account-revision", async (event, accountId) => {
     sender(event);
     validateScope({ userId: accountId }, userId);
     return profileRead(
@@ -1252,11 +1357,11 @@ function handlers() {
         "initial",
     );
   });
-  ipcMain.handle("suite:cache-read", async (event, scope, key) => {
+  handle("suite:cache-read", async (event, scope, key) => {
     sender(event);
     return profileRead(() => readSecure(cacheKey(scope, key)));
   });
-  ipcMain.handle("suite:cache-write", async (event, scope, key, value) => {
+  handle("suite:cache-write", async (event, scope, key, value) => {
     sender(event);
     const path = cacheKey(scope, key);
     if (Buffer.byteLength(JSON.stringify(value), "utf8") > 2 * 1024 * 1024)
@@ -1272,7 +1377,7 @@ function handlers() {
         typeof value?.expiresAt === "number" && value.expiresAt > 0,
       );
   });
-  ipcMain.handle("suite:cache-prune-artifacts", async (event, scope, keep) => {
+  handle("suite:cache-prune-artifacts", async (event, scope, keep) => {
     sender(event);
     cacheKey(scope, "module-state");
     if (
@@ -1287,7 +1392,7 @@ function handlers() {
       keep.map((k) => `${scope.userId}/${scope.workspaceId}/${k}`),
     );
   });
-  ipcMain.handle("suite:cache-purge", async (event, scope) => {
+  handle("suite:cache-purge", async (event, scope) => {
     sender(event);
     validateScope(scope, userId);
     const path = scope.workspaceId
@@ -1319,11 +1424,11 @@ function handlers() {
     for (const key of volatile.keys())
       if (key.startsWith(path + "/")) volatile.delete(key);
   });
-  ipcMain.handle("suite:identity", (event) => {
+  handle("suite:identity", (event) => {
     sender(event);
     return profileRead(() => readSecure<RememberedIdentity>("identity"));
   });
-  ipcMain.handle(
+  handle(
     "suite:remember",
     async (event, identity: RememberedIdentity | undefined) => {
       sender(event);
@@ -1338,48 +1443,45 @@ function handlers() {
       }
     },
   );
-  ipcMain.handle(
-    "suite:export-download",
-    async (event, handle: string, id: string) => {
-      sender(event);
-      try {
-        const session = moduleHosts.capture(handle);
-        if (session.moduleId !== "orders")
-          throw Error("This module does not own Orders exports.");
-        const scope = session.scope;
-        const result = await downloadExport(scope, id, {
-          check: () => {
-            sender(event);
-            validateScope(scope, userId);
-            session.check();
-          },
-          request: execute,
-          choose: async (filename) => {
-            const result = await dialog.showSaveDialog(win!, {
-              defaultPath: filename,
-              filters: [{ name: "CSV export", extensions: ["csv"] }],
-            });
-            return result.canceled ? undefined : result.filePath;
-          },
-          write: (path, content) => writeFile(path, content, { mode: 0o600 }),
-        });
-        return { ok: true, result };
-      } catch (error) {
-        return {
-          ok: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "The export could not be saved.",
-        };
-      }
-    },
-  );
-  ipcMain.handle("suite:save-file", (event) => {
+  handle("suite:export-download", async (event, handle: string, id: string) => {
+    sender(event);
+    try {
+      const session = moduleHosts.capture(handle);
+      if (session.moduleId !== "orders")
+        throw Error("This module does not own Orders exports.");
+      const scope = session.scope;
+      const result = await downloadExport(scope, id, {
+        check: () => {
+          sender(event);
+          validateScope(scope, userId);
+          session.check();
+        },
+        request: execute,
+        choose: async (filename) => {
+          const result = await dialog.showSaveDialog(win!, {
+            defaultPath: filename,
+            filters: [{ name: "CSV export", extensions: ["csv"] }],
+          });
+          return result.canceled ? undefined : result.filePath;
+        },
+        write: (path, content) => writeFile(path, content, { mode: 0o600 }),
+      });
+      return { ok: true, result };
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "The export could not be saved.",
+      };
+    }
+  });
+  handle("suite:save-file", (event) => {
     sender(event);
     throw Error("Use the scoped recovery export action.");
   });
-  ipcMain.handle("suite:input-export", async (event, handle, value) => {
+  handle("suite:input-export", async (event, handle, value) => {
     sender(event);
     const session = moduleHosts.capture(handle);
     const input = validateRecoveryInput(value, session.scope, session.moduleId);
@@ -1404,29 +1506,27 @@ function handlers() {
     check();
     await writeFile(result.filePath, content, { mode: 0o600 });
   });
-  ipcMain.handle(
-    "suite:work-archive-export",
-    (event, handle, content, passphrase) =>
-      exportNativeWorkArchive({
-        handle,
-        content,
-        passphrase,
-        capture: (handle) => moduleHosts.capture(handle),
-        check: () => sender(event),
-        authorize: (scope, input, check) =>
-          inputRecovery.authorize(scope, input, check),
-        choose: async (defaultPath) => {
-          const result = await dialog.showSaveDialog(win!, {
-            defaultPath,
-            filters: [
-              { name: "Encrypted saved-work archive", extensions: ["json"] },
-            ],
-          });
-          return result.canceled ? undefined : result.filePath;
-        },
-      }),
+  handle("suite:work-archive-export", (event, handle, content, passphrase) =>
+    exportNativeWorkArchive({
+      handle,
+      content,
+      passphrase,
+      capture: (handle) => moduleHosts.capture(handle),
+      check: () => sender(event),
+      authorize: (scope, input, check) =>
+        inputRecovery.authorize(scope, input, check),
+      choose: async (defaultPath) => {
+        const result = await dialog.showSaveDialog(win!, {
+          defaultPath,
+          filters: [
+            { name: "Encrypted saved-work archive", extensions: ["json"] },
+          ],
+        });
+        return result.canceled ? undefined : result.filePath;
+      },
+    }),
   );
-  ipcMain.handle("suite:notify", (event, title, message) => {
+  handle("suite:notify", (event, title, message) => {
     sender(event);
     if (
       typeof title !== "string" ||
@@ -1438,7 +1538,7 @@ function handlers() {
     if (Notification.isSupported())
       new Notification({ title, body: message }).show();
   });
-  ipcMain.handle("suite:security-status", (event) => {
+  handle("suite:security-status", (event) => {
     sender(event, true);
     return {
       persistentStorage: secureAvailable(),
@@ -1501,13 +1601,7 @@ async function start() {
   }
   // Check before credentials, maintenance, native code or the renderer can open.
   const integrity = await checkApplicationIntegrity({
-    assets: __dirname,
-    manifest: __INTEGRITY_MANIFEST__,
-    profile: app.getPath("userData"),
-    release: app.getVersion(),
-    packaged: app.isPackaged,
-    platform: process.platform,
-    appPath: app.getAppPath(),
+    ...integrityOptions(),
     beforeRecovery: async () => {
       await credentials.clear();
       await protectedFiles.remove("identity");
@@ -1674,6 +1768,8 @@ async function start() {
   });
   const assetRoot = resolve(__dirname, "renderer");
   protocol.handle("suite", (request) => {
+    if (runtimeIntegrity.locked)
+      return new Response("Application integrity failed", { status: 503 });
     const url = new URL(request.url);
     if (url.hostname !== "app")
       return new Response("Not found", { status: 404 });
@@ -1695,6 +1791,7 @@ async function start() {
   });
   handlers();
   const createWindow = () => {
+    runtimeIntegrity.assertAvailable();
     if (minimizedTest) app.dock?.hide();
     win = new BrowserWindow({
       width: 1360,
@@ -1762,7 +1859,12 @@ async function start() {
     void win.loadURL("suite://app/index.html");
   };
   createWindow();
+  runtimeIntegrity.start();
+  powerMonitor.on("resume", () => {
+    void runtimeIntegrity.check();
+  });
   app.on("second-instance", (_event, args) => {
+    if (runtimeIntegrity.locked) return;
     if (
       args.some(
         (arg) =>
@@ -1787,6 +1889,7 @@ async function start() {
     }
   });
   app.on("activate", () => {
+    if (runtimeIntegrity.locked) return;
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   if (
@@ -1804,13 +1907,14 @@ async function start() {
     void autoUpdater.checkForUpdates();
   }
   app.on("before-quit", (event) => {
-    if (updateReady && !installing) {
+    if (updateReady && !installing && !runtimeIntegrity.locked) {
       event.preventDefault();
       installing = true;
       autoUpdater.quitAndInstall();
     }
   });
   app.on("window-all-closed", () => {
+    if (runtimeIntegrity.locked) return;
     if (process.platform !== "darwin") app.quit();
   });
 }
