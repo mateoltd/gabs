@@ -6,16 +6,8 @@ import { resolve } from "node:path";
 export type AssetManifest = Readonly<
   Record<string, { size: number; sha256: string }>
 >;
-export type IntegrityFailure = {
-  code:
-    | "invalid-manifest"
-    | "unexpected-asset"
-    | "missing-asset"
-    | "changed-asset"
-    | "unreadable-assets"
-    | "invalid-signature";
-  asset?: string;
-};
+import type { IntegrityFailure } from "./format";
+export type { IntegrityFailure } from "./format";
 const namePattern = /^[a-zA-Z0-9_@.+-]+(?:\/[a-zA-Z0-9_@.+-]+)*$/;
 
 /** A diagnostic gate anchored by signed main, not a substitute for OS code signing. */
