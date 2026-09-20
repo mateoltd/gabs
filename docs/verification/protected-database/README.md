@@ -27,6 +27,8 @@ The desktop build vendors the small JS loader, license and target native binary 
 - `/tmp/gabs-id03-package.log` records the unsigned packaging smoke check. `/tmp/gabs-id03-packaged-storage.log` passed the same forced-termination journey using the packaged ASAR worker and unpacked native binary.
 - Tests did not invoke Keychain unlock or Touch ID. No foreground acceptance window was opened. All disposable acceptance databases were removed. Frozen-lockfile installation and changed-source formatting checks pass. Historical captures overwritten by the standalone regression were restored.
 
-## Remaining ID-03 work
+## Remaining ID-03 work at this checkpoint
+
+The subsequent [native standalone vault milestone](../native-vaults/README.md) implements utility custody and migration with scoped acceptance. The remaining key-lifecycle and actual provider gates below are still required.
 
 Move standalone desktop persistence and vault keys behind the utility-process boundary, with migration from existing IndexedDB profiles and preserved passphrase/PIN recovery. Implement and verify durable key rotation and backup/recovery across failure boundaries. Complete actual OS-key-provider failure/restart acceptance and signed target-platform installation/update checks. Overall parity and the later UI-refinement goal remain open.

@@ -18,6 +18,7 @@ interface HeldVault {
 }
 /** Encryption keys remain here. Renderer handles are random, revocable and revision-bound. */
 export class NativeVaultSessions {
+  readonly session: string;
   private changeGeneration = 0;
   get generation() {
     return this.changeGeneration;
@@ -28,7 +29,9 @@ export class NativeVaultSessions {
     private readonly store: LocalVaultStore,
     private readonly protection: LocalUnlockProtection,
     private readonly importVaults: (vaults: LocalVault[]) => Promise<string[]>,
+    session: string = crypto.randomUUID(),
   ) {
+    this.session = session;
     this.engine = createVaultEngine({
       ...store,
       changed: (id) => {
@@ -68,6 +71,7 @@ export class NativeVaultSessions {
     const revision = vault.revision ?? 0;
     this.held.set(handle, { vault, key, revision, requestId });
     return {
+      session: this.session,
       generation: this.changeGeneration,
       handle,
       profile: { id: vault.id, name: vault.name },

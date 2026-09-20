@@ -973,3 +973,8 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## 20 September 2026: page-encrypted desktop database
 
 [ID-03-DB evidence](protected-database/README.md) records authenticated page/WAL encryption, transactional migration, corruption/wrong-key rejection, interrupted import and acknowledged-write recovery, and native-binary loading from a real packaged ASAR. Ten focused checks, 736 tests across 110 files, strict builds, three final hidden/minimized native journeys and the packaged-worker check passed. The final key-file flush ordering change is included in final strict/native builds after the full regression. No interactive OS prompts or UI changes; actual key-provider acceptance, standalone custody, rotation and overall parity remain open.
+
+
+## 20 September 2026: native vault custody and architecture review
+
+[ID-03-LOCAL evidence](native-vaults/README.md) records the requested checkpoint/Sol xhigh/parent-review workflow, utility-owned encrypted standalone storage and safe legacy migration. Reviewed session identities close delayed-unlock and process-exit gaps. Verification includes 28 focused checks, 744 unit/PostgreSQL tests, strict checks/four fresh builds, eight headless browser journeys and six minimized native passes. Actual protected-key providers, physical biometrics, durable key rotation and lost-key recovery remain required. No full-parity or final UI-approval claim is made.

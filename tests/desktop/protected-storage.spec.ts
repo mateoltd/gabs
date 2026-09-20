@@ -4,6 +4,7 @@ import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import type { OpenedNativeVault } from "../../packages/client/src/identity/local-vault/protocol";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 test("real utility storage encrypts metadata and recovers acknowledged pending work after process termination", async () => {
@@ -66,8 +67,37 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
           return { request, kill };
         };
         let store = start();
+        let profileId = "";
         try {
-          await store.request("open", { path: args.path, secret: args.secret });
+          await store.request("open", {
+            path: args.path,
+            secret: args.secret,
+            session: process.getBuiltinModule("node:crypto").randomUUID(),
+          });
+          const opened = (await store.request("vault", {
+            requestId: "packaged-create",
+            request: {
+              action: "create",
+              input: {
+                name: "Private packaged profile",
+                password: "packaged vault passphrase",
+                data: { records: {} },
+              },
+            },
+          })) as OpenedNativeVault;
+          if ("key" in opened) throw Error("Vault key escaped utility custody");
+          profileId = opened.profile.id;
+          await store.request("vault", {
+            requestId: "packaged-commit",
+            request: {
+              action: "commit",
+              input: {
+                handle: opened.handle,
+                revision: opened.revision,
+                value: { records: { note: "Private packaged work" } },
+              },
+            },
+          });
           await store.request("write", {
             key: "private-account/private-company/pending",
             value: [
@@ -92,12 +122,29 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
         }
         store = start();
         try {
-          await store.request("open", { path: args.path, secret: args.secret });
+          await store.request("open", {
+            path: args.path,
+            secret: args.secret,
+            session: process.getBuiltinModule("node:crypto").randomUUID(),
+          });
           const recovered = await store.request("read", {
             key: "private-account/private-company/pending",
           });
+          const vault = (await store.request("vault", {
+            requestId: "packaged-reopen",
+            request: {
+              action: "unlock",
+              input: { id: profileId, password: "packaged vault passphrase" },
+            },
+          })) as OpenedNativeVault;
+          if ("key" in vault) throw Error("Vault key escaped utility custody");
           return {
             recovered,
+            vault: {
+              profile: vault.profile,
+              revision: vault.revision,
+              data: vault.data,
+            },
             hidden: BrowserWindow.getAllWindows().every(
               (window) =>
                 !window.isFocused() &&
@@ -124,6 +171,11 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
       },
     ]);
     expect(result.hidden).toBe(true);
+    expect(result.vault).toMatchObject({
+      profile: { name: "Private packaged profile" },
+      revision: 1,
+      data: { records: { note: "Private packaged work" } },
+    });
     const files = (await readdir(profile)).filter((name) =>
       name.startsWith("acceptance.sqlite"),
     );
@@ -137,6 +189,10 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
         "durable-attempt",
         "confidential operation",
         "CREATE TABLE cache",
+        "local_vaults",
+        result.vault.profile.id,
+        "Private packaged profile",
+        "Private packaged work",
       ])
         expect(bytes.includes(Buffer.from(text))).toBe(false);
     }

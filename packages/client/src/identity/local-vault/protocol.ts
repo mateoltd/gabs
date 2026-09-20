@@ -1,9 +1,13 @@
 import type { LocalUnlockStatus, LocalVault } from "./contracts";
-export interface NativeVaultChange {
-  id: string;
-  generation: number;
-}
+export type NativeVaultChange =
+  | {
+      session: string;
+      id: string;
+      generation: number;
+    }
+  | { closed: true; session: string };
 export interface OpenedNativeVault {
+  session: string;
   generation: number;
   handle: string;
   profile: { id: string; name: string };

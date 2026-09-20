@@ -886,9 +886,9 @@ function closeVaultSessions() {
   for (const request of vaultRequests.values()) request.abort();
   cacheVaultCloseAll();
 }
-setVaultHost(localUnlock, (id) => {
+setVaultHost(localUnlock, (change) => {
   if (win && !win.isDestroyed())
-    win.webContents.send("suite:local-vault-changed", id);
+    win.webContents.send("suite:local-vault-changed", change);
 });
 function handlers() {
   ipcMain.handle("suite:local-vault", (event, id, action, input) => {

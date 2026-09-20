@@ -3,7 +3,7 @@ import { Worker } from "node:worker_threads";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { createRequire } from "node:module";
@@ -72,6 +72,7 @@ async function storage() {
       worker.postMessage({ id, action, ...args });
     });
   await request("open", {
+    session: randomUUID(),
     path: join(directory, "cache.sqlite"),
     secret: randomBytes(32).toString("base64"),
   });

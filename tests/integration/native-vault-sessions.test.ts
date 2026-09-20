@@ -81,6 +81,7 @@ it("keeps keys behind opaque grants, persists records and rejects stale grants a
     "handle",
     "profile",
     "revision",
+    "session",
   ]);
   expect(created.profile.name).toBe("Private local company");
   const second = (await s.call({
@@ -190,6 +191,7 @@ it("enrolls PIN and biometric recovery without returning keys, and fences grants
     "handle",
     "profile",
     "revision",
+    "session",
   ]);
   expect(pin.data).toEqual(created.data);
   const bio = (await s.call({

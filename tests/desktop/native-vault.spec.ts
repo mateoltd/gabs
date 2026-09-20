@@ -133,6 +133,27 @@ test("standalone vault uses the utility bridge and encrypted SQLite through PIN 
     await expect(
       page.getByRole("heading", { name: "Local profiles", exact: true }),
     ).toBeVisible();
+    await selectValue(page, "Profile", id);
+    await page
+      .getByRole("button", { name: "Use PIN instead", exact: true })
+      .click();
+    await page.getByLabel("Profile PIN", { exact: true }).fill("12345678");
+    await page
+      .getByRole("button", { name: "Unlock profile", exact: true })
+      .click();
+    await expect(
+      page.getByRole("cell", { name: "Native retained contact", exact: true }),
+    ).toBeVisible();
+    await app.evaluate(({ app }) => {
+      const storage = app
+        .getAppMetrics()
+        .find((process) => process.name === "Common protected storage");
+      if (!storage) throw Error("Protected storage process was not found");
+      process.kill(storage.pid, "SIGKILL");
+    });
+    await expect(
+      page.getByRole("heading", { name: "Local profiles", exact: true }),
+    ).toBeVisible();
     expect(
       await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().every(

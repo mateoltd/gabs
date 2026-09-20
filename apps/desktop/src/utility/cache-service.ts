@@ -4,6 +4,7 @@ import type {
   NativeVaultChange,
 } from "@suite/client/vault-protocol";
 import { utilityProcess, type UtilityProcess } from "electron";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 let worker: UtilityProcess | undefined,
   ready: Promise<void> | undefined,
@@ -39,11 +40,17 @@ export function setVaultHost(
 }
 export function openCache(path: string, secret: string) {
   return (ready ??= (async () => {
-    worker = utilityProcess.fork(resolve(__dirname, "cache-worker.cjs"), [], {
-      serviceName: "Common protected storage",
-      stdio: "pipe",
-    });
-    worker.on(
+    const session = randomUUID();
+    const target = utilityProcess.fork(
+      resolve(__dirname, "cache-worker.cjs"),
+      [],
+      {
+        serviceName: "Common protected storage",
+        stdio: "pipe",
+      },
+    );
+    worker = target;
+    target.on(
       "message",
       async (message: {
         id: number;
@@ -60,7 +67,7 @@ export function openCache(path: string, secret: string) {
           return;
         }
         if (message.protectionId !== undefined) {
-          const target = worker;
+          if (worker !== target) return;
           try {
             if (!vaultProtection)
               throw Error("Protected unlock is unavailable.");
@@ -80,13 +87,13 @@ export function openCache(path: string, secret: string) {
               );
             else throw Error("Invalid protected unlock method.");
             if (worker === target)
-              target?.postMessage({
+              target.postMessage({
                 protectionResult: message.protectionId,
                 value,
               });
           } catch (error) {
             if (worker === target)
-              target?.postMessage({
+              target.postMessage({
                 protectionResult: message.protectionId,
                 error:
                   error instanceof Error
@@ -96,6 +103,7 @@ export function openCache(path: string, secret: string) {
           }
           return;
         }
+        if (worker !== target) return;
         const entry = pending.get(message.id);
         if (!entry) return;
         clearTimeout(entry.timer);
@@ -107,7 +115,9 @@ export function openCache(path: string, secret: string) {
         else entry.resolve(message.value);
       },
     );
-    worker.on("exit", () => {
+    target.on("exit", () => {
+      vaultChanged?.({ closed: true, session });
+      if (worker !== target) return;
       for (const entry of pending.values()) {
         clearTimeout(entry.timer);
         entry.reject(
@@ -119,9 +129,9 @@ export function openCache(path: string, secret: string) {
       ready = undefined;
     });
     try {
-      await send("open", { path, secret });
+      await send("open", { path, secret, session });
     } catch (error) {
-      worker?.kill();
+      if (worker === target) target.kill();
       throw error;
     }
   })());

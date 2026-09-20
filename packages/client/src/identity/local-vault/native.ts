@@ -14,7 +14,15 @@ export function createNativeVaultProvider(
   let migration: Promise<void> | undefined;
   const active = new Set<LocalVaultAccess>();
   const issued = new Map<string, number>();
+  const observed = new Map<string, number>();
+  const retired = new Set<string>();
+  let session: string | undefined;
   const listeners = new Set<(id: string, invalidate?: boolean) => void>();
+  const locked = () =>
+    new LocalExecutionError(
+      "PROFILE_LOCKED",
+      "The protected storage session changed. Unlock the local profile again.",
+    );
   const call = async <K extends keyof LocalVaultOperations>(
     action: K,
     input: LocalVaultOperations[K]["input"],
@@ -80,10 +88,33 @@ export function createNativeVaultProvider(
     await migrate();
     return call(action, input, signal);
   }
+  function revokeAll() {
+    const profiles = new Set([...active].map((held) => held.profile.id));
+    for (const held of [...active]) held.close();
+    for (const id of profiles)
+      for (const listener of listeners) listener(id, true);
+  }
+  function adopt(next: string) {
+    if (retired.has(next)) throw locked();
+    if (session === next) return;
+    if (session) retired.add(session);
+    revokeAll();
+    issued.clear();
+    observed.clear();
+    session = next;
+  }
+  function reject(opened: OpenedNativeVault): never {
+    void call("close", { handle: opened.handle }).catch(() => {});
+    throw locked();
+  }
   function access(
     opened: OpenedNativeVault,
     signal?: AbortSignal,
   ): LocalVaultAccess {
+    if (retired.has(opened.session)) reject(opened);
+    adopt(opened.session);
+    if (opened.generation < (observed.get(opened.profile.id) ?? -1))
+      reject(opened);
     const handle = opened.handle;
     issued.set(
       opened.profile.id,
@@ -142,11 +173,25 @@ export function createNativeVaultProvider(
     }
     return held;
   }
-  bridge.subscribe(({ id, generation }) => {
-    const invalidate = generation > (issued.get(id) ?? -1);
+  bridge.subscribe((change) => {
+    if ("closed" in change) {
+      retired.add(change.session);
+      if (session !== change.session) return;
+      revokeAll();
+      session = undefined;
+      issued.clear();
+      observed.clear();
+      return;
+    }
+    if (retired.has(change.session)) return;
+    adopt(change.session);
+    const previous = observed.get(change.id) ?? -1;
+    observed.set(change.id, Math.max(previous, change.generation));
+    const invalidate = change.generation > (issued.get(change.id) ?? -1);
     if (invalidate)
-      for (const held of active) if (held.profile.id === id) held.close();
-    for (const listener of listeners) listener(id, invalidate);
+      for (const held of [...active])
+        if (held.profile.id === change.id) held.close();
+    for (const listener of listeners) listener(change.id, invalidate);
   });
   return {
     kind: "desktop",

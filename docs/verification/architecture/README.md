@@ -230,3 +230,12 @@ Verification:
 - Browser wide/narrow consent, recovery and native worker captures were inspected. Overwritten historical captures were restored. No UI source, styles, public package identity, signed release or generated contract changed.
 
 Disposable acceptance databases were removed. This is scoped architecture and regression acceptance, not a new full-suite/remote CI run, standalone PIN implementation, overall parity or final UI approval. Continue ID-02-LOCAL from the preserved passphrase vault; do not repeat the completed directory migration.
+
+
+## Native vault checkpoint review, 20 September 2026
+
+Checkpoint `f40229a` and pushed tag `checkpoint/architecture-native-vault-2026-09-20` preserve the unfinished native vault slice. The user-requested `gpt-5.6-sol` subagent at `xhigh` reviewed implementation ownership and corrected session ordering. The parent independently reviewed the changed boundaries, fixed a narrow constructor type annotation and added adversarial migration/session and actual utility-crash acceptance.
+
+The existing physical layout already implements `apps/web`, `packages/sdk`, `packages/ui/web` and concern-specific source directories. Portable vault behavior belongs in client identity, storage/session custody in the desktop utility, OS protection in main and presentation in shell. No additional directory moves or public package renames were justified. The typed protocol now identifies each utility session, remembers observed revocations and rejects late responses from retired sessions. Worker callbacks cannot affect a newer worker after termination.
+
+[Native vault evidence](../native-vaults/README.md) records 28 focused checks, 744 full regression tests, strict environment/boundary checks, four fresh builds, eight browser journeys and six minimized native passes, plus packaging evidence and explicit limits. Inspected browser/native captures preserve the existing visual system; no CSS or design-token change was made. This completes the scoped architecture checkpoint/review, not full parity, physical OS-provider acceptance or final UI refinement.

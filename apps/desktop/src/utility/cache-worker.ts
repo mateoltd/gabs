@@ -139,10 +139,18 @@ process.parentPort.on("message", async (event) => {
     transfer?: ArtifactTransfer;
     metadata?: ArtifactMetadata;
     publicKey?: string;
+    session?: string;
   };
   try {
     if (message.action === "open") {
       if (db) throw Error("Storage is already open.");
+      if (
+        typeof message.session !== "string" ||
+        !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(
+          message.session,
+        )
+      )
+        throw Error("Invalid storage session.");
       key = Buffer.from(message.secret!, "base64");
       if (key.length !== 32) throw Error("Invalid storage key.");
       db = openProtectedDatabase(message.path!, key, (row) => {
@@ -151,11 +159,16 @@ process.parentPort.on("message", async (event) => {
       vaults = new NativeVaultSessions(
         localVaultStore(db, (id) =>
           process.parentPort.postMessage({
-            vaultChanged: { id, generation: vaults!.generation },
+            vaultChanged: {
+              session: vaults!.session,
+              id,
+              generation: vaults!.generation,
+            },
           }),
         ),
         protection,
         async (vaults) => importLocalVaults(db!, vaults),
+        message.session,
       );
       process.parentPort.postMessage({ id: message.id, value: true });
       return;
