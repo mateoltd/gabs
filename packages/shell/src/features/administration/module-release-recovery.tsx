@@ -18,6 +18,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import "./module-release-recovery.css";
 
 /** Recovery controls never render historical declarations as a current executable module. */
 export function ModuleReleaseRecovery(
@@ -90,7 +91,10 @@ export function ModuleReleaseRecovery(
   return (
     <>
       {!!props.state.unavailableModules?.length && (
-        <section aria-label="Modules needing attention">
+        <section
+          className="module-release-recovery"
+          aria-label="Modules needing attention"
+        >
           <h2 className="section-heading">Modules needing attention</h2>
           <div className="module-grid">
             {props.state.unavailableModules.map((issue) => (
@@ -99,7 +103,9 @@ export function ModuleReleaseRecovery(
                 className="panel module-install-card"
               >
                 <h3>{issue.name}</h3>
-                <Badge>Release unavailable</Badge>
+                <div>
+                  <Badge>Release unavailable</Badge>
+                </div>
                 <p className="module-card-description">{issue.message}</p>
                 <p className="small">
                   Saved work is preserved. Server operations require a

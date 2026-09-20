@@ -137,7 +137,7 @@ Do not combine structural moves, public API redesign and visual redesign in one 
 
 ## Implemented ownership and compatibility decisions
 
-The [20 September policy-release review](verification/architecture/README.md#policy-release-checkpoint-review-20-september-2026) preserves this hierarchy and records the requested checkpoint, Sol xhigh delegation and independent parent acceptance.
+The [20 September release-recovery review](verification/architecture/README.md#release-recovery-checkpoint-review-20-september-2026) preserves this hierarchy and records the requested checkpoint, Sol xhigh delegation and independent parent acceptance. It keeps release-selection recovery in server registry services, with transaction orchestration at the API boundary and presentation in the shell.
 
 - `composition/` is at the repository root because it is the outermost application assembly. It owns the generated bundled-module catalog, role and workspace presets, server bindings, local runtime assembly and product shell views. Placing it under `packages/` would imply that generic packages may depend on it. Hosts inject explicit catalog and shell composition objects; reusable client, server, shell and contract code does not import product assembly.
 - Physical package paths now express responsibility: `sdk`, `client`, `server`, `shell`, `ui/web` and `ui/tokens`. Existing published package identifiers such as `@suite/module-sdk`, `@suite/app-web` and `@suite/ui-web` remain compatible. The former API-client and platform implementations are one `@suite/client` package because they share browser storage, local execution and transport ownership.

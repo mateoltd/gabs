@@ -3,7 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import type { Tx } from "../../packages/server/src/persistence/database";
 import { workspacePermissionCatalog } from "../../packages/server/src/registry/module-releases";
 import { signPackage } from "../../packages/sdk/node/signing";
-import type { ModuleCatalog } from "@suite/module-sdk/catalog";
+import { createModuleCatalog } from "@suite/module-sdk/catalog";
 import original from "../fixtures/queued-notes/module";
 const pair = generateKeyPairSync("ed25519");
 const publicKey = pair.publicKey
@@ -33,13 +33,14 @@ it("derives current and historical declarations from exact verified content, exc
   let content = JSON.stringify(signed);
   const query = {
     select: () => query,
+    distinct: () => query,
     where: () => query,
     execute: async () => [
       { module_id: signed.module_id, version: signed.version, content },
     ],
   };
   const tx = { selectFrom: () => query } as unknown as Tx;
-  const catalog = {} as ModuleCatalog;
+  const catalog = createModuleCatalog([current]);
   const read = () =>
     workspacePermissionCatalog(tx, "workspace", catalog, [current]);
   const permissions = await read();
@@ -59,6 +60,16 @@ it("derives current and historical declarations from exact verified content, exc
   });
   expect(permissions.some((p) => p.permission === "members.manage")).toBe(
     false,
+  );
+  const historyOnly = await workspacePermissionCatalog(
+    tx,
+    "workspace",
+    catalog,
+    [],
+  );
+  expect(historyOnly.some((entry) => entry.current)).toBe(false);
+  expect(historyOnly.map((entry) => entry.permission)).toContain(
+    "custom-notes.capture",
   );
   const shared = await workspacePermissionCatalog(tx, "workspace", catalog, [
     current,

@@ -2,6 +2,10 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { it, expect } from "vitest";
+import type { Bootstrap } from "@suite/contracts";
+import { createModuleCatalog } from "@suite/module-sdk/catalog";
+import { bundledModuleDefinitions } from "@suite/module-catalog";
+import { productServerRuntime } from "@suite/module-catalog/presets";
 import type { PlatformState } from "@suite/module-sdk/platform";
 import { createApp } from "../../apps/api/src/app";
 import {
@@ -28,6 +32,7 @@ it("preserves permission administration and repairs independent unavailable rele
   });
   const first = await modulePolicyReleaseFixture("First recovery module");
   const second = await modulePolicyReleaseFixture("Second recovery module");
+  const legacy = await modulePolicyReleaseFixture("Legacy recovery module");
   try {
     const owner = await identify(db, {
       issuer: "test",
@@ -73,23 +78,31 @@ it("preserves permission administration and repairs independent unavailable rele
       version: string,
       expected: number,
       key = randomUUID(),
+      action: "pin" | "rollout" = "rollout",
     ) =>
       request(
         "POST",
         "/platform",
         {
-          action: "rollout",
-          value: {
-            moduleId: id,
-            version,
-            mandatory: true,
-            acceptedVersions: [],
-          },
+          action,
+          value:
+            action === "rollout"
+              ? {
+                  moduleId: id,
+                  version,
+                  mandatory: true,
+                  acceptedVersions: [],
+                }
+              : { moduleId: id, version, mandatory: true },
           version: expected,
         },
         key,
       );
-    for (const fixture of [first, second]) {
+    for (const [fixture, action] of [
+      [first, "rollout"],
+      [second, "rollout"],
+      [legacy, "pin"],
+    ] as const) {
       await fixture.publish("1.0.0", {}, [`${fixture.id}.read`]);
       await fixture.publish("1.1.0", {}, [`${fixture.id}.read`]);
       await fixture.entitle(workspace);
@@ -98,16 +111,51 @@ it("preserves permission administration and repairs independent unavailable rele
         accessPolicy: "admin",
       });
       expect(enabled.statusCode, enabled.body).toBe(200);
-      expect((await pin(fixture.id, "1.0.0", 0)).statusCode).toBe(200);
+      expect(
+        (await pin(fixture.id, "1.0.0", 0, randomUUID(), action)).statusCode,
+      ).toBe(200);
     }
     await state();
-    for (const fixture of [first, second]) await fixture.withdraw("1.0.0");
+    for (const fixture of [first, second, legacy])
+      await fixture.withdraw("1.0.0");
+    // A new host has no cached registry-only definitions to supply names.
+    const cold = await createApp({
+      db,
+      auth: {
+        mode: "development",
+        origin: "http://localhost:4300",
+        apiOrigin: "http://localhost:4310",
+        mfaClaim: "mfa",
+      },
+      runtime: {
+        ...productServerRuntime,
+        catalog: createModuleCatalog(bundledModuleDefinitions),
+      },
+    });
+    try {
+      const response = await cold.app.inject({
+        method: "GET",
+        url: `/api/v1/workspaces/${workspace}/platform`,
+        headers,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      for (const fixture of [first, second, legacy])
+        expect(
+          response.json<PlatformState>().unavailableModules,
+        ).toContainEqual(
+          expect.objectContaining({ moduleId: fixture.id, name: fixture.name }),
+        );
+    } finally {
+      await cold.app.close();
+    }
     const degraded = await state();
     expect(degraded.unavailableModules?.map((m) => m.moduleId).sort()).toEqual(
-      [first.id, second.id].sort(),
+      [first.id, second.id, legacy.id].sort(),
     );
     expect(
-      degraded.modules.some((m) => m.id === first.id || m.id === second.id),
+      degraded.modules.some((m) =>
+        [first.id, second.id, legacy.id].includes(m.id),
+      ),
     ).toBe(false);
     expect(degraded.modules.some((m) => m.id === "contacts")).toBe(true);
     expect(
@@ -118,12 +166,20 @@ it("preserves permission administration and repairs independent unavailable rele
     const boot = await request("GET", "/bootstrap");
     expect(boot.statusCode, boot.body).toBe(200);
     expect(
-      boot
-        .json()
-        .modules.find((m: { moduleId: string }) => m.moduleId === first.id)
-        .acceptedVersions,
-    ).toBeUndefined();
-    expect(boot.json().permissions).not.toContain(`${first.id}.read`);
+      boot.json<Bootstrap>().modules.find((m) => m.moduleId === first.id)
+        ?.acceptedVersions,
+    ).toEqual([]);
+    expect(
+      boot.json<Bootstrap>().modules.find((m) => m.moduleId === second.id)
+        ?.acceptedVersions,
+    ).toEqual([]);
+    expect(
+      boot.json<Bootstrap>().modules.find((m) => m.moduleId === legacy.id)
+        ?.acceptedVersions,
+    ).toEqual([]);
+    expect(boot.json<Bootstrap>().permissions).not.toContain(
+      `${first.id}.read`,
+    );
     const role = await request("POST", "/roles", {
       name: "Recovery reader",
       permissions: [`${first.id}.read`],
@@ -187,7 +243,9 @@ it("preserves permission administration and repairs independent unavailable rele
         })
       ).statusCode,
     ).toBe(409);
-    await first.publish("1.2.0", { contacts: "^99.0.0" }, [`${first.id}.read`]);
+    await first.publish("1.2.0", { [second.id]: "^1.0.0" }, [
+      `${first.id}.read`,
+    ]);
     expect((await pin(first.id, "1.2.0", 1)).statusCode).toBe(409);
     expect(
       (await state()).settings.find((s) => s.key === `pin:${first.id}`),
@@ -198,18 +256,17 @@ it("preserves permission administration and repairs independent unavailable rele
     expect((await pin(first.id, "1.1.0", 1, key)).statusCode).toBe(200);
     expect((await pin(first.id, "1.1.0", 1)).statusCode).toBe(412);
     const after = await state();
-    expect(after.unavailableModules?.map((m) => m.moduleId)).toEqual([
-      second.id,
-    ]);
+    expect(after.unavailableModules?.map((m) => m.moduleId).sort()).toEqual(
+      [second.id, legacy.id].sort(),
+    );
     expect(
       after.permissionCatalog?.find((p) => p.permission === `${first.id}.read`)
         ?.current,
     ).toBe(true);
     expect(
       (await request("GET", "/bootstrap"))
-        .json()
-        .modules.find((m: { moduleId: string }) => m.moduleId === first.id)
-        .state,
+        .json<Bootstrap>()
+        .modules.find((m) => m.moduleId === first.id)?.state,
     ).toBe("suspended");
     expect(
       (
@@ -220,7 +277,32 @@ it("preserves permission administration and repairs independent unavailable rele
       ).statusCode,
     ).toBe(200);
     expect((await pin(second.id, "1.1.0", 1)).statusCode).toBe(200);
+    expect((await state()).unavailableModules?.map((m) => m.moduleId)).toEqual([
+      legacy.id,
+    ]);
+    expect((await pin(legacy.id, "1.1.0", 1)).statusCode).toBe(200);
     expect((await state()).unavailableModules).toEqual([]);
+    const missingId = `missing-release-${randomUUID().slice(0, 8)}`;
+    await admin.query(
+      "insert into suite.entitlements(workspace_id,module_id) values($1,$2)",
+      [workspace, missingId],
+    );
+    await admin.query(
+      "insert into suite.module_activations(workspace_id,module_id,state,access_policy,config) values($1,$2,'enabled','admin','{}')",
+      [workspace, missingId],
+    );
+    expect((await state()).unavailableModules).toContainEqual(
+      expect.objectContaining({
+        moduleId: missingId,
+        name: missingId,
+        code: "NOT_FOUND",
+      }),
+    );
+    const suspendMissing = await request("PATCH", `/modules/${missingId}`, {
+      state: "suspended",
+      accessPolicy: "admin",
+    });
+    expect(suspendMissing.statusCode, suspendMissing.body).toBe(200);
     expect(
       (
         await admin.query(
@@ -235,5 +317,6 @@ it("preserves permission administration and repairs independent unavailable rele
     await admin.end();
     await first.close();
     await second.close();
+    await legacy.close();
   }
 });

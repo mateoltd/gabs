@@ -41,6 +41,23 @@ export const registryPublicKey = async () =>
     `${process.env.MODULE_SIGNING_DIRECTORY ?? ".local/module-keys"}/public.pem`,
     "utf8",
   ));
+async function publishedModuleName(tx: Tx, id: string) {
+  const release = await tx
+    .selectFrom("suite.module_releases")
+    .select([
+      sql<string>`jsonb_build_object(
+        'module_id', module_id, 'version', version, 'manifest', manifest,
+        'artifact', artifact, 'digest', digest, 'signature', signature, 'key_id', key_id
+      )::text`.as("content"),
+    ])
+    .where("module_id", "=", id)
+    .orderBy("published_at", "desc")
+    .executeTakeFirst();
+  if (!release) return undefined;
+  return releaseContract(
+    verifiedPackages.get(release.content, await registryPublicKey()),
+  ).name;
+}
 const snapshotPlans = new WeakMap<Tx, Map<string, Promise<SignedPackage[]>>>();
 export async function resolveWorkspaceRelease(
   tx: Tx,
@@ -288,7 +305,10 @@ export async function workspaceModuleSelections(
       if (!isUnavailableRelease(error)) throw error;
       unavailableModules.push({
         moduleId: id,
-        name: catalog.definition(id)?.name ?? id,
+        name:
+          catalog.definition(id)?.name ??
+          (await publishedModuleName(tx, id)) ??
+          id,
         code: error.code,
         message: error.message,
       });

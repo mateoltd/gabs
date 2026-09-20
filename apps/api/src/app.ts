@@ -10,7 +10,8 @@ import { moduleServers } from "@suite/module-catalog/server";
 import { productServerRuntime } from "@suite/module-catalog/presets";
 import {
   assertHostModuleRollout,
-  validateConfiguredRollouts,
+  releaseSelectionSnapshot,
+  validateModuleConfigurationChange,
 } from "@suite/server-core/registry/module-rollout";
 import { ModuleBusinessError } from "@suite/module-sdk/server";
 import { registerBilling } from "./billing";
@@ -1117,17 +1118,24 @@ export async function createApp(
     response: S.OkSchema,
     permission: "modules.manage",
     handler: async (tx, ctx, req) => {
+      const previous = await releaseSelectionSnapshot(
+        tx,
+        ctx.workspaceId,
+        ctx.runtime.catalog,
+        req.params.moduleId,
+      );
       const result = await configureModule(
         tx,
         ctx,
         req.params.moduleId,
         req.body,
       );
-      await validateConfiguredRollouts(
+      await validateModuleConfigurationChange(
         tx,
         ctx.workspaceId,
         ctx.runtime.catalog,
         moduleServers,
+        previous,
       );
       return result;
     },

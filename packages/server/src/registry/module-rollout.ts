@@ -20,6 +20,7 @@ import { assertModuleStorage } from "../persistence/module-storage";
 import { stagedModuleServer } from "./staged-module-server";
 import type { InstalledModuleServer } from "../runtime/services";
 import { assertClientModuleVersion } from "./client-module-version";
+import { lockWorkspace } from "../identity/authorization";
 
 import type { ModuleRollout } from "@suite/module-sdk/platform";
 import type { ModuleCatalog } from "@suite/module-sdk/catalog";
@@ -255,13 +256,14 @@ export async function validateConfiguredRollouts(
   }
 }
 
-/** Preserve pre-existing selection failures while an administrator repairs one module. */
-export async function releasePolicySnapshot(
+/** Lock the workspace and preserve selection failures around one administrative change. */
+export async function releaseSelectionSnapshot(
   tx: Tx,
   workspaceId: string,
   catalog: ModuleCatalog,
   moduleId: string,
 ) {
+  await lockWorkspace(tx, workspaceId);
   const active = await tx
     .selectFrom("suite.module_activations")
     .select("module_id")
@@ -281,8 +283,8 @@ export async function releasePolicySnapshot(
     unavailable: new Set(unavailableModules.map((m) => m.moduleId)),
   };
 }
-export type ReleasePolicySnapshot = Awaited<
-  ReturnType<typeof releasePolicySnapshot>
+export type ReleaseSelectionSnapshot = Awaited<
+  ReturnType<typeof releaseSelectionSnapshot>
 >;
 
 /** A repaired target must work; previously healthy dependants and client releases stay compatible. */
@@ -291,7 +293,7 @@ export async function validateReleasePolicyChange(
   workspaceId: string,
   catalog: ModuleCatalog,
   servers: readonly InstalledModuleServer[],
-  previous: ReleasePolicySnapshot,
+  previous: ReleaseSelectionSnapshot,
 ) {
   const { moduleId } = previous;
   const compatible = new Set<string>();
@@ -359,4 +361,18 @@ export async function validateReleasePolicyChange(
     servers,
     compatible,
   );
+}
+
+/** Validate every previously healthy enabled rollout after module configuration changes. */
+export async function validateModuleConfigurationChange(
+  tx: Tx,
+  workspaceId: string,
+  catalog: ModuleCatalog,
+  servers: readonly InstalledModuleServer[],
+  previous: ReleaseSelectionSnapshot,
+) {
+  const healthy = new Set(
+    previous.moduleIds.filter((id) => !previous.unavailable.has(id)),
+  );
+  await validateConfiguredRollouts(tx, workspaceId, catalog, servers, healthy);
 }

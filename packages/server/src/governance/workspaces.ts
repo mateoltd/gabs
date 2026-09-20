@@ -111,8 +111,9 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
         const rollout = releasePolicies.find(
           (p) => p.key === `pin:${id}`,
         )?.value;
+        const configuredSelection = typeof rollout?.version === "string";
         let selectedVersion: string | undefined;
-        if (typeof rollout?.version === "string") {
+        if (configuredSelection) {
           try {
             selectedVersion = (
               await workspaceModule(
@@ -139,7 +140,9 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
                   : []),
               ]),
             ]
-          : undefined;
+          : configuredSelection
+            ? []
+            : undefined;
         return {
           moduleId: id,
           state: m?.state ?? "draft",
@@ -149,7 +152,7 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
             (a) =>
               a.module_id === id && (a.direct || policyModules.includes(id)),
           ),
-          ...(acceptedVersions ? { acceptedVersions } : {}),
+          ...(acceptedVersions !== undefined ? { acceptedVersions } : {}),
         };
       }),
     )) as Bootstrap["modules"],
@@ -744,15 +747,13 @@ export async function configureModule(
     "NOT_FOUND",
     "This module is not registered.",
   );
+  const definition =
+    input.state === "enabled" || input.config !== undefined
+      ? await workspaceModule(tx, ctx.workspaceId, id, ctx.runtime.catalog)
+      : undefined;
+  if (definition) assertSchema(definition.configuration, config);
   if (input.state === "enabled") {
-    const definition = await workspaceModule(
-      tx,
-      ctx.workspaceId,
-      id,
-      ctx.runtime.catalog,
-    );
-    await assertModuleStorage(tx, ctx.workspaceId, definition);
-    assertSchema(definition.configuration, config);
+    await assertModuleStorage(tx, ctx.workspaceId, found(definition));
     requireCondition(
       entitlement?.active,
       409,

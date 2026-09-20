@@ -65,9 +65,9 @@ import {
 import {
   clientModule,
   receiptContract,
-  releasePolicySnapshot,
+  releaseSelectionSnapshot,
   validateReleasePolicyChange,
-  type ReleasePolicySnapshot,
+  type ReleaseSelectionSnapshot,
 } from "@suite/server-core/registry/module-rollout";
 import { changeDeviceInstallation } from "@suite/server-core/registry/module-installations";
 import { migrateModuleStorage } from "@suite/server-core/persistence/module-migrations";
@@ -742,7 +742,12 @@ export async function registerPlatform(
         const admin = ctx.permissions.includes("modules.manage");
         // Include releases published after server startup; executable client-only
         // modules require neither a host rebuild nor a server restart.
-        const candidates = await registeredModuleIds(tx, runtime.catalog);
+        const candidates = [
+          ...new Set([
+            ...(await registeredModuleIds(tx, runtime.catalog)),
+            ...activations.map((activation) => activation.module_id),
+          ]),
+        ];
         const visible = candidates.filter(
           (m) =>
             admin ||
@@ -1418,9 +1423,9 @@ export async function registerPlatform(
               "VERSION_CONFLICT",
               "Settings changed. Reload before saving.",
             );
-            let previousReleasePolicy: ReleasePolicySnapshot | undefined;
+            let previousReleasePolicy: ReleaseSelectionSnapshot | undefined;
             if (releaseModuleId)
-              previousReleasePolicy = await releasePolicySnapshot(
+              previousReleasePolicy = await releaseSelectionSnapshot(
                 tx,
                 ctx.workspaceId,
                 runtime.catalog,
