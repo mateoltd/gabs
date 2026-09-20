@@ -58,12 +58,21 @@ export async function organizationClassificationJourney(
   });
   const matches = chart.locator('[data-classification-match="true"]');
   await expect(chart.getByRole("button")).toHaveCount(policy.ranks.length);
+  const search = page.getByRole("combobox", {
+    name: "Search choices",
+    exact: true,
+  });
+  const openSearch = async (query: string) => {
+    await input.click();
+    await expect(search).toBeFocused();
+    await search.fill(query);
+  };
   const choose = async (query: string, option: string) => {
-    await input.fill(query);
+    await openSearch(query);
     await expect(
       page.getByRole("option", { name: option, exact: true }),
     ).toBeVisible();
-    await input.press("Enter");
+    await search.press("Enter");
     await expect(input).toHaveAttribute("aria-expanded", "false");
   };
   await choose("group: rev", "Group: Reviewers");
@@ -87,11 +96,18 @@ export async function organizationClassificationJourney(
   await expect(
     page.locator('.organization-minimap [data-classification-match="true"]'),
   ).toHaveCount(1);
-  await input.fill("No such classification");
+  await openSearch("No such classification");
   await expect(
     page.getByText("No matching choices", { exact: true }),
   ).toBeVisible();
-  await input.press("Escape");
+  await search.press("Escape");
+  await expect(input).toContainText("Tag: Reviewers");
+  await expect(input).toBeFocused();
+  await expect(matches).toHaveCount(1);
+  await openSearch("reviewers");
+  await search.press("Tab");
+  await expect(input).toHaveAttribute("aria-expanded", "false");
+  await expect(input).not.toBeFocused();
   await expect(matches).toHaveCount(1);
   await filter.getByRole("button", { name: "Clear chart filter" }).click();
   await expect(matches).toHaveCount(0);
@@ -111,11 +127,12 @@ export async function organizationClassificationJourney(
     name: "Role tag",
     exact: true,
   });
-  await tagSearch.fill("review");
+  await tagSearch.click();
+  await search.fill("review");
   await expect(
     page.getByRole("option", { name: "Reviewers", exact: true }),
   ).toBeVisible();
-  await tagSearch.press("Enter");
+  await search.press("Enter");
   await expect(tags.getByLabel("Tag name", { exact: true })).toHaveValue(
     "Reviewers",
   );
@@ -129,6 +146,8 @@ export async function organizationClassificationJourney(
   await expect(filter.getByRole("status")).toContainText(
     "Tag: Field reviewers",
   );
+  await expect(input).toContainText("Tag: Field reviewers");
+  await expect(tagSearch).toContainText("Field reviewers");
   await page
     .getByRole("button", { name: "Save organization", exact: true })
     .click();
@@ -143,7 +162,7 @@ export async function organizationClassificationJourney(
   await filter.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${folder}/${prefix}-chart.png` });
   await page.setViewportSize({ width: 390, height: 844 });
-  await input.fill("rev");
+  await openSearch("rev");
   await expect(
     page.getByRole("option", { name: "Tag: Field reviewers", exact: true }),
   ).toBeVisible();
@@ -163,12 +182,12 @@ export async function organizationClassificationJourney(
   await page.screenshot({
     path: `${folder}/${prefix}-autocomplete-narrow.png`,
   });
-  await input.press("Escape");
+  await search.press("Escape");
   await page.setViewportSize({ width: 1280, height: 900 });
   await tags
     .getByRole("button", { name: "Remove role tag", exact: true })
     .click();
-  await expect(input).toHaveValue("");
+  await expect(input).toContainText("Search groups and role tags");
   await expect(filter.getByRole("status")).toContainText("All roles shown");
   await expect(matches).toHaveCount(0);
   await expect(

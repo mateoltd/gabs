@@ -19,12 +19,16 @@ export function SearchSelect({
   required,
   className = "",
   placeholder = "Search choices",
+  searchLabel = "Search choices",
   clearLabel = "Clear selection",
-  ...input
-}: Omit<ComponentProps<"input">, "value" | "onChange" | "children"> & {
+  ...trigger
+}: Omit<ComponentProps<"button">, "value" | "onChange" | "children"> & {
   options: readonly SearchSelectOption[];
   value: string;
   onValueChange(value: string): void;
+  required?: boolean;
+  placeholder?: string;
+  searchLabel?: string;
   clearLabel?: string;
 }) {
   const container = useContext(ControlPortalContext);
@@ -40,15 +44,21 @@ export function SearchSelect({
       required={required}
       openOnInputClick
       autoHighlight
+      modal={false}
     >
       <div className="search-field">
         <Search size={17} aria-hidden="true" />
-        <Combobox.Input
-          {...input}
-          className={`input ${className}`}
-          placeholder={placeholder}
-        />
-        <Combobox.Clear className="search-clear" aria-label={clearLabel}>
+        <Combobox.Trigger
+          {...trigger}
+          className={`search-select-trigger ${className}`}
+        >
+          <Combobox.Value placeholder={placeholder} />
+        </Combobox.Trigger>
+        <Combobox.Clear
+          className="search-clear"
+          aria-label={clearLabel}
+          tabIndex={0}
+        >
           <X size={14} aria-hidden="true" />
         </Combobox.Clear>
       </div>
@@ -58,13 +68,24 @@ export function SearchSelect({
           sideOffset={6}
           align="start"
         >
-          <Combobox.Popup className="select-popup">
+          <Combobox.Popup
+            className="select-popup search-select-popup"
+            aria-label={searchLabel}
+          >
+            <div className="search-field">
+              <Search size={17} aria-hidden="true" />
+              <Combobox.Input
+                className="input"
+                placeholder={placeholder}
+                aria-label={searchLabel}
+              />
+            </div>
             <Combobox.Empty className="select-popup-label">
               No matching choices
             </Combobox.Empty>
             <Combobox.List
               className="select-list"
-              aria-labelledby={input["aria-labelledby"]}
+              aria-labelledby={trigger["aria-labelledby"]}
             >
               {(value: string) => (
                 <Combobox.Item
