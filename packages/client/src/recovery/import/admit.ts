@@ -80,6 +80,7 @@ export async function stageSavedWorkImports(
     },
     check,
   );
+  check();
   return results;
 }
 

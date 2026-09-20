@@ -1185,3 +1185,8 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 ## Session ownership architecture review, 20 September 2026
 
 [Checkpoint, delegated review and parent acceptance](architecture/README.md#session-ownership-checkpoint-review-20-september-2026) preserve `08e09fe`, confirm the existing responsibility-based layout and correct stale logout completion erasing a fresh session's workspace choice. A minimized native regression reproduces the pre-fix failure and verifies persistence after the fix and reload. Focused boundary/recovery tests, strict checks, four fresh builds and two native journeys passed; scoped archive captures were inspected. Provider/platform gates, promotion interruption acceptance, full parity and later UI refinement remain open.
+
+
+## Committed restoration across profile lock, 20 September 2026
+
+[Post-commit profile-lock acceptance](corporate-promotion-interruption/README.md#profile-lock-after-committed-restoration) records real native request restoration with the SQLite acknowledgement held across PIN lock and unlock. The initial run reproduced stuck refresh controls and a stale success notice. Post-write caller checks and cancelled controller/busy cleanup preserve durable results while requiring fresh scoped inspection. Source input, unrelated drafts, cancellation identity and independent draft effects remain intact. Pre-commit lock and profile/session replacement acceptance remain open.

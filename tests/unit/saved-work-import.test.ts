@@ -484,6 +484,91 @@ it("checks authority again after artifact writes before committing the imported 
   await expect(f.stage()).rejects.toThrow(/Profile locked/);
   expect(f.state()).toEqual(original);
 });
+for (const action of ["admit", "discard"] as const)
+  it(`does not acknowledge committed ${action} to a cancelled caller`, async () => {
+    const f = fixture();
+    const { digest } = await f.stage();
+    const unrelated = structuredClone(f.input);
+    unrelated.entry.id = unrelated.entry.call.key = randomUUID();
+    if (unrelated.review) unrelated.review.source.key = unrelated.entry.id;
+    const other = await f.stage(unrelated);
+    const before = structuredClone(await f.read());
+    const incoming = structuredClone(f.input);
+    incoming.entry.id = incoming.entry.call.key = randomUUID();
+    if (incoming.review) incoming.review.source.key = incoming.entry.id;
+    f.onSave((key) => {
+      if (key === "module-state") f.abort.abort();
+    });
+    await expect(
+      action === "admit"
+        ? f.stage(incoming)
+        : discardSavedWorkImport(f.options, digest),
+    ).rejects.toThrow();
+    const after = await f.read();
+    expect(after.recoveryImports![other.digest]).toEqual(
+      before.recoveryImports![other.digest],
+    );
+    expect(after.journal).toEqual(before.journal);
+    expect(after.drafts).toEqual(before.drafts);
+    if (action === "admit") {
+      expect(after.recoveryImports![digest]).toEqual(
+        before.recoveryImports![digest],
+      );
+      expect(Object.values(after.recoveryImports!)).toHaveLength(3);
+      expect(
+        Object.values(after.recoveryImports!).map((copy) => copy.input),
+      ).toContainEqual(incoming);
+    } else expect(after.recoveryImports![digest]).toBeUndefined();
+  });
+
+for (const reason of ["locked", "aborted"] as const)
+  it(`retains committed restoration without acknowledging a ${reason} caller`, async () => {
+    const f = fixture();
+    const { digest } = await f.stage();
+    f.replies.moduleAttemptSettle = {
+      key: f.input.entry.id,
+      outcome: "cancelled",
+    };
+    f.onSave((key) => {
+      if (key === "module-state") {
+        if (reason === "locked") f.lock();
+        else f.abort.abort();
+      }
+    });
+    await expect(f.promote(digest)).rejects.toThrow();
+    const committed = structuredClone(await f.read());
+    const receipt = committed.recoveryImports![digest].promotion;
+    expect(receipt).toMatchObject({
+      requestId: f.input.entry.id,
+      outcome: "cancelled",
+    });
+    expect(committed.recoveryImports![digest].input).toEqual(f.input);
+    expect(committed.journal).toHaveLength(1);
+    expect(committed.journal[0]).toMatchObject({
+      call: f.input.entry.call,
+      state: "rejected",
+      settlement: "cancelled",
+    });
+    // Freshly authorized explicit retry observes the existing receipt without another write/settlement.
+    f.onSave(() => {
+      throw Error("A receipt retry must not write again");
+    });
+    expect(
+      await promoteSavedWorkImport(
+        {
+          ...f.options,
+          signal: new AbortController().signal,
+          check: () => {},
+        },
+        digest,
+      ),
+    ).toEqual({ ...receipt, alreadyRestored: true });
+    expect(await f.read()).toEqual(committed);
+    expect(
+      f.calls.filter((call) => call === "moduleAttemptSettle"),
+    ).toHaveLength(1);
+  });
+
 it("refuses full import storage without replacing retained work", async () => {
   const f = fixture();
   const imports = Object.fromEntries(

@@ -56,6 +56,8 @@ export function SavedWorkImports(props: FeatureProps) {
   }, []);
   useLayoutEffect(() => {
     controller.current?.abort();
+    controller.current = undefined;
+    setBusy(false);
     setCopies([]);
     setConfirm(undefined);
     setError(undefined);

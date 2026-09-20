@@ -355,6 +355,9 @@ export async function promoteSavedWorkImport(
         },
         commitCheck,
       );
+      // The write may commit before a lock or account change cancels its caller.
+      // Keep the durable receipt, but require current authority to acknowledge it.
+      commitCheck();
       return { ...promotion, alreadyRestored: false };
     },
   );

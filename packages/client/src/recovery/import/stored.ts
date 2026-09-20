@@ -80,6 +80,7 @@ export async function discardSavedWorkImport(
         },
         authority.check,
       );
+      authority.check();
     },
   );
 }

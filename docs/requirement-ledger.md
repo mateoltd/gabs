@@ -527,3 +527,8 @@ SEC-002/CORE-003 gain [in-flight permission revocation acceptance](verification/
 
 
 SEC-002/CORE-003 gain [server-enforced recovery expiry](verification/corporate-promotion-interruption/README.md#server-enforced-recovery-expiry-during-settlement): the exact recovering session is aged beyond its MFA window while the real settlement reply waits. Web/native refusal retains input and unrelated drafts; actual fresh UI sign-in and explicit review restore the original decision with one cancellation audit. Two journeys, strict checks and eight inspected captures pass. This uses controlled session aging/development providers; production/UI sources are unchanged. Profile-lock/replacement late completion keeps ID-03-BACKUP-INTERRUPTION active, and overall parity remains open.
+
+
+### 20 September 2026: committed restoration across profile lock
+
+SEC-002/CORE-003 gain [post-commit profile-lock evidence](verification/corporate-promotion-interruption/README.md#profile-lock-after-committed-restoration). Actual native request restoration commits before PIN lock; releasing its real SQLite acknowledgement while locked or after unlock preserves the receipt, original input and unrelated drafts. Explicit refresh recovers the stored result with one cancellation audit. Client import/restoration/removal recheck the caller after durable writes, and the preserved shell clears cancelled busy state. Scoped tests distinguish retained commit from caller success. Pre-commit locks and profile/session replacement keep ID-03-BACKUP-INTERRUPTION active; actual providers/platforms and full parity remain open. No original requirement status changes.
