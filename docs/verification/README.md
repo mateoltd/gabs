@@ -1130,3 +1130,8 @@ Final checks passed 33 focused tests across three files, strict environment/boun
 ## Encrypted archive ownership review, 20 September 2026
 
 [Checkpoint and delegated architecture review](architecture/README.md#encrypted-archive-checkpoint-review-20-september-2026) moved saved-work discovery into client recovery while preserving shell presentation and authority checks. Parent verification passed strict checks, 133 focused tests, web/desktop builds and all four browser/native archive-transfer directions; wide/narrow captures were inspected. The checkpointed capacity fixture remains unverified and requires valid SDK inputs. No parity acceptance status or UI-refinement scope was closed by this refactor.
+
+
+## Encrypted archive capacity acceptance, 20 September 2026
+
+SEC-002/CORE-003 gain [count/byte bounded multi-batch evidence](corporate-work-archives/README.md#count-and-byte-bounded-multi-batch-recovery): 38 actual UI captures survive rejected oversized/full-store batches, explicit original settlement and copy removal, later admission and reload without losing input or producing business records. One headless browser and one minimized native journey passed, with strict checks and eight inspected captures. SDK, transport and archive limits remain unchanged. This is acceptance-only work against `9e5c1cd`; no new full regression/build is claimed. Corporate offline-lease, workspace/profile and full native write-interruption gates keep ID-03-BACKUP-ARCHIVE active; actual providers/platforms, corporate key loss and full parity remain open.

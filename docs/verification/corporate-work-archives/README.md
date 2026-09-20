@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Corporate offline-lease expiry, workspace/profile changes, full native write interruption and multi-batch capacity remain required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry, workspace/profile changes and full native write interruption remain required before this item is verified.
 
 ## Implemented boundary
 
@@ -113,9 +113,36 @@ Final lifecycle verification:
 | Browser | [Wide](web-lifecycle-expired.png), [narrow](web-lifecycle-expired-narrow.png) | [Wide](web-lifecycle-reopened.png), [narrow](web-lifecycle-reopened-narrow.png) |
 | Desktop | [Wide](native-lifecycle-expired.png), [narrow](native-lifecycle-expired-narrow.png) | [Wide](native-lifecycle-reopened.png), [narrow](native-lifecycle-reopened-narrow.png) |
 
+## Count and byte bounded multi-batch recovery
+
+A separately published, reviewed SDK module captures 33 small requests and five roughly 220 KB note requests through its actual offline UI. Its signed schema explicitly declares a 250,000-character field bound; SDK defaults and production limits are unchanged. The real encrypted archive is exported and opened in an independent empty browser or desktop store. All 38 copied requests match their original journal entries.
+
+The final journey verifies:
+
+- Selecting 33 copies disables admission. Selecting the five large copies exceeds the 1 MiB selection limit and admits nothing.
+- Importing 32 small copies succeeds. An additional small copy fails the store-count bound and leaves the first batch exactly unchanged through reload.
+- Explicit server settlement restores original requests for review, with their exact calls and cancellation outcomes. Removing only the retained imported copy leaves the restored journal entry intact and frees a slot for another batch.
+- Four large copies fit alongside the remaining small copies. A fifth is rejected by total stored bytes even though the resulting count would be only 32. The prior store remains exact.
+- Restoring/removing one large imported copy permits admission of the last one. After reload, every archive copy is present either as an exact retained input or an exact restored original call. The encrypted source file is unchanged and the server has zero business records for this fixture module.
+
+The unfinished checkpoint fixture first exceeded the SDK's default 500-character text bound. An intermediate explicit 560,000-character field then exceeded the authoritative API's 256 KiB request-body bound during original settlement. The final fixture uses individually valid requests whose combined size crosses the import limit. Another initial failure clicked Close before post-removal refresh completed; the final journey waits for the enabled refresh control and removal confirmation. No production guard, limit or UI behavior was changed to satisfy these tests.
+
+Final verification:
+
+- One headless browser journey passed in 4.7 minutes: `/tmp/gabs-archive-capacity-web.log`.
+- One hidden/minimized, unfocused native journey passed in 2.9 minutes: `/tmp/gabs-archive-capacity-native.log`. Source and destination use independent stores and controlled OS keys.
+- Scoped Axe and narrow-overflow assertions passed; all eight count/full-store captures were inspected. Disposable databases and profiles were removed.
+- Strict environment/type and dependency/copy checks passed: `/tmp/gabs-archive-capacity-types.log`, `/tmp/gabs-archive-capacity-lint.log`. Scoped test formatting passed: `/tmp/gabs-archive-capacity-format-check.log`.
+- This increment changes acceptance tests only. Production source remains at the reviewed `9e5c1cd` implementation; no fresh full regression or build is claimed. Development authentication and controlled native keys do not prove actual MFA/provider or signed-platform acceptance.
+
+| Surface | Count limit | Full store |
+| --- | --- | --- |
+| Browser | [Wide](web-capacity-count.png), [narrow](web-capacity-count-narrow.png) | [Wide](web-capacity-full.png), [narrow](web-capacity-full-narrow.png) |
+| Desktop | [Wide](native-capacity-count.png), [narrow](native-capacity-count-narrow.png) | [Wide](native-capacity-full.png), [narrow](native-capacity-full-narrow.png) |
+
 ## Required next work
 
-- Exercise corporate offline-lease expiry and profile/scope transitions in archive export/import, full main/utility process interruption during native publication or durable admission, and bounded multi-batch capacity. Inspection expiry and a renderer crash before admission do not establish these remaining gates; unit guards/atomic-store tests remain separate evidence.
+- Exercise corporate offline-lease expiry and profile/scope transitions in archive export/import, and full main/utility process interruption during native publication or durable admission. Inspection expiry and a renderer crash before admission do not establish these remaining gates; unit guards/atomic-store tests remain separate evidence.
 - Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
 
 Broader corporate recovery graphs/transitions and key loss remain parent gates. Overall parity and later UI refinement remain open.
