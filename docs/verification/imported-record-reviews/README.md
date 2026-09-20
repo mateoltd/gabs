@@ -48,7 +48,7 @@ This is scoped continuity and keyboard evidence, not whole-product accessibility
 
 ## Remaining work
 
-- Explicit imported collision/reassignment and selected continuation graphs, preserving and revalidating all referenced originals rather than trusting copied mappings.
+- [Imported stopped command dependencies](../imported-command-dependencies/README.md) now have explicit fresh-selection product acceptance. Imported collision/reassignment and broader mixed recovery graphs still require preserving and revalidating all referenced originals rather than trusting copied mappings.
 - Multiple imported snapshots of the same existing review with explicit reconciliation; current promotion preserves existing work and refuses an overwrite.
 - Removed/changed resource contracts and broader schema/target transitions through real interfaces.
 - Delayed denial/profile/expiry/process-death cases, encrypted bulk corporate backups and unreadable existing corporate-store recovery.

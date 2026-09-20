@@ -368,3 +368,274 @@ it("does not inherit parent authorization for same-module dependents without an 
   expect(settle).not.toHaveBeenCalled();
   expect((await f.read()).journal).toEqual(before.journal);
 });
+
+it.each(["operation", "create", "update", "archive"] as const)(
+  "reconnects a selected fenced %s prerequisite without reviving the original",
+  async (action) => {
+    const f = await fixture();
+    const child: ModuleCall =
+      action === "operation"
+        ? call(other, "selected-child")
+        : {
+            moduleId: other.id,
+            moduleVersion: other.version,
+            resource: "notes",
+            action,
+            key: "selected-child",
+            input: {
+              id: "original-record",
+              ...(action !== "create" ? { baseVersion: 3 } : {}),
+              ...(action !== "archive"
+                ? { data: { name: "Saved child" } }
+                : {}),
+            },
+          };
+    await enqueue(f.platform, scope, child, ["original"]);
+    await enqueue(f.platform, scope, call(other, "unselected-child"), [
+      "original",
+    ]);
+    await changeModuleStorage(f.platform, scope, (state) => {
+      for (const entry of state.journal.slice(1)) {
+        entry.state = "rejected";
+        entry.settlement = "cancelled";
+        entry.recoveredAt = 10;
+        entry.attempts = 2;
+        delete entry.delivery;
+      }
+    });
+    const before = await f.read();
+    const selected = before.journal[1];
+    const prepared = await prepareContinuation(f.props, before, selected.call);
+    const authorized = (request: ModuleCall, state: typeof before) =>
+      request.moduleId === notes.id ||
+      canContinue(f.props, request, prepared, state);
+    const choices = [commandContinuation(selected)];
+    const review = await saveCommandReview(
+      f.platform,
+      scope,
+      "original",
+      notes.version,
+      { name: "Corrected parent" },
+      0,
+      authorized,
+      choices,
+    );
+    await replaceCommand(
+      f.platform,
+      scope,
+      "original",
+      review.revision,
+      "replacement",
+      choices,
+      async () => ({ key: "original", outcome: "cancelled" }),
+      authorized,
+    );
+    const after = await f.read();
+    expect(after.journal[1]).toEqual({
+      ...selected,
+      dependencies: ["replacement"],
+      requestedDependencies: ["replacement"],
+      captureDependencies: ["original"],
+    });
+    expect(after.journal[2]).toEqual(before.journal[2]);
+    expect(
+      after.journal
+        .filter((entry) => entry.state === "pending")
+        .map((entry) => entry.id),
+    ).toEqual(["replacement"]);
+    if (action === "operation") {
+      const correction = await saveCommandReview(
+        f.platform,
+        scope,
+        selected.id,
+        other.version,
+        { name: "Reviewed child" },
+        0,
+        authorized,
+      );
+      await replaceCommand(
+        f.platform,
+        scope,
+        selected.id,
+        correction.revision,
+        "child-correction",
+        [],
+        async () => ({ key: selected.id, outcome: "cancelled" }),
+        authorized,
+      );
+      const corrected = await f.read();
+      expect(
+        corrected.journal.find((entry) => entry.id === "child-correction"),
+      ).toMatchObject({
+        dependencies: ["replacement"],
+        state: "pending",
+        call: { input: { name: "Reviewed child" } },
+      });
+      expect(corrected.journal[1]).toMatchObject({
+        call: selected.call,
+        settlement: "cancelled",
+        supersededBy: "child-correction",
+      });
+    }
+  },
+);
+
+it.each(["permission", "accepted", "changed-input"] as const)(
+  "retains a fenced imported child when %s changes during parent settlement",
+  async (change) => {
+    const f = await fixture();
+    await enqueue(f.platform, scope, call(other, "fenced-child"), ["original"]);
+    await changeModuleStorage(f.platform, scope, (state) => {
+      Object.assign(state.journal[1], {
+        state: "rejected",
+        settlement: "cancelled",
+        attempts: 1,
+      });
+      delete state.journal[1].delivery;
+    });
+    const before = await f.read();
+    const prepared = await prepareContinuation(
+      f.props,
+      before,
+      before.journal[1].call,
+    );
+    const authorized = (request: ModuleCall, state: typeof before) =>
+      request.moduleId === notes.id ||
+      canContinue(f.props, request, prepared, state);
+    const choices = [commandContinuation(before.journal[1])];
+    const review = await saveCommandReview(
+      f.platform,
+      scope,
+      "original",
+      notes.version,
+      { name: "Corrected parent" },
+      0,
+      authorized,
+      choices,
+    );
+    await expect(
+      replaceCommand(
+        f.platform,
+        scope,
+        "original",
+        review.revision,
+        "replacement",
+        choices,
+        async () => {
+          if (change === "permission")
+            f.props.bootstrap.permissions = [...notes.permissions];
+          else
+            await changeModuleStorage(f.platform, scope, (state) => {
+              if (change === "accepted") {
+                state.journal[1].state = "accepted";
+                delete state.journal[1].settlement;
+                state.journal[1].result = { id: "accepted-record" };
+              } else state.journal[1].call.input = { name: "Changed review" };
+            });
+          return { key: "original", outcome: "cancelled" };
+        },
+        authorized,
+      ),
+    ).rejects.toThrow("dependent changed");
+    const after = await f.read();
+    expect(after.journal).toHaveLength(2);
+    expect(after.journal[1].dependencies).toEqual(["original"]);
+    expect(after.commandReviews?.original).toEqual(review);
+  },
+);
+
+it("retains legacy capture dependencies before reconnecting a stopped child", async () => {
+  const f = await fixture();
+  await enqueue(f.platform, scope, call(other, "legacy-child"), ["original"]);
+  await changeModuleStorage(f.platform, scope, (state) => {
+    const child = state.journal[1];
+    child.state = "rejected";
+    child.settlement = "cancelled";
+    delete child.delivery;
+    delete child.captureDependencies;
+    delete child.requestedDependencies;
+  });
+  const before = await f.read();
+  const choices = [commandContinuation(before.journal[1])];
+  const review = await saveCommandReview(
+    f.platform,
+    scope,
+    "original",
+    notes.version,
+    { name: "Corrected" },
+    0,
+    () => true,
+    choices,
+  );
+  await replaceCommand(
+    f.platform,
+    scope,
+    "original",
+    review.revision,
+    "replacement",
+    choices,
+    async () => ({ key: "original", outcome: "cancelled" }),
+    () => true,
+  );
+  expect((await f.read()).journal[1]).toEqual({
+    ...before.journal[1],
+    dependencies: ["replacement"],
+    captureDependencies: ["original"],
+  });
+});
+
+it("does not invent explicit capture arguments from legacy resource scheduling edges", async () => {
+  const f = await fixture();
+  const child: ModuleCall = {
+    moduleId: other.id,
+    moduleVersion: other.version,
+    resource: "notes",
+    action: "update",
+    key: "legacy-update",
+    input: {
+      id: "original-record",
+      baseVersion: 2,
+      data: { name: "Saved edit" },
+    },
+  };
+  await enqueue(f.platform, scope, child, ["original"]);
+  await changeModuleStorage(f.platform, scope, (state) => {
+    const entry = state.journal[1];
+    entry.state = "rejected";
+    entry.settlement = "cancelled";
+    delete entry.delivery;
+    delete entry.captureDependencies;
+    delete entry.requestedDependencies;
+  });
+  const before = await f.read();
+  const choices = [commandContinuation(before.journal[1])];
+  const review = await saveCommandReview(
+    f.platform,
+    scope,
+    "original",
+    notes.version,
+    { name: "Corrected" },
+    0,
+    () => true,
+    choices,
+  );
+  await replaceCommand(
+    f.platform,
+    scope,
+    "original",
+    review.revision,
+    "replacement",
+    choices,
+    async () => ({ key: "original", outcome: "cancelled" }),
+    () => true,
+  );
+  const after = await f.read();
+  expect(after.journal[1]).toEqual({
+    ...before.journal[1],
+    dependencies: ["replacement"],
+  });
+  // Older resource callers did not supply explicit prerequisites. Their exact
+  // recapture must remain a lookup of the stopped original, never a new effect.
+  await enqueue(f.platform, scope, child);
+  expect((await f.read()).journal).toEqual(after.journal);
+});

@@ -3,12 +3,15 @@ import {
   _electron as electron,
   type Browser,
   type Locator,
+  type Page,
 } from "@playwright/test";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { selectValue } from "../../e2e/controls.helpers";
+import type { Scope } from "../../../packages/client/src";
+import type { ModuleStorage } from "../../../packages/client/src/modules/storage";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
 export async function browserPortabilityDevice(browser: Browser) {
@@ -29,9 +32,12 @@ export async function browserPortabilityDevice(browser: Browser) {
       page,
       offline: (value: boolean) => context.setOffline(value),
       exportFile: async (button: Locator, path: string) => {
-        const download = page.waitForEvent("download");
-        await button.click();
-        await (await download).saveAs(path);
+        await expect(button).toBeEnabled();
+        const [download] = await Promise.all([
+          page.waitForEvent("download"),
+          button.click(),
+        ]);
+        await download.saveAs(path);
       },
       close: () => context.close(),
     };
@@ -151,3 +157,31 @@ export async function nativePortabilityDevice(profile: string) {
 export type PortabilityDevice = Awaited<
   ReturnType<typeof browserPortabilityDevice>
 >;
+
+/** Observe durable installation and recovery state through each platform's actual store. */
+export async function portabilityStorage(page: Page, scope: Scope) {
+  return page.evaluate(async (scope) => {
+    if (window.suiteDesktop)
+      return (await window.suiteDesktop.cacheRead(
+        scope,
+        "module-state",
+      )) as ModuleStorage;
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("suite-offline-v1");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<ModuleStorage>((resolve, reject) => {
+        const request = db
+          .transaction("records")
+          .objectStore("records")
+          .get(`${scope.userId}/${scope.workspaceId}/module-state`);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, scope);
+}

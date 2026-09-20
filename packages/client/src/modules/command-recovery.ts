@@ -196,7 +196,7 @@ export async function saveCommandReview(
   return saved;
 }
 
-/** Only unsent work or fenced collision reviews can follow an explicit correction. */
+/** Unsent work may continue; fenced originals stay stopped until their own correction. */
 export function commandDependents(
   state: ModuleStorage,
   scope: Scope,
@@ -208,13 +208,13 @@ export function commandDependents(
       entry.workspaceId === scope.workspaceId &&
       entry.dependencies.includes(id) &&
       !entry.supersededBy &&
-      (entry.state === "pending" ||
-        (entry.state === "conflict" &&
-          !!(entry.createRecovery?.length || entry.recordRecovery))) &&
-      ((entry.delivery === "unsubmitted" && entry.attempts === 0) ||
-        (entry.state === "conflict" &&
-          !!entry.createRecovery?.length &&
-          entry.settlement === "cancelled")) &&
+      ((["rejected", "conflict"].includes(entry.state) &&
+        entry.settlement === "cancelled") ||
+        ((entry.state === "pending" ||
+          (entry.state === "conflict" &&
+            !!(entry.createRecovery?.length || entry.recordRecovery))) &&
+          entry.delivery === "unsubmitted" &&
+          entry.attempts === 0)) &&
       !entry.orderingRecovery,
   );
 }
@@ -419,13 +419,17 @@ export async function replaceCommand(
         current.supersededBy = key;
         for (const { id: childId } of approved) {
           const child = available.get(childId)!;
+          // Commands used the legacy scheduling list for retry identity. Older
+          // resource entries may contain inferred edges, not capture arguments.
+          if (child.call.action === "operation" || child.requestedDependencies)
+            child.captureDependencies ??= [
+              ...(child.requestedDependencies ?? child.dependencies),
+            ];
           child.dependencies = child.dependencies.map((dependency) =>
             dependency === id ? key : dependency,
           );
           // Explicit prerequisites change only after the user's approval; original request bodies stay exact.
           if (child.requestedDependencies) {
-            // Upgrade known legacy capture metadata before changing execution order.
-            child.captureDependencies ??= [...child.requestedDependencies];
             child.requestedDependencies = child.requestedDependencies.map(
               (dependency) => (dependency === id ? key : dependency),
             );

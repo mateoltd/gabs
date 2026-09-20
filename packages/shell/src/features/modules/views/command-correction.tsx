@@ -150,7 +150,11 @@ export function CommandCorrection({
             {dependents.map(({ entry: child, module: original }) => (
               <div key={child.id}>
                 <p>{original.name}</p>
-                {!!(child.createRecovery?.length || child.recordRecovery) && (
+                {!!(
+                  child.settlement === "cancelled" ||
+                  child.createRecovery?.length ||
+                  child.recordRecovery
+                ) && (
                   <p>
                     This change will keep waiting for its own explicit review.
                     Selecting it updates its prerequisite without submitting it.
@@ -258,6 +262,16 @@ export function CommandCorrection({
           {currentSelection.length === 1 ? "change" : "changes"} selected to
           continue with their existing input.
         </p>
+        {dependents.some(
+          ({ entry }) =>
+            entry.settlement === "cancelled" &&
+            currentSelection.some((choice) => choice.id === entry.id),
+        ) && (
+          <p>
+            Selected stopped requests remain stopped. Each needs a separate
+            reviewed correction before it can run.
+          </p>
+        )}
         {!!unavailable && (
           <p role="status">
             A selected change became unavailable. Close this dialog to review
