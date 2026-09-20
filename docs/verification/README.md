@@ -992,3 +992,10 @@ Final verification for this slice passed 18 focused tests, 753 unit/PostgreSQL t
 [ID-03-UNLOCK-WRAP evidence](vault-key-renewal/README.md) covers atomic renewal of native PIN and biometric wrappers after verified quick unlock. Six minimized native journeys and strict checks/four fresh builds pass, including use of both methods after controlled provider-key retirement. The record distinguishes real app/SQLite behavior from simulated OS/biometric callbacks. Database master/page-key rotation, backup/lost-key recovery, actual hardware/provider acceptance and full parity remain open. No UI source or style changed.
 
 Final verification for ID-03-UNLOCK-WRAP passed 760 unit/PostgreSQL tests across 112 files, all strict environment/boundary checks and four fresh builds, six minimized native journeys and two headless browser journeys. Controlled callbacks do not establish physical hardware acceptance. All disposable databases were removed.
+
+
+## 20 September 2026: recoverable desktop master-key rotation
+
+[ID-03-ROTATE evidence](storage-rotation/README.md) records encrypted-generation staging, master/page-key replacement, cache-value authentication, preserved standalone vaults and migration receipts, protected-pointer activation and restart recovery on either side of activation. The full regression passed 773 tests across 113 files; strict environment/boundary checks and four fresh builds passed. Nine hidden/minimized native journeys include real process termination before and after activation. OS-protection callbacks are controlled and do not establish physical provider acceptance. Backup/lost-key recovery, signed cross-platform acceptance and full parity remain open; no UI source or styles changed.
+
+The final ID-03-ROTATE packaged-worker check passed against the unsigned macOS arm64 ASAR and its bundled SQLite native binding, retaining acknowledged corporate pending work and standalone data after process death and rotation. Final strict type checks passed. This is packaged-worker evidence, not signed/full packaged-main or actual OS-provider acceptance. All disposable databases were removed.

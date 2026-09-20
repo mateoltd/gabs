@@ -1,3 +1,5 @@
+import type { StorageRotationSource } from "./storage/rotation";
+import { once } from "node:events";
 import type { LocalUnlockProtection } from "@suite/client/vault-engine";
 import type {
   LocalVaultRequest,
@@ -21,10 +23,13 @@ function send(action: string, args: Record<string, unknown>) {
   return new Promise<unknown>((resolve, reject) => {
     if (!worker) return reject(Error("Protected storage is unavailable."));
     const id = ++sequence,
-      timer = setTimeout(() => {
-        pending.delete(id);
-        reject(Error("Protected storage timed out."));
-      }, 15000);
+      timer = setTimeout(
+        () => {
+          pending.delete(id);
+          reject(Error("Protected storage timed out."));
+        },
+        action === "open" ? 120000 : 15000,
+      );
     pending.set(id, { resolve, reject, timer });
     worker.postMessage({ id, action, ...args });
   });
@@ -38,7 +43,12 @@ export function setVaultHost(
   vaultProtection = protection;
   vaultChanged = changed;
 }
-export function openCache(path: string, secret: string) {
+export function openCache(
+  path: string,
+  secret: string,
+  rotation?: StorageRotationSource,
+  verify = false,
+) {
   return (ready ??= (async () => {
     const session = randomUUID();
     const target = utilityProcess.fork(
@@ -134,12 +144,19 @@ export function openCache(path: string, secret: string) {
       ready = undefined;
     });
     try {
-      await send("open", { path, secret, session });
+      await send("open", { path, secret, session, rotation, verify });
     } catch (error) {
-      if (worker === target) target.kill();
+      if (worker === target) await closeCache();
       throw error;
     }
   })());
+}
+export async function closeCache() {
+  const target = worker;
+  if (!target) return;
+  const exited = once(target, "exit");
+  target.kill();
+  await exited;
 }
 export const cacheRead = (key: string) => send("read", { key });
 export const cacheWrite = (key: string, value: unknown) =>

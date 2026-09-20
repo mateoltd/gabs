@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import type { OpenedNativeVault } from "../../packages/client/src/identity/local-vault/protocol";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
-test("real utility storage encrypts metadata and recovers acknowledged pending work after process termination", async () => {
+test("real utility storage encrypts metadata and recovers acknowledged pending work after process termination and key rotation", async () => {
   const profile = await mkdtemp(resolve(tmpdir(), "suite-encrypted-storage-"));
   const app = await electron.launch({
     executablePath: require("electron"),
@@ -123,8 +123,9 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
         store = start();
         try {
           await store.request("open", {
-            path: args.path,
-            secret: args.secret,
+            path: `${args.path}.rotated`,
+            secret: args.replacement,
+            rotation: { sourcePath: args.path, sourceSecret: args.secret },
             session: process.getBuiltinModule("node:crypto").randomUUID(),
           });
           const recovered = await store.request("read", {
@@ -161,6 +162,7 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
           resolve("apps/desktop/dist/cache-worker.cjs"),
         path,
         secret: randomBytes(32).toString("base64"),
+        replacement: randomBytes(32).toString("base64"),
       },
     );
     expect(result.recovered).toEqual([
@@ -180,7 +182,8 @@ test("real utility storage encrypts metadata and recovers acknowledged pending w
       name.startsWith("acceptance.sqlite"),
     );
     expect(files).toContain("acceptance.sqlite.protected");
-    expect(files).toContain("acceptance.sqlite.protected-wal");
+    expect(files).toContain("acceptance.sqlite.rotated.protected");
+    expect(files).toContain("acceptance.sqlite.rotated.protected-wal");
     for (const file of files) {
       const bytes = await readFile(resolve(profile, file));
       for (const text of [

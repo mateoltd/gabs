@@ -7,7 +7,12 @@ import {
 } from "@suite/client/vault-protocol";
 import type { LocalUnlockProtection } from "@suite/client/vault-engine";
 import { openProtectedDatabase } from "./storage/database";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { openCacheValue, sealCacheValue } from "./storage/cipher";
+import {
+  stageDatabaseRotation,
+  verifyProtectedDatabase,
+} from "./storage/rotation";
+import type { StorageRotationSource } from "./storage/rotation";
 import { verifyLanPackage } from "./lan-package";
 import type { ArtifactTransfer } from "@suite/module-sdk/relay-artifacts";
 import type { ArtifactMetadata } from "@suite/module-sdk/platform";
@@ -20,18 +25,14 @@ import {
 let db: ReturnType<typeof openProtectedDatabase> | undefined,
   key: Buffer | undefined;
 function write(cacheKey: string, value: unknown) {
-  const iv = randomBytes(12),
-    cipher = createCipheriv("aes-256-gcm", key!, iv);
-  cipher.setAAD(Buffer.from(cacheKey));
-  const encrypted = Buffer.concat([
-    cipher.update(JSON.stringify(value), "utf8"),
-    cipher.final(),
-  ]);
   db!
     .prepare(
       "INSERT INTO cache(key,payload) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
     )
-    .run(cacheKey, Buffer.concat([iv, cipher.getAuthTag(), encrypted]));
+    .run(
+      cacheKey,
+      sealCacheValue(key!, cacheKey, Buffer.from(JSON.stringify(value))),
+    );
 }
 function purge(prefix: string) {
   db!
@@ -46,15 +47,12 @@ function read(cacheKey: string): unknown {
   return decrypt(cacheKey, row.payload);
 }
 function decrypt(cacheKey: string, payload: Uint8Array): unknown {
-  const bytes = Buffer.from(payload),
-    cipher = createDecipheriv("aes-256-gcm", key!, bytes.subarray(0, 12));
-  cipher.setAAD(Buffer.from(cacheKey));
-  cipher.setAuthTag(bytes.subarray(12, 28));
-  return JSON.parse(
-    Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString(
-      "utf8",
-    ),
-  );
+  const plaintext = openCacheValue(key!, cacheKey, payload);
+  try {
+    return JSON.parse(plaintext.toString("utf8"));
+  } finally {
+    plaintext.fill(0);
+  }
 }
 let vaults: NativeVaultSessions | undefined;
 const vaultRequests = new Map<string, AbortController>();
@@ -134,6 +132,8 @@ process.parentPort.on("message", async (event) => {
     request?: LocalVaultRequest;
     path?: string;
     secret?: string;
+    rotation?: StorageRotationSource;
+    verify?: boolean;
     key?: string;
     value?: unknown;
     keep?: string[];
@@ -154,9 +154,23 @@ process.parentPort.on("message", async (event) => {
         throw Error("Invalid storage session.");
       key = Buffer.from(message.secret!, "base64");
       if (key.length !== 32) throw Error("Invalid storage key.");
+      if (message.rotation) {
+        const sourceKey = Buffer.from(message.rotation.sourceSecret, "base64");
+        try {
+          stageDatabaseRotation(
+            message.rotation.sourcePath,
+            sourceKey,
+            message.path!,
+            key,
+          );
+        } finally {
+          sourceKey.fill(0);
+        }
+      }
       db = openProtectedDatabase(message.path!, key, (row) => {
         decrypt(row.key, row.payload);
       });
+      if (message.verify) verifyProtectedDatabase(db, key);
       vaults = new NativeVaultSessions(
         localVaultStore(db, (id) =>
           process.parentPort.postMessage({

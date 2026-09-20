@@ -1,4 +1,5 @@
 import { assertLocalVaultRequest } from "@suite/client/vault-protocol";
+import { openManagedStorage } from "./identity/storage-key";
 import { ProtectedFiles } from "./identity/protected-files";
 import { NativeLocalUnlock } from "./identity/local-unlock";
 import { NativeProfileLock } from "./identity/profile-lock";
@@ -23,6 +24,7 @@ import { registerLanRecovery } from "./lan/ipc";
 import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
+  closeCache,
   setVaultHost,
   cacheVaultRequest,
   cacheVaultCancel,
@@ -34,7 +36,7 @@ import {
   cachePruneArtifacts,
   cacheVerifyLanPackage,
 } from "../utility/cache-service";
-import { randomBytes, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   app,
   BrowserWindow,
@@ -50,7 +52,7 @@ import {
   autoUpdater,
   type IpcMainInvokeEvent,
 } from "electron";
-import { readFile, writeFile, mkdir, rm, open } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { mkdirSync, existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -376,46 +378,15 @@ let cacheReady: Promise<void> | undefined;
 async function ensureCache() {
   return (cacheReady ??= (async () => {
     if (!secureAvailable()) throw Error("Protected storage is unavailable.");
-    let secret = await readSecure<string>("cache-secret");
-    if (!secret) {
-      const database = resolve(root(), "workspace.sqlite");
-      if (
-        [database, `${database}.protected`]
-          .flatMap((path) => [
-            path,
-            `${path}-wal`,
-            `${path}-shm`,
-            `${path}-journal`,
-          ])
-          .some(existsSync)
-      )
-        throw Error(
-          "The protected storage key is missing. Restore the device backup before continuing.",
-        );
-      secret = randomBytes(32).toString("base64");
-      if (!(await writeSecure("cache-secret", secret)))
-        throw Error(
-          "The storage key could not be protected. Retry when protected storage is available.",
-        );
-    }
-    // SQLite must never acknowledge data before its recovery key is on disk.
-    const keyFile = await open(resolve(root(), "cache-secret.bin"), "r+");
-    try {
-      await keyFile.sync();
-    } finally {
-      await keyFile.close();
-    }
-    if (process.platform !== "win32") {
-      const directory = await open(root(), "r");
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
-    }
-    await mkdir(root(), { recursive: true, mode: 0o700 });
-    await openCache(resolve(root(), "workspace.sqlite"), secret);
-  })().catch((error) => {
+    await openManagedStorage({
+      root: root(),
+      files: protectedFiles,
+      rotate: app.commandLine.hasSwitch("rotate-storage-key"),
+      open: openCache,
+    });
+    app.commandLine.removeSwitch("rotate-storage-key");
+  })().catch(async (error) => {
+    await closeCache();
     cacheReady = undefined;
     throw error;
   }));

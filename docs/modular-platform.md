@@ -425,3 +425,8 @@ Workspace bootstrap includes the accepted versions for explicitly configured pin
 ### Native authentication lifetimes
 
 Main-process identity code owns credentials, sign-in requests and the registered loopback listener under `apps/desktop/src/main/identity`. Refresh sharing and writes are bound to the current authentication generation. New login replaces its refresh credential rather than inheriting an older account's token. Logout clears memory immediately and serializes durable removal after earlier writes. A cancelled attempt detaches before replacement sign-in; timeout/sign-out abort the callback, prevent later activation and release its listener. Pending corporate data is retained. [Verification and outstanding real-provider/OS gates](verification/native-authentication/README.md).
+
+
+## Desktop database key maintenance
+
+Quit the desktop app and launch its executable with `--rotate-storage-key` to request a new database master key at the next protected-storage access. The utility stages and verifies a separate encrypted generation before main activates its OS-protected key record. Saved corporate operations, standalone vaults, migration receipts and other tables are retained; an interrupted rotation resumes without repeating the flag. This requires enough free space for another encrypted database and SQLite journals. Older executables that cannot read the versioned key record are incompatible after upgrade. Do not edit or rename storage/key files to downgrade. See the [rotation procedure, recovery states and acceptance limits](verification/storage-rotation/README.md). Lost-key and cross-device backup recovery remain unfinished ID-03 work.

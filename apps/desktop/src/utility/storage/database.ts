@@ -18,6 +18,33 @@ const legacyFiles = (path: string) => [
   `${path}-journal`,
 ];
 
+/** Private utility-side page cipher; never exposed over renderer IPC. */
+export function applyDatabaseKey(
+  db: Database.Database,
+  masterKey: Buffer,
+  rekey = false,
+) {
+  if (masterKey.length !== 32) throw Error("Invalid storage key.");
+  const pageKey = Buffer.from(
+    hkdfSync(
+      "sha256",
+      masterKey,
+      "suite-desktop-storage-v1",
+      "sqlite-pages",
+      32,
+    ),
+  );
+  const raw = Buffer.from(`raw:${pageKey.toString("hex")}`);
+  try {
+    db.pragma("cipher='chacha20'");
+    if (rekey) db.rekey(raw);
+    else db.key(raw);
+  } finally {
+    raw.fill(0);
+    pageKey.fill(0);
+  }
+}
+
 /** One utility process owns this connection. Keys and SQL never cross renderer IPC. */
 export function openProtectedDatabase(
   legacyPath: string,
@@ -28,24 +55,9 @@ export function openProtectedDatabase(
   const path = `${legacyPath}.protected`;
   const created = !existsSync(path);
   const db = new Database(path);
-  const pageKey = Buffer.from(
-    hkdfSync(
-      "sha256",
-      masterKey,
-      "suite-desktop-storage-v1",
-      "sqlite-pages",
-      32,
-    ),
-  );
   try {
     // Explicit format, authenticated pages and no plaintext header. Never interpolate a key into SQL.
-    db.pragma("cipher='chacha20'");
-    const raw = Buffer.from(`raw:${pageKey.toString("hex")}`);
-    try {
-      db.key(raw);
-    } finally {
-      raw.fill(0);
-    }
+    applyDatabaseKey(db, masterKey);
     db.pragma("temp_store=MEMORY");
     db.pragma("journal_mode=WAL");
     db.pragma("synchronous=FULL");
@@ -128,8 +140,6 @@ export function openProtectedDatabase(
     if (uncommitted)
       for (const file of legacyFiles(path)) rmSync(file, { force: true });
     throw error;
-  } finally {
-    pageKey.fill(0);
   }
 }
 
