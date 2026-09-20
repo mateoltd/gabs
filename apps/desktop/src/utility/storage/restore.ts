@@ -1,8 +1,18 @@
 import Database from "better-sqlite3-multiple-ciphers";
 import { createHash } from "node:crypto";
 import { deserialize, serialize } from "node:v8";
-import { closeSync, existsSync, fsyncSync, openSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+  closeSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  mkdtempSync,
+  openSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { vaultEnvelope, type LocalVault } from "@suite/client/vault-engine";
 import { applyDatabaseKey, openProtectedDatabase } from "./database";
 import { assertLocalVault } from "./local-vaults";
@@ -27,6 +37,12 @@ const schemas = {
     "CREATE TABLE local_vault_imports(id TEXT PRIMARY KEY,digest TEXT NOT NULL)",
 };
 const normalized = (sql: string) => sql.replace(/\s/g, "").toLowerCase();
+interface BackupSnapshot {
+  vaults: LocalVault[];
+  imports: { id: string; digest: string }[];
+  digest: string;
+  count: number;
+}
 function portable(vault: LocalVault): LocalVault {
   return {
     id: vault.id,
@@ -40,12 +56,27 @@ function portable(vault: LocalVault): LocalVault {
   };
 }
 
-/** Untrusted archive SQL is read-only and must match the versioned export schema exactly. */
-function readBackup(path: string, key: Buffer, prepared: boolean) {
+function assertClosedSnapshot(path: string) {
   if (["-wal", "-shm", "-journal"].some((suffix) => existsSync(path + suffix)))
     throw Error("The recovery database is not a closed snapshot.");
-  const db = new Database(path, { readonly: true, fileMustExist: true });
+}
+
+/** Untrusted archive SQL is read from a private copy and must match the export schema exactly. */
+function readBackup(
+  path: string,
+  key: Buffer,
+  prepared: boolean,
+): BackupSnapshot {
+  assertClosedSnapshot(path);
+  const temporary = mkdtempSync(join(tmpdir(), "suite-local-restore-read-"));
+  const snapshot = join(temporary, "snapshot.sqlite");
+  let db: Database.Database | undefined;
   try {
+    // A read-only WAL connection may create shared-memory state. Keep that state beside a
+    // private copy so inspecting an archive never changes the authenticated source file.
+    copyFileSync(path, snapshot, constants.COPYFILE_EXCL);
+    assertClosedSnapshot(path);
+    db = new Database(snapshot, { readonly: true, fileMustExist: true });
     applyDatabaseKey(db, key);
     db.pragma("trusted_schema=OFF");
     db.pragma("query_only=ON");
@@ -100,32 +131,32 @@ function readBackup(path: string, key: Buffer, prepared: boolean) {
       db.prepare("SELECT 1 FROM cache LIMIT 1").get()
     )
       throw Error("The archive contains unsupported or corporate storage.");
-    const rows = function* () {
-      for (const row of db
-        .prepare<[], { id: string; envelope: Buffer }>(
-          "SELECT id,envelope FROM local_vaults ORDER BY id",
-        )
-        .iterate()) {
+    const vaults = db
+      .prepare<[], { id: string; envelope: Buffer }>(
+        "SELECT id,envelope FROM local_vaults ORDER BY id",
+      )
+      .all()
+      .map((row) => {
+        if (typeof row.id !== "string" || !Buffer.isBuffer(row.envelope))
+          throw Error("Invalid recovery profile storage.");
         const value: unknown = deserialize(row.envelope);
         assertLocalVault(value);
         if (value.id !== row.id)
           throw Error("Invalid recovery profile identity.");
-        yield portable(value);
-      }
-    };
+        return portable(value);
+      });
     const digest = createHash("sha256").update("suite-local-restore-v1\0");
-    let count = 0;
-    for (const vault of rows()) {
+    for (const vault of vaults)
       digest.update(vaultEnvelope(vault)).update("\0");
-      count++;
-    }
-    if (!count) throw Error("The archive contains no local profiles.");
-    for (const row of db
+    if (!vaults.length) throw Error("The archive contains no local profiles.");
+    const imports = db
       .prepare<[], { id: string; digest: string }>(
         "SELECT id,digest FROM local_vault_imports ORDER BY id",
       )
-      .iterate()) {
+      .all();
+    for (const row of imports) {
       if (
+        typeof row.id !== "string" ||
         typeof row.digest !== "string" ||
         !/^[\da-f]{64}$/.test(row.digest) ||
         !db.prepare("SELECT 1 FROM local_vaults WHERE id=?").get(row.id)
@@ -143,15 +174,24 @@ function readBackup(path: string, key: Buffer, prepared: boolean) {
       if (
         receipts.length !== 1 ||
         receipts[0].digest !== identity ||
-        receipts[0].count !== count ||
-        !Number.isSafeInteger(receipts[0].restored_at)
+        receipts[0].count !== vaults.length ||
+        !Number.isSafeInteger(receipts[0].restored_at) ||
+        receipts[0].restored_at < 0
       )
         throw Error("Invalid prepared restoration receipt.");
     }
-    return { db, rows, digest: identity, count };
-  } catch (error) {
-    db.close();
-    throw error;
+    return {
+      vaults,
+      imports,
+      digest: identity,
+      count: vaults.length,
+    };
+  } finally {
+    try {
+      db?.close();
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
   }
 }
 
@@ -162,7 +202,7 @@ function copyProfiles(
   const insert = target.prepare(
     "INSERT INTO local_vaults(id,envelope) VALUES(?,?)",
   );
-  for (const vault of source.rows()) {
+  for (const vault of source.vaults) {
     if (target.prepare("SELECT 1 FROM local_vaults WHERE id=?").get(vault.id))
       throw Error(
         "A restored profile already exists. Existing work was preserved; use a separate recovery store.",
@@ -172,11 +212,7 @@ function copyProfiles(
   const receipt = target.prepare(
     "INSERT INTO local_vault_imports(id,digest) VALUES(?,?)",
   );
-  for (const row of source.db
-    .prepare<[], { id: string; digest: string }>(
-      "SELECT id,digest FROM local_vault_imports",
-    )
-    .iterate()) {
+  for (const row of source.imports) {
     if (
       target.prepare("SELECT 1 FROM local_vault_imports WHERE id=?").get(row.id)
     )
@@ -222,7 +258,6 @@ export function prepareLocalRestore(
       throw Error("Restoration verification failed.");
   } finally {
     target?.close();
-    source.db.close();
   }
   for (const path of [
     `${targetPath}.protected`,
@@ -244,21 +279,17 @@ export function mergeLocalRestore(
   sourceKey: Buffer,
 ): RestoreResult {
   const source = readBackup(sourcePath, sourceKey, true);
-  try {
-    return target.transaction(() => {
-      target.exec(
-        `${schemas.local_vault_imports.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")};${receiptSchema.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")}`,
-      );
-      if (
-        target
-          .prepare("SELECT 1 FROM local_backup_restores WHERE digest=?")
-          .get(source.digest)
-      )
-        return { count: source.count, alreadyRestored: true };
-      copyProfiles(source, target);
-      return { count: source.count, alreadyRestored: false };
-    })();
-  } finally {
-    source.db.close();
-  }
+  return target.transaction(() => {
+    target.exec(
+      `${schemas.local_vault_imports.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")};${receiptSchema.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")}`,
+    );
+    if (
+      target
+        .prepare("SELECT 1 FROM local_backup_restores WHERE digest=?")
+        .get(source.digest)
+    )
+      return { count: source.count, alreadyRestored: true };
+    copyProfiles(source, target);
+    return { count: source.count, alreadyRestored: false };
+  })();
 }

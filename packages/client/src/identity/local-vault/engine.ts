@@ -68,17 +68,37 @@ export function createVaultEngine(store: LocalVaultStore) {
     store.changed(vault.id);
     return { vault, key };
   }
-  async function finishRecovery<T>(
-    result: { vault: LocalVault; key: CryptoKey; data: T },
-    signal?: AbortSignal,
-  ) {
+  async function prepareRecovery<T>(result: {
+    vault: LocalVault;
+    key: CryptoKey;
+    data: T;
+  }) {
     const { vault, key } = result;
     if (!vault.recoveryRequired) return result;
     const data = recoveredLocalData(result.data);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ciphertext = await encrypt(vault, key, data, iv);
+    return {
+      vault: {
+        ...vault,
+        iv,
+        ciphertext,
+        recoveryRequired: undefined,
+        unlock: undefined,
+      },
+      key,
+      data: data as T,
+    };
+  }
+  async function finishRecovery<T>(
+    result: { vault: LocalVault; key: CryptoKey; data: T },
+    signal?: AbortSignal,
+  ) {
+    if (!result.vault.recoveryRequired) return result;
+    const recovered = await prepareRecovery(result);
+    const { vault } = result;
     signal?.throwIfAborted();
-    const recovered = await store.update(vault.id, (stored) => {
+    const saved = await store.update(vault.id, (stored) => {
       signal?.throwIfAborted();
       if (
         !stored ||
@@ -89,8 +109,8 @@ export function createVaultEngine(store: LocalVaultStore) {
         throw changed();
       return {
         ...stored,
-        iv,
-        ciphertext,
+        iv: recovered.vault.iv,
+        ciphertext: recovered.vault.ciphertext,
         recoveryRequired: undefined,
         unlock: undefined,
         revision: (stored.revision ?? 0) + 1,
@@ -98,7 +118,7 @@ export function createVaultEngine(store: LocalVaultStore) {
       };
     });
     store.changed(vault.id);
-    return { vault: recovered, key, data: data as T };
+    return { ...recovered, vault: saved };
   }
   async function unlockVault<T>(
     id: string,
@@ -121,7 +141,10 @@ export function createVaultEngine(store: LocalVaultStore) {
     const vault = await store.get(id);
     if (!vault || vault.removedAt === undefined)
       throw Error("This profile is not available for restoration.");
-    const result = await decryptVault<T>(vault, password);
+    // Validate and encrypt recovery safeguards before making a removed profile active.
+    const result = await prepareRecovery(
+      await decryptVault<T>(vault, password),
+    );
     signal?.throwIfAborted();
     const restored = await store.update(id, (stored) => {
       signal?.throwIfAborted();
@@ -136,6 +159,9 @@ export function createVaultEngine(store: LocalVaultStore) {
         );
       return {
         ...stored,
+        iv: result.vault.iv,
+        ciphertext: result.vault.ciphertext,
+        recoveryRequired: result.vault.recoveryRequired,
         removedAt: undefined,
         unlock: undefined,
         revision: (stored.revision ?? 0) + 1,
@@ -143,7 +169,7 @@ export function createVaultEngine(store: LocalVaultStore) {
       };
     });
     store.changed(id);
-    return finishRecovery({ ...result, vault: restored }, signal);
+    return { ...result, vault: restored };
   }
   async function commitVault(
     vault: LocalVault,

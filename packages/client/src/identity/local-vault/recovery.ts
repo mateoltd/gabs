@@ -1,27 +1,46 @@
-import type { LocalData } from "../local-profiles";
-
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
+const states = new Set([
+  "pending",
+  "running",
+  "completed",
+  "rejected",
+  "uncertain",
+]);
+function assertRecoveryDeviceRequest(
+  id: string,
+  value: unknown,
+): asserts value is Record<string, unknown> & { id: string; state: string } {
+  if (
+    !object(value) ||
+    value.id !== id ||
+    typeof value.state !== "string" ||
+    !states.has(value.state) ||
+    (value.createdAt !== undefined &&
+      (typeof value.createdAt !== "number" ||
+        !Number.isSafeInteger(value.createdAt) ||
+        value.createdAt < 0)) ||
+    (value.attemptId !== undefined && typeof value.attemptId !== "string") ||
+    (value.grantId !== undefined && typeof value.grantId !== "string") ||
+    (value.retryOf !== undefined && typeof value.retryOf !== "string") ||
+    (value.error !== undefined && typeof value.error !== "string") ||
+    (value.call !== undefined && !object(value.call))
+  )
+    throw Error("The restored device journal is invalid.");
+}
 
 /** A backup may predate effects already performed by another device. Never replay them on unlock. */
-export function recoveredLocalData(value: unknown): LocalData {
+export function recoveredLocalData(value: unknown) {
   if (
     !object(value) ||
     !object(value.records) ||
+    !Object.values(value.records).every(Array.isArray) ||
     (value.deviceRequests !== undefined && !object(value.deviceRequests))
   )
     throw Error("The restored profile data is invalid.");
-  const data = value as unknown as LocalData;
   const deviceRequests = Object.fromEntries(
-    Object.entries(data.deviceRequests ?? {}).map(([id, request]) => {
-      if (
-        !object(request) ||
-        request.id !== id ||
-        !["pending", "running", "completed", "rejected", "uncertain"].includes(
-          request.state,
-        )
-      )
-        throw Error("The restored device journal is invalid.");
+    Object.entries(value.deviceRequests ?? {}).map(([id, request]) => {
+      assertRecoveryDeviceRequest(id, request);
       return [
         id,
         request.state === "pending" || request.state === "running"
@@ -35,5 +54,5 @@ export function recoveredLocalData(value: unknown): LocalData {
       ];
     }),
   );
-  return { ...data, capabilityGrants: [], deviceRequests };
+  return { ...value, capabilityGrants: [], deviceRequests };
 }

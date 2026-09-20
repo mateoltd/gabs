@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -15,6 +15,7 @@ import {
 } from "../../apps/desktop/src/utility/storage/restore";
 import { stageLocalBackup } from "../../apps/desktop/src/utility/storage/backup";
 import { sealCacheValue } from "../../apps/desktop/src/utility/storage/cipher";
+import type { LocalData } from "../../packages/client/src/identity/local-profiles";
 
 const directories: string[] = [];
 const connections: ReturnType<typeof openProtectedDatabase>[] = [];
@@ -124,7 +125,7 @@ it("stages under a fresh device key and revokes copied device grants before the 
       false,
     ),
   ).rejects.toThrow("Unlock the restored profile");
-  const unlocked = await engine.unlockVault<Record<string, any>>(
+  const unlocked = await engine.unlockVault<LocalData>(
     f.created.vault.id,
     "original profile passphrase",
   );
@@ -132,12 +133,12 @@ it("stages under a fresh device key and revokes copied device grants before the 
     contacts: [{ name: "Retained contact" }],
   });
   expect(unlocked.data.capabilityGrants).toEqual([]);
-  expect(unlocked.data.deviceRequests[f.pending].state).toBe("uncertain");
-  expect(unlocked.data.deviceRequests[f.running]).toMatchObject({
+  expect(unlocked.data.deviceRequests?.[f.pending]?.state).toBe("uncertain");
+  expect(unlocked.data.deviceRequests?.[f.running]).toMatchObject({
     state: "uncertain",
     attemptId: "exact-attempt",
   });
-  expect(unlocked.data.deviceRequests[f.completed]).toMatchObject({
+  expect(unlocked.data.deviceRequests?.[f.completed]).toMatchObject({
     state: "completed",
     result: { saved: true },
   });
@@ -192,6 +193,11 @@ it("atomically merges into live storage, retains corporate rows and never overwr
     mergeLocalRestore(db, `${f.prepared}.protected`, f.restoredKey),
   ).toEqual({ count: 1, alreadyRestored: true });
   expect(
+    ["-wal", "-shm", "-journal"].some((suffix) =>
+      existsSync(`${f.prepared}.protected${suffix}`),
+    ),
+  ).toBe(false);
+  expect(
     (
       await engine.unlockVault(
         f.created.vault.id,
@@ -230,6 +236,7 @@ for (const attack of [
   "corporate-cache",
   "table",
   "profile-id",
+  "migration-receipt",
 ] as const) {
   it(`refuses an authenticated archive with unexpected ${attack} contents`, async () => {
     const f = await fixture();
@@ -246,6 +253,11 @@ for (const attack of [
     if (attack === "table") db.exec("CREATE TABLE credentials(value TEXT)");
     if (attack === "profile-id")
       db.prepare("UPDATE local_vaults SET id=?").run(crypto.randomUUID());
+    if (attack === "migration-receipt")
+      db.prepare("INSERT INTO local_vault_imports VALUES(?,?)").run(
+        f.created.vault.id,
+        "invalid",
+      );
     db.close();
     const before = readFileSync(`${f.backup}.protected`);
     expect(f.prepare).toThrow();
@@ -266,10 +278,7 @@ it("does not bypass restoration safeguards when legacy IndexedDB profiles are im
   importLocalVaults(db, [another.vault]);
   const restored = await createVaultEngine(
     localVaultStore(db, () => {}),
-  ).unlockVault<Record<string, unknown>>(
-    another.vault.id,
-    "another profile passphrase",
-  );
+  ).unlockVault<LocalData>(another.vault.id, "another profile passphrase");
   expect(restored.data.capabilityGrants).toEqual([]);
 });
 

@@ -239,3 +239,27 @@ Checkpoint `f40229a` and pushed tag `checkpoint/architecture-native-vault-2026-0
 The existing physical layout already implements `apps/web`, `packages/sdk`, `packages/ui/web` and concern-specific source directories. Portable vault behavior belongs in client identity, storage/session custody in the desktop utility, OS protection in main and presentation in shell. No additional directory moves or public package renames were justified. The typed protocol now identifies each utility session, remembers observed revocations and rejects late responses from retired sessions. Worker callbacks cannot affect a newer worker after termination.
 
 [Native vault evidence](../native-vaults/README.md) records 28 focused checks, 744 full regression tests, strict environment/boundary checks, four fresh builds, eight browser journeys and six minimized native passes, plus packaging evidence and explicit limits. Inspected browser/native captures preserve the existing visual system; no CSS or design-token change was made. This completes the scoped architecture checkpoint/review, not full parity, physical OS-provider acceptance or final UI refinement.
+
+## Local restore foundation review, 20 September 2026
+
+Checkpoint `889aceb4ea47d99990a740fee52ef6b63af4d090` and pushed tag `checkpoint/local-restore-architecture-889aceb` preserve the unfinished restore foundation. The requested `gpt-5.6-sol` review at `xhigh` and independent parent review retain the existing ownership layout: portable vault lifecycle and recovery safeguards in client identity, SQLite archive validation and import in the desktop utility, and privileged activation reserved for Electron main. No additional package renames or presentation changes were justified.
+
+The delegated correction reads an encrypted private copy of the closed source database, validates the archive schema and rows, and materializes one snapshot for both identity calculation and copying. Repeated imports cannot create source sidecars or overwrite newer work. Unexpected schema, corporate cache rows, profile identity mismatches and malformed migration receipts fail before destination activation. Copied device grants are removed and pending/running device effects become uncertain at the first successful passphrase unlock.
+
+The first strict environment build caught a type-only dependency from the utility recovery code into browser profile orchestration. Parent review removed that dependency: the recovery guard now validates and narrows only its own required data fields, without claiming to validate the entire business-data schema. Browser APIs remain outside the utility dependency graph.
+
+Parent review additionally found that restoring a removed profile could activate it before recovery validation completed. Recovery validation and encryption now precede one atomic activation. Malformed recovery data and cancellation leave the original removed profile unchanged. The focused tests verify durable safeguards after reopening and preservation of completed outcomes and attempt identities.
+
+This is foundation acceptance, not complete product restoration. ID-03-BACKUP-RESTORE still requires the maintenance entry point, recoverable storage-root activation, interrupted activation acceptance and real operator/user recovery journeys. ID-03-BACKUP-CORPORATE remains separate and requires current account/workspace authorization. Archive validation materializes encrypted vault envelopes in memory proportional to archive size; a bounded product import policy remains a restore-integration consideration. Real OS-provider, signed platform and overall parity gates remain open. UI refinement has not started.
+
+### Verification for this review
+
+| Check | Result |
+| --- | --- |
+| Full unit/PostgreSQL regression | 799 passed across 116 files in an isolated database; `/tmp/gabs-restore-review-regression.log` |
+| Final focused checks after removing the browser type dependency | 27 passed: 13 restore cases and 14 architecture fixtures; `/tmp/gabs-restore-review-final-focused.log` |
+| Strict root/browser/Node/preload/worker checks, boundary/copy checks and fresh builds | Passed, four application builds without cache reuse; `/tmp/gabs-restore-review-build.log` |
+| Hidden/minimized Electron regression | Four passed: portable backup, utility-owned vault/PIN restart, IndexedDB migration/cancelled enrollment, and utility process-death/key-rotation recovery; `/tmp/gabs-restore-review-native.log` |
+| Patch/source review | `git diff --check` passed; shell, renderer, UI kit, CSS and theme sources unchanged |
+
+The native tests use controlled protection adapters where noted in their fixtures. They verify real Electron/main/utility execution without asserting actual OS-provider or physical biometric acceptance. The backup portability fixture still stages recovery through its test harness; it does not establish a product restore command. Existing web bundle-size warnings remain. Test databases were removed after both isolated runs.

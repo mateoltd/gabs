@@ -393,3 +393,7 @@ SEC-002/SEC-003 gain [ID-03-ROTATE evidence](verification/storage-rotation/READM
 ## 20 September 2026 local-profile backup follow-up
 
 SEC-002/SEC-003 gain [portable standalone archive evidence](verification/local-profile-backup/README.md). Backup creation is a windowless machine-owner maintenance path; it excludes corporate caches and uses an independent key so the archive can survive loss of the source OS provider. Product restore activation, device-effect safeguards, corporate recovery under current authority and actual provider acceptance remain required. No original requirement or overall parity is newly complete.
+
+## 20 September 2026: restore foundation architecture review
+
+SEC-002/SEC-003/AUTH-002 retain their current status after the [restore foundation review](verification/architecture/README.md#local-restore-foundation-review-20-september-2026). Strict archive validation, additive transactional import and first-unlock device safeguards have scoped integration evidence. A removed profile activates only after its recovery guards are ready to commit atomically. Product restore activation, interrupted activation journeys, authenticated corporate recovery and real OS-provider acceptance remain required under ID-03; no original requirement or overall parity is complete.
