@@ -1,3 +1,5 @@
+import { cleanImportStaging } from "./storage/import-staging";
+import { recoverLocalProfiles, resumeLocalRecovery } from "./storage/recovery";
 import { restoreLocalProfiles } from "./storage/restore";
 import { createLocalBackup } from "./storage/backup";
 import { readBackupPassphrase } from "./storage/passphrase";
@@ -217,11 +219,12 @@ const secureAvailable = () =>
   (process.platform !== "linux" ||
     safeStorage.getSelectedStorageBackend() !== "basic_text");
 const root = () => resolve(app.getPath("userData"), "secure-cache");
-const protectedFiles = new ProtectedFiles(root, {
+const storageProtection = {
   available: secureAvailable,
-  encrypt: (value) => safeStorage.encryptStringAsync(value),
-  decrypt: (value) => safeStorage.decryptStringAsync(value),
-});
+  encrypt: (value: string) => safeStorage.encryptStringAsync(value),
+  decrypt: (value: Buffer) => safeStorage.decryptStringAsync(value),
+};
+const protectedFiles = new ProtectedFiles(root, storageProtection);
 const lanConfigured = (scope?: Scope) =>
   !!(
     process.env.SUITE_LAN_CERT &&
@@ -1420,8 +1423,10 @@ async function start() {
   }
   const backup = app.commandLine.hasSwitch("backup-local-profiles");
   const restore = app.commandLine.hasSwitch("restore-local-profiles");
+  const recover = app.commandLine.hasSwitch("recover-local-profiles");
+  const forceNewRecovery = app.commandLine.hasSwitch("new-local-recovery");
   if (!app.requestSingleInstanceLock()) {
-    if (backup || restore) {
+    if (backup || restore || recover || forceNewRecovery) {
       process.stderr.write(
         "Quit the running application before local profile maintenance.\n",
       );
@@ -1430,16 +1435,54 @@ async function start() {
     return;
   }
   await app.whenReady();
-  if (backup || restore) {
+  if (minimizedTest || backup || restore || recover || forceNewRecovery)
     app.dock?.hide();
+  const maintenance = backup || restore || recover;
+  if (
+    [backup, restore, recover].filter(Boolean).length > 1 ||
+    (forceNewRecovery && !recover) ||
+    (maintenance && app.commandLine.hasSwitch("rotate-storage-key"))
+  ) {
+    process.stderr.write(
+      "Choose one maintenance operation. New recovery requires --recover-local-profiles.\n",
+    );
+    app.exit(1);
+    return;
+  }
+  const recoveryHost = {
+    root: root(),
+    filesFor: (path: string) =>
+      new ProtectedFiles(() => path, storageProtection),
+    open: openCache,
+    close: closeCache,
+  };
+  try {
+    await cleanImportStaging(root());
+    const resumed = await resumeLocalRecovery(recoveryHost);
+    if (resumed && recover) {
+      process.stdout.write(
+        `Pending local recovery completed. Original storage retained at ${resumed.retained}\n`,
+      );
+      app.exit(0);
+      return;
+    }
+  } catch {
+    const message =
+      "Local recovery needs attention. Unlock protected storage and retry; retain all recovery files.";
+    process.stderr.write(`${message}\n`);
+    if (!minimizedTest && !maintenance)
+      await dialog.showMessageBox({ type: "error", message });
+    app.exit(1);
+    return;
+  }
+  if (maintenance) {
     try {
-      if (
-        (backup && restore) ||
-        app.commandLine.hasSwitch("rotate-storage-key")
-      )
-        throw Error("Choose one maintenance operation.");
       const path = app.commandLine.getSwitchValue(
-        backup ? "backup-local-profiles" : "restore-local-profiles",
+        backup
+          ? "backup-local-profiles"
+          : recover
+            ? "recover-local-profiles"
+            : "restore-local-profiles",
       );
       if (!path) throw Error("Specify a maintenance file.");
       const passphrase = await readBackupPassphrase(process.stdin);
@@ -1450,7 +1493,20 @@ async function start() {
         close: closeCache,
         passphrase,
       };
-      if (backup) {
+      if (recover) {
+        const result = await recoverLocalProfiles({
+          ...recoveryHost,
+          archive: path,
+          passphrase,
+          prepare: openRestoration,
+          forceNewRecovery,
+        });
+        process.stdout.write(
+          result.alreadyRecovered
+            ? "This archive was already recovered. Newer work was preserved.\n"
+            : `Local recovery activated. Original storage retained at ${result.retained}\n`,
+        );
+      } else if (backup) {
         await createLocalBackup({
           ...storage,
           snapshot: openLocalBackup,
@@ -1474,9 +1530,11 @@ async function start() {
     } catch {
       // Provider/filesystem errors can embed paths or data; retain a fixed, non-secret CLI error.
       process.stderr.write(
-        backup
-          ? "Local profile backup failed. Check the destination, protected storage and piped passphrase. Existing data was retained.\n"
-          : "Local profile restore failed. Check the archive, protected storage and piped passphrase. Existing profiles are never replaced; retrying the same archive is safe.\n",
+        recover
+          ? "Local recovery failed. Check the archive, passphrase and current protected-storage provider. Existing and pending recovery files were retained.\n"
+          : backup
+            ? "Local profile backup failed. Check the destination, protected storage and piped passphrase. Existing data was retained.\n"
+            : "Local profile restore failed. Check the archive, protected storage and piped passphrase. Existing profiles are never replaced; retrying the same archive is safe.\n",
       );
       app.exit(1);
     }
@@ -1606,7 +1664,11 @@ async function start() {
           arg === "--backup-local-profiles" ||
           arg.startsWith("--backup-local-profiles=") ||
           arg === "--restore-local-profiles" ||
-          arg.startsWith("--restore-local-profiles="),
+          arg.startsWith("--restore-local-profiles=") ||
+          arg === "--recover-local-profiles" ||
+          arg.startsWith("--recover-local-profiles=") ||
+          arg === "--new-local-recovery" ||
+          arg.startsWith("--new-local-recovery="),
       )
     )
       return;

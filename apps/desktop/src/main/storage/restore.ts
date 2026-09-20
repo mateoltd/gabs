@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { createImportStaging, cleanImportStaging } from "./import-staging";
+import { rm } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { openManagedStorage } from "../identity/storage-key";
 import type { ProtectedFiles } from "../identity/protected-files";
 import type { StorageRotationSource } from "../../utility/storage/rotation";
@@ -29,9 +30,8 @@ export async function restoreLocalProfiles(options: {
 }): Promise<RestoreResult> {
   options.signal?.throwIfAborted();
   // Staging is outside the managed database root and contains encrypted pages only.
-  const parent = dirname(resolve(options.root));
-  await mkdir(parent, { recursive: true, mode: 0o700 });
-  const temporary = await mkdtemp(resolve(parent, ".local-restore-"));
+  const staging = await createImportStaging(options.root);
+  const temporary = staging.path;
   const secret = randomBytes(32);
   let archiveKey: Buffer | undefined;
   try {
@@ -63,6 +63,6 @@ export async function restoreLocalProfiles(options: {
     archiveKey?.fill(0);
     secret.fill(0);
     await options.close();
-    await rm(temporary, { recursive: true, force: true });
+    await cleanImportStaging(options.root, staging.id);
   }
 }

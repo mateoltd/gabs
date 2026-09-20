@@ -1,6 +1,6 @@
 # Additive local-profile restore
 
-Scope: ID-03-BACKUP-RESTORE, additive import into a fresh or readable device store. Full in-place lost-key recovery and corporate saved-work recovery remain open.
+Scope: ID-03-BACKUP-RESTORE, additive import into a fresh or readable device store. [Retained-original in-place recovery](../local-root-recovery/README.md) now has separate scoped acceptance. Corporate saved-work recovery and actual provider/platform acceptance remain open.
 
 ## Behavior
 
@@ -10,7 +10,7 @@ Scope: ID-03-BACKUP-RESTORE, additive import into a fresh or readable device sto
 - Corporate cache rows, existing personal profiles and their keys remain in place. The portable archive never contains corporate caches, saved online credentials or native unlock wrappers.
 - First passphrase unlock clears copied device grants, marks pending/running device requests uncertain and preserves original request/attempt identities and completed results. Native PIN/biometric enrollment must be established again on the recovered device.
 - Recovery persistence precedes issuance of an unlocked grant. It does not send a spurious external profile-change notification that would cancel that same unlock. Revision checks reject competing first unlocks.
-- A lost response after the transaction commits is safe to retry with the same archive. Cancellation before opening the live store does not initialize a destination. An interrupted process can leave encrypted staging files; automatic orphan-staging cleanup remains a follow-up for the complete recovery lifecycle.
+- A lost response after the transaction commits is safe to retry with the same archive. Cancellation before opening the live store does not initialize a destination. Registered encrypted staging is now cleaned on startup or retry; see the [recovery follow-up](../local-root-recovery/README.md). Unknown legacy staging is preserved.
 
 ## Operator procedure
 
@@ -26,13 +26,13 @@ password-manager read common-local-backup | \
 
 The command adds profiles to the current device store. A second import of the identical archive reports that it was already restored. An independently existing profile with the same ID is retained and the import fails. Preserve both stores for deliberate recovery; do not delete current storage to force import.
 
-A fresh recovery location can be selected with Electron's `--user-data-dir=/absolute/path/new-profile` on both the maintenance and subsequent application launch. This supports a new device/provider without copying the old provider key. If the current store's protected key is unavailable, the command fails closed and retains it. Automated in-place replacement with retained original storage is not implemented yet.
+A fresh recovery location can be selected with Electron's `--user-data-dir=/absolute/path/new-profile` on both the maintenance and subsequent application launch. This supports a new device/provider without copying the old provider key. If the current store's protected key is unavailable, the command fails closed and retains it. Use the separate [in-place recovery procedure](../local-root-recovery/README.md#operator-procedure) when deliberate replacement with retained original storage is needed.
 
 ## Acceptance and limits
 
 The integration suite uses actual encrypted SQLite, archive authentication and protected-file persistence with a controlled provider. The native suite exercises actual main/utility commands and the existing user interface, with OS protection supplied by its explicitly controlled adapter. These checks do not establish real Keychain/DPAPI/libsecret or physical biometric acceptance.
 
-The complete restore gate still requires recoverable in-place activation for an unreadable original store, interruption coverage for that activation, staging cleanup policy and platform/provider acceptance. Corporate archives require current account/workspace authorization and remain ID-03-BACKUP-CORPORATE. Full parity and later UI refinement remain open.
+The [in-place follow-up](../local-root-recovery/README.md) verifies interrupted activation, retained originals and registered staging cleanup with controlled providers. Actual platform/provider acceptance remains required for the complete restore gate. Corporate archives require current account/workspace authorization and remain ID-03-BACKUP-CORPORATE. Full parity and later UI refinement remain open.
 
 ## Verification, 20 September 2026
 

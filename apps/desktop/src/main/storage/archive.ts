@@ -1,4 +1,5 @@
 import {
+  createHash,
   createCipheriv,
   createDecipheriv,
   pbkdf2,
@@ -144,12 +145,12 @@ class DatabasePayload extends Transform {
 }
 
 /** Authenticates the entire archive before publishing a staging file or releasing its key. */
-export async function readStorageArchive(options: {
+export async function readStorageArchiveDetails(options: {
   archive: string;
   destination: string;
   passphrase: string;
   signal?: AbortSignal;
-}): Promise<Buffer> {
+}): Promise<{ secret: Buffer; digest: string }> {
   const { archive, passphrase, signal } = options;
   const destination = resolve(options.destination);
   if (resolve(archive) === destination)
@@ -187,6 +188,13 @@ export async function readStorageArchive(options: {
       header.subarray(magic.length, magic.length + saltSize),
     );
     signal?.throwIfAborted();
+    const digest = createHash("sha256").update(header);
+    const fingerprint = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        digest.update(chunk);
+        done(null, chunk);
+      },
+    });
     const decipher = createDecipheriv(
       "aes-256-gcm",
       key,
@@ -200,6 +208,7 @@ export async function readStorageArchive(options: {
         end: metadata.size - tagSize - 1,
         autoClose: false,
       }),
+      fingerprint,
       decipher,
       payload,
       createWriteStream(temporary, { flags: "wx", mode: 0o600 }),
@@ -208,11 +217,20 @@ export async function readStorageArchive(options: {
     await flushFile(temporary);
     signal?.throwIfAborted();
     await publish(temporary, destination);
-    return Buffer.from(payload.secret);
+    return {
+      secret: Buffer.from(payload.secret),
+      digest: digest.update(tag).digest("hex"),
+    };
   } finally {
     key?.fill(0);
     payload.secret.fill(0);
     await source.close();
     await rm(temporary, { force: true });
   }
+}
+
+export async function readStorageArchive(
+  options: Parameters<typeof readStorageArchiveDetails>[0],
+): Promise<Buffer> {
+  return (await readStorageArchiveDetails(options)).secret;
 }

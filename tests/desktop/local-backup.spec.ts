@@ -241,6 +241,13 @@ require(${JSON.stringify(process.env.SUITE_ACCEPT_BACKUP_ENTRY ?? resolve("apps/
       const replay = await runMaintenance(restored, "restore", replacement);
       expect(replay.code, replay.errors).toBe(0);
       expect(replay.output).toContain("Archive already restored.");
+      expect(
+        (await readdir(restored)).filter(
+          (name) =>
+            name.startsWith(".local-restore-") ||
+            name === "secure-cache.import.json",
+        ),
+      ).toEqual([]);
       // Restoring onto an independently existing copy of the profile must fail, never replace it.
       const collision = await runMaintenance(original, "restore");
       expect(collision.code).toBe(1);
