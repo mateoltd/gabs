@@ -47,6 +47,13 @@ function Session() {
   const toast = useToast();
   const [localMode, setLocalMode] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     const enter = () => setLocalMode(true);
     window.addEventListener("suite-local-mode", enter);
@@ -242,11 +249,15 @@ function Session() {
       if (online || window.suiteDesktop) acknowledgeSignOut(record);
     } finally {
       localStorage.removeItem("suite-workspace");
-      qc.clear();
-      setWorkspaceId("");
-      setEndingSession(false);
-      if (!online) window.location.reload();
-      else void me.refetch();
+      // Desktop profile changes remount Session before native cleanup finishes.
+      // Its old completion must not remove the new session's observed queries.
+      if (mounted.current) {
+        qc.clear();
+        setWorkspaceId("");
+        setEndingSession(false);
+        if (!online) window.location.reload();
+        else void me.refetch();
+      }
     }
   }
   if (endingSession)

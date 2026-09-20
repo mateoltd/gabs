@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry and normal workspace transitions now have browser/native acceptance. Profile transitions and full native write interruption remain required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry and normal workspace transitions now have browser/native acceptance. Saved-profile transitions are covered below. Full native write interruption remains required before this item is verified.
 
 ## Implemented boundary
 
@@ -162,9 +162,36 @@ Final verification:
 | Browser | [Wide](web-lease-expired.png), [narrow](web-lease-expired-narrow.png) | [Wide](web-workspace-denied.png), [narrow](web-workspace-denied-narrow.png) |
 | Desktop | [Wide](native-lease-expired.png), [narrow](native-lease-expired-narrow.png) | [Wide](native-workspace-denied.png), [narrow](native-workspace-denied-narrow.png) |
 
+## Saved-profile transitions and late sign-out completion
+
+The browser and native journeys hold an actual authenticated archive-admission response, close the review and switch profiles through the account menu. They release the old response after account authority is revoked, then authenticate as a second actual development account. No copied work is admitted. The second account cannot open the original encrypted file, inherit its preview/passphrase/selection, read the original native cache or export through the original native host handle. No destination file is created by that rejected export.
+
+Returning through the saved-account chooser authenticates the original account again. Its import store, journal and drafts are unchanged. A fresh file selection, passphrase and explicit copy selection are required; the unchanged archive then completes the existing original-outcome settlement and single explicit draft-save journey.
+
+This acceptance found an intermittent desktop sign-out race. `ProfileGate` remounts `Session` when native profile authority changes, before asynchronous native cleanup returns. The old screen's logout completion could clear the new screen's observed identity query and refetch through its stale observer, leaving “Opening your workspace” displayed. Temporary query tracing reproduced a completed identity error on a query with zero observers while the visible screen retained its removed pending query. Session cleanup now checks whether its owner is still mounted before changing query/UI state; native credential and authority cleanup still completes. No presentation or permission rules changed.
+
+Increasing the chooser wait from five to fifteen seconds did not fix the pre-patch failure. The final test restores the original five-second expectation. Diagnostic logging is removed from source and rebuilt artifacts.
+
+Native alternate-account selection changes only the next development-login request sent to the real API. It does not fabricate identity/session responses or bypass server authorization. Development authentication and controlled OS keys do not verify real-provider MFA, biometric integration or signed-platform acceptance.
+
+Final verification:
+
+- Strict environment/type, dependency/copy and scoped formatting checks passed: `/tmp/gabs-archive-profile-final-types.log`, `/tmp/gabs-archive-profile-final-lint.log`, `/tmp/gabs-archive-profile-final-format.log`.
+- 42 focused identity, sign-out, profile and archive tests passed across six files: `/tmp/gabs-archive-profile-final-unit.log`.
+- Eight headless browser journeys passed, covering archive profile recovery, saved profiles and sign-out recovery: `/tmp/gabs-archive-profile-final-web.log`. The managed browser server built the final web application.
+- The native profile journey passed three consecutive times with the original five-second expectation: `/tmp/gabs-archive-profile-native-fixed.log`. One final run passed after making a missing native export fixture fail explicitly instead of skipping that assertion: `/tmp/gabs-archive-profile-final-native.log`.
+- Three native regressions passed: independent-key archive transfer, protected-storage readiness and unreadable-lock-policy recovery. The real OS-protected PIN/restart case was skipped under its existing platform availability guard and is **not verified** here: `/tmp/gabs-archive-profile-final-native-regression.log`.
+- The final desktop build passed: `/tmp/gabs-archive-profile-desktop-build.log`. No full unit regression or fresh server/worker build is claimed for this shell-only production change. Build output retains the existing bundle-size advisory.
+- All four new wide/narrow captures were inspected. Scoped Axe and overflow checks passed. Native windows remained hidden/minimized and unfocused. Disposable databases/profiles were removed; historical rerun captures were restored.
+
+| Surface | Other account refusal |
+| --- | --- |
+| Browser | [Wide](web-profile-denied.png), [narrow](web-profile-denied-narrow.png) |
+| Desktop | [Wide](native-profile-denied.png), [narrow](native-profile-denied-narrow.png) |
+
 ## Required next work
 
-- Exercise saved-profile transitions in archive export/import and full main/utility process interruption during native publication or durable admission. Normal workspace switching, inspection/lease expiry and a renderer crash before admission do not establish these remaining gates; unit guards/atomic-store tests remain separate evidence.
+- Exercise full main/utility process interruption during native publication or durable admission. Profile/workspace switching, inspection/lease expiry and a renderer crash before admission do not establish this remaining gate; unit guards/atomic-store tests remain separate evidence.
 - Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
 
 Broader corporate recovery graphs/transitions and key loss remain parent gates. Overall parity and later UI refinement remain open.
