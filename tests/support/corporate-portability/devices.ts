@@ -19,7 +19,7 @@ export async function browserPortabilityDevice(browser: Browser) {
     baseURL: "http://localhost:4300",
   });
   try {
-    const page = await context.newPage();
+    let page = await context.newPage();
     await page.goto("/");
     await selectValue(page, "Local demonstration account", "owner@demo.local");
     await page
@@ -29,7 +29,18 @@ export async function browserPortabilityDevice(browser: Browser) {
       page.getByRole("button", { name: "Switch workspace", exact: true }),
     ).toBeVisible();
     return {
-      page,
+      get page() {
+        return page;
+      },
+      restart: async () => {
+        await page.close();
+        page = await context.newPage();
+        await page.goto("/");
+        await expect(
+          page.getByRole("button", { name: "Switch workspace", exact: true }),
+        ).toBeVisible();
+        return page;
+      },
       offline: (value: boolean) => context.setOffline(value),
       exportFile: async (button: Locator, path: string) => {
         await expect(button).toBeEnabled();
@@ -48,12 +59,17 @@ export async function browserPortabilityDevice(browser: Browser) {
 }
 
 /** Actual main/utility storage with an independent controlled OS key before startup. */
-export async function nativePortabilityDevice(profile: string) {
-  await mkdir(profile);
+export async function nativePortabilityDevice(
+  profile: string,
+  options: { reuse?: boolean } = {},
+) {
+  if (!options.reuse) await mkdir(profile);
   const entry = resolve(profile, "entry.cjs");
-  await writeFile(
-    entry,
-    `
+  if (options.reuse) await readFile(entry);
+  else
+    await writeFile(
+      entry,
+      `
     const {safeStorage}=require('electron');
     const {createCipheriv,createDecipheriv,randomBytes}=require('node:crypto');
     const key=Buffer.from(${JSON.stringify(randomBytes(32).toString("hex"))},'hex');
@@ -74,7 +90,7 @@ export async function nativePortabilityDevice(profile: string) {
       ? Promise.reject(new TypeError('fetch failed',{cause:{code:'ECONNREFUSED'}})) : original(...args);
     require(${JSON.stringify(resolve("apps/desktop/dist/main.cjs"))});
   `,
-  );
+    );
   const app = await electron.launch({
     executablePath: require("electron"),
     args: [entry, `--user-data-dir=${profile}`],
@@ -87,14 +103,19 @@ export async function nativePortabilityDevice(profile: string) {
   });
   try {
     const page = await app.firstWindow();
-    await page
-      .getByRole("button", { name: "Open local workspace", exact: true })
-      .click();
+    const signIn = page.getByRole("button", {
+      name: "Open local workspace",
+      exact: true,
+    });
+    // Development credentials are process-local. Cached startup UI is not authenticated readiness.
+    await expect(signIn).toBeVisible();
+    await signIn.click();
     await expect(
       page.getByRole("button", { name: "Switch workspace", exact: true }),
     ).toBeVisible();
     let closed = false;
     return {
+      app,
       page,
       offline: async (value: boolean) => {
         await app.evaluate((_, value) => {
@@ -154,8 +175,9 @@ export async function nativePortabilityDevice(profile: string) {
     throw error;
   }
 }
-export type PortabilityDevice = Awaited<
-  ReturnType<typeof browserPortabilityDevice>
+export type PortabilityDevice = Pick<
+  Awaited<ReturnType<typeof browserPortabilityDevice>>,
+  "page" | "offline" | "exportFile" | "close"
 >;
 
 /** Observe durable installation and recovery state through each platform's actual store. */

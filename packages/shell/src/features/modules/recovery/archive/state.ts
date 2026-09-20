@@ -97,6 +97,20 @@ export function useArchive(props: FeatureProps) {
           }
         })
       : [];
+  const stalePreview =
+    allowed &&
+    revision === props.bootstrap.policyRevision &&
+    copies.length > visible.length;
+  useEffect(() => {
+    if (!stalePreview) return;
+    setCopies([]);
+    setSelected([]);
+    setPassphrase("");
+    setConfirmation("");
+    setNotice(
+      "Saved-work access expired or changed. Load saved work or unlock the archive again to check current access.",
+    );
+  }, [stalePreview]);
   useEffect(() => {
     if (!allowed) {
       controller.current?.abort();

@@ -1,3 +1,4 @@
+import type { ArchiveReviewContext } from "./archive-lifecycle";
 import {
   expect,
   type APIRequestContext,
@@ -19,6 +20,7 @@ export async function corporatePortability(options: {
   directory: string;
   evidenceName?: string;
   archive?: boolean;
+  archiveReviewCheck?(context: ArchiveReviewContext): Promise<Page>;
   offline(value: boolean): Promise<void>;
   exportFile(button: Locator, path: string): Promise<void>;
   replaceDevice(): Promise<Page>;
@@ -146,11 +148,12 @@ export async function corporatePortability(options: {
     page.getByRole("button", { name: /Saved records and drafts/ }),
   ).toHaveCount(0);
   if (archive)
-    await importArchive({
+    page = await importArchive({
       page,
       file: archive,
       evidenceName: options.evidenceName ?? "native-to-native",
       scope: { userId: request.userId, workspaceId: request.workspaceId },
+      reviewCheck: options.archiveReviewCheck,
     });
   await page
     .getByRole("button", { name: "Import saved work", exact: true })

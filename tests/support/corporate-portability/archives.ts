@@ -1,3 +1,4 @@
+import type { ArchiveReviewContext } from "./archive-lifecycle";
 import "dotenv/config";
 import { expect, type Page, type Locator } from "@playwright/test";
 import { Pool } from "pg";
@@ -11,7 +12,11 @@ import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 const passphrase = "portable archive acceptance passphrase";
 const dialog = (page: Page) =>
   page.getByRole("dialog", { name: "Saved-work archives", exact: true });
-export async function captureArchive(page: Page, name: string) {
+export async function captureArchive(
+  page: Page,
+  name: string,
+  scrollToCopies = true,
+) {
   const directory = resolve("docs/verification/corporate-work-archives");
   await mkdir(directory, { recursive: true });
   expect(
@@ -32,7 +37,8 @@ export async function captureArchive(page: Page, name: string) {
     height: innerHeight,
   }));
   await page.setViewportSize({ width: 390, height: 844 });
-  await dialog(page).getByRole("checkbox").first().scrollIntoViewIfNeeded();
+  if (scrollToCopies)
+    await dialog(page).getByRole("checkbox").first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: resolve(directory, `${name}-narrow.png`),
     animations: "disabled",
@@ -103,20 +109,21 @@ export async function importArchive(options: {
   file: { path: string; bytes: Buffer };
   evidenceName: string;
   scope: { userId: string; workspaceId: string };
+  reviewCheck?(context: ArchiveReviewContext): Promise<Page>;
 }) {
-  const { page } = options;
+  let page = options.page;
   await page
     .getByRole("button", { name: "Saved-work archives", exact: true })
     .click();
-  const archive = dialog(page);
+  let archive = dialog(page);
   await archive
     .getByRole("button", { name: "Open archive", exact: true })
     .click();
-  const picker = archive.getByLabel("Encrypted saved-work archive", {
+  let picker = archive.getByLabel("Encrypted saved-work archive", {
     exact: true,
   });
-  const secret = archive.getByLabel("Archive passphrase", { exact: true });
-  const unlock = archive.getByRole("button", {
+  let secret = archive.getByLabel("Archive passphrase", { exact: true });
+  let unlock = archive.getByRole("button", {
     name: "Unlock archive",
     exact: true,
   });
@@ -143,6 +150,18 @@ export async function importArchive(options: {
   await secret.fill(passphrase);
   await unlock.click();
   await expect(archive.getByRole("checkbox")).toHaveCount(2);
+  if (options.reviewCheck) {
+    page = await options.reviewCheck({ ...options, passphrase });
+    archive = dialog(page);
+    picker = archive.getByLabel("Encrypted saved-work archive", {
+      exact: true,
+    });
+    secret = archive.getByLabel("Archive passphrase", { exact: true });
+    unlock = archive.getByRole("button", {
+      name: "Unlock archive",
+      exact: true,
+    });
+  }
   const admit = archive.getByRole("button", {
     name: "Import selected copies",
     exact: true,
@@ -204,4 +223,5 @@ export async function importArchive(options: {
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
   await page.reload();
+  return page;
 }

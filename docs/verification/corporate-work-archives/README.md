@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Archive-specific expiry/profile/process-interruption and multi-batch capacity remain required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Corporate offline-lease expiry, workspace/profile changes, full native write interruption and multi-batch capacity remain required before this item is verified.
 
 ## Implemented boundary
 
@@ -88,9 +88,34 @@ Final mixed-archive verification:
 | Browser | [Wide](web-mixed-export.png), [narrow](web-mixed-export-narrow.png) | [Wide](web-mixed-import.png), [narrow](web-mixed-import-narrow.png) |
 | Desktop | [Wide](native-mixed-export.png), [narrow](native-mixed-export-narrow.png) | [Wide](native-mixed-import.png), [narrow](native-mixed-import-narrow.png) |
 
+## Inspection expiry and interrupted admission
+
+The archive surface now clears stale inspected copies, selections and passphrase fields when their access guards expire or change. It explains that the user must load saved work or unlock the original file again with current access. This closes the previously silent transition where snapshots disappeared without a next step. The encrypted file and durable saved work are not deleted.
+
+The lifecycle journey installs its test clock before observing any import proof, advances elapsed time past the five-minute inspection window and verifies that copies and the admission action disappear, secret fields clear and the notice appears. This is controlled elapsed-time acceptance of the real inspection guard; it does not establish corporate offline-lease or actual identity-provider expiry acceptance.
+
+For both dialog cancellation and a real renderer crash, the fixture holds an actual authenticated server response before selected admission can finish. It then closes the surface or crashes the renderer, releases the late response, and verifies empty imported-copy, queue and draft state after recovery. Browser recovery opens a new page in the same saved browser context. Desktop recovery relaunches the application against the same protected store and the same controlled OS key, signs in through the normal development interface, and returns to the original workspace. Reopening the original encrypted file starts with no selected copies. The existing explicit import/restoration flow then completes, preserves file bytes and verifies one draft effect and the cancelled original request.
+
+The first browser fixtures attempted to unroute and reload a crashed Playwright page. The final flow closes that page and opens another in the same context; interceptor cleanup follows recovery. The native fixture initially accepted briefly rendered cached startup UI as readiness. Development credentials are process-local, so it now waits for normal sign-in before checking workspaces. These were test orchestration fixes, not permission bypasses.
+
+Full main/utility process failure during native publication or an in-progress durable write is not covered by a renderer crash before admission. Existing atomic-store/native-writer unit checks remain separate evidence. Profile/workspace changes, corporate offline-lease expiry and bounded multi-batch capacity remain required below.
+
+Final lifecycle verification:
+
+- Strict environment/type and dependency-boundary checks passed, plus **four fresh builds**: `/tmp/gabs-archive-life-final-types.log`, `/tmp/gabs-archive-life-final-lint.log`, `/tmp/gabs-archive-life-build.log`.
+- **33 focused tests passed across three files**: 23 authority/native-writer tests in `/tmp/gabs-archive-life-final-unit.log` and 10 archive-format/collection tests in `/tmp/gabs-archive-life-format-unit.log`. The first command's archive filename filter matched no file, so that file was run explicitly afterward. No full-suite rerun is claimed.
+- **Five headless browser-suite journeys and three hidden/minimized desktop-suite journeys passed**: `/tmp/gabs-archive-life-final-web.log`, `/tmp/gabs-archive-life-final-native.log`. These cover the new lifecycle paths, all four simple transfer directions and both mixed/retained workflows after the UI fix.
+- All eight lifecycle captures were inspected. Scoped Axe and narrow-overflow checks passed. Disposable databases and profiles were removed; historical regression images were preserved. Scoped formatting passed in `/tmp/gabs-archive-life-final-format.log`.
+- No CSS, theme, SDK contract or signed-release bytes changed. Test clocks, development authentication and controlled OS protection are explicit limits; actual providers/platforms remain separate.
+
+| Surface | Expired inspection | Reopened after interruption |
+| --- | --- | --- |
+| Browser | [Wide](web-lifecycle-expired.png), [narrow](web-lifecycle-expired-narrow.png) | [Wide](web-lifecycle-reopened.png), [narrow](web-lifecycle-reopened-narrow.png) |
+| Desktop | [Wide](native-lifecycle-expired.png), [narrow](native-lifecycle-expired-narrow.png) | [Wide](native-lifecycle-reopened.png), [narrow](native-lifecycle-reopened-narrow.png) |
+
 ## Required next work
 
-- Exercise archive UI expiry, profile/scope transitions and process interruption, including interrupted native publication/admission and bounded multi-batch capacity. Unit guards and atomic-store tests provide implementation evidence, not all product acceptance.
+- Exercise corporate offline-lease expiry and profile/scope transitions in archive export/import, full main/utility process interruption during native publication or durable admission, and bounded multi-batch capacity. Inspection expiry and a renderer crash before admission do not establish these remaining gates; unit guards/atomic-store tests remain separate evidence.
 - Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
 
 Broader corporate recovery graphs/transitions and key loss remain parent gates. Overall parity and later UI refinement remain open.
