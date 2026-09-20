@@ -1,3 +1,4 @@
+import { desktopIntegrityManifest } from "./desktop-integrity.mjs";
 import { build as bundle } from "esbuild";
 import { build as viteBuild } from "vite";
 import react from "@vitejs/plugin-react";
@@ -59,17 +60,6 @@ if (process.argv.includes("--package")) {
       );
   }
 }
-await bundle({
-  entryPoints: [root + "/apps/desktop/src/main/main.ts"],
-  outfile: root + "/apps/desktop/dist/main.cjs",
-  bundle: true,
-  platform: "node",
-  format: "cjs",
-  target: "node24",
-  external: ["electron"],
-  define: { __RUNTIME_CONFIG__: JSON.stringify(config) },
-  logLevel: "warning",
-});
 // Ship only the target Node-API binary and its small JS loader. No workspace
 // node_modules or runtime downloads are needed in the packaged application.
 const desktopRequire = createRequire(root + "/apps/desktop/package.json");
@@ -126,4 +116,21 @@ await viteBuild({
   base: "./",
   plugins: [react()],
   build: { outDir: "dist/renderer", emptyOutDir: true },
+});
+
+await bundle({
+  entryPoints: [root + "/apps/desktop/src/main/main.ts"],
+  outfile: root + "/apps/desktop/dist/main.cjs",
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node24",
+  external: ["electron"],
+  define: {
+    __RUNTIME_CONFIG__: JSON.stringify(config),
+    __INTEGRITY_MANIFEST__: JSON.stringify(
+      await desktopIntegrityManifest(root + "/apps/desktop/dist"),
+    ),
+  },
+  logLevel: "warning",
 });

@@ -1,3 +1,5 @@
+import { checkApplicationIntegrity } from "./integrity/startup";
+import type { AssetManifest } from "./integrity/assets";
 import { cleanImportStaging } from "./storage/import-staging";
 import {
   prepareDeviceRecovery,
@@ -104,6 +106,7 @@ declare const __RUNTIME_CONFIG__: {
   callback: string;
   updateUrl: string;
 };
+declare const __INTEGRITY_MANIFEST__: AssetManifest;
 const config = __RUNTIME_CONFIG__;
 const minimizedTest =
   !app.isPackaged && process.env.SUITE_DESKTOP_TEST_MINIMIZED === "1";
@@ -1493,6 +1496,38 @@ async function start() {
     process.stderr.write(
       "Choose one maintenance operation. Each new-recovery switch requires its matching recovery operation.\n",
     );
+    app.exit(1);
+    return;
+  }
+  // Check before credentials, maintenance, native code or the renderer can open.
+  const integrity = await checkApplicationIntegrity({
+    assets: __dirname,
+    manifest: __INTEGRITY_MANIFEST__,
+    profile: app.getPath("userData"),
+    release: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+    appPath: app.getAppPath(),
+    beforeRecovery: async () => {
+      await credentials.clear();
+      await protectedFiles.remove("identity");
+    },
+  });
+  if (!integrity.allowed) {
+    const message = "Common could not verify this installation.";
+    const detail =
+      integrity.reason === "audit-unavailable"
+        ? "The local integrity record could not be saved or read. Check access to the application profile and retain its integrity records. Your saved work has not been opened or changed."
+        : "Repair or reinstall Common from your organization's approved release, then restart. Your saved profiles and pending work have not been opened or changed. Do not delete the application data folder.";
+    process.stderr.write(`${message} ${integrity.reason}\n`);
+    if (!minimizedTest && !maintenance)
+      await dialog.showMessageBox({
+        type: "error",
+        message,
+        detail,
+        buttons: ["Quit"],
+        noLink: true,
+      });
     app.exit(1);
     return;
   }

@@ -468,3 +468,9 @@ Imported copies can explicitly replace a current review of the same exact reques
 ### Corporate recovery from an unreadable desktop store
 
 `--prepare-device-recovery` retains the complete original encrypted directory and activates an independently keyed empty store, without needing a standalone-profile backup. It runs before UI admission under single-instance exclusion. Normal startup resumes a committed activation; retries preserve newer work. A deliberate second replacement requires `--new-device-recovery`. Fresh sign-in and normal Settings archive import remain mandatory for corporate input and authority. [Operator procedure and acceptance](verification/corporate-device-recovery/README.md) distinguish preserved ciphertext from recovered work and retain actual provider/platform gates.
+
+## Desktop startup integrity
+
+The desktop build embeds its asset inventory in main before packaging. Startup validates runtime assets before opening profiles, storage maintenance or the renderer. A failed check records a local incident under Electron user data in `integrity/`, then exits with a repair instruction. Keep the application data folder when reinstalling. A repaired installation must pass a new check; recovery discards the previous global sign-in credential and remembered identity while retaining saved profiles and business data.
+
+These local incident/recovery records contain no business input or credentials and are not tamper-proof server audit logs. Packaged macOS verifies its bundle seal for post-sign native code; other inventoried assets use build digests. Runtime monitoring, evidence export, unreadable-audit recovery and signed-platform acceptance remain ID-04 work. [Implementation evidence and limits](verification/integrity-startup/README.md).
