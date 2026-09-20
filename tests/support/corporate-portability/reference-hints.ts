@@ -1,3 +1,4 @@
+import { mixedArchiveJourney } from "./mixed-archives";
 import { exportCommandSnapshot } from "./command-snapshots";
 import { switchSnapshots } from "./snapshots";
 import { expect, type Locator } from "@playwright/test";
@@ -363,6 +364,18 @@ export async function corporateReferenceHints(
       ).toBe(3);
       expect(await readFile(childFile.path)).toEqual(childFile.bytes);
       expect(await readFile(parentFile.path)).toEqual(parentFile.bytes);
+      if (options.archive)
+        await mixedArchiveJourney({
+          page,
+          scope,
+          moduleId,
+          retained: JSON.parse(childFile.bytes.toString()),
+          directory: options.directory,
+          surface: options.evidenceName!,
+          pool: options.pool,
+          exportFile: options.exportFile,
+          replaceDevice: options.replaceDevice,
+        });
     },
   });
 }

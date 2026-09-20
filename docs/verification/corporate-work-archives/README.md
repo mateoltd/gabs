@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction file acceptance is recorded below; mixed-source and interruption/authority transitions remain required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Archive-specific expiry/profile/process-interruption and multi-batch capacity remain required before this item is verified.
 
 ## Implemented boundary
 
@@ -66,9 +66,30 @@ Wide and 390px captures cover selection, masked export secrets and cleared impor
 | Desktop to web | [Wide](desktop-to-web-export.png), [narrow](desktop-to-web-export-narrow.png) | [Wide](desktop-to-web-import.png), [narrow](desktop-to-web-import-narrow.png) |
 | Desktop to desktop | [Wide](native-to-native-export.png), [narrow](native-to-native-export-narrow.png) | [Wide](native-to-native-import.png), [narrow](native-to-native-import-narrow.png) |
 
+## Mixed-module and retained-review acceptance
+
+The archive journey extends the real command-snapshot recovery workflow. A first device captures the linked command and parent; a second independently authenticated device imports those actual files, switches retained command reviews, resolves the original and submits a fresh correction after verifying its prerequisite. It then creates an independent Contacts draft through the normal editor and exports one encrypted archive containing both modules.
+
+The third device starts with empty storage and receives only the encrypted archive. Removing Contacts write access hides its draft while allowing the other module's authorized copies to be inspected; nothing is admitted during denial. After regrant and reload, all eight snapshots become selectable again. The fixture compares every retained input with its source, checks saved-review provenance, verifies deduplication and proves that local promotion receipts are absent. After selected admission and reload, the journal and active draft slots remain empty, all imported copies remain exact, no copy has promotion metadata and server records remain unchanged. Explicitly restoring the retained command obtains its cancelled original outcome and preserves its call and reference hints. Restoring and saving the Contacts draft creates exactly one Contacts record without adding command-module effects. Original archive bytes remain unchanged.
+
+This covers real mixed-module export, retained reviewed input, independent devices, additive admission and current original settlement. It does not establish every possible dependency graph or interrupted archive operation. The existing command preparation paths keep their previously verified explicit prerequisite/correction checks.
+
+The initial fixture retried a close action during a dialog's exit animation. It now waits for each dialog to disappear before closing the next. A subsequent fixture assumed that enabling offline storage immediately creates a module-state record; the empty-device assertion now accepts the valid absence of that record. No production source, UI styling or release bytes changed.
+
+Final mixed-archive verification:
+
+- Strict environment/type and dependency-boundary checks passed: `/tmp/gabs-mixed-archive-final-types.log`, `/tmp/gabs-mixed-archive-final-lint.log`.
+- **Four headless browser-suite journeys and two hidden/minimized native-suite journeys passed**: `/tmp/gabs-mixed-archive-final-web.log`, `/tmp/gabs-mixed-archive-final-native.log`. This includes the two mixed/retained journeys and all four original archive-transfer directions.
+- All eight new captures were visually inspected. Scoped Axe and narrow-overflow checks passed. Disposable databases/profiles were removed; historical regression captures were preserved.
+- This change adds acceptance tests only. The earlier 960-test/four-build result belongs to the unchanged production implementation; it is not a fresh regression/build run for this checkpoint. Actual provider/MFA and signed-platform acceptance remain separate.
+
+| Surface | Mixed export | Mixed import |
+| --- | --- | --- |
+| Browser | [Wide](web-mixed-export.png), [narrow](web-mixed-export-narrow.png) | [Wide](web-mixed-import.png), [narrow](web-mixed-import-narrow.png) |
+| Desktop | [Wide](native-mixed-export.png), [narrow](native-mixed-export-narrow.png) | [Wide](native-mixed-import.png), [narrow](native-mixed-import-narrow.png) |
+
 ## Required next work
 
-- Exercise actual mixed-module archives, retained imported copies and saved command/review provenance through export, admission and explicit restoration. The current product file journey covers Contacts request/draft input; format/collection tests cover broader shapes.
 - Exercise archive UI expiry, profile/scope transitions and process interruption, including interrupted native publication/admission and bounded multi-batch capacity. Unit guards and atomic-store tests provide implementation evidence, not all product acceptance.
 - Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
 

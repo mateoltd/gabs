@@ -11,7 +11,7 @@ import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 const passphrase = "portable archive acceptance passphrase";
 const dialog = (page: Page) =>
   page.getByRole("dialog", { name: "Saved-work archives", exact: true });
-async function capture(page: Page, name: string) {
+export async function captureArchive(page: Page, name: string) {
   const directory = resolve("docs/verification/corporate-work-archives");
   await mkdir(directory, { recursive: true });
   expect(
@@ -73,7 +73,7 @@ export async function exportArchive(options: {
   await archive
     .getByLabel("Confirm archive passphrase", { exact: true })
     .fill(passphrase);
-  await capture(page, `${options.evidenceName}-export`);
+  await captureArchive(page, `${options.evidenceName}-export`);
   const path = resolve(options.directory, "corporate-archive.json");
   await options.exportFile(
     archive.getByRole("button", {
@@ -151,7 +151,7 @@ export async function importArchive(options: {
   await archive
     .getByRole("checkbox", { name: /Contacts: saved request/ })
     .check();
-  await capture(page, `${options.evidenceName}-import`);
+  await captureArchive(page, `${options.evidenceName}-import`);
   const pool = new Pool({
     connectionString: process.env.MIGRATION_DATABASE_URL,
   });
