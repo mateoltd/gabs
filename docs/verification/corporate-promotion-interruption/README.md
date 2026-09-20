@@ -10,7 +10,8 @@ Scope: **ID-03-BACKUP-INTERRUPTION**, under ID-03-BACKUP-CORPORATE. Status: **ac
 | Local request/draft write before commit | Unit atomic-store failure checks | **Passed:** main and utility process death for both requests and drafts, retained source input and unrelated local work, then fresh-authority retry |
 | Local write committed, acknowledgement lost | Unit duplicate-promotion checks | **Passed:** main and utility process death for both requests and drafts, durable receipt plus restored request/draft, no duplicate import/restoration |
 | Permission revocation during restoration | Unit revoked authority and real UI denial before restoration | **Passed on web and desktop:** revoke an ordinary business role through the public administration API while settlement waits; retain input and require fresh grant/review |
-| Profile/session/expiry changes during restoration | Shared session/host guards and archive-admission lifecycle journeys | Ordinary-promotion-specific late completion, expiry and profile-lock acceptance, including an actual committed write whose UI acknowledgement is held |
+| Recovery session expires during restoration | Server recovery clock and five-minute MFA checks | **Passed on web and desktop:** expire the exact recovering server session while settlement waits, retain work and require fresh UI sign-in before explicit restoration |
+| Profile/session changes during restoration | Shared session/host guards and archive-admission lifecycle journeys; fresh session after expiry below | Ordinary-promotion-specific late completion under profile lock or replacement, including an actual committed write whose UI acknowledgement is held |
 
 The matrix does not reopen completed archive, device, collision/reference or snapshot gates. Source/schema/target transitions remain in the corporate parent until their existing evidence has been reconciled separately.
 
@@ -36,7 +37,7 @@ Captures are in [the archive evidence directory](../corporate-work-archives/READ
 
 ## Remaining acceptance
 
-The eight storage-boundary cases kill the process after the server reply has arrived. The separate settlement-response case below covers reply loss before consumption. Profile/session/expiry rows above remain open. No new full unit regression or desktop build is claimed for these test-only changes.
+The eight storage-boundary cases kill the process after the server reply has arrived. The separate settlement-response case below covers reply loss before consumption. Profile/session late-completion acceptance remains open; server-enforced expiry is verified below. No new full unit regression or desktop build is claimed for these test-only changes.
 
 Actual identity/OS providers, signed target platforms and physical power-loss durability remain parent gates. Controlled development authentication and native protection are stated limits. No UI design approval or whole-product parity is claimed.
 
@@ -68,3 +69,14 @@ Captures in the [archive evidence directory](../corporate-work-archives/README.m
 
 
 Final permission-run logs: `/tmp/gabs-promotion-authority-product.log`, `/tmp/gabs-promotion-authority-browser-regression.log`, `/tmp/gabs-promotion-authority-native-final.log`, `/tmp/gabs-promotion-authority-desktop-final.log`, `/tmp/gabs-promotion-authority-types-final.log`, `/tmp/gabs-promotion-authority-lint-final.log` and `/tmp/gabs-promotion-authority-format-final.log`. Reproduce with isolated PostgreSQL and `playwright test tests/e2e/corporate-promotion-revocation.spec.ts`, the browser archive lifecycle/profile specs, then the corresponding desktop specs plus `corporate-settlement-crash.spec.ts` under `playwright.desktop.config.ts`.
+
+
+## Server-enforced recovery expiry during settlement
+
+[The web/native expiry journey](../../../tests/e2e/corporate-promotion-expiry.spec.ts) holds the actual cancellation response before local restoration. [The fixture](../../../tests/support/corporate-portability/promotion-expiry.ts) matches the observed recovery-session identity to exactly one disposable database session and ages only its authentication time beyond the server's five-minute MFA recovery window. The real recovery endpoint returns `403 REAUTHENTICATION_REQUIRED`; no authorization body or receipt is synthesized, and the client clock is unchanged.
+
+Releasing the settlement reply cannot promote the imported request or report restoration success. Both copied inputs, the journal and an unrelated Projects draft remain exact. Explicit refresh under the expired session still hides restoration controls. The normal profile-switch/sign-in UI issues a different, fresh server session for the same account; returning to the company retains the saved work and requires explicit review/confirmation. One original cancellation audit exists before expiry and after recovery. The complete journey refuses the late original request, creates one independent draft effect and resumes the unrelated Projects draft with its saved name.
+
+Final verification on 20 September 2026: **two journeys passed**, headless web and hidden/minimized desktop, with strict root/browser/Node/preload/worker types, boundary/copy checks and scoped formatting. All **eight** expired/renewed wide/narrow captures were inspected; scoped Axe and overflow checks passed. The disposable database was removed. This is test-only work against production source `96cd0ca`; no new full unit regression or product build is claimed. Session aging is a controlled database condition using development authentication and controlled native keys, not actual-provider or elapsed wall-clock endurance acceptance. Profile-lock/replacement late completion and overall parity remain open.
+
+Reproduce with isolated PostgreSQL and `playwright test tests/e2e/corporate-promotion-expiry.spec.ts`. Logs: `/tmp/gabs-promotion-expiry-product.log`, `/tmp/gabs-promotion-expiry-types.log`, `/tmp/gabs-promotion-expiry-lint.log` and `/tmp/gabs-promotion-expiry-format-check.log`. Captures in the [archive evidence directory](../corporate-work-archives/README.md) use `{web|desktop}-promotion-session-{expired|renewed}.png` and corresponding `-narrow.png` files.
