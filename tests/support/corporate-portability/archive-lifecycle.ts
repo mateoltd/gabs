@@ -1,3 +1,4 @@
+import { holdServerReply, type ReplyGate } from "./server-reply";
 import { selectValue } from "../../e2e/controls.helpers";
 import { expect, type ElectronApplication, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
@@ -11,112 +12,8 @@ export interface ArchiveReviewContext {
   file: { path: string; bytes: Buffer };
   passphrase: string;
 }
-interface ReplyGate {
-  arrived(): Promise<void>;
-  release(): Promise<void>;
-  dispose(): Promise<void>;
-}
-interface NativeGate {
-  arrived: boolean;
-  done: boolean;
-  release(): void;
-}
-
-/** Hold an actual authenticated server response; do not fabricate its proof or body. */
-export async function holdArchiveAuthority(
-  page: Page,
-  app?: ElectronApplication,
-): Promise<ReplyGate> {
-  const path = "/api/v1/identity/recovery";
-  if (app) {
-    await app.evaluate((_, path) => {
-      const root = globalThis as typeof globalThis & {
-        archiveGate?: NativeGate;
-      };
-      const original = globalThis.fetch;
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const gate: NativeGate = { arrived: false, done: false, release };
-      root.archiveGate = gate;
-      globalThis.fetch = async (...args) => {
-        const response = await original(...args);
-        if (!gate.arrived && new URL(response.url).pathname === path) {
-          gate.arrived = true;
-          try {
-            await held;
-          } finally {
-            gate.done = true;
-            globalThis.fetch = original;
-          }
-        }
-        return response;
-      };
-    }, path);
-    return {
-      dispose: async () => {},
-      arrived: async () => {
-        await expect
-          .poll(() =>
-            app.evaluate(
-              () =>
-                (globalThis as typeof globalThis & { archiveGate?: NativeGate })
-                  .archiveGate?.arrived,
-            ),
-          )
-          .toBe(true);
-      },
-      release: async () => {
-        await app.evaluate(() =>
-          (
-            globalThis as typeof globalThis & { archiveGate?: NativeGate }
-          ).archiveGate?.release(),
-        );
-        await expect
-          .poll(() =>
-            app.evaluate(
-              () =>
-                (globalThis as typeof globalThis & { archiveGate?: NativeGate })
-                  .archiveGate?.done,
-            ),
-          )
-          .toBe(true);
-      },
-    };
-  }
-  let arrived!: () => void, release!: () => void, done!: () => void;
-  const waiting = new Promise<void>((resolve) => {
-    arrived = resolve;
-  });
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const finished = new Promise<void>((resolve) => {
-    done = resolve;
-  });
-  const pattern = `**${path}`;
-  await page.route(pattern, async (route) => {
-    try {
-      const response = await route.fetch();
-      arrived();
-      await held;
-      await route.fulfill({ response }).catch(() => {});
-    } finally {
-      done();
-    }
-  });
-  return {
-    dispose: async () => {
-      if (!page.isClosed()) await page.unroute(pattern);
-    },
-    arrived: () => waiting,
-    release: async () => {
-      release();
-      await finished;
-    },
-  };
-}
+export const holdArchiveAuthority = (page: Page, app?: ElectronApplication) =>
+  holdServerReply(page, "/api/v1/identity/recovery", app);
 
 /** Expired views and interrupted authorizations cannot admit copies; the raw file survives. */
 export async function archiveLifecycle(

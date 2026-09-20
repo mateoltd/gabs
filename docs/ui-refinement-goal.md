@@ -19,3 +19,5 @@ The protected reference is user intent and good product design, not every pixel 
 ## Observed deficiencies to carry into refinement
 
 - Corporate saved-work archive storage failures expose Electron's raw IPC prefix before the useful recovery instruction. Present a concise user-facing error while retaining technical details in diagnostics. [Wide and narrow failure evidence](verification/corporate-work-archives/README.md#durable-batch-admission-and-lost-acknowledgement), 20 September 2026. This observation does not start the queued goal or grant visual approval to the current dialog.
+
+- In-flight permission revocation correctly prevents corporate saved-work restoration, but the dialog gives a generic “connect and unlock” instruction rather than explaining lost permission. Distinguish access denial from connectivity/unlock failures and give an actionable next step. [Web denial evidence](verification/corporate-work-archives/web-promotion-permission-denied.png) and [native denial evidence](verification/corporate-work-archives/desktop-promotion-permission-denied.png), 20 September 2026. This records a deficiency without starting UI refinement.
