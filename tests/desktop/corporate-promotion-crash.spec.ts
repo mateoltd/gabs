@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { corporatePortability } from "../support/corporate-portability/journey";
 import { nativePortabilityDevice } from "../support/corporate-portability/devices";
-import { storageCrashWorker } from "../support/corporate-portability/storage-crash";
+import {
+  storageCrashWorker,
+  crashStoragePromotion,
+} from "../support/corporate-portability/storage-crash";
 import { promotionCrash } from "../support/corporate-portability/promotion-crash";
 
 for (const selection of ["request", "draft"] as const)
@@ -58,9 +61,15 @@ for (const selection of ["request", "draft"] as const)
                 return context.page;
               }
               return promotionCrash(context, {
-                crash,
-                worker,
-                device: device!,
+                committed: phase === "committed",
+                evidenceName: `native-promotion-${selection}-${target}-${phase}`,
+                interrupt: (digest) =>
+                  crashStoragePromotion(context, {
+                    digest,
+                    crash,
+                    worker,
+                    device: device!,
+                  }),
                 restart: async () => {
                   await device!.close();
                   device = await nativePortabilityDevice(destination, {

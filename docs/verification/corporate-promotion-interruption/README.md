@@ -6,7 +6,7 @@ Scope: **ID-03-BACKUP-INTERRUPTION**, under ID-03-BACKUP-CORPORATE. Status: **ac
 
 | Boundary | Existing evidence | Required product evidence |
 | --- | --- | --- |
-| Lost authoritative settlement reply | Real API and import unit tests retain the copy and retry the exact original identity | Main crash while an actual settlement response is held, then retry without duplicate server audit/effect |
+| Lost authoritative settlement reply | Real API and import unit tests retain the copy and retry the exact original identity | **Passed:** main crash while an actual cancellation response is held, then exact original retry without duplicate server audit/effect |
 | Local request/draft write before commit | Unit atomic-store failure checks | **Passed:** main and utility process death for both requests and drafts, retained source input and unrelated local work, then fresh-authority retry |
 | Local write committed, acknowledgement lost | Unit duplicate-promotion checks | **Passed:** main and utility process death for both requests and drafts, durable receipt plus restored request/draft, no duplicate import/restoration |
 | Permission revocation during restoration | Unit revoked authority and real UI denial before restoration | Hold actual in-flight restoration, deliver current denial, retain input and require fresh grant/review |
@@ -36,6 +36,19 @@ Captures are in [the archive evidence directory](../corporate-work-archives/READ
 
 ## Remaining acceptance
 
-The request cases kill the process after the server reply has arrived and before or after local persistence. They do **not** establish main death while the actual settlement reply itself is held/lost. That case and the permission/profile/session/expiry rows above remain open. No new full unit regression or desktop build is claimed for these test-only changes.
+The eight storage-boundary cases kill the process after the server reply has arrived. The separate settlement-response case below covers reply loss before consumption. Permission/profile/session/expiry rows above remain open. No new full unit regression or desktop build is claimed for these test-only changes.
 
 Actual identity/OS providers, signed target platforms and physical power-loss durability remain parent gates. Controlled development authentication and native protection are stated limits. No UI design approval or whole-product parity is claimed.
+
+
+## Lost authoritative cancellation reply
+
+The actual native Settings restoration calls the server with the exact exported create key and input. A temporary main-process fetch wrapper holds the real successful cancellation response before returning it to the application; it does not fabricate a body, status or authority proof. While that response remains held, an independent PostgreSQL read verifies exactly one committed cancellation audit. Original imports, journal and drafts remain unchanged, and no restoration success is shown.
+
+The test verifies that native windows remain hidden/minimized and unfocused, kills the observed main child process with `SIGKILL`, and restarts the same encrypted store. Fresh sign-in and explicit restoration recover the original decision; repeated import preserves the receipt and input. The shared journey checks late original-send refusal, one independent draft effect and resumption of an unrelated Projects draft.
+
+The first targeted journey and the final combined run passed. Final verification: **13 native cases** (the lost-reply case, eight promotion crashes and four archive-admission regressions), strict type/boundary/copy checks and scoped formatting. The final wide/narrow captures were inspected; scoped Axe and overflow checks passed. The isolated database was removed. Production source remains unchanged; this controlled cancellation-response case does not replace actual-provider, physical power-loss or the remaining in-flight authority-transition gates. No new browser suite, full unit regression or product build is claimed.
+
+Final command: `playwright test --config playwright.desktop.config.ts tests/desktop/corporate-settlement-crash.spec.ts tests/desktop/corporate-promotion-crash.spec.ts tests/desktop/corporate-archive-admission.spec.ts`, using the isolated PostgreSQL runner. Local logs: `/tmp/gabs-settlement-crash-native-final.log`, `/tmp/gabs-settlement-crash-types.log`, `/tmp/gabs-settlement-crash-lint.log` and `/tmp/gabs-settlement-crash-format-check.log`. Captures: [wide](../corporate-work-archives/native-promotion-settlement-reply-lost.png) and [narrow](../corporate-work-archives/native-promotion-settlement-reply-lost-narrow.png).
+
+Fixture: [native settlement crash](../../../tests/desktop/corporate-settlement-crash.spec.ts), [actual-response hold and process termination](../../../tests/support/corporate-portability/settlement-crash.ts), and [shared original-input/retry checks](../../../tests/support/corporate-portability/promotion-crash.ts). The storage crash fixture supplies its own interruption callback to the same recovery checks, retaining its eight original cases.

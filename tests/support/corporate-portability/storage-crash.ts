@@ -1,4 +1,7 @@
-import { writeFile } from "node:fs/promises";
+import { expect } from "@playwright/test";
+import type { RestorationContext } from "./journey";
+import type { nativePortabilityDevice } from "./devices";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export type StorageCrash = {
@@ -54,4 +57,67 @@ require(${JSON.stringify(resolve("apps/desktop/dist/cache-worker.cjs"))});
     { mode: 0o600 },
   );
   return { entry, arm, marker };
+}
+
+/** Terminate only the observed owner/utility at the selected real write boundary. */
+export async function crashStoragePromotion(
+  context: RestorationContext,
+  options: {
+    digest: string;
+    crash: StorageCrash;
+    worker: Awaited<ReturnType<typeof storageCrashWorker>>;
+    device: Awaited<ReturnType<typeof nativePortabilityDevice>>;
+  },
+) {
+  const { page, scope } = context;
+  const { digest } = options;
+  const dialog = () =>
+    page.getByRole("dialog", { name: "Imported saved work", exact: true });
+  const child = options.device.app.process();
+  const mainPid = await options.device.app.evaluate(() => process.pid);
+  await writeFile(
+    options.worker.arm,
+    JSON.stringify({
+      key: `${scope.userId}/${scope.workspaceId}/module-state`,
+      mainPid,
+      promotion: digest,
+    }),
+  );
+  await dialog()
+    .getByRole("button", { name: "Confirm restoration", exact: true })
+    .click()
+    .catch(() => {});
+  await expect
+    .poll(async () => {
+      try {
+        return JSON.parse(await readFile(options.worker.marker, "utf8"));
+      } catch {
+        return undefined;
+      }
+    })
+    .toMatchObject({ ...options.crash, parent: mainPid });
+  const marker = JSON.parse(await readFile(options.worker.marker, "utf8")) as {
+    pid: number;
+  };
+  await expect
+    .poll(() => {
+      try {
+        process.kill(marker.pid, 0);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        return false;
+      }
+    })
+    .toBe(false);
+  if (options.crash.target === "main")
+    await expect.poll(() => child.signalCode).toBe("SIGKILL");
+  else {
+    expect(child.exitCode).toBeNull();
+    expect(child.signalCode).toBeNull();
+    await expect(dialog().getByRole("alert")).toContainText(
+      "Protected storage",
+    );
+    await expect(dialog()).not.toContainText("Saved work restored for review.");
+  }
 }

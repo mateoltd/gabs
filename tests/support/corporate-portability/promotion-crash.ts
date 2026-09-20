@@ -1,9 +1,8 @@
 import { expect } from "@playwright/test";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { selectValue } from "../../e2e/controls.helpers";
 import type { RestorationContext } from "./journey";
-import type { StorageCrash, storageCrashWorker } from "./storage-crash";
 import { nativePortabilityDevice, portabilityStorage } from "./devices";
 import { captureArchive } from "./archives";
 type NativeDevice = Awaited<ReturnType<typeof nativePortabilityDevice>>;
@@ -11,9 +10,9 @@ type NativeDevice = Awaited<ReturnType<typeof nativePortabilityDevice>>;
 export async function promotionCrash(
   context: RestorationContext,
   options: {
-    crash: StorageCrash;
-    worker: Awaited<ReturnType<typeof storageCrashWorker>>;
-    device: NativeDevice;
+    committed: boolean;
+    evidenceName: string;
+    interrupt(digest: string): Promise<void>;
     restart(): Promise<NativeDevice>;
   },
 ) {
@@ -67,52 +66,7 @@ export async function promotionCrash(
     .getByRole("button", { name: "Restore for review", exact: true })
     .click();
   const before = await portabilityStorage(page, scope);
-  const child = options.device.app.process();
-  const mainPid = await options.device.app.evaluate(() => process.pid);
-  await writeFile(
-    options.worker.arm,
-    JSON.stringify({
-      key: `${scope.userId}/${scope.workspaceId}/module-state`,
-      mainPid,
-      promotion: digest,
-    }),
-  );
-  await confirm()
-    .click()
-    .catch(() => {});
-  await expect
-    .poll(async () => {
-      try {
-        return JSON.parse(await readFile(options.worker.marker, "utf8"));
-      } catch {
-        return undefined;
-      }
-    })
-    .toMatchObject({ ...options.crash, parent: mainPid });
-  const marker = JSON.parse(await readFile(options.worker.marker, "utf8")) as {
-    pid: number;
-  };
-  await expect
-    .poll(() => {
-      try {
-        process.kill(marker.pid, 0);
-        return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-        return false;
-      }
-    })
-    .toBe(false);
-  if (options.crash.target === "main")
-    await expect.poll(() => child.signalCode).toBe("SIGKILL");
-  else {
-    expect(child.exitCode).toBeNull();
-    expect(child.signalCode).toBeNull();
-    await expect(dialog().getByRole("alert")).toContainText(
-      "Protected storage",
-    );
-    await expect(dialog()).not.toContainText("Saved work restored for review.");
-  }
+  await options.interrupt(digest);
   const audit = async () => {
     if (!input.entry) return;
     const pool = new Pool({
@@ -153,7 +107,7 @@ export async function promotionCrash(
   for (const entry of before.journal)
     expect(after.journal.find((item) => item.id === entry.id)).toEqual(entry);
   const receipt = after.recoveryImports![digest].promotion;
-  if (options.crash.phase === "before") {
+  if (!options.committed) {
     expect(receipt).toBeUndefined();
     expect(after.drafts).toEqual(before.drafts);
     expect(after.journal).toEqual(before.journal);
@@ -183,7 +137,7 @@ export async function promotionCrash(
   await page
     .getByRole("button", { name: "Import saved work", exact: true })
     .click();
-  if (options.crash.phase === "before") {
+  if (!options.committed) {
     await section()
       .getByRole("button", { name: "Restore for review", exact: true })
       .click();
@@ -213,10 +167,6 @@ export async function promotionCrash(
   expect(repeated.drafts).toEqual(restored.drafts);
   expect(await readFile(context.path)).toEqual(bytes);
   await audit();
-  await captureArchive(
-    page,
-    `native-promotion-${input.selection}-${options.crash.target}-${options.crash.phase}`,
-    false,
-  );
+  await captureArchive(page, options.evidenceName, false);
   return page;
 }
