@@ -1,3 +1,5 @@
+import { exportCommandSnapshot } from "./command-snapshots";
+import { switchSnapshots } from "./snapshots";
 import { expect, type Locator } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, readFile } from "node:fs/promises";
@@ -12,6 +14,7 @@ export async function corporateReferenceHints(
   options: Parameters<typeof corporatePortability>[0] & {
     pool: Pool;
     target: "original" | "separate";
+    snapshots?: boolean;
   },
 ) {
   await collisionCommandJourney({
@@ -67,6 +70,18 @@ export async function corporateReferenceHints(
       );
       expect(JSON.parse(childFile.bytes.toString()).entry).toEqual(child);
       await close(dialog);
+      const commandName = options.snapshots
+        ? "Second command snapshot"
+        : "Linked effect";
+      const secondFile = options.snapshots
+        ? await exportCommandSnapshot({
+            page,
+            moduleName: name,
+            name: commandName,
+            exportFile,
+          })
+        : undefined;
+      if (secondFile) await settings();
       await page
         .getByRole("button", { name: /^Saved records and drafts/ })
         .click();
@@ -110,7 +125,13 @@ export async function corporateReferenceHints(
         await imported
           .getByLabel("Saved-work recovery file", { exact: true })
           .setInputFiles(path);
-        await imported
+        const copy =
+          secondFile && path === parentFile.path
+            ? imported
+                .locator("section")
+                .filter({ has: page.getByText(parent.id, { exact: true }) })
+            : imported;
+        await copy
           .getByRole("button", { name: "Restore for review", exact: true })
           .click();
         if (path === childFile.path) {
@@ -133,6 +154,19 @@ export async function corporateReferenceHints(
             exact: true,
           }),
         ).toBeEnabled();
+        if (secondFile && path === childFile.path) {
+          const evidence = resolve("docs/verification/imported-snapshots");
+          await mkdir(evidence, { recursive: true });
+          await switchSnapshots({
+            page,
+            scope,
+            first: childFile,
+            second: secondFile,
+            commandName,
+            evidence,
+            surface: `${options.evidenceName}-command-${options.target}`,
+          });
+        }
         await close(imported);
       };
       await restore(childFile.path);
@@ -220,9 +254,13 @@ export async function corporateReferenceHints(
       if (options.target === "separate") await saveReview.click();
       else await expect(saveReview).toBeDisabled(); // The blocked attempt already saved this unchanged review.
       await expect(opened.review).toContainText("Review saved on this device.");
-      const evidence = resolve("docs/verification/imported-reference-hints");
+      const evidence = resolve(
+        options.snapshots
+          ? "docs/verification/imported-snapshots"
+          : "docs/verification/imported-reference-hints",
+      );
       await mkdir(evidence, { recursive: true });
-      const prefix = `${options.evidenceName}-${options.target}`;
+      const prefix = `${options.evidenceName}-${options.snapshots ? "command-review-" : ""}${options.target}`;
       await saveReview.scrollIntoViewIfNeeded();
       await page.screenshot({
         path: resolve(evidence, `${prefix}.png`),
@@ -282,7 +320,7 @@ export async function corporateReferenceHints(
         (entry) => entry.id === restored.supersededBy,
       )!;
       expect(corrected.call.input).toEqual({
-        name: "Linked effect",
+        name: commandName,
         targetId: target,
       });
       expect(restored.call).toEqual(child.call);
@@ -311,7 +349,7 @@ export async function corporateReferenceHints(
         [
           "Existing corporate record",
           "Separate recovered record",
-          `Linked effect: ${options.target === "separate" ? "Separate recovered record" : "Existing corporate record"}`,
+          `${commandName}: ${options.target === "separate" ? "Separate recovered record" : "Existing corporate record"}`,
         ].sort(),
       );
       expect(

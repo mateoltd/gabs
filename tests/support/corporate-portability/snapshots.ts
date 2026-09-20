@@ -56,7 +56,8 @@ export async function switchSnapshots(options: {
   scope: { userId: string; workspaceId: string };
   first: { path: string; bytes: Buffer };
   second: { path: string; bytes: Buffer };
-  recordChoice: "original" | "reassigned";
+  recordChoice?: "original" | "reassigned";
+  commandName?: string;
   evidence: string;
   surface: string;
 }) {
@@ -87,11 +88,14 @@ export async function switchSnapshots(options: {
       name: "Confirm restoration",
       exact: true,
     });
-    await selectValue(page, "Record to review", options.recordChoice);
+    if (options.recordChoice)
+      await selectValue(page, "Record to review", options.recordChoice);
     await expect(confirm).toBeDisabled();
     await dialog.getByText("Compare saved input", { exact: true }).click();
-    await expect(dialog).toContainText("Draft reference edit");
-    await expect(dialog).toContainText(snapshotName);
+    await expect(dialog).toContainText(
+      options.commandName ? "Linked effect" : "Draft reference edit",
+    );
+    await expect(dialog).toContainText(options.commandName ?? snapshotName);
     const choice = dialog.getByRole("combobox", {
       name: "Existing review",
       exact: true,
@@ -159,8 +163,15 @@ export async function switchSnapshots(options: {
         ([key, copy]) =>
           key !== firstDigest &&
           key !== secondDigest &&
-          copy.input.selection === "draft" &&
-          copy.input.review?.comparison?.local.name === "Draft reference edit",
+          (options.commandName
+            ? copy.input.selection === "request" &&
+              (
+                (copy.input.review?.input ??
+                  copy.input.entry.call.input) as Record<string, unknown>
+              ).name === "Linked effect"
+            : copy.input.selection === "draft" &&
+              copy.input.review?.comparison?.local.name ===
+                "Draft reference edit"),
       )?.[0];
       expect(retained).toBeTruthy();
       await dialog
