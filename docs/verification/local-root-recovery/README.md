@@ -1,6 +1,6 @@
 # Retained-original local-profile recovery
 
-Scope: ID-03-BACKUP-RECOVER, the in-place recovery engineering slice of ID-03-BACKUP-RESTORE. Actual OS-provider, physical biometric and signed-platform acceptance remain required. Corporate saved-work recovery is separate.
+Scope: ID-03-BACKUP-RECOVER, the in-place recovery engineering slice of ID-03-BACKUP-RESTORE. Actual OS-provider, physical biometric and signed-platform acceptance remain required. Corporate saved-work recovery is separate. Company-only devices can use [empty-store preparation](../corporate-device-recovery/README.md) without a standalone archive, followed by fresh sign-in and explicit corporate archive import.
 
 ## Operator procedure
 

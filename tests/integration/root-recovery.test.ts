@@ -17,8 +17,9 @@ import { createVaultEngine } from "../../packages/client/src/identity/local-vaul
 import { ProtectedFiles } from "../../apps/desktop/src/main/identity/protected-files";
 import { openManagedStorage } from "../../apps/desktop/src/main/identity/storage-key";
 import {
+  prepareDeviceRecovery,
   recoverLocalProfiles,
-  resumeLocalRecovery,
+  resumeStorageRecovery,
 } from "../../apps/desktop/src/main/storage/recovery";
 import { writeStorageArchive } from "../../apps/desktop/src/main/storage/archive";
 import { stageLocalBackup } from "../../apps/desktop/src/utility/storage/backup";
@@ -194,6 +195,17 @@ async function fixture() {
     host,
     read,
     unchanged,
+    loseKey() {
+      provider = randomBytes(32);
+    },
+    async readEmpty() {
+      const active = await openManagedStorage({
+        ...host,
+        files: filesFor(root),
+        rotate: false,
+      });
+      return { db: db!, key: Buffer.from(active.secret, "base64") };
+    },
     unavailable() {
       available = false;
     },
@@ -237,7 +249,7 @@ for (const phase of ["intent", "retained", "activated", "cleanup"]) {
       );
       await f.host.close();
     }
-    const result = await resumeLocalRecovery(f.host);
+    const result = await resumeStorageRecovery(f.host);
     await f.unchanged(result!.retained);
     const { opened } = await f.read();
     expect(opened.data).toMatchObject({
@@ -253,7 +265,7 @@ for (const phase of ["intent", "retained", "activated", "cleanup"]) {
       },
     });
     await f.host.close();
-    expect(await resumeLocalRecovery(f.host)).toBeUndefined();
+    expect(await resumeStorageRecovery(f.host)).toBeUndefined();
   });
 }
 it("recognizes an already recovered archive and preserves edits; explicit new recovery retains them separately", async () => {
@@ -316,7 +328,7 @@ it("fails closed on a malformed recovery intent without opening or moving storag
     `${f.root}.recovery.json`,
     JSON.stringify({ version: 1, id: "../../other" }),
   );
-  await expect(resumeLocalRecovery(f.host)).rejects.toThrow(
+  await expect(resumeStorageRecovery(f.host)).rejects.toThrow(
     "Invalid local recovery",
   );
   await f.unchanged(f.root);
@@ -327,7 +339,7 @@ it("abandons a durably recorded preparation without moving the original", async 
   fault.phase = "preparing";
   await expect(recoverLocalProfiles(f.options)).rejects.toThrow("Interrupted");
   fault.phase = "";
-  expect(await resumeLocalRecovery(f.host)).toBeUndefined();
+  expect(await resumeStorageRecovery(f.host)).toBeUndefined();
   await f.unchanged(f.root);
   expect(
     (await readdir(f.dir)).some((name) => name.includes(".recovery")),
@@ -341,7 +353,7 @@ it("preserves an unexpected active directory instead of replacing it on resume",
   fault.phase = "";
   await mkdir(f.root);
   await writeFile(join(f.root, "newer-work"), "preserve this directory");
-  await expect(resumeLocalRecovery(f.host)).rejects.toThrow(
+  await expect(resumeStorageRecovery(f.host)).rejects.toThrow(
     "Recovery paths changed",
   );
   expect(await readFile(join(f.root, "newer-work"), "utf8")).toBe(
@@ -366,9 +378,117 @@ it("refuses a staged-directory link without touching the target or original", as
   const held = `${staged}.held`;
   await rename(staged, held);
   await symlink(held, staged, "junction");
-  await expect(resumeLocalRecovery(f.host)).rejects.toThrow(
+  await expect(resumeStorageRecovery(f.host)).rejects.toThrow(
     "ordinary directories",
   );
   await f.unchanged(f.root);
   expect(existsSync(join(held, "cache-secret.bin"))).toBe(true);
+});
+
+for (const phase of [
+  "none",
+  "preparing",
+  "intent",
+  "retained",
+  "activated",
+  "cleanup",
+]) {
+  it(`prepares corporate recovery without an archive and retains original bytes through ${phase}`, async () => {
+    const f = await fixture();
+    await expect(
+      f.host.filesFor(f.root).read("cache-secret"),
+    ).rejects.toThrow();
+    fault.phase = phase;
+    if (phase === "none") await prepareDeviceRecovery(f.host);
+    else
+      await expect(prepareDeviceRecovery(f.host)).rejects.toThrow(
+        "Interrupted",
+      );
+    fault.phase = "";
+    if (phase === "preparing") {
+      await f.unchanged(f.root);
+      await resumeStorageRecovery(f.host);
+      await prepareDeviceRecovery(f.host);
+    } else await resumeStorageRecovery(f.host);
+    const retained = (await readdir(f.dir)).filter((name) =>
+      name.startsWith("secure-cache.retained-"),
+    );
+    expect(retained).toHaveLength(1);
+    await f.unchanged(join(f.dir, retained[0]));
+    const { db, key } = await f.readEmpty();
+    expect(db.prepare("SELECT COUNT(*) AS count FROM cache").get()).toEqual({
+      count: 0,
+    });
+    expect(await localVaultStore(db, () => {}).list()).toEqual([]);
+    expect(await f.host.filesFor(f.root).read("credentials")).toBeUndefined();
+    db.prepare("INSERT INTO cache VALUES(?,?)").run(
+      "account/company/pending",
+      sealCacheValue(
+        key,
+        "account/company/pending",
+        Buffer.from(JSON.stringify("newer input")),
+      ),
+    );
+    await f.host.close();
+    const retry = await prepareDeviceRecovery(f.host);
+    expect(retry.alreadyRecovered).toBe(true);
+    expect(retry.retained).toBe(join(f.dir, retained[0]));
+    const after = await f.readEmpty();
+    const row = after.db
+      .prepare("SELECT payload FROM cache WHERE key=?")
+      .get("account/company/pending") as { payload: Buffer };
+    expect(
+      openCacheValue(
+        after.key,
+        "account/company/pending",
+        row.payload,
+      ).toString(),
+    ).toBe(JSON.stringify("newer input"));
+    await f.host.close();
+    expect(
+      (await readdir(f.dir)).filter((name) => name.includes(".recovery")),
+    ).toEqual([]);
+    await f.unchanged(retry.retained);
+  });
+}
+it("refuses empty recovery without a current provider and requires explicit replacement after a second key loss", async () => {
+  const unavailable = await fixture();
+  unavailable.unavailable();
+  await expect(prepareDeviceRecovery(unavailable.host)).rejects.toThrow(
+    "Protected storage",
+  );
+  await unavailable.unchanged(unavailable.root);
+  expect(existsSync(`${unavailable.root}.recovery.json`)).toBe(false);
+  const f = await fixture();
+  const original = await prepareDeviceRecovery(f.host);
+  f.loseKey();
+  await expect(prepareDeviceRecovery(f.host)).rejects.toThrow();
+  expect(
+    (await readdir(f.dir)).filter((name) => name.includes(".retained-")),
+  ).toHaveLength(1);
+  const again = await prepareDeviceRecovery({
+    ...f.host,
+    forceNewRecovery: true,
+  });
+  expect(again.retained).not.toBe(original.retained);
+  await f.unchanged(original.retained);
+  expect(
+    (await f.readEmpty()).db
+      .prepare("SELECT COUNT(*) AS count FROM cache")
+      .get(),
+  ).toEqual({ count: 0 });
+});
+
+it("refuses an ambiguous ready source without moving the original", async () => {
+  const f = await fixture();
+  fault.phase = "intent";
+  await expect(recoverLocalProfiles(f.options)).rejects.toThrow("Interrupted");
+  fault.phase = "";
+  const journal = `${f.root}.recovery.json`;
+  const intent = JSON.parse(await readFile(journal, "utf8"));
+  await writeFile(journal, JSON.stringify({ ...intent, empty: true }));
+  await expect(resumeStorageRecovery(f.host)).rejects.toThrow(
+    "Invalid local recovery",
+  );
+  await f.unchanged(f.root);
 });

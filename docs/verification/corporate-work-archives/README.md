@@ -256,4 +256,4 @@ Final verification:
 
 ## Required parent work
 
-ID-03-BACKUP-ARCHIVE is verified within the recorded implementation-specific evidence. ID-03-BACKUP-CORPORATE remains active for broader recovery graphs/source transitions, promotion interruption and corporate old-key/unreadable-store recovery. Actual provider/MFA, signed-platform and physical/filesystem durability acceptance remain required. No credentials or offline authority may be restored. Overall parity and later UI refinement remain open.
+ID-03-BACKUP-ARCHIVE is verified within the recorded implementation-specific evidence. [ID-03-BACKUP-DEVICE](../corporate-device-recovery/README.md) now verifies retained-original preparation and fresh-authority archive restoration after key loss or database damage. ID-03-BACKUP-CORPORATE remains active for the remaining recovery graphs/source transitions and promotion interruption. Actual provider/MFA, signed-platform and physical/filesystem durability acceptance remain required. No credentials or offline authority may be restored. Overall parity and later UI refinement remain open.

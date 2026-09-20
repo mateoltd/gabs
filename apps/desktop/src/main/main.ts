@@ -1,5 +1,9 @@
 import { cleanImportStaging } from "./storage/import-staging";
-import { recoverLocalProfiles, resumeLocalRecovery } from "./storage/recovery";
+import {
+  prepareDeviceRecovery,
+  recoverLocalProfiles,
+  resumeStorageRecovery,
+} from "./storage/recovery";
 import { restoreLocalProfiles } from "./storage/restore";
 import { createLocalBackup } from "./storage/backup";
 import { readBackupPassphrase } from "./storage/passphrase";
@@ -1450,26 +1454,44 @@ async function start() {
   const restore = app.commandLine.hasSwitch("restore-local-profiles");
   const recover = app.commandLine.hasSwitch("recover-local-profiles");
   const forceNewRecovery = app.commandLine.hasSwitch("new-local-recovery");
+  const recoverDevice = app.commandLine.hasSwitch("prepare-device-recovery");
+  const forceNewDevice = app.commandLine.hasSwitch("new-device-recovery");
   if (!app.requestSingleInstanceLock()) {
-    if (backup || restore || recover || forceNewRecovery) {
+    if (
+      backup ||
+      restore ||
+      recover ||
+      forceNewRecovery ||
+      recoverDevice ||
+      forceNewDevice
+    ) {
       process.stderr.write(
-        "Quit the running application before local profile maintenance.\n",
+        "Quit the running application before storage maintenance.\n",
       );
       app.exit(1);
     } else app.quit();
     return;
   }
   await app.whenReady();
-  if (minimizedTest || backup || restore || recover || forceNewRecovery)
-    app.dock?.hide();
-  const maintenance = backup || restore || recover;
   if (
-    [backup, restore, recover].filter(Boolean).length > 1 ||
+    minimizedTest ||
+    backup ||
+    restore ||
+    recover ||
+    forceNewRecovery ||
+    recoverDevice ||
+    forceNewDevice
+  )
+    app.dock?.hide();
+  const maintenance = backup || restore || recover || recoverDevice;
+  if (
+    [backup, restore, recover, recoverDevice].filter(Boolean).length > 1 ||
     (forceNewRecovery && !recover) ||
+    (forceNewDevice && !recoverDevice) ||
     (maintenance && app.commandLine.hasSwitch("rotate-storage-key"))
   ) {
     process.stderr.write(
-      "Choose one maintenance operation. New recovery requires --recover-local-profiles.\n",
+      "Choose one maintenance operation. Each new-recovery switch requires its matching recovery operation.\n",
     );
     app.exit(1);
     return;
@@ -1483,17 +1505,17 @@ async function start() {
   };
   try {
     await cleanImportStaging(root());
-    const resumed = await resumeLocalRecovery(recoveryHost);
-    if (resumed && recover) {
+    const resumed = await resumeStorageRecovery(recoveryHost);
+    if (resumed && (recover || recoverDevice)) {
       process.stdout.write(
-        `Pending local recovery completed. Original storage retained at ${resumed.retained}\n`,
+        `Pending storage recovery completed. Original storage retained at ${resumed.retained}\n`,
       );
       app.exit(0);
       return;
     }
   } catch {
     const message =
-      "Local recovery needs attention. Unlock protected storage and retry; retain all recovery files.";
+      "Storage recovery needs attention. Unlock protected storage and retry; retain all recovery files.";
     process.stderr.write(`${message}\n`);
     if (!minimizedTest && !maintenance)
       await dialog.showMessageBox({ type: "error", message });
@@ -1501,6 +1523,29 @@ async function start() {
     return;
   }
   if (maintenance) {
+    if (recoverDevice) {
+      try {
+        const result = await prepareDeviceRecovery({
+          ...recoveryHost,
+          forceNewRecovery: forceNewDevice,
+        });
+        process.stdout.write(
+          result.alreadyRecovered
+            ? "Device recovery was already prepared. Newer work was preserved.\n"
+            : `Fresh protected storage prepared. Original encrypted storage retained at ${result.retained}\n`,
+        );
+        process.stdout.write(
+          "Sign in again and explicitly import your corporate saved-work archive. No saved work or access was restored by this command. Keep the retained original for separate local-profile or key recovery.\n",
+        );
+        app.exit(0);
+      } catch {
+        process.stderr.write(
+          "Device recovery preparation failed. Unlock current protected storage and retain all original and pending recovery files. Retry safely; use --new-device-recovery only for an explicit second replacement.\n",
+        );
+        app.exit(1);
+      }
+      return;
+    }
     try {
       const path = app.commandLine.getSwitchValue(
         backup
@@ -1693,7 +1738,11 @@ async function start() {
           arg === "--recover-local-profiles" ||
           arg.startsWith("--recover-local-profiles=") ||
           arg === "--new-local-recovery" ||
-          arg.startsWith("--new-local-recovery="),
+          arg.startsWith("--new-local-recovery=") ||
+          arg === "--prepare-device-recovery" ||
+          arg.startsWith("--prepare-device-recovery=") ||
+          arg === "--new-device-recovery" ||
+          arg.startsWith("--new-device-recovery="),
       )
     )
       return;

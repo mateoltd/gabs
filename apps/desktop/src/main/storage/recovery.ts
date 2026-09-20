@@ -11,14 +11,15 @@ import type { StorageRotationSource } from "../../utility/storage/rotation";
 import { readStorageArchiveDetails } from "./archive";
 import { readJournal, publishJournal, syncDirectory } from "./journal";
 
-interface RecoveryIntent {
+interface RecoveryBase {
   phase: "ready";
   version: 1;
   id: string;
-  archive: string;
   original: { device: string; inode: string };
 }
-type PreparationIntent = Omit<RecoveryIntent, "phase" | "archive"> & {
+type RecoverySource = { archive: string } | { empty: true };
+type RecoveryIntent = RecoveryBase & RecoverySource;
+type PreparationIntent = Omit<RecoveryBase, "phase"> & {
   phase: "preparing";
 };
 type RecoveryRecord = RecoveryIntent | PreparationIntent;
@@ -38,6 +39,7 @@ export interface RecoveryResult {
   alreadyRecovered: boolean;
 }
 const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/;
+// Preserve the existing marker name so interrupted local-profile recovery stays compatible.
 const marker = "local-recovery.json";
 const paths = (root: string, id: string) => ({
   staged: `${resolve(root)}.recovery-${id}`,
@@ -61,6 +63,23 @@ function sameDirectory(
 ) {
   return a?.device === b.device && a.inode === b.inode;
 }
+function validSource(value: object): boolean {
+  const v = value as { archive?: unknown; empty?: unknown };
+  return (
+    (typeof v.archive === "string" &&
+      /^[\da-f]{64}$/.test(v.archive) &&
+      v.empty === undefined) ||
+    (v.empty === true && v.archive === undefined)
+  );
+}
+function sourceOf(value: RecoveryIntent): RecoverySource {
+  return "archive" in value ? { archive: value.archive } : { empty: true };
+}
+function sameSource(a: RecoveryIntent, b: RecoverySource) {
+  return "archive" in a && "archive" in b
+    ? a.archive === b.archive
+    : "empty" in a && "empty" in b;
+}
 function parse(value: unknown): RecoveryRecord {
   const v = value as RecoveryRecord | undefined;
   if (
@@ -69,8 +88,7 @@ function parse(value: unknown): RecoveryRecord {
     typeof v.id !== "string" ||
     !uuid.test(v.id) ||
     (v.phase !== "preparing" && v.phase !== "ready") ||
-    (v.phase === "ready" &&
-      (typeof v.archive !== "string" || !/^[\da-f]{64}$/.test(v.archive))) ||
+    (v.phase === "ready" && !validSource(v)) ||
     !v.original ||
     typeof v.original.device !== "string" ||
     !/^\d{1,30}$/.test(v.original.device) ||
@@ -82,7 +100,7 @@ function parse(value: unknown): RecoveryRecord {
     );
   const base = { version: 1 as const, id: v.id, original: { ...v.original } };
   return v.phase === "ready"
-    ? { ...base, phase: "ready", archive: v.archive }
+    ? { ...base, phase: "ready", ...sourceOf(v) }
     : { ...base, phase: "preparing" };
 }
 async function readIntent(path: string): Promise<RecoveryRecord | undefined> {
@@ -93,7 +111,7 @@ function matches(a: RecoveryRecord | undefined, b: RecoveryIntent) {
   return (
     a?.phase === "ready" &&
     a.id === b.id &&
-    a.archive === b.archive &&
+    sameSource(a, b) &&
     sameDirectory(a.original, b.original)
   );
 }
@@ -130,7 +148,7 @@ async function abandonPreparation(
 }
 
 /** Finish the durable intent before admitting credentials, UI or business work. Never roll back a new root. */
-export async function resumeLocalRecovery(
+export async function resumeStorageRecovery(
   host: RecoveryHost,
 ): Promise<RecoveryResult | undefined> {
   const root = resolve(host.root);
@@ -182,21 +200,36 @@ export async function resumeLocalRecovery(
   return { retained, alreadyRecovered: false };
 }
 
+type LocalRecovery = {
+  archive: string;
+  passphrase: string;
+  prepare(path: string, secret: string, source: RestoreSource): Promise<void>;
+};
+
 /** Explicit replacement recovery; the complete original directory is retained, never decrypted or deleted. */
-export async function recoverLocalProfiles(
-  options: RecoveryHost & {
-    archive: string;
-    passphrase: string;
-    prepare(path: string, secret: string, source: RestoreSource): Promise<void>;
-    forceNewRecovery?: boolean;
-  },
+export function recoverLocalProfiles(
+  options: RecoveryHost & LocalRecovery & { forceNewRecovery?: boolean },
+) {
+  return recoverStorage(options, options);
+}
+
+/** Prepare an empty protected store; corporate input must later pass the normal authenticated import flow. */
+export function prepareDeviceRecovery(
+  options: RecoveryHost & { forceNewRecovery?: boolean },
+) {
+  return recoverStorage(options);
+}
+
+async function recoverStorage(
+  options: RecoveryHost & { forceNewRecovery?: boolean },
+  local?: LocalRecovery,
 ): Promise<RecoveryResult> {
   const root = resolve(options.root);
   if (await readIntent(`${root}.recovery.json`))
     throw Error("Resume the pending recovery before starting another.");
   const original = await directory(root);
   if (!original)
-    throw Error("Use additive restoration for a new device store.");
+    throw Error("Existing storage is required for replacement recovery.");
   const id = randomUUID();
   const { staged, journal } = paths(root, id);
   await publishJournal(journal, {
@@ -211,16 +244,20 @@ export async function recoverLocalProfiles(
   try {
     await mkdir(staged, { mode: 0o700 });
     const extracted = resolve(staged, "archive.sqlite.protected");
-    const archive = await readStorageArchiveDetails({
-      archive: options.archive,
-      destination: extracted,
-      passphrase: options.passphrase,
-    });
-    archiveKey = archive.secret;
+    let source: RecoverySource = { empty: true };
+    if (local) {
+      const archive = await readStorageArchiveDetails({
+        archive: local.archive,
+        destination: extracted,
+        passphrase: local.passphrase,
+      });
+      archiveKey = archive.secret;
+      source = { archive: archive.digest };
+    }
     const previous = await readIntent(resolve(root, marker));
     if (
       previous?.phase === "ready" &&
-      previous.archive === archive.digest &&
+      sameSource(previous, source) &&
       !options.forceNewRecovery
     ) {
       await verify(options, root);
@@ -229,14 +266,19 @@ export async function recoverLocalProfiles(
         alreadyRecovered: true,
       };
     }
-    await options.prepare(
-      resolve(staged, `workspace-${id}.sqlite`),
-      secret.toString("base64"),
-      { path: extracted, secret: archiveKey.toString("base64") },
-    );
-    await options.close();
-    archiveKey.fill(0);
-    await rm(extracted);
+    const database = resolve(staged, `workspace-${id}.sqlite`);
+    if (local && archiveKey) {
+      await local.prepare(database, secret.toString("base64"), {
+        path: extracted,
+        secret: archiveKey.toString("base64"),
+      });
+      await options.close();
+      archiveKey.fill(0);
+      await rm(extracted);
+    } else {
+      await options.open(database, secret.toString("base64"));
+      await options.close();
+    }
     await options.filesFor(staged).write("cache-secret", {
       version: 2,
       initialized: true,
@@ -253,13 +295,13 @@ export async function recoverLocalProfiles(
       phase: "ready",
       version: 1,
       id,
-      archive: archive.digest,
+      ...source,
       original,
     };
     await publishJournal(resolve(staged, marker), intent);
     publishing = true; // Retain staging if publication or its directory flush has an uncertain outcome.
     await publishJournal(journal, intent, true);
-    const recovered = await resumeLocalRecovery(options);
+    const recovered = await resumeStorageRecovery(options);
     if (!recovered) throw Error("The recovery record disappeared.");
     return recovered;
   } finally {

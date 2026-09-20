@@ -65,6 +65,7 @@ export async function nativePortabilityDevice(
   options: {
     reuse?: boolean;
     storageWorker?: string;
+    protectionKey?: string;
     beforeSignIn?(app: ElectronApplication, page: Page): Promise<void>;
   } = {},
 ) {
@@ -84,7 +85,7 @@ export async function nativePortabilityDevice(
       );
     }
     const {createCipheriv,createDecipheriv,randomBytes}=require('node:crypto');
-    const key=Buffer.from(${JSON.stringify(randomBytes(32).toString("hex"))},'hex');
+    const key=Buffer.from(process.env.SUITE_TEST_ARCHIVE_OS_KEY || ${JSON.stringify(randomBytes(32).toString("hex"))},'hex');
     safeStorage.isEncryptionAvailable=()=>true;
     safeStorage.isAsyncEncryptionAvailable=async()=>true;
     safeStorage.encryptStringAsync=async(text)=>{
@@ -112,6 +113,7 @@ export async function nativePortabilityDevice(
       SUITE_DESKTOP_DEV_AUTH: "1",
       SUITE_DESKTOP_TEST_MINIMIZED: "1",
       SUITE_TEST_ARCHIVE_STORAGE_WORKER: options.storageWorker ?? "",
+      SUITE_TEST_ARCHIVE_OS_KEY: options.protectionKey ?? "",
     },
   });
   const child = app.process();
