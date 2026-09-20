@@ -101,7 +101,7 @@ export async function exportArchive(options: {
   await expect(
     archive.getByLabel("Archive passphrase", { exact: true }),
   ).toHaveValue("");
-  return { path, bytes };
+  return { path, bytes, passphrase };
 }
 
 export async function importArchive(options: {

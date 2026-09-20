@@ -1,6 +1,6 @@
 # Encrypted corporate saved-work archives
 
-Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry, workspace/profile changes and full native write interruption remain required before this item is verified.
+Scope: **ID-03-BACKUP-ARCHIVE**, under ID-03-BACKUP-CORPORATE. Status: **active**. The portable format, selected export/import controls and independent native file delivery are implemented. Four-direction files and mixed-module retained reviews have acceptance evidence below. Inspection expiry and pre-admission renderer interruption are now covered. Count/byte bounded multi-batch recovery is now verified on web and desktop. Corporate offline-lease expiry and normal workspace transitions now have browser/native acceptance. Profile transitions and full native write interruption remain required before this item is verified.
 
 ## Implemented boundary
 
@@ -140,9 +140,31 @@ Final verification:
 | Browser | [Wide](web-capacity-count.png), [narrow](web-capacity-count-narrow.png) | [Wide](web-capacity-full.png), [narrow](web-capacity-full-narrow.png) |
 | Desktop | [Wide](native-capacity-count.png), [narrow](native-capacity-count-narrow.png) | [Wide](native-capacity-full.png), [narrow](native-capacity-full-narrow.png) |
 
+## Corporate lease expiry and workspace transitions
+
+The lease journey captures a real offline Contacts request and independent draft, then exports their encrypted archive before expiry. Controlled clocks advance 25 hours against the ordinary corporate offline lease. Both clients hide the recovery surface, passphrase controls and saved input and explain that online authorization is required. Original journal entries, draft contents, draft versions and the exported file remain exact.
+
+On desktop, main-process time advances first. A direct export using the captured module-host handle is rejected without a file while the renderer still shows its old access. Renderer time then advances and the visible corporate surface locks. This checks main-owned authority independently from UI visibility. Source and destination are separate processes/stores; the next device authenticates normally and imports/restores the original archive with authoritative settlement and exactly one explicitly submitted draft effect. The expired source receives no replacement credentials or copied authority.
+
+The workspace journey opens an authorized archive preview, selects a copy, closes the dialog and switches through the normal workspace UI. A second company workspace cannot unlock the first workspace's archive, even with the correct passphrase; no decrypted copies, imported state, journal entries or drafts are created. Returning to the original workspace starts with empty secrets, file selection and copy selection. A fresh unlock and current authority are required before the ordinary import/restoration journey continues. This exercises normal UI switching, not an out-of-band multi-window transition.
+
+Final verification:
+
+- Lease expiry: one headless browser case and one hidden/minimized native case passed in `/tmp/gabs-archive-lease-web.log` and `/tmp/gabs-archive-lease-native.log`. The final native case places the rejected IPC attempt before renderer expiry.
+- Workspace transitions: one browser and one native case passed in `/tmp/gabs-archive-workspace-web.log` and `/tmp/gabs-archive-workspace-native.log`.
+- All four existing file-transfer directions passed again: three browser-suite cases in `/tmp/gabs-archive-transitions-web-regression.log` and one native case in `/tmp/gabs-archive-transitions-native-regression.log`.
+- Strict type/environment, dependency/copy and scoped formatting checks passed: `/tmp/gabs-archive-transitions-types.log`, `/tmp/gabs-archive-transitions-lint.log`, `/tmp/gabs-archive-transitions-format.log`.
+- All eight new wide/narrow captures were inspected. Axe and narrow-overflow assertions passed. Disposable databases/profiles were removed and historical rerun screenshots restored.
+- This is acceptance-only work against the production implementation reviewed in `9e5c1cd`. No new full unit regression or production build is claimed. Simulated time, development authentication and controlled OS keys do not establish actual MFA/provider, operating-system clock, signed-platform or filesystem durability acceptance.
+
+| Surface | Expired corporate lease | Other workspace refusal |
+| --- | --- | --- |
+| Browser | [Wide](web-lease-expired.png), [narrow](web-lease-expired-narrow.png) | [Wide](web-workspace-denied.png), [narrow](web-workspace-denied-narrow.png) |
+| Desktop | [Wide](native-lease-expired.png), [narrow](native-lease-expired-narrow.png) | [Wide](native-workspace-denied.png), [narrow](native-workspace-denied-narrow.png) |
+
 ## Required next work
 
-- Exercise corporate offline-lease expiry and profile/scope transitions in archive export/import, and full main/utility process interruption during native publication or durable admission. Inspection expiry and a renderer crash before admission do not establish these remaining gates; unit guards/atomic-store tests remain separate evidence.
+- Exercise saved-profile transitions in archive export/import and full main/utility process interruption during native publication or durable admission. Normal workspace switching, inspection/lease expiry and a renderer crash before admission do not establish these remaining gates; unit guards/atomic-store tests remain separate evidence.
 - Retain actual provider/MFA, signed-platform, filesystem/platform durability and corporate old-key recovery as parent gates. Controlled native protection and development authentication do not establish those gates.
 
 Broader corporate recovery graphs/transitions and key loss remain parent gates. Overall parity and later UI refinement remain open.
