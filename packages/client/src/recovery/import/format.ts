@@ -21,6 +21,8 @@ export interface SavedWorkImport {
     draftSource?: import("./draft").ImportedDraftSource;
     recordTarget?: import("./target").ImportedRecordTarget;
     restoredAt: number;
+    /** Its local review was retained separately during an explicit snapshot switch. */
+    replacedAt?: number;
   };
 }
 /** Bound bytes and nesting before recursive schema/identity processing. */

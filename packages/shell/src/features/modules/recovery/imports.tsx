@@ -11,6 +11,7 @@ import {
   type ImportAccess,
   type ImportedDraftSource,
   importedDraftChoices,
+  importedDraftInput,
   importedRequestTargets,
   importedReferenceHints,
 } from "@suite/client/work-import";
@@ -44,6 +45,7 @@ export function SavedWorkImports(props: FeatureProps) {
     digest: string;
     action: "restore" | "remove";
     draftSource?: ImportedDraftSource;
+    replaceReview?: string;
   }>();
   useLayoutEffect(() => {
     mounted.current = true;
@@ -230,7 +232,7 @@ export function SavedWorkImports(props: FeatureProps) {
               {busy && <p role="status">Checking saved-work access…</p>}
               <div className="form-stack">
                 {visible.map((copy) => (
-                  <section key={copy.digest}>
+                  <section key={copy.digest} data-recovery-copy={copy.digest}>
                     <h3>
                       {copy.moduleName}:{" "}
                       {copy.input.selection === "request"
@@ -238,9 +240,11 @@ export function SavedWorkImports(props: FeatureProps) {
                         : "saved draft"}
                     </h3>
                     <p>
-                      {copy.promotion
-                        ? "Restored. The imported copy is retained separately."
-                        : "Imported copy. No business change has been submitted."}
+                      {copy.promotion?.replacedAt
+                        ? "Retained after switching reviews. Available to restore again."
+                        : copy.promotion
+                          ? "Restored. The imported copy is retained separately."
+                          : "Imported copy. No business change has been submitted."}
                     </p>
                     {copy.promotion?.outcome && (
                       <p>
@@ -293,7 +297,7 @@ export function SavedWorkImports(props: FeatureProps) {
                       </p>
                     </details>
                     <div className="actions">
-                      {!copy.promotion && (
+                      {(!copy.promotion || copy.promotion.replacedAt) && (
                         <Button
                           disabled={busy}
                           onClick={() =>
@@ -334,6 +338,61 @@ export function SavedWorkImports(props: FeatureProps) {
                     : "This creates a separate saved draft for review. Existing drafts stay in place."
                   : "This removes only the imported copy. Restored requests, drafts and the original file stay in place. Keep the source file if you may need this copy again."}
               </p>
+              {confirm?.action === "restore" && selected.localReview && (
+                <>
+                  <h4>Current review on this device</h4>
+                  <p>
+                    Switching retains this review as a separate imported copy
+                    before restoring the selected input. The original request
+                    and its current prerequisites stay unchanged.
+                  </p>
+                  <details>
+                    <summary>Compare saved input</summary>
+                    <p>Selected imported copy</p>
+                    <ResourceValue
+                      expanded
+                      value={
+                        selected.input.selection === "draft"
+                          ? importedDraftInput(selected.input)
+                          : (selected.input.review?.input ??
+                            selected.input.entry.call.input)
+                      }
+                    />
+                    <p>Current local review</p>
+                    {selected.localReview.copies.map((copy, index) => (
+                      <ResourceValue
+                        key={index}
+                        expanded
+                        value={
+                          copy.selection === "draft"
+                            ? importedDraftInput(copy)
+                            : (copy.review?.input ?? copy.entry.call.input)
+                        }
+                      />
+                    ))}
+                  </details>
+                  <Field
+                    label="Existing review"
+                    hint="Choose explicitly after comparing the copies. No business change is submitted by switching."
+                  >
+                    <Select
+                      value={confirm.replaceReview ?? ""}
+                      disabled={busy}
+                      onValueChange={(value) =>
+                        setConfirm({
+                          ...confirm,
+                          replaceReview: value || undefined,
+                        })
+                      }
+                    >
+                      <SelectOption value="">Keep current review</SelectOption>
+                      <SelectOption value={selected.localReview.fingerprint}>
+                        Use imported copy
+                      </SelectOption>
+                    </Select>
+                  </Field>
+                </>
+              )}
               {confirm?.action === "restore" && !collision && (
                 <p>
                   Saved continuation and collision choices remain in the
@@ -435,6 +494,10 @@ export function SavedWorkImports(props: FeatureProps) {
                   disabled={
                     busy ||
                     (confirm?.action === "restore" &&
+                      !!selected.localReview &&
+                      confirm.replaceReview !==
+                        selected.localReview.fingerprint) ||
+                    (confirm?.action === "restore" &&
                       !!collision &&
                       !confirm.draftSource)
                   }
@@ -444,11 +507,16 @@ export function SavedWorkImports(props: FeatureProps) {
                         const result = await promoteSavedWorkImport(
                           options,
                           selected.digest,
-                          confirm!.draftSource
-                            ? selected.input.selection === "request"
-                              ? { recordTarget: confirm!.draftSource }
-                              : { draftSource: confirm!.draftSource }
-                            : undefined,
+                          {
+                            ...(confirm!.draftSource
+                              ? selected.input.selection === "request"
+                                ? { recordTarget: confirm!.draftSource }
+                                : { draftSource: confirm!.draftSource }
+                              : {}),
+                            ...(confirm!.replaceReview
+                              ? { replaceReview: confirm!.replaceReview }
+                              : {}),
+                          },
                         );
                         setNotice(
                           result.alreadyRestored

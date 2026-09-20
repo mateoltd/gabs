@@ -3,6 +3,7 @@ import {
   Type,
   resourceRecordSchema,
   reviewFields,
+  unresolvedReviewFields,
 } from "@suite/module-sdk";
 import type { JournalEntry } from "@suite/module-sdk/sync";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
@@ -20,6 +21,47 @@ import { importedReferenceHints } from "./references";
 export type ImportedDraftSource = ImportedRecordTarget;
 
 type ImportedDraft = Extract<SavedWorkRecovery, { selection: "draft" }>;
+/** Recover unresolved competing input, not the remote placeholder shown by a conflict form. */
+export function importedDraftInput(input: ImportedDraft) {
+  const data = structuredClone(input.data);
+  const comparison = input.review?.comparison;
+  if (comparison)
+    copyReviewFields(
+      data,
+      comparison.local,
+      unresolvedReviewFields(comparison),
+    );
+  return data;
+}
+function copyReviewFields(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+  fields: string[],
+) {
+  for (const field of fields) {
+    if (Object.hasOwn(source, field))
+      Object.defineProperty(target, field, {
+        value: structuredClone(source[field]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    else delete target[field];
+  }
+}
+function importedDraftBase(
+  input: ImportedDraft,
+  base: Record<string, unknown> | undefined,
+) {
+  const comparison = input.review?.comparison;
+  const unresolved = comparison ? unresolvedReviewFields(comparison) : [];
+  if (!unresolved.length) return base;
+  if (!comparison?.base || !base) return undefined;
+  const restored = structuredClone(base);
+  copyReviewFields(restored, comparison.base, unresolved);
+  return restored;
+}
+
 type Authority = Awaited<ReturnType<typeof authorizeWorkImport>>;
 type Outcome = Awaited<ReturnType<typeof settleModuleCall>>;
 /** Copied destinations are suggestions only; the caller must make a fresh choice. */
@@ -114,7 +156,7 @@ export async function prepareImportedDraft(
     : {};
   let review: DraftReview = { draftId: `import-${digest}`, ...context };
   let target = structuredClone(input.target);
-  let data = structuredClone(input.data);
+  let data = importedDraftInput(input);
   let recordRecovery: JournalEntry["recordRecovery"];
   if (!input.entry && input.review?.collision) {
     const source = input.review.collision;
@@ -169,7 +211,11 @@ export async function prepareImportedDraft(
       const snapshot = target;
       target = await readCurrentTarget(options, input, authority, snapshot.id);
       if (!target.archived) {
-        const compared = reviewFields(snapshot.data, data, target.data);
+        const compared = reviewFields(
+          importedDraftBase(input, snapshot.data),
+          data,
+          target.data,
+        );
         data = compared.data;
         review.comparison = compared.review;
       } else {
@@ -225,7 +271,11 @@ export async function prepareImportedDraft(
     if (targetId) {
       target = await readCurrentTarget(options, input, authority, targetId);
       if (!target.archived) {
-        const compared = reviewFields(base, input.data, target.data);
+        const compared = reviewFields(
+          importedDraftBase(input, base),
+          data,
+          target.data,
+        );
         data = compared.data;
         review.comparison = compared.review;
       } else {

@@ -5,6 +5,7 @@ import {
 } from "../../modules/storage";
 import { parseSavedWorkImport, savedWorkFingerprint } from "./format";
 import { authorizeWorkImport, type SavedWorkImportOptions } from "./authority";
+import { currentImportReview } from "./local-review";
 export async function readImportSource(
   state: ModuleStorage,
   digest: string,
@@ -37,10 +38,15 @@ export async function inspectSavedWorkImport(
   const state = await readModuleStorage(options.platform, options.scope);
   const { imported, input } = await readImportSource(state, digest, options);
   const authority = await authorizeWorkImport(options, input);
+  const localReview = await currentImportReview(state, input, options.scope);
+  if (localReview)
+    for (const copy of localReview.copies)
+      await authorizeWorkImport(options, copy);
   authority.check();
   return {
     digest,
     input,
+    localReview,
     receivedAt: imported.receivedAt,
     promotion: imported.promotion,
     moduleName: authority.module.name,

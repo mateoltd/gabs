@@ -13,7 +13,11 @@ export {
   type SavedWorkImport,
 } from "./format";
 export type { SavedWorkImportOptions, ImportAccess } from "./authority";
-export { importedDraftChoices, type ImportedDraftSource } from "./draft";
+export {
+  importedDraftChoices,
+  importedDraftInput,
+  type ImportedDraftSource,
+} from "./draft";
 export { promoteSavedWorkImport, type SavedWorkImportChoice } from "./promote";
 export { importedRequestTargets, type ImportedRecordTarget } from "./target";
 export { importedReferenceHints } from "./references";

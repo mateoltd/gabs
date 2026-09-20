@@ -1856,3 +1856,239 @@ it.each(["wrong-record", "revocation", "lock"] as const)(
     expect(state.recoveryImports![digest].input).toEqual(input);
   },
 );
+
+async function snapshotFixture(kind: "command" | "draft" = "draft") {
+  const f = fixture();
+  const source = kind === "draft" ? linkedDraft(f) : undefined;
+  const input = source?.input ?? f.input;
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  if (source) f.replies.moduleRequest = source.record;
+  const first = await f.stage(input);
+  await f.promote(first.digest);
+  const second = structuredClone(input);
+  if (second.selection === "draft") second.data.name = "Second snapshot";
+  else second.review!.input = { name: "Second snapshot" };
+  const { digest } = await f.stage(second);
+  const inspected = await inspectSavedWorkImport(f.options, digest);
+  expect(inspected.localReview).toBeDefined();
+  return { f, input, first, digest, review: inspected.localReview! };
+}
+
+it.each(["command", "draft"] as const)(
+  "switches %s snapshots while retaining the displaced review and exact request",
+  async (kind) => {
+    const { f, input, first, digest, review } = await snapshotFixture(kind);
+    const original = structuredClone((await f.read()).journal[0]);
+    const result = await promoteSavedWorkImport(f.options, digest, {
+      replaceReview: review.fingerprint,
+    });
+    const state = await f.read();
+    expect(state.journal).toHaveLength(1);
+    expect(state.journal[0].call).toEqual(original.call);
+    expect(state.journal[0].dependencies).toEqual(original.dependencies);
+    expect(
+      state.recoveryImports![first.digest].promotion!.replacedAt,
+    ).toBeDefined();
+    for (const copy of review.copies)
+      expect(
+        Object.values(state.recoveryImports!).some(
+          (item) => JSON.stringify(item.input) === JSON.stringify(copy),
+        ),
+      ).toBe(true);
+    if (kind === "command") {
+      expect(state.commandReviews![input.entry!.id].input).toEqual({
+        name: "Second snapshot",
+      });
+      expect(
+        state.commandReviews![input.entry!.id].continuations,
+      ).toBeUndefined();
+    } else {
+      expect(state.draftReviews![result.draftKey!].comparison!.local).toEqual({
+        name: "Second snapshot",
+      });
+      expect(state.draftReviews![result.draftKey!].comparison!.choices).toEqual(
+        {},
+      );
+    }
+    const back = await inspectSavedWorkImport(f.options, first.digest);
+    await promoteSavedWorkImport(f.options, first.digest, {
+      replaceReview: back.localReview!.fingerprint,
+    });
+    const restored = await f.read();
+    expect(
+      restored.recoveryImports![first.digest].promotion!.replacedAt,
+    ).toBeUndefined();
+    expect(
+      restored.recoveryImports![digest].promotion!.replacedAt,
+    ).toBeDefined();
+    expect((await f.promote(first.digest)).alreadyRestored).toBe(true);
+  },
+);
+
+it.each(["before", "during"] as const)(
+  "rejects stale snapshot selection when the local draft changes %s settlement",
+  async (timing) => {
+    const { f, digest, review } = await snapshotFixture();
+    const edit = () => {
+      f.state()!.drafts[review.keys[0]] = { name: "New local edit" };
+    };
+    if (timing === "before") edit();
+    else
+      f.onRequest((operation) => {
+        if (operation === "moduleAttemptSettle") edit();
+      });
+    const calls = f.calls.filter(
+      (operation) => operation === "moduleAttemptSettle",
+    ).length;
+    await expect(
+      promoteSavedWorkImport(f.options, digest, {
+        replaceReview: review.fingerprint,
+      }),
+    ).rejects.toThrow(/local review changed/);
+    const state = await f.read();
+    expect(state.drafts[review.keys[0]]).toEqual({ name: "New local edit" });
+    expect(state.recoveryImports![digest].promotion).toBeUndefined();
+    if (timing === "before")
+      expect(
+        f.calls.filter((operation) => operation === "moduleAttemptSettle"),
+      ).toHaveLength(calls);
+  },
+);
+
+it.each(["storage", "denial", "lock"] as const)(
+  "preserves both snapshots when %s interrupts switching",
+  async (failure) => {
+    const { f, digest, review } = await snapshotFixture();
+    const before = await f.read();
+    if (failure === "storage") f.fail(true);
+    else
+      f.onRequest((operation) => {
+        if (operation === "moduleAttemptSettle") {
+          if (failure === "denial") f.policy.permissions = [];
+          else f.lock();
+        }
+      });
+    await expect(
+      promoteSavedWorkImport(f.options, digest, {
+        replaceReview: review.fingerprint,
+      }),
+    ).rejects.toThrow();
+    expect(await f.read()).toEqual(before);
+  },
+);
+
+it("refuses snapshot switching before settlement when retained-copy capacity is exhausted", async () => {
+  const { f, digest, review } = await snapshotFixture();
+  const state = f.state()!;
+  for (
+    let index = Object.keys(state.recoveryImports!).length;
+    index < 32;
+    index++
+  )
+    state.recoveryImports![String(index).padStart(64, "0")] = {
+      input: structuredClone(f.input),
+      receivedAt: index,
+    };
+  const before = await f.read();
+  const calls = f.calls.filter(
+    (operation) => operation === "moduleAttemptSettle",
+  ).length;
+  await expect(
+    promoteSavedWorkImport(f.options, digest, {
+      replaceReview: review.fingerprint,
+    }),
+  ).rejects.toThrow(/storage is full/);
+  expect(await f.read()).toEqual(before);
+  expect(
+    f.calls.filter((operation) => operation === "moduleAttemptSettle"),
+  ).toHaveLength(calls);
+});
+
+it("requires fresh record choice and retains original prerequisites when switching reassigned snapshots", async () => {
+  const f = fixture();
+  const { input, record, target } = reassignedLinkedDraft(f);
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  f.replies.moduleRequest = record;
+  const first = await f.stage(input);
+  await f.promote(first.digest, "original");
+  const second = structuredClone(input);
+  second.data.name = "Other copy";
+  const { digest } = await f.stage(second);
+  const { localReview } = await inspectSavedWorkImport(f.options, digest);
+  await expect(
+    promoteSavedWorkImport(f.options, digest, {
+      replaceReview: localReview!.fingerprint,
+    }),
+  ).rejects.toThrow(/Choose the original/);
+  f.replies.moduleRequest = target;
+  const result = await promoteSavedWorkImport(f.options, digest, {
+    draftSource: "reassigned",
+    replaceReview: localReview!.fingerprint,
+  });
+  const state = await f.read();
+  expect(state.journal[0].recordRecovery!.targetId).toBe(target.id);
+  expect(state.journal[0].dependencies).toEqual(input.entry!.dependencies);
+  expect(state.journal[0].call).toEqual(input.entry!.call);
+  expect(state.draftTargets![result.draftKey!]).toEqual(target);
+});
+
+it.each([true, false])(
+  "restores unresolved competing draft input after retention (linked=%s)",
+  async (linked) => {
+    const f = fixture();
+    const { input, record } = linkedDraft(f);
+    input.data = { name: "Prior remote", removed: "Remote addition" };
+    input.target = { ...record, data: input.data };
+    input.review!.comparison = {
+      base: { name: "Base", removed: "Base value" },
+      local: { name: "Unresolved user edit" },
+      remote: input.data,
+      conflicts: ["name", "removed"],
+      choices: {},
+    };
+    if (!linked) {
+      delete input.entry;
+      delete input.review!.entryId;
+    }
+    f.replies.moduleAttemptSettle = {
+      key: input.entry?.id,
+      outcome: "cancelled",
+    };
+    f.replies.moduleRequest = {
+      ...input.target,
+      data: { name: "Prior remote" },
+    };
+    const { digest } = await f.stage(input);
+    const result = await f.promote(digest);
+    const state = await f.read();
+    expect(state.draftReviews![result.draftKey!].comparison).toMatchObject({
+      local: { name: "Unresolved user edit" },
+      conflicts: ["name"],
+      choices: {},
+    });
+    expect(
+      state.draftReviews![result.draftKey!].comparison!.local,
+    ).not.toHaveProperty("removed");
+    expect(state.recoveryImports![digest].input).toEqual(input);
+  },
+);
+
+it("keeps conflicting identities inspectable and removable without offering a review switch", async () => {
+  const { f, digest } = await snapshotFixture();
+  const local = f.state()!.journal[0];
+  local.call.input = { id: randomUUID(), data: { name: "Different original" } };
+  const before = structuredClone(local);
+  const inspected = await inspectSavedWorkImport(f.options, digest);
+  expect(inspected.localReview).toBeUndefined();
+  await expect(f.promote(digest)).rejects.toThrow(/different saved work/);
+  await discardSavedWorkImport(f.options, digest);
+  const state = await f.read();
+  expect(state.journal[0]).toEqual(before);
+  expect(state.recoveryImports![digest]).toBeUndefined();
+});

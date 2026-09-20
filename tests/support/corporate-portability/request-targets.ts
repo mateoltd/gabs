@@ -1,3 +1,4 @@
+import { exportNextSnapshot, switchSnapshots, snapshotName } from "./snapshots";
 import { expect, type Locator } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
@@ -20,6 +21,7 @@ export async function corporateRequestTargets(
     choice: "original" | "reassigned";
     accepted?: boolean;
     draftReference?: "original" | "reassigned";
+    snapshots?: boolean;
   },
 ) {
   let page = options.source;
@@ -30,9 +32,11 @@ export async function corporateRequestTargets(
     (options.action !== "update" || options.accepted)
   )
     throw Error("Draft-reference acceptance requires a stopped update.");
-  const evidenceDirectory = options.draftReference
-    ? "docs/verification/imported-draft-references"
-    : "docs/verification/imported-request-targets";
+  const evidenceDirectory = options.snapshots
+    ? "docs/verification/imported-snapshots"
+    : options.draftReference
+      ? "docs/verification/imported-draft-references"
+      : "docs/verification/imported-request-targets";
   const transform = (file: string, source: string) => {
     if (file === "module.ts" && options.draftReference)
       return source.replace(
@@ -321,6 +325,19 @@ export async function corporateRequestTargets(
       })()
     : await exported(child.id, "child.json");
   const parent = await exported(child.dependencies[0], "parent.json");
+  const secondSnapshot = options.snapshots
+    ? await exportNextSnapshot({
+        page,
+        moduleName: name,
+        scope,
+        navigate,
+        exportFile: options.exportFile,
+        path: resolve(options.directory, "second-draft.json"),
+      })
+    : undefined;
+  const restoredName = options.snapshots
+    ? snapshotName
+    : "Draft reference edit";
   const input: unknown = JSON.parse(file.bytes.toString());
   assertSchema(SavedWorkRecoverySchema, input);
   expect(input.selection).toBe(options.draftReference ? "draft" : "request");
@@ -373,7 +390,15 @@ export async function corporateRequestTargets(
     await dialog
       .getByLabel("Saved-work recovery file", { exact: true })
       .setInputFiles(path);
-    await dialog
+    const copy =
+      options.snapshots && path === parent.path
+        ? dialog
+            .locator("section")
+            .filter({
+              has: page.getByText(child.dependencies[0], { exact: true }),
+            })
+        : dialog;
+    await copy
       .getByRole("button", { name: "Restore for review", exact: true })
       .click();
     return dialog;
@@ -449,6 +474,16 @@ export async function corporateRequestTargets(
       exact: true,
     }),
   ).toBeVisible();
+  if (secondSnapshot)
+    await switchSnapshots({
+      page,
+      scope,
+      first: file,
+      second: secondSnapshot,
+      recordChoice: options.choice,
+      evidence: evidenceDirectory,
+      surface: options.evidenceName ?? "web",
+    });
   await close(imported);
   await page.reload();
   await navigate(name);
@@ -525,8 +560,7 @@ export async function corporateRequestTargets(
           .poll(async () =>
             Object.values((await portabilityStorage(page, scope)).drafts).some(
               (data) =>
-                data.parentId === reference.id &&
-                data.name === "Draft reference edit",
+                data.parentId === reference.id && data.name === restoredName,
             ),
           )
           .toBe(true);
@@ -625,7 +659,7 @@ export async function corporateRequestTargets(
         options.action === "update"
           ? options.draftReference
             ? {
-                name: "Draft reference edit",
+                name: restoredName,
                 parentId:
                   records[options.draftReference === "original" ? 0 : 1].id,
               }

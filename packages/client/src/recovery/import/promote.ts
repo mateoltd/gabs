@@ -2,11 +2,7 @@ import { RequestKeySchema } from "@suite/contracts";
 import { assertSchema } from "@suite/module-sdk";
 import { canonical } from "@suite/module-sdk/registry";
 import type { JournalEntry } from "@suite/module-sdk/sync";
-import {
-  changeModuleStorage,
-  readModuleStorage,
-  type ModuleStorage,
-} from "../../modules/storage";
+import { changeModuleStorage, readModuleStorage } from "../../modules/storage";
 import {
   importedDraftKeys,
   prepareImportedDraft,
@@ -32,26 +28,19 @@ import {
   type ImportedRecordTarget,
 } from "./target";
 
-export type SavedWorkImportChoice =
-  | { draftSource: ImportedDraftSource; recordTarget?: never }
-  | { recordTarget: ImportedRecordTarget; draftSource?: never };
+import {
+  currentImportReview,
+  matchingRequest,
+  retainImportReview,
+  replaceImportReview,
+} from "./local-review";
 
-const exactCall = (entry: JournalEntry) =>
-  canonical({ ...entry.call, key: entry.id });
-function matchingRequest(state: ModuleStorage, entry?: JournalEntry) {
-  if (!entry) return;
-  const existing = state.journal.find((item) => item.id === entry.id);
-  if (
-    existing &&
-    (existing.userId !== entry.userId ||
-      existing.workspaceId !== entry.workspaceId ||
-      exactCall(existing) !== exactCall(entry))
-  )
-    throw Error(
-      "This request identity already belongs to different saved work. Both copies were retained.",
-    );
-  return existing;
-}
+export type SavedWorkImportChoice = (
+  | { draftSource: ImportedDraftSource; recordTarget?: never }
+  | { recordTarget: ImportedRecordTarget; draftSource?: never }
+  | { draftSource?: never; recordTarget?: never }
+) & { replaceReview?: string };
+
 /** Explicitly settle original effects, then atomically restore independently reviewed local work. */
 export async function promoteSavedWorkImport(
   options: SavedWorkImportOptions,
@@ -73,17 +62,35 @@ export async function promoteSavedWorkImport(
         options,
       );
       const authority = await authorizeWorkImport(options, input);
-      if (imported.promotion)
+      if (imported.promotion && !imported.promotion.replacedAt)
         return { ...imported.promotion, alreadyRestored: true };
       const entry = input.entry;
       if (entry) assertSchema(RequestKeySchema, entry.id);
       const existing = matchingRequest(before, entry);
+      const replacement = choice?.replaceReview
+        ? await currentImportReview(before, input, scope)
+        : undefined;
+      if (
+        choice?.replaceReview &&
+        (!replacement || replacement.fingerprint !== choice.replaceReview)
+      )
+        throw Error(
+          "The local review changed. Inspect both copies again before switching.",
+        );
+      const localAuthorities: Awaited<
+        ReturnType<typeof authorizeWorkImport>
+      >[] = [];
+      if (replacement) {
+        for (const copy of replacement.copies)
+          localAuthorities.push(await authorizeWorkImport(options, copy));
+        await retainImportReview(structuredClone(before), replacement);
+      }
       const referenceHints = importedReferenceHints(input);
       checkImportedReferenceHints(referenceHints);
       const choosingTarget =
         input.selection === "request" && !!entry?.recordRecovery;
       if (choosingTarget) checkImportedRecordTarget(input, recordTarget);
-      if (choosingTarget || referenceHints.length) {
+      if (!replacement && (choosingTarget || referenceHints.length)) {
         if (
           existing &&
           (existing.supersededBy ||
@@ -104,13 +111,20 @@ export async function promoteSavedWorkImport(
           "This original request already has a correction on this device. Inspect the retained imported copy alongside the current work.",
         );
       if (
+        !replacement &&
         input.selection === "draft" &&
         (existing?.recordRecovery || existing?.createRecovery?.length)
       )
         throw Error(
           "This original request was reassigned on this device. Preserve its current record and dependency review before restoring another copy.",
         );
-      if (destinations.some((key) => Object.hasOwn(before.drafts, key)))
+      if (
+        destinations.some(
+          (key) =>
+            Object.hasOwn(before.drafts, key) &&
+            !replacement?.keys.includes(key),
+        )
+      )
         throw Error(
           "The recovery draft destination is already in use. Existing work was retained.",
         );
@@ -143,6 +157,11 @@ export async function promoteSavedWorkImport(
         // A lost reply or denial retains the import; retry asks for this exact permanent outcome.
         await authority.refresh();
       }
+      for (const local of localAuthorities) await local.refresh();
+      const commitCheck = () => {
+        authority.check();
+        for (const local of localAuthorities) local.check();
+      };
       const requestTarget =
         choosingTarget && input.selection === "request" && outcome
           ? await prepareImportedRequestTarget(
@@ -182,10 +201,11 @@ export async function promoteSavedWorkImport(
         options.platform,
         scope,
         async (state) => {
-          authority.check();
+          commitCheck();
           const current = await readImportSource(state, digest, options);
           if (
-            current.imported.promotion ||
+            (current.imported.promotion &&
+              !current.imported.promotion.replacedAt) ||
             canonical(current.input) !== canonical(input)
           )
             throw Error(
@@ -193,6 +213,7 @@ export async function promoteSavedWorkImport(
             );
           const present = matchingRequest(state, entry);
           if (
+            !replacement &&
             referenceHints.length &&
             entry &&
             (canonical(state.commandReviews?.[entry.id] ?? null) !==
@@ -208,6 +229,15 @@ export async function promoteSavedWorkImport(
             throw Error(
               "The existing request changed during restoration. Retry with its current state.",
             );
+          if (replacement) {
+            const latest = await currentImportReview(state, input, scope);
+            if (!latest || latest.fingerprint !== replacement.fingerprint)
+              throw Error(
+                "The local review changed during restoration. Both copies were preserved.",
+              );
+            await retainImportReview(state, latest);
+            replaceImportReview(state, latest);
+          }
           if (destinations.some((key) => Object.hasOwn(state.drafts, key)))
             throw Error(
               "The recovery draft destination changed. Existing work was retained.",
@@ -259,10 +289,12 @@ export async function promoteSavedWorkImport(
                   }),
             };
             state.journal.push(restored);
+          }
+          if ((!existing || replacement) && entry) {
             if (
               input.selection === "request" &&
               input.review &&
-              outcome.outcome === "cancelled"
+              outcome?.outcome === "cancelled"
             ) {
               if (Object.hasOwn(state.commandReviews ?? {}, entry.id))
                 throw Error(
@@ -318,9 +350,10 @@ export async function promoteSavedWorkImport(
             authority.module.version;
           assertJournalOrder(state.journal, scope);
           current.imported.promotion = promotion;
-          authority.check();
+          if (replacement) await retainImportReview(state, replacement);
+          commitCheck();
         },
-        authority.check,
+        commitCheck,
       );
       return { ...promotion, alreadyRestored: false };
     },
