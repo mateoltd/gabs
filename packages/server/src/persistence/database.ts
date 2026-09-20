@@ -169,6 +169,7 @@ export interface Database {
     config: Generated<Record<string, unknown>>;
   };
   "suite.module_assignments": Tenant & {
+    direct: Generated<boolean>;
     membership_id: string;
     module_id: string;
   };

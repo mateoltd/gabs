@@ -1,3 +1,4 @@
+import { PolicyModules } from "./organization/modules";
 import { OrganizationTags } from "./organization/tags";
 import { PermissionOrigin } from "./permission-origin";
 import { PermissionDecision } from "./permission-decision";
@@ -387,6 +388,21 @@ export function Organization(props: FeatureProps) {
                 </label>
               ))}
             </div>
+            <PolicyModules
+              modules={state.data.modules}
+              selected={g.modules}
+              disabled={
+                busy || !props.bootstrap.permissions.includes("modules.manage")
+              }
+              onChange={(modules) =>
+                update((p) => ({
+                  ...p,
+                  groups: p.groups.map((x) =>
+                    x.id === g.id ? { ...x, modules } : x,
+                  ),
+                }))
+              }
+            />
             <Field label="Granted permissions (comma separated)">
               <Input
                 value={g.grants.join(", ")}
@@ -442,6 +458,10 @@ export function Organization(props: FeatureProps) {
       </section>
       <OrganizationTags
         policy={policy}
+        modules={state.data.modules}
+        canAssignModules={props.bootstrap.permissions.includes(
+          "modules.manage",
+        )}
         permissions={[
           ...new Set([
             ...productPermissions,

@@ -1,4 +1,8 @@
 import {
+  organizationPolicy,
+  reconcileModulePolicies,
+} from "@suite/server-core/governance/module-assignments";
+import {
   IntegrityReportSchema,
   IntegrityReceiptSchema,
   IntegrityPageSchema,
@@ -1135,23 +1139,77 @@ export async function registerPlatform(
             }
             let key = "";
             if (req.body.action === "organization") {
+              Object.assign(
+                ctx,
+                await authorize(
+                  tx,
+                  req.actor,
+                  ctx.workspaceId,
+                  req.id,
+                  "roles.manage",
+                ),
+              );
               assertSchema(OrganizationPolicySchema, value);
-              // Supported older clients omit tags. Preserve saved policies rather
-              // than interpreting omission as an explicit removal of authority.
-              if (value.tags === undefined) {
-                const stored = await tx
-                  .selectFrom("suite.platform_settings")
-                  .select("value")
-                  .where("workspace_id", "=", ctx.workspaceId)
-                  .where("key", "=", "organization")
-                  .executeTakeFirst();
-                const tags = (
-                  stored?.value as unknown as OrganizationPolicy | undefined
-                )?.tags;
-                if (tags) value = { ...value, tags };
-              }
+              const storedPolicy = await organizationPolicy(
+                tx,
+                ctx.workspaceId,
+              );
+              // Omitted optional fields from older clients preserve saved policy by identity.
+              value = {
+                ...value,
+                groups: value.groups.map((group) => ({
+                  ...group,
+                  modules:
+                    group.modules ??
+                    storedPolicy?.groups.find((saved) => saved.id === group.id)
+                      ?.modules,
+                })),
+                ...(value.tags === undefined
+                  ? storedPolicy?.tags
+                    ? { tags: storedPolicy.tags }
+                    : {}
+                  : {
+                      tags: value.tags.map((tag) => ({
+                        ...tag,
+                        modules:
+                          tag.modules ??
+                          storedPolicy?.tags?.find(
+                            (saved) => saved.id === tag.id,
+                          )?.modules,
+                      })),
+                    }),
+              };
               assertSchema(OrganizationPolicySchema, value);
               const policy = value;
+              const modulePolicy = (p?: OrganizationPolicy) => {
+                const entries = [...(p?.groups ?? []), ...(p?.tags ?? [])]
+                  .filter((item) => item.modules?.length)
+                  .map((item) => ({
+                    id: item.id,
+                    roles: [...item.rankIds].sort(),
+                    modules: [...item.modules!].sort(),
+                  }))
+                  .sort((a, b) => a.id.localeCompare(b.id));
+                return JSON.stringify({
+                  entries,
+                  ranks: entries.length
+                    ? p!.ranks
+                        .map((rank) => ({
+                          id: rank.id,
+                          inherit: rank.inherit,
+                          parents: rank.inherit ? [...rank.parents].sort() : [],
+                        }))
+                        .sort((a, b) => a.id.localeCompare(b.id))
+                    : [],
+                });
+              };
+              requireCondition(
+                modulePolicy(storedPolicy) === modulePolicy(policy) ||
+                  ctx.permissions.includes("modules.manage"),
+                403,
+                "MODULE_POLICY_FORBIDDEN",
+                "Manage modules permission is required to change module assignment policies.",
+              );
               try {
                 validateOrganization(policy);
               } catch (e) {
@@ -1439,6 +1497,19 @@ export async function registerPlatform(
                 ctx.workspaceId,
                 ctx.runtime.catalog,
                 moduleServers,
+              );
+            if (req.body.action === "organization")
+              await reconcileModulePolicies(
+                tx,
+                ctx.workspaceId,
+                runtime.catalog,
+              );
+            if (req.body.action === "pin" || req.body.action === "rollout")
+              await reconcileModulePolicies(
+                tx,
+                ctx.workspaceId,
+                runtime.catalog,
+                "available",
               );
             await audit(tx, ctx, `platform.${req.body.action}`, key);
             return { ok: true };

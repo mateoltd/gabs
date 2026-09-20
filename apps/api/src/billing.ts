@@ -1,3 +1,5 @@
+import type { ModuleCatalog } from "@suite/module-sdk/catalog";
+import { reconcileModulePolicies } from "@suite/server-core/governance/module-assignments";
 import Stripe from "stripe";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
@@ -36,7 +38,9 @@ export async function applySubscription(
     items: { data: { price: { id: string }; quantity?: number | null }[] };
   },
   prices: Record<string, string>,
+  catalog: ModuleCatalog,
 ) {
+  await lockWorkspace(tx, workspaceId);
   const active = ["active", "trialing"].includes(subscription.status);
   const quantities = new Map(
     subscription.items.data.map((i) => [i.price.id, i.quantity ?? 0]),
@@ -65,6 +69,7 @@ export async function applySubscription(
       tx,
     );
   }
+  await reconcileModulePolicies(tx, workspaceId, catalog, "available");
   const seats = Math.max(
     1,
     ...subscription.items.data.map((i) => i.quantity ?? 0),
@@ -216,6 +221,7 @@ export async function registerBilling(
             ctx.workspaceId,
             subscription,
             billingPrices(),
+            runtime.catalog,
           );
           await audit(tx, ctx, "billing.reconciled", subscription.id);
           return { ok: true };
@@ -374,6 +380,7 @@ export async function registerBilling(
               lookup.workspace_id,
               subscription,
               billingPrices(),
+              runtime.catalog,
             );
           }
           await tx

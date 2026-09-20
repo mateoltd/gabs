@@ -138,6 +138,16 @@ export const MemberSchema = Type.Object({
   active: Type.Boolean(),
   roles: Type.Array(RoleSchema),
   modules: Type.Array(Type.String()),
+  directModules: Type.Optional(Type.Array(Type.String())),
+  modulePolicies: Type.Optional(
+    Type.Array(
+      Type.Object({
+        moduleId: ModuleId,
+        sources: Type.Array(Type.String()),
+        assigned: Type.Boolean(),
+      }),
+    ),
+  ),
 });
 export const InvitationSchema = Type.Object({
   id: Id,

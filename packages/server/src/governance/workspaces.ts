@@ -1,6 +1,12 @@
+import {
+  organizationPolicy,
+  policyModuleSourceResolver,
+  currentPolicyModules,
+} from "./module-policy";
+import { assignModules, reconcileModulePolicies } from "./module-assignments";
+export { assignModules } from "./module-assignments";
 import { assertModuleStorage } from "../persistence/module-storage";
 import { assertSchema } from "@suite/module-sdk";
-import type { ModuleCatalog } from "@suite/module-sdk/catalog";
 import { randomUUID } from "node:crypto";
 import { type Bootstrap } from "@suite/contracts";
 import {
@@ -10,7 +16,11 @@ import {
   registeredModuleIds,
 } from "../registry/module-releases";
 import { type Tx } from "../persistence/database";
-import { type Context, lockWorkspace } from "../identity/authorization";
+import {
+  type Context,
+  lockWorkspace,
+  authorize,
+} from "../identity/authorization";
 import { found, requireCondition } from "../errors";
 import { audit, publish, iso } from "../persistence/transactions";
 export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
@@ -64,10 +74,18 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
     .execute();
   const assigned = await tx
     .selectFrom("suite.module_assignments")
-    .select("module_id")
+    .select(["module_id", "direct"])
     .where("workspace_id", "=", ctx.workspaceId)
     .where("membership_id", "=", ctx.membershipId)
     .execute();
+  const policyModules = assigned.some((a) => !a.direct)
+    ? await currentPolicyModules(
+        tx,
+        ctx.workspaceId,
+        ctx.membershipId,
+        ctx.runtime.catalog,
+      )
+    : [];
   const count = await tx
     .selectFrom("suite.memberships")
     .select((eb) => eb.fn.countAll<number>().as("n"))
@@ -121,7 +139,10 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
           state: m?.state ?? "draft",
           accessPolicy: m?.access_policy ?? "admin",
           entitled: m?.active ?? false,
-          assigned: assigned.some((a) => a.module_id === id),
+          assigned: assigned.some(
+            (a) =>
+              a.module_id === id && (a.direct || policyModules.includes(id)),
+          ),
           ...(acceptedVersions ? { acceptedVersions } : {}),
         };
       }),
@@ -169,107 +190,70 @@ export async function listMembers(tx: Tx, ctx: Context) {
     .selectAll()
     .where("workspace_id", "=", ctx.workspaceId)
     .execute();
-  return members.map((m) => ({
-    id: m.id,
-    userId: m.user_id,
-    name: m.name,
-    email: m.email,
-    active: m.active,
-    roles: assignments
-      .filter((a) => a.membership_id === m.id)
-      .map(({ id, name, permissions, protected: protectedRole }) => ({
-        id,
-        name,
-        permissions,
-        protected: protectedRole,
-      })),
-    modules: modules
-      .filter((a) => a.membership_id === m.id)
-      .map((a) => a.module_id),
-  }));
-}
-export async function assignModules(
-  tx: Tx,
-  workspaceId: string,
-  membershipId: string,
-  moduleIds: string[],
-  catalog: ModuleCatalog,
-) {
-  const ids = [
-    ...new Set(
-      (
-        await Promise.all(
-          moduleIds.map((id) =>
-            workspaceDependencyIds(tx, workspaceId, id, catalog),
-          ),
-        )
-      ).flat(),
-    ),
-  ];
-  for (const id of ids) {
-    const module = await tx
-      .selectFrom("suite.module_activations as m")
-      .innerJoin("suite.entitlements as e", (j) =>
-        j
-          .onRef("m.workspace_id", "=", "e.workspace_id")
-          .onRef("m.module_id", "=", "e.module_id"),
-      )
-      .select(["m.state", "e.active", "e.seat_limit"])
-      .where("m.workspace_id", "=", workspaceId)
-      .where("m.module_id", "=", id)
-      .executeTakeFirst();
-    if (module?.seat_limit !== null && module?.seat_limit !== undefined) {
-      const count = await tx
-        .selectFrom("suite.module_assignments as a")
-        .innerJoin("suite.memberships as m", (j) =>
-          j
-            .onRef("a.membership_id", "=", "m.id")
-            .onRef("a.workspace_id", "=", "m.workspace_id"),
-        )
-        .select((eb) => eb.fn.countAll<number>().as("n"))
-        .where("a.workspace_id", "=", workspaceId)
-        .where("a.module_id", "=", id)
-        .where("a.membership_id", "!=", membershipId)
-        .where("m.active", "=", true)
-        .executeTakeFirstOrThrow();
-      requireCondition(
-        Number(count.n) < module.seat_limit,
-        409,
-        "NO_MODULE_SEATS",
-        `No ${id} seats are available.`,
-      );
-    }
-    requireCondition(
-      module?.active && module.state === "enabled",
-      409,
-      "MODULE_UNAVAILABLE",
-      "Only entitled, enabled modules can be assigned.",
-    );
-  }
-  await tx
-    .deleteFrom("suite.module_assignments")
-    .where("workspace_id", "=", workspaceId)
-    .where("membership_id", "=", membershipId)
-    .execute();
-  if (ids.length)
-    await tx
-      .insertInto("suite.module_assignments")
-      .values(
-        ids.map((module_id) => ({
-          workspace_id: workspaceId,
-          membership_id: membershipId,
-          module_id,
+  const policy = await organizationPolicy(tx, ctx.workspaceId);
+  const sources = policyModuleSourceResolver(
+    tx,
+    ctx.workspaceId,
+    ctx.runtime.catalog,
+    policy,
+  );
+  return Promise.all(
+    members.map(async (m) => ({
+      id: m.id,
+      userId: m.user_id,
+      name: m.name,
+      email: m.email,
+      active: m.active,
+      roles: assignments
+        .filter((a) => a.membership_id === m.id)
+        .map(({ id, name, permissions, protected: protectedRole }) => ({
+          id,
+          name,
+          permissions,
+          protected: protectedRole,
         })),
-      )
-      .execute();
+      modules: modules
+        .filter((a) => a.membership_id === m.id)
+        .map((a) => a.module_id),
+      modulePolicies: Object.entries(
+        await sources(
+          assignments.filter((a) => a.membership_id === m.id).map((a) => a.id),
+        ),
+      ).map(([moduleId, sources]) => ({
+        moduleId,
+        sources,
+        assigned:
+          m.active &&
+          modules.some(
+            (a) => a.membership_id === m.id && a.module_id === moduleId,
+          ),
+      })),
+      directModules: modules
+        .filter((a) => a.membership_id === m.id && a.direct)
+        .map((a) => a.module_id),
+    })),
+  );
 }
 export async function editMember(
   tx: Tx,
   ctx: Context,
   id: string,
-  input: { active: boolean; roleIds: string[]; modules: string[] },
+  input: {
+    active: boolean;
+    roleIds: string[];
+    modules: string[];
+    directModules?: string[];
+  },
 ) {
   await lockWorkspace(tx, ctx.workspaceId);
+  ctx = await authorize(
+    tx,
+    ctx.actor,
+    ctx.workspaceId,
+    ctx.requestId,
+    ctx.runtime,
+    "members.manage",
+  );
   const member = found(
     await tx
       .selectFrom("suite.memberships")
@@ -385,11 +369,24 @@ export async function editMember(
         })),
       )
       .execute();
+  const derived = await tx
+    .selectFrom("suite.module_assignments")
+    .select("module_id")
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("membership_id", "=", id)
+    .where("direct", "=", false)
+    .execute();
+  // Legacy editors echo effective access. Do not convert policy access into a direct grant.
+  const direct =
+    input.directModules ??
+    input.modules.filter(
+      (moduleId) => !derived.some((row) => row.module_id === moduleId),
+    );
   await assignModules(
     tx,
     ctx.workspaceId,
     id,
-    input.active ? input.modules : [],
+    input.active ? direct : [],
     ctx.runtime.catalog,
   );
   await audit(
@@ -681,7 +678,8 @@ export async function acceptInvitation(
       role_id: role.id,
     })
     .execute();
-  // Invitation grants membership and a role. Module assignment is a separate administrative action.
+  // Existing group/tag policies apply to the accepted role under the same seat checks.
+  await reconcileModulePolicies(tx, ctx.workspaceId, ctx.runtime.catalog);
   await tx
     .updateTable("suite.invitations")
     .set({ state: "accepted" })
@@ -769,6 +767,12 @@ export async function configureModule(
       }),
     )
     .execute();
+  await reconcileModulePolicies(
+    tx,
+    ctx.workspaceId,
+    ctx.runtime.catalog,
+    "available",
+  );
   await audit(tx, ctx, "modules.configured", id);
   return { ok: true };
 }
@@ -857,6 +861,7 @@ export async function requestAccess(
     const current = await tx
       .selectFrom("suite.module_assignments")
       .select("module_id")
+      .where("direct", "=", true)
       .where("workspace_id", "=", ctx.workspaceId)
       .where("membership_id", "=", ctx.membershipId)
       .execute();
@@ -938,6 +943,7 @@ export async function resolveAccess(
     const current = await tx
       .selectFrom("suite.module_assignments")
       .select("module_id")
+      .where("direct", "=", true)
       .where("workspace_id", "=", ctx.workspaceId)
       .where("membership_id", "=", request.membership_id)
       .execute();

@@ -1,3 +1,4 @@
+import { productServerRuntime } from "../../composition/src/presets/index";
 import { SuiteClient } from "../../packages/client/src/api";
 import { operationPath } from "../../packages/contracts/src";
 import { provisionLegacyWorkspace as provisionWorkspace } from "../fixtures/legacy-workspace";
@@ -604,6 +605,7 @@ describe("Subscription authority", () => {
           items: { data: [{ price: { id: "price_contacts" }, quantity: 7 }] },
         },
         { contacts: "price_contacts", projects: "price_projects" },
+        productServerRuntime.catalog,
       );
       const entitlements = await tx
         .selectFrom("suite.entitlements")
@@ -634,6 +636,7 @@ describe("Subscription authority", () => {
           items: { data: [{ price: { id: "price_contacts" }, quantity: 7 }] },
         },
         { contacts: "price_contacts" },
+        productServerRuntime.catalog,
       );
       expect(
         (

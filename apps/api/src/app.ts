@@ -939,6 +939,9 @@ export async function createApp(
         active: T.Boolean(),
         roleIds: T.Array(S.Id, { maxItems: 20, uniqueItems: true }),
         modules: T.Array(S.ModuleId, { maxItems: 100, uniqueItems: true }),
+        directModules: T.Optional(
+          T.Array(S.ModuleId, { maxItems: 100, uniqueItems: true }),
+        ),
       },
       { additionalProperties: false },
     ),

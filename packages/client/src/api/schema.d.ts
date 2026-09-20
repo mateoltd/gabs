@@ -3208,6 +3208,12 @@ export interface operations {
                             protected: boolean;
                         }[];
                         modules: string[];
+                        directModules?: string[];
+                        modulePolicies?: {
+                            moduleId: string;
+                            sources: string[];
+                            assigned: boolean;
+                        }[];
                     }[];
                 };
             };
@@ -3321,6 +3327,7 @@ export interface operations {
                     active: boolean;
                     roleIds: string[];
                     modules: string[];
+                    directModules?: string[];
                 };
             };
         };

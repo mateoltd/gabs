@@ -20,7 +20,8 @@
     "./governance/capability-review": "./src/governance/capability-review.ts",
     "./runtime/attempts": "./src/runtime/attempts.ts",
     "./runtime/receipts": "./src/runtime/receipts.ts",
-    "./identity/integrity": "./src/identity/integrity.ts"
+    "./identity/integrity": "./src/identity/integrity.ts",
+    "./governance/module-assignments": "./src/governance/module-assignments.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

@@ -612,6 +612,7 @@ export function People(props: FeatureProps) {
                       active: member.active,
                       roleIds: member.roles.map((r) => r.id),
                       modules: member.modules,
+                      directModules: member.directModules ?? member.modules,
                     },
                   }),
                 () => setMember(null),
@@ -637,8 +638,31 @@ export function People(props: FeatureProps) {
                 </label>
               ))}
             </fieldset>
+            {!!member.modulePolicies?.length && (
+              <section aria-label="Role module policies">
+                <h3>Role module policies</h3>
+                <p>
+                  Saved policy access is recalculated when role changes are
+                  saved.
+                </p>
+                <ul>
+                  {member.modulePolicies.map((policy) => (
+                    <li key={policy.moduleId}>
+                      {catalog.definition(policy.moduleId)?.name ??
+                        policy.moduleId}
+                      : {policy.assigned ? "Assigned" : "Awaiting availability"}
+                      . {policy.sources.join(", ")}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <fieldset>
-              <legend>Module assignments</legend>
+              <legend>Direct module assignments</legend>
+              <p>
+                These grants are independent of role policies. Removing a direct
+                grant preserves access supplied by a group or tag.
+              </p>
               {moduleState.data?.modules.map((module) => {
                 const activation = bootstrap.modules.find(
                   (m) => m.moduleId === module.id,
@@ -653,14 +677,26 @@ export function People(props: FeatureProps) {
                 return (
                   <label key={module.id} className="check-row">
                     <Checkbox
-                      checked={member.modules.includes(module.id)}
-                      disabled={!ready && !member.modules.includes(module.id)}
+                      checked={(
+                        member.directModules ?? member.modules
+                      ).includes(module.id)}
+                      disabled={
+                        !ready &&
+                        !(member.directModules ?? member.modules).includes(
+                          module.id,
+                        )
+                      }
                       onCheckedChange={(checked) =>
                         setMember({
                           ...member,
-                          modules: checked
-                            ? [...member.modules, module.id]
-                            : member.modules.filter((id) => id !== module.id),
+                          directModules: checked
+                            ? [
+                                ...(member.directModules ?? member.modules),
+                                module.id,
+                              ]
+                            : (member.directModules ?? member.modules).filter(
+                                (id) => id !== module.id,
+                              ),
                         })
                       }
                     />

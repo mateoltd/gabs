@@ -5976,6 +5976,38 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "directModules": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "modulePolicies": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "moduleId",
+                            "sources",
+                            "assigned"
+                          ],
+                          "properties": {
+                            "moduleId": {
+                              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                              "type": "string"
+                            },
+                            "sources": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "assigned": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -6197,6 +6229,15 @@
                     }
                   },
                   "modules": {
+                    "maxItems": 100,
+                    "uniqueItems": true,
+                    "type": "array",
+                    "items": {
+                      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                      "type": "string"
+                    }
+                  },
+                  "directModules": {
                     "maxItems": 100,
                     "uniqueItems": true,
                     "type": "array",

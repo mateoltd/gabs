@@ -1,3 +1,4 @@
+import { PolicyModules } from "./modules";
 import { useRef, useState } from "react";
 import type {
   OrganizationPolicy,
@@ -15,11 +16,15 @@ import {
 export function OrganizationTags({
   policy,
   permissions,
+  modules,
+  canAssignModules,
   disabled,
   onChange,
 }: {
   policy: OrganizationPolicy;
   permissions: string[];
+  modules: { id: string; name: string }[];
+  canAssignModules: boolean;
   disabled: boolean;
   onChange(policy: OrganizationPolicy): void;
 }) {
@@ -137,6 +142,12 @@ export function OrganizationTags({
               ))}
             </div>
           </fieldset>
+          <PolicyModules
+            modules={modules}
+            selected={tag.modules}
+            disabled={disabled || !canAssignModules}
+            onChange={(modules) => update({ ...tag, modules })}
+          />
           <TagPermissions
             key={tag.id}
             tag={tag}

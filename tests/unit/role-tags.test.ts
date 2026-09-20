@@ -116,3 +116,39 @@ it("retains legacy group labels as inert metadata and derives complete tag types
   };
   void invalid;
 });
+it("explains overlapping module policies with opt-in inheritance independently of permission strings", async () => {
+  const { effectiveModulePolicies } =
+    await import("@suite/module-sdk/governance");
+  const { policy, parent, child, other } = fixture();
+  policy.tags![0].modules = ["projects"];
+  policy.groups.push({
+    id: randomUUID(),
+    name: "Field staff",
+    rankIds: [child],
+    tags: [],
+    grants: [],
+    denies: [],
+    modules: ["contacts"],
+  });
+  expect(effectiveModulePolicies([child], policy)).toEqual({
+    contacts: ["Group: Field staff"],
+  });
+  policy.ranks.find((r) => r.id === child)!.inherit = true;
+  expect(effectiveModulePolicies([child, other, parent], policy)).toEqual({
+    contacts: ["Group: Field staff"],
+    projects: ["Tag: Reviewers"],
+  });
+  expect(effectivePermissions([child], {}, policy).permissions).not.toContain(
+    "projects",
+  );
+});
+
+it("supports valid module names that match object prototype properties", async () => {
+  const { effectiveModulePolicies } =
+    await import("@suite/module-sdk/governance");
+  const { policy, parent } = fixture();
+  policy.tags![0].modules = ["constructor"];
+  expect(effectiveModulePolicies([parent], policy)).toEqual({
+    constructor: ["Tag: Reviewers"],
+  });
+});

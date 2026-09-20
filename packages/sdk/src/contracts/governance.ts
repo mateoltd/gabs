@@ -26,6 +26,12 @@ const assignment = {
   rankIds: Type.Array(policyId, { maxItems: 500, uniqueItems: true }),
   grants: strings,
   denies: strings,
+  modules: Type.Optional(
+    Type.Array(Type.String({ pattern: "^[a-z][a-z0-9-]{0,63}$" }), {
+      maxItems: 100,
+      uniqueItems: true,
+    }),
+  ),
 };
 export const PolicyGroupSchema = Type.Object(
   {
@@ -195,4 +201,34 @@ export function layoutOrganization(
     ...policy,
     ranks: policy.ranks.map((r) => ({ ...r, ...positions.get(r.id)! })),
   };
+}
+
+/** Module policy follows the same opt-in role inheritance as permissions. */
+export function effectiveModulePolicies(
+  assigned: readonly string[],
+  policy?: OrganizationPolicy,
+) {
+  const sources: Record<string, string[]> = Object.create(null);
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const rank = policy?.ranks.find((item) => item.id === id);
+    for (const [kind, entries] of [
+      ["Group", policy?.groups ?? []],
+      ["Tag", policy?.tags ?? []],
+    ] as const) {
+      for (const entry of entries) {
+        if (!entry.rankIds.includes(id)) continue;
+        for (const moduleId of entry.modules ?? []) {
+          const names = (sources[moduleId] ??= []);
+          const name = `${kind}: ${entry.name}`;
+          if (!names.includes(name)) names.push(name);
+        }
+      }
+    }
+    if (rank?.inherit) for (const parent of rank.parents) visit(parent);
+  };
+  for (const id of assigned) visit(id);
+  return sources;
 }

@@ -1,3 +1,4 @@
+import { currentPolicyModules } from "../governance/module-policy";
 import {
   effectivePermissions,
   type OrganizationPolicy,
@@ -153,10 +154,19 @@ export async function checkModule(
         .onRef("a.module_id", "=", "m.module_id")
         .on("a.membership_id", "=", membershipId),
     )
-    .select(["m.module_id", "m.state", "e.active", "a.membership_id"])
+    .select([
+      "m.module_id",
+      "m.state",
+      "e.active",
+      "a.membership_id",
+      "a.direct",
+    ])
     .where("m.workspace_id", "=", workspaceId)
     .where("m.module_id", "in", ids)
     .execute();
+  const policyModules = modules.some((m) => m.membership_id && !m.direct)
+    ? await currentPolicyModules(tx, workspaceId, membershipId, runtime.catalog)
+    : [];
   for (const definition of definitions) {
     const id = definition.id;
     await assertModuleStorage(tx, workspaceId, definition);
@@ -168,7 +178,7 @@ export async function checkModule(
       `${runtime.catalog.definition(id)?.name ?? id} must be enabled for this action.`,
     );
     requireCondition(
-      module.membership_id,
+      module.membership_id && (module.direct || policyModules.includes(id)),
       403,
       "MODULE_NOT_ASSIGNED",
       `Request access to ${id} before using this action.`,
