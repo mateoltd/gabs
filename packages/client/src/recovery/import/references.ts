@@ -5,18 +5,36 @@ import type { CreateRecovery } from "@suite/module-sdk/sync";
 export function importedReferenceHints(
   input: SavedWorkRecovery,
 ): CreateRecovery[] {
-  if (input.selection !== "request") return [];
   const entry = input.entry;
-  const original = entry.call.input as { id?: unknown } | null;
+  const original = entry?.call.input as { id?: unknown } | null;
+  const targetHint =
+    input.selection === "draft" &&
+    entry?.call.action === "update" &&
+    entry.call.resource &&
+    entry.recordRecovery &&
+    typeof original?.id === "string" &&
+    original.id !== entry.recordRecovery.targetId
+      ? [
+          {
+            moduleId: input.moduleId,
+            resource: entry.call.resource,
+            originalId: original.id,
+            replacementId: entry.recordRecovery.targetId,
+          },
+        ]
+      : [];
   const hints = [
-    ...(entry.createRecovery ?? []),
+    ...(entry?.createRecovery ?? []),
     ...(input.review?.createRecovery ?? []),
+    ...targetHint,
   ];
   const seen = new Set<string>();
   return hints.filter((hint) => {
-    // The explicit record-target selector already handles this observation.
+    // Request-only target selection already handles this observation. Drafts
+    // retain it too: a saved field can reference the same record as the target.
     if (
-      entry.recordRecovery &&
+      input.selection === "request" &&
+      entry?.recordRecovery &&
       entry.call.action !== "operation" &&
       hint.moduleId === input.moduleId &&
       hint.resource === entry.call.resource &&

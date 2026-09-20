@@ -19,18 +19,40 @@ export async function corporateRequestTargets(
     action: "update" | "archive";
     choice: "original" | "reassigned";
     accepted?: boolean;
+    draftReference?: "original" | "reassigned";
   },
 ) {
   let page = options.source;
   const id = `request-target-${randomUUID().slice(0, 8)}`;
   const name = `Request target notes ${id.slice(-8)}`;
-  const transform = (file: string, source: string) =>
-    file === "view.tsx"
-      ? source.replace(
-          ".queue.create({ name }, { dependencies:",
-          ".queue.create({ name }, { id: recordId || undefined, dependencies:",
-        )
-      : source;
+  if (
+    options.draftReference &&
+    (options.action !== "update" || options.accepted)
+  )
+    throw Error("Draft-reference acceptance requires a stopped update.");
+  const evidenceDirectory = options.draftReference
+    ? "docs/verification/imported-draft-references"
+    : "docs/verification/imported-request-targets";
+  const transform = (file: string, source: string) => {
+    if (file === "module.ts" && options.draftReference)
+      return source.replace(
+        "notes: resource({ name: field.text({ minLength: 1 }) }",
+        `notes: resource({ name: field.text({ minLength: 1 }), parentId: Type.Optional(field.reference("${id}", "notes")) }`,
+      );
+    if (file === "view.tsx") {
+      const view = source.replace(
+        ".queue.create({ name }, { dependencies:",
+        ".queue.create({ name }, { id: recordId || undefined, dependencies:",
+      );
+      return options.draftReference
+        ? view.replace(
+            "queue.update(base.id, { name }, base, options)",
+            "queue.update(base.id, { name, parentId: recordId }, base, options)",
+          )
+        : view;
+    }
+    return source;
+  };
   const published = await publishExecutableFixture({
     id,
     name,
@@ -173,7 +195,7 @@ export async function corporateRequestTargets(
     sourceDirectory: "tests/fixtures/queued-resources",
     transform: (file, source) =>
       file === "module.ts"
-        ? source.replace('    view: "home",\n', "")
+        ? transform(file, source).replace('    view: "home",\n', "")
         : transform(file, source),
   });
   const rollout = await options.api.post(
@@ -237,6 +259,36 @@ export async function corporateRequestTargets(
   )!;
   expect(child.recordRecovery?.targetId).not.toBe(original.id);
   expect(child.call.input).toEqual(captured[1].call.input);
+  if (options.draftReference) {
+    await page
+      .getByRole("group", {
+        name: "Pending update: Recovered edit",
+        exact: true,
+      })
+      .getByRole("button", { name: "Review", exact: true })
+      .click();
+    const editor = page.getByRole("dialog", {
+      name: "Edit record",
+      exact: true,
+    });
+    await selectValue(page, "Use value for name", "local");
+    await editor
+      .getByLabel("Name", { exact: true })
+      .fill("Draft reference edit");
+    await expect
+      .poll(async () =>
+        Object.values((await portabilityStorage(page, scope)).drafts).some(
+          (data) =>
+            data.name === "Draft reference edit" &&
+            data.parentId === original.id,
+        ),
+      )
+      .toBe(true);
+    await editor
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await expect(editor).toHaveCount(0);
+  }
   await options.offline(true);
   await navigate("Settings");
   await page.getByRole("button", { name: /^Saved records and drafts/ }).click();
@@ -255,12 +307,33 @@ export async function corporateRequestTargets(
     );
     return { path, bytes: await readFile(path) };
   };
-  const file = await exported(child.id, "child.json");
+  const file = options.draftReference
+    ? await (async () => {
+        const path = resolve(options.directory, "draft.json");
+        await options.exportFile(
+          source.getByRole("button", {
+            name: "Export saved draft",
+            exact: true,
+          }),
+          path,
+        );
+        return { path, bytes: await readFile(path) };
+      })()
+    : await exported(child.id, "child.json");
   const parent = await exported(child.dependencies[0], "parent.json");
   const input: unknown = JSON.parse(file.bytes.toString());
   assertSchema(SavedWorkRecoverySchema, input);
-  if (input.selection !== "request")
-    throw Error("Expected actual request export");
+  expect(input.selection).toBe(options.draftReference ? "draft" : "request");
+  if (input.selection === "draft") {
+    expect(input.data).toMatchObject({
+      name: "Draft reference edit",
+      parentId: original.id,
+    });
+    expect(input.entry?.recordRecovery).toMatchObject({
+      targetId: child.recordRecovery!.targetId,
+      destination: "separate",
+    });
+  }
   expect(input.entry).toEqual(child);
   let accepted: ResourceRecord | undefined;
   if (options.accepted)
@@ -332,7 +405,7 @@ export async function corporateRequestTargets(
     .focus();
   await page.keyboard.press("Enter");
   if (!options.accepted) {
-    const evidence = resolve("docs/verification/imported-request-targets");
+    const evidence = resolve(evidenceDirectory);
     await mkdir(evidence, { recursive: true });
     const prefix = `${options.evidenceName}-${options.action}-${options.choice}`;
     await page.screenshot({
@@ -403,7 +476,10 @@ export async function corporateRequestTargets(
   } else {
     expect(restored.settlement).toBe("cancelled");
     await expect(
-      page.getByRole("button", { name: "Review", exact: true }),
+      page.getByRole("button", {
+        name: options.draftReference ? "Resume review" : "Review",
+        exact: true,
+      }),
     ).toBeDisabled();
     imported = await openImports(parent.path);
     await confirm().click();
@@ -418,7 +494,12 @@ export async function corporateRequestTargets(
     await close(imported);
     await page.reload();
     await navigate(name);
-    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: options.draftReference ? "Resume review" : "Review",
+        exact: true,
+      })
+      .click();
     const chosen = records[options.choice === "original" ? 0 : 1];
     const untouched = records[options.choice === "original" ? 1 : 0];
     if (options.action === "update") {
@@ -433,6 +514,59 @@ export async function corporateRequestTargets(
         editor.getByRole("button", { name: "Save", exact: true }),
       ).toBeDisabled();
       await selectValue(page, "Use value for name", "local");
+      if (options.draftReference) {
+        const reference =
+          records[options.draftReference === "original" ? 0 : 1];
+        await expect(editor).toContainText("saved reference hints");
+        await expect(editor).toContainText(original.id);
+        await expect(editor).toContainText(child.recordRecovery!.targetId);
+        await selectValue(page, "Parent Id", reference.id);
+        await expect
+          .poll(async () =>
+            Object.values((await portabilityStorage(page, scope)).drafts).some(
+              (data) =>
+                data.parentId === reference.id &&
+                data.name === "Draft reference edit",
+            ),
+          )
+          .toBe(true);
+        const evidence = resolve(evidenceDirectory);
+        const prefix = `${options.evidenceName}-update-${options.choice}-review`;
+        await editor
+          .getByRole("button", { name: "Save", exact: true })
+          .scrollIntoViewIfNeeded();
+        await page.screenshot({
+          path: resolve(evidence, `${prefix}.png`),
+          animations: "disabled",
+        });
+        expect(
+          (
+            await new AxeBuilder({ page })
+              .setLegacyMode(await page.evaluate(() => !!window.suiteDesktop))
+              .include('[role="dialog"]')
+              .withTags(["wcag2a", "wcag2aa"])
+              .analyze()
+          ).violations,
+        ).toEqual([]);
+        const viewport = await page.evaluate(() => ({
+          width: innerWidth,
+          height: innerHeight,
+        }));
+        await page.setViewportSize({ width: 390, height: 844 });
+        await editor
+          .getByRole("button", { name: "Save", exact: true })
+          .scrollIntoViewIfNeeded();
+        await page.screenshot({
+          path: resolve(evidence, `${prefix}-narrow.png`),
+          animations: "disabled",
+        });
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        await page.setViewportSize(viewport);
+      }
       await editor.getByRole("button", { name: "Save", exact: true }).click();
     } else {
       const review = page.getByRole("dialog", {
@@ -443,7 +577,7 @@ export async function corporateRequestTargets(
       await expect(review).toContainText(
         `Current server version: ${chosen.version}`,
       );
-      const evidence = resolve("docs/verification/imported-request-targets");
+      const evidence = resolve(evidenceDirectory);
       const prefix = `${options.evidenceName}-archive-${options.choice}-review`;
       await page.screenshot({
         path: resolve(evidence, `${prefix}.png`),
@@ -488,7 +622,15 @@ export async function corporateRequestTargets(
       id: chosen.id,
       archived: options.action === "archive",
       data:
-        options.action === "update" ? { name: "Recovered edit" } : chosen.data,
+        options.action === "update"
+          ? options.draftReference
+            ? {
+                name: "Draft reference edit",
+                parentId:
+                  records[options.draftReference === "original" ? 0 : 1].id,
+              }
+            : { name: "Recovered edit" }
+          : chosen.data,
     });
     expect(await command("get", { id: untouched.id })).toEqual(untouched);
     const journal = (await portabilityStorage(page, scope)).journal;

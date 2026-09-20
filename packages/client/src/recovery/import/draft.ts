@@ -15,6 +15,7 @@ import {
 } from "./target";
 import type { settleModuleCall } from "../../modules/settlement";
 import type { authorizeWorkImport, SavedWorkImportOptions } from "./authority";
+import { importedReferenceHints } from "./references";
 
 export type ImportedDraftSource = ImportedRecordTarget;
 
@@ -62,10 +63,6 @@ export function importedDraftKeys(
       throw Error(
         "This saved review is missing its original request. Retain the source file.",
       );
-    if (input.review?.createRecovery?.length)
-      throw Error(
-        "This saved draft is missing its original dependency review. Retain the source file.",
-      );
     if (
       input.review?.collision &&
       draftSource !== "original" &&
@@ -82,11 +79,7 @@ export function importedDraftKeys(
     );
   if (input.entry.recordRecovery) {
     checkImportedRecordTarget(input, draftSource);
-  } else if (
-    input.entry.createRecovery?.length ||
-    input.review?.createRecovery?.length ||
-    input.review?.collision
-  )
+  } else if (input.review?.collision)
     throw Error(
       "This saved review includes reassigned records. Its imported copy is retained; recover the original dependencies and record choices before restoring it.",
     );
@@ -115,7 +108,11 @@ export async function prepareImportedDraft(
   outcome?: Outcome,
   draftSource?: ImportedDraftSource,
 ) {
-  let review: DraftReview = { draftId: `import-${digest}` };
+  const hints = importedReferenceHints(input);
+  const context = hints.length
+    ? { createRecovery: structuredClone(hints) }
+    : {};
+  let review: DraftReview = { draftId: `import-${digest}`, ...context };
   let target = structuredClone(input.target);
   let data = structuredClone(input.data);
   let recordRecovery: JournalEntry["recordRecovery"];
@@ -164,13 +161,26 @@ export async function prepareImportedDraft(
   if (!input.entry) {
     review = {
       ...review,
-      ...(input.review?.comparison
-        ? { comparison: structuredClone(input.review.comparison) }
-        : {}),
       ...(input.review?.recoveryInput
         ? { recoveryInput: structuredClone(input.review.recoveryInput) }
         : {}),
     };
+    if (target) {
+      const snapshot = target;
+      target = await readCurrentTarget(options, input, authority, snapshot.id);
+      if (!target.archived) {
+        const compared = reviewFields(snapshot.data, data, target.data);
+        data = compared.data;
+        review.comparison = compared.review;
+      } else {
+        review.recoveryInput = {
+          moduleVersion: input.draftVersion,
+          recordId: snapshot.id,
+          baseVersion: snapshot.version,
+        };
+      }
+      await authority.refresh();
+    }
   } else {
     if (!outcome) throw Error("The original request outcome is missing.");
     assertSchema(recordInput, input.entry.call.input);
@@ -193,7 +203,7 @@ export async function prepareImportedDraft(
       targetId = accepted.id;
       base = input.target?.data ?? accepted.data;
     } else {
-      review = { entryId: input.entry.id };
+      review = { entryId: input.entry.id, ...context };
       if (input.entry.call.action === "update") {
         targetId =
           input.entry.recordRecovery && draftSource === "reassigned"

@@ -49,22 +49,6 @@ export function checkImportedRecordTarget(
     );
   assertSchema(recordInput, entry.call.input);
   const originalId = entry.call.input.id;
-  // A draft needs full graph reconciliation. Requests retain other references
-  // only as hints for their subsequent correction form.
-  for (const mapping of [
-    ...(entry.createRecovery ?? []),
-    ...(input.review?.createRecovery ?? []),
-  ])
-    if (
-      input.selection === "draft" &&
-      (mapping.moduleId !== input.moduleId ||
-        mapping.resource !== entry.call.resource ||
-        mapping.originalId !== originalId ||
-        mapping.replacementId !== entry.recordRecovery.targetId)
-    )
-      throw Error(
-        "This saved review includes other reassigned references. Recover those dependencies before restoring it.",
-      );
   if (choice !== "original" && choice !== "reassigned")
     throw Error(
       "Choose the original or reassigned record before restoring this copy.",

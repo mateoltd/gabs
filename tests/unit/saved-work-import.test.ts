@@ -1212,8 +1212,11 @@ it.each(["original", "reassigned"] as const)(
         destination: choice === "original" ? "existing" : "separate",
       },
     });
-    expect(state.journal[0].createRecovery).toBeUndefined();
+    expect(state.journal[0].createRecovery).toEqual(
+      input.entry!.createRecovery,
+    );
     expect(state.draftReviews![result.draftKey!]).toMatchObject({
+      createRecovery: input.entry!.createRecovery,
       entryId: input.entry!.id,
       comparison: {
         choices: {},
@@ -1228,21 +1231,64 @@ it.each(["original", "reassigned"] as const)(
   },
 );
 
-it("refuses unrelated copied reference mappings before settling a linked edit", async () => {
+it("derives draft reference context from a saved target choice without changing its input", async () => {
   const f = fixture();
-  const { input } = reassignedLinkedDraft(f);
-  input.review!.createRecovery!.push({
-    moduleId: module.id,
-    resource: "notes",
+  const { input, record, target } = reassignedLinkedDraft(f);
+  delete input.entry!.createRecovery;
+  delete input.review!.createRecovery;
+  input.data.parentId = record.id;
+  const { digest } = await f.stage(input);
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  f.replies.moduleRequest = target;
+  const result = await f.promote(digest, "reassigned");
+  const state = await f.read();
+  const hints = [
+    {
+      moduleId: module.id,
+      resource: "notes",
+      originalId: record.id,
+      replacementId: target.id,
+    },
+  ];
+  expect(state.journal[0].createRecovery).toEqual(hints);
+  expect(state.journal[0].call).toEqual(input.entry!.call);
+  expect(state.draftReviews![result.draftKey!].createRecovery).toEqual(hints);
+  expect(state.drafts[result.draftKey!].parentId).toBe(record.id);
+  expect(state.recoveryImports![digest].input).toEqual(input);
+});
+
+it("retains additional reference hints alongside a linked draft target without rewriting saved fields", async () => {
+  const f = fixture();
+  const { input, target } = reassignedLinkedDraft(f);
+  const hint = {
+    moduleId: "contacts",
+    resource: "people",
     originalId: randomUUID(),
     replacementId: randomUUID(),
-  });
+  };
+  input.review!.createRecovery!.push(hint);
+  input.data.link = hint.originalId;
   const { digest } = await f.stage(input);
-  await expect(f.promote(digest, "reassigned")).rejects.toThrow(
-    /other reassigned references/,
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  f.replies.moduleRequest = target;
+  const result = await f.promote(digest, "reassigned");
+  const state = await f.read();
+  expect(state.journal[0].createRecovery).toEqual([
+    ...input.entry!.createRecovery!,
+    hint,
+  ]);
+  expect(state.journal[0].call).toEqual(input.entry!.call);
+  expect(state.draftReviews![result.draftKey!].createRecovery).toEqual(
+    state.journal[0].createRecovery,
   );
-  expect(f.calls).not.toContain("moduleAttemptSettle");
-  expect((await f.read()).journal).toEqual([]);
+  expect(state.drafts[result.draftKey!].link).toBe(hint.originalId);
+  expect(state.recoveryImports![digest].input).toEqual(input);
 });
 
 it("keeps an accepted linked edit on its actual record despite a copied reassignment", async () => {
@@ -1654,5 +1700,159 @@ it.each(["update", "archive"] as const)(
     expect(restored.recordRecovery?.targetId).toBe(target.id);
     expect(restored.createRecovery).toEqual([hint]);
     expect(restored.call).toEqual(input.entry.call);
+  },
+);
+
+it.each(["create", "update"] as const)(
+  "restores stopped %s draft hints without rewriting original references",
+  async (action) => {
+    const f = fixture();
+    const { input, record } = linkedDraft(f, action);
+    const hint = {
+      moduleId: "contacts",
+      resource: "people",
+      originalId: "old",
+      replacementId: "new",
+    };
+    input.entry!.createRecovery = [hint];
+    input.review!.createRecovery = [hint];
+    input.entry!.dependencies = ["accepted-parent"];
+    input.data.reference = "old";
+    const { digest } = await f.stage(input);
+    f.replies.moduleAttemptSettle = {
+      key: input.entry!.id,
+      outcome: "cancelled",
+    };
+    f.replies.moduleRequest = record;
+    const result = await f.promote(digest);
+    const state = await f.read();
+    expect(state.journal[0]).toMatchObject({
+      call: input.entry!.call,
+      createRecovery: [hint],
+      dependencies: ["accepted-parent"],
+      settlement: "cancelled",
+    });
+    expect(state.draftReviews![result.draftKey!]).toMatchObject({
+      entryId: input.entry!.id,
+      createRecovery: [hint],
+    });
+    expect(state.drafts[result.draftKey!].reference).toBe("old");
+  },
+);
+
+it("keeps accepted original hints only in the separate current-record draft review", async () => {
+  const f = fixture();
+  const { input, record } = linkedDraft(f, "create");
+  const hint = {
+    moduleId: "contacts",
+    resource: "people",
+    originalId: "old",
+    replacementId: "new",
+  };
+  input.entry!.createRecovery = [hint];
+  const { digest } = await f.stage(input);
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "accepted",
+    result: record,
+  };
+  f.replies.moduleRequest = record;
+  const result = await f.promote(digest);
+  const state = await f.read();
+  expect(state.journal[0].state).toBe("accepted");
+  expect(state.journal[0].createRecovery).toBeUndefined();
+  expect(state.draftReviews![result.draftKey!].createRecovery).toEqual([hint]);
+  expect(state.draftReviews![result.draftKey!].entryId).toBeUndefined();
+  expect(state.draftTargets![result.draftKey!]).toEqual(record);
+});
+
+it.each([false, true])(
+  "refreshes an independent hinted draft against current target (archived=%s)",
+  async (archived) => {
+    const f = fixture();
+    const { input, record } = linkedDraft(f);
+    delete input.entry;
+    delete input.review!.entryId;
+    const hint = {
+      moduleId: "contacts",
+      resource: "people",
+      originalId: "old",
+      replacementId: "new",
+    };
+    input.review!.createRecovery = [hint];
+    const { digest } = await f.stage(input);
+    const current = {
+      ...record,
+      version: 4,
+      archived,
+      data: { name: "New remote value" },
+    };
+    f.replies.moduleRequest = current;
+    const result = await f.promote(digest);
+    const state = await f.read();
+    expect(state.journal).toEqual([]);
+    expect(f.calls).not.toContain("moduleAttemptSettle");
+    expect(state.draftTargets![result.draftKey!]).toEqual(current);
+    expect(state.draftReviews![result.draftKey!].createRecovery).toEqual([
+      hint,
+    ]);
+    expect(state.draftReviews![result.draftKey!].entryId).toBeUndefined();
+    if (archived)
+      expect(state.draftReviews![result.draftKey!].recoveryInput).toMatchObject(
+        { recordId: record.id, baseVersion: 1 },
+      );
+    else
+      expect(state.draftReviews![result.draftKey!].comparison).toMatchObject({
+        remote: current.data,
+        local: input.data,
+        conflicts: ["name"],
+        choices: {},
+      });
+    expect(state.recoveryImports![digest].input).toEqual(input);
+  },
+);
+
+it("rejects conflicting draft reference snapshots before settling and preserves existing work", async () => {
+  const f = fixture();
+  const { input } = linkedDraft(f);
+  const hint = {
+    moduleId: "contacts",
+    resource: "people",
+    originalId: "old",
+    replacementId: "new",
+  };
+  input.entry!.createRecovery = [hint];
+  input.review!.createRecovery = [{ ...hint, replacementId: "different" }];
+  const { digest } = await f.stage(input);
+  await expect(f.promote(digest)).rejects.toThrow(
+    /conflicting reference hints/,
+  );
+  expect(f.calls).not.toContain("moduleAttemptSettle");
+  expect((await f.read()).drafts).toEqual({});
+});
+
+it.each(["wrong-record", "revocation", "lock"] as const)(
+  "retains an independent draft when %s interrupts its fresh target read",
+  async (failure) => {
+    const f = fixture();
+    const { input, record } = linkedDraft(f);
+    delete input.entry;
+    delete input.review!.entryId;
+    const { digest } = await f.stage(input);
+    f.replies.moduleRequest = {
+      ...record,
+      ...(failure === "wrong-record" ? { id: randomUUID() } : {}),
+    };
+    f.onRequest((operation) => {
+      if (operation !== "moduleRequest") return;
+      if (failure === "revocation") f.policy.permissions = [];
+      if (failure === "lock") f.lock();
+    });
+    await expect(f.promote(digest)).rejects.toThrow();
+    const state = await f.read();
+    expect(state.drafts).toEqual({});
+    expect(state.journal).toEqual([]);
+    expect(state.recoveryImports![digest].promotion).toBeUndefined();
+    expect(state.recoveryImports![digest].input).toEqual(input);
   },
 );
