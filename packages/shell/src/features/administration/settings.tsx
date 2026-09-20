@@ -1,4 +1,5 @@
 import { SavedWorkImports } from "../modules/recovery/imports";
+import { SavedWorkArchives } from "../modules/recovery/archive";
 import { ProfileLockSettings } from "../identity/profile-lock";
 import { type FeatureProps } from "@suite/client";
 import {
@@ -105,6 +106,7 @@ export function Settings(
             stays on this device.
           </p>
           <SavedWorkImports {...props} />
+          <SavedWorkArchives {...props} />
           <SavedWorkRecovery {...props} />
           <ClearDownloads {...props} />
         </section>

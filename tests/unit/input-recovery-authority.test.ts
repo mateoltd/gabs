@@ -460,3 +460,24 @@ it.each([401, 403, 426])(
     await expect(f.authorize()).rejects.toThrow("Reconnect");
   },
 );
+
+it("rechecks prepared archive authority against received denials, shortened leases and profile changes", async () => {
+  const f = fixture();
+  await f.authority.setOffline(f.scope, true);
+  await f.authorize();
+  f.offline();
+  const guard = await f.authorize();
+  expect(() => guard()).not.toThrow();
+  await f.authority.observe(f.scope, {
+    ...f.policy,
+    policyRevision: "2",
+    offlineHours: 0,
+  });
+  expect(() => guard()).toThrow();
+  f.online();
+  const online = await f.authorize();
+  await f.authority.revoke(f.scope);
+  expect(() => online()).toThrow(/Reconnect/);
+  f.user();
+  expect(() => online()).toThrow(/profile/);
+});

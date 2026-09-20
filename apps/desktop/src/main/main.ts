@@ -9,6 +9,7 @@ import { ProtectedFiles } from "./identity/protected-files";
 import { NativeLocalUnlock } from "./identity/local-unlock";
 import { NativeProfileLock } from "./identity/profile-lock";
 import { NativeInputRecovery } from "./input-recovery";
+import { exportNativeWorkArchive } from "./work-archive";
 import { validateRecoveryInput } from "@suite/client/input-recovery";
 import { assertWorkspacePurgeable } from "@suite/client/storage-retention";
 import { downloadExport } from "./export-download";
@@ -1396,6 +1397,28 @@ function handlers() {
     check();
     await writeFile(result.filePath, content, { mode: 0o600 });
   });
+  ipcMain.handle(
+    "suite:work-archive-export",
+    (event, handle, content, passphrase) =>
+      exportNativeWorkArchive({
+        handle,
+        content,
+        passphrase,
+        capture: (handle) => moduleHosts.capture(handle),
+        check: () => sender(event),
+        authorize: (scope, input, check) =>
+          inputRecovery.authorize(scope, input, check),
+        choose: async (defaultPath) => {
+          const result = await dialog.showSaveDialog(win!, {
+            defaultPath,
+            filters: [
+              { name: "Encrypted saved-work archive", extensions: ["json"] },
+            ],
+          });
+          return result.canceled ? undefined : result.filePath;
+        },
+      }),
+  );
   ipcMain.handle("suite:notify", (event, title, message) => {
     sender(event);
     if (

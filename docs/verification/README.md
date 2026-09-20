@@ -1104,3 +1104,10 @@ Full regression passed 956 tests across 122 files, strict environment/boundary c
 
 
 Following the shared admission refactor, three existing headless browser recovery journeys and three hidden/minimized native journeys passed. Final strict/format checks also passed after a type-only schema inference cleanup. Disposable databases/profiles were removed and historical captures retained; no UI/CSS or native IPC changed. These are regression checks for the existing recovery product, not acceptance of an archive interface.
+
+
+## 20 September 2026: encrypted archive product workflow
+
+[ID-03-BACKUP-ARCHIVE product evidence](corporate-work-archives/README.md#product-acceptance-20-september-2026) adds Settings selection/unlock, current-authority display/admission and independently authorized native encrypted file delivery. Final verification passed 960 unit/PostgreSQL tests across 123 files, strict environment/boundary checks, four fresh builds, six headless browser-suite journeys and four hidden/minimized native-suite journeys. All four actual encrypted-file directions pass along with shared single-file/command recovery regressions. Wrong passphrases, altered ciphertext, received denial/regrant, empty denied storage, selected additive admission, replay, reload and duplicate-free original settlement are exercised.
+
+All 16 archive captures were inspected; scoped Axe and narrow-overflow checks passed. The inaccessible file-input label and checkbox spacing found during verification were corrected using existing controls/classes. Temporary databases and profiles were removed; prior regression screenshots were retained. An unused test import was removed after the run, with no executable behavior change. Mixed-module/retained-review files and archive-specific interruption/expiry/profile transitions remain acceptance work, separate from existing unit/atomic-store coverage. Actual providers/platforms, overall parity and later UI refinement remain open.

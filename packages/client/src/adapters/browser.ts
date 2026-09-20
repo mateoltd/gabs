@@ -1,13 +1,8 @@
-import { savedWorkContracts } from "../recovery/work";
-import { readModuleStorage } from "../modules/storage";
-import { moduleContract } from "@suite/module-sdk/client-artifact";
-import { checkRecoveryPolicy, validateRecoveryInput } from "../recovery/input";
-import {
-  assertSchema,
-  Type,
-  hydrateModule,
-  type ModuleDefinition,
-} from "@suite/module-sdk";
+import { authorizeRecoveryExport } from "./recovery-export";
+import { sealSavedWorkArchive } from "../recovery/archive/crypto";
+import type { SavedWorkArchive } from "../recovery/archive/format";
+import { validateRecoveryInput } from "../recovery/input";
+import { assertSchema, Type, type ModuleDefinition } from "@suite/module-sdk";
 import { hostCapabilitySchemas } from "@suite/module-sdk/host-capabilities";
 import { ApiError, type SuiteClient } from "../api";
 import { openDB } from "idb";
@@ -281,6 +276,57 @@ export async function downloadCorporateExport(options: {
 }
 
 /** Recovery input is scoped to a live view; the native host independently repeats authorization. */
+export async function saveWorkArchive(options: {
+  archive: SavedWorkArchive;
+  passphrase: string;
+  signal: AbortSignal;
+  check(): void;
+}) {
+  const check = () => {
+    options.signal.throwIfAborted();
+    options.check();
+  };
+  check();
+  const native = window.suiteDesktop;
+  if (native) {
+    const first = options.archive.copies[0];
+    if (!first) throw Error("Select saved work before exporting.");
+    const handle = await native.openModuleHost(
+      { userId: first.userId, workspaceId: first.workspaceId },
+      first.moduleId,
+      first.moduleVersion,
+    );
+    const close = () => {
+      void native.closeModuleHost(handle).catch(() => {});
+    };
+    options.signal.addEventListener("abort", close, { once: true });
+    try {
+      check();
+      return await native.exportWorkArchive(
+        handle,
+        JSON.stringify(options.archive),
+        options.passphrase,
+      );
+    } finally {
+      options.signal.removeEventListener("abort", close);
+      await native.closeModuleHost(handle);
+    }
+  }
+  const content = await sealSavedWorkArchive(
+    options.archive,
+    options.passphrase,
+    check,
+  );
+  await getBrowserProfileLock().withAccess(options.archive.userId, () => {
+    check();
+    return browserPlatform.saveFile(
+      `saved-work-archive-${crypto.randomUUID()}.json`,
+      content,
+    );
+  });
+  return { status: "offered" as const };
+}
+
 export async function exportRecoveryInput(options: {
   client: SuiteClient;
   input:
@@ -328,130 +374,16 @@ export async function exportRecoveryInput(options: {
     }
     return;
   }
-  let access = options.access();
-  let policy = access.policy;
-  let currentModule = access.module;
-  const offline = !access.online || !navigator.onLine;
-  if (!offline) {
-    try {
-      const me = await options.client.request({ operation: "me" }, { signal });
-      check();
-      if (me.user.id !== input.userId)
-        throw new ApiError(
-          401,
-          "PROFILE_CHANGED",
-          "This recovery profile is no longer active.",
-        );
-      policy = await options.client.request(
-        { operation: "bootstrap", params: { workspaceId: input.workspaceId } },
-        { signal },
-      );
-      check();
-      policy = await options.receivePolicy(policy, signal);
-      check();
-      if (input.kind === "module-work-recovery") {
-        const pkg = await options.client.request(
-          {
-            operation: "moduleArtifact",
-            params: {
-              workspaceId: input.workspaceId,
-              moduleId: input.moduleId,
-            },
-          },
-          { signal },
-        );
-        check();
-        currentModule = hydrateModule(moduleContract(pkg.artifact));
-      }
-    } catch (error) {
-      if (!signal.aborted) options.onError(error);
-      throw error;
-    }
-  }
-  access = options.access();
-  const offlineNow = offline || !access.online || !navigator.onLine;
-  const contracts =
-    input.kind === "module-work-recovery" && currentModule
-      ? {
-          current: currentModule,
-          originals: await savedWorkContracts(
-            await readModuleStorage(browserPlatform, input),
-            input,
-          ),
-        }
-      : undefined;
-  check();
-  if (
-    input.kind === "module-work-recovery" &&
-    currentModule?.version !== options.access().module?.version
-  )
-    throw Error(
-      "The recovery release changed. Refresh saved work before exporting.",
-    );
-  if (offlineNow && !access.offlineEnabled)
-    throw Error("Reconnect to authorize recovery export.");
-  if (offlineNow) {
-    const snapshot = await browserPlatform.load<import("../index").Snapshot>(
-      { userId: input.userId, workspaceId: input.workspaceId },
-      "snapshot",
-    );
-    check();
-    if (
-      !snapshot ||
-      snapshot.expiresAt <= Date.now() ||
-      snapshot.cachedAt > Date.now()
-    )
-      throw Error("Offline recovery access expired. Reconnect to continue.");
-    checkRecoveryPolicy(
-      snapshot.bootstrap,
-      input,
-      access.dependencies,
-      true,
-      Date.now(),
-      contracts,
-    );
-  }
-  if (input.kind === "module-work-recovery" && !offlineNow) {
-    const revision = policy.policyRevision;
-    try {
-      policy = await options.client.request(
-        { operation: "bootstrap", params: { workspaceId: input.workspaceId } },
-        { signal },
-      );
-      check();
-      policy = await options.receivePolicy(policy, signal);
-      check();
-      access = options.access();
-      if (policy.policyRevision !== revision)
-        throw Error(
-          "Workspace access changed while preparing this export. Refresh saved work and try again.",
-        );
-    } catch (error) {
-      if (!signal.aborted) options.onError(error);
-      throw error;
-    }
-  }
-  checkRecoveryPolicy(
-    policy,
-    input,
-    access.dependencies,
-    offlineNow,
-    Date.now(),
-    contracts,
-  );
-  checkRecoveryPolicy(
-    access.policy,
-    input,
-    access.dependencies,
-    offlineNow,
-    Date.now(),
-    contracts,
-  );
-  check();
-  await getBrowserProfileLock().withAccess(input.userId, () =>
-    browserPlatform.saveFile(
+  const authorize = await authorizeRecoveryExport({
+    ...options,
+    platform: browserPlatform,
+  });
+  authorize();
+  await getBrowserProfileLock().withAccess(input.userId, () => {
+    authorize();
+    return browserPlatform.saveFile(
       `${input.kind === "module-work-recovery" ? "saved-work" : "module-input"}-${crypto.randomUUID()}.json`,
       JSON.stringify(input, null, 2),
-    ),
-  );
+    );
+  });
 }

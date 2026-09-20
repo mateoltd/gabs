@@ -317,56 +317,71 @@ export class NativeInputRecovery {
       check();
       const state = await this.state(scope),
         now = Date.now();
-      if (
-        !state.policy ||
-        state.denied ||
-        (offline &&
-          (!state.enabled || !this.host.available() || now < state.seenAt))
-      )
-        throw Error("Reconnect to authorize recovery export.");
-      const dependencies = new Set<string>(),
-        waiting = [input.moduleId];
-      for (let i = 0; i < waiting.length; i++) {
-        const id = waiting[i];
-        if (dependencies.has(id)) continue;
-        if (dependencies.size >= 64 || !Object.hasOwn(state.dependencies, id))
-          throw Error("Reconnect to verify recovery module dependencies.");
-        dependencies.add(id);
-        waiting.push(...state.dependencies[id]);
-      }
-      const currentVersion = state.currentVersions?.[input.moduleId];
-      const currentContract =
-        state.contracts?.[`${input.moduleId}@${currentVersion}`];
-      const contracts =
-        input.kind === "module-work-recovery" && currentContract
-          ? {
-              current: hydrateModule(moduleContract(currentContract)),
-              originals: [
-                ...new Set(
-                  savedWorkCalls(input).map((call) => call.moduleVersion!),
-                ),
-              ].map((version) => {
-                const contract =
-                  state.contracts?.[`${input.moduleId}@${version}`];
-                if (!contract)
-                  throw Error(
-                    "Reconnect to verify the original saved-work contract.",
-                  );
-                return hydrateModule(moduleContract(contract));
-              }),
-            }
-          : undefined;
-      checkRecoveryPolicy(
-        state.policy,
-        input,
-        [...dependencies],
-        offline,
-        now,
-        contracts,
-      );
+      this.assertCurrent(scope, input, offline);
       state.seenAt = Math.max(state.seenAt, now);
       await this.save(scope, state);
       check();
     });
+    return () => {
+      check();
+      this.assertCurrent(scope, input, offline);
+    };
+  }
+  private assertCurrent(
+    scope: Scope,
+    input: ModuleInputRecovery | SavedWorkRecovery,
+    offline: boolean,
+  ) {
+    this.check(scope);
+    const state = this.states.get(key(scope));
+    if (!state) throw Error("Reconnect to authorize recovery export.");
+    const now = Date.now();
+    if (
+      !state.policy ||
+      state.denied ||
+      (offline &&
+        (!state.enabled || !this.host.available() || now < state.seenAt))
+    )
+      throw Error("Reconnect to authorize recovery export.");
+    const dependencies = new Set<string>(),
+      waiting = [input.moduleId];
+    for (let i = 0; i < waiting.length; i++) {
+      const id = waiting[i];
+      if (dependencies.has(id)) continue;
+      if (dependencies.size >= 64 || !Object.hasOwn(state.dependencies, id))
+        throw Error("Reconnect to verify recovery module dependencies.");
+      dependencies.add(id);
+      waiting.push(...state.dependencies[id]);
+    }
+    const currentVersion = state.currentVersions?.[input.moduleId];
+    const currentContract =
+      state.contracts?.[`${input.moduleId}@${currentVersion}`];
+    const contracts =
+      input.kind === "module-work-recovery" && currentContract
+        ? {
+            current: hydrateModule(moduleContract(currentContract)),
+            originals: [
+              ...new Set(
+                savedWorkCalls(input).map((call) => call.moduleVersion!),
+              ),
+            ].map((version) => {
+              const contract =
+                state.contracts?.[`${input.moduleId}@${version}`];
+              if (!contract)
+                throw Error(
+                  "Reconnect to verify the original saved-work contract.",
+                );
+              return hydrateModule(moduleContract(contract));
+            }),
+          }
+        : undefined;
+    checkRecoveryPolicy(
+      state.policy,
+      input,
+      [...dependencies],
+      offline,
+      now,
+      contracts,
+    );
   }
 }

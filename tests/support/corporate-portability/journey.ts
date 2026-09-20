@@ -10,6 +10,7 @@ import { resolve } from "node:path";
 import { assertSchema } from "@suite/module-sdk";
 import { SavedWorkRecoverySchema } from "@suite/module-sdk/platform";
 import { selectValue } from "../../e2e/controls.helpers";
+import { exportArchive, importArchive } from "./archives";
 
 /** Two independent stores exchange only the actual files produced by the source UI. */
 export async function corporatePortability(options: {
@@ -17,6 +18,7 @@ export async function corporatePortability(options: {
   api: APIRequestContext;
   directory: string;
   evidenceName?: string;
+  archive?: boolean;
   offline(value: boolean): Promise<void>;
   exportFile(button: Locator, path: string): Promise<void>;
   replaceDevice(): Promise<Page>;
@@ -128,12 +130,28 @@ export async function corporatePortability(options: {
   if (request.entry.call.action !== "create")
     throw Error("The source did not export the captured create request.");
 
+  const archive = options.archive
+    ? await exportArchive({
+        page,
+        directory: options.directory,
+        evidenceName: options.evidenceName ?? "native-to-native",
+        expected: [request, draft],
+        exportFile: options.exportFile,
+      })
+    : undefined;
   // The source stays offline and is closed; destination receives no cookies, cache or protected key.
   page = await options.replaceDevice();
   await enable();
   await expect(
     page.getByRole("button", { name: /Saved records and drafts/ }),
   ).toHaveCount(0);
+  if (archive)
+    await importArchive({
+      page,
+      file: archive,
+      evidenceName: options.evidenceName ?? "native-to-native",
+      scope: { userId: request.userId, workspaceId: request.workspaceId },
+    });
   await page
     .getByRole("button", { name: "Import saved work", exact: true })
     .click();
@@ -141,28 +159,31 @@ export async function corporatePortability(options: {
     name: "Imported saved work",
     exact: true,
   });
-  for (const path of [requestFile, draftFile]) {
-    await expect(
-      imported.getByLabel("Saved-work recovery file", { exact: true }),
-    ).toBeEnabled();
-    await imported
-      .getByLabel("Saved-work recovery file", { exact: true })
-      .setInputFiles(path);
-    await expect(
-      imported.getByText(
-        "Copy imported. Inspect its saved input before restoring it.",
-        { exact: true },
-      ),
-    ).toBeVisible();
+  for (const [index, path] of [requestFile, draftFile].entries()) {
+    if (!archive) {
+      await expect(
+        imported.getByLabel("Saved-work recovery file", { exact: true }),
+      ).toBeEnabled();
+      await imported
+        .getByLabel("Saved-work recovery file", { exact: true })
+        .setInputFiles(path);
+      await expect(
+        imported.getByText(
+          "Copy imported. Inspect its saved input before restoring it.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+    }
     await imported
       .getByRole("button", { name: "Restore for review", exact: true })
+      .first()
       .click();
     await imported
       .getByRole("button", { name: "Confirm restoration", exact: true })
       .click();
     await expect(
       imported.getByRole("button", { name: "Restore for review", exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(archive ? 1 - index : 0);
     await expect(
       imported.getByRole("button", {
         name: "Refresh imported copies",

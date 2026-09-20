@@ -178,6 +178,11 @@ export interface DesktopBridge extends ProfileLockBridge {
       | import("@suite/module-sdk/platform").ModuleInputRecovery
       | import("@suite/module-sdk/platform").SavedWorkRecovery,
   ): Promise<void>;
+  exportWorkArchive(
+    handle: string,
+    content: string,
+    passphrase: string,
+  ): Promise<{ status: "saved" | "cancelled" }>;
   openModuleHost(
     scope: Scope,
     moduleId: string,
