@@ -12,6 +12,16 @@ type Time = ColumnType<Date, Date | string | undefined, Date | string>;
 type Base = { id: string; created_at: Time };
 type Tenant = { workspace_id: string };
 export interface Database {
+  "suite.integrity_reports": Tenant & {
+    id: string;
+    user_id: string;
+    device_id: string;
+    incident_id: string;
+    event: "locked" | "recovered";
+    payload: import("@suite/contracts").IntegrityReport;
+    occurred_at: Time;
+    received_at: Time;
+  };
   "suite.workspace_policy": Tenant & { revision: string };
   "suite.module_storage": Tenant & {
     module_id: string;

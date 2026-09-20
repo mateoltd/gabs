@@ -644,6 +644,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspaceId}/integrity-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["integrityReports"];
+        put?: never;
+        post: operations["integrityReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/queries/{operationName}": {
         parameters: {
             query?: never;
@@ -5827,6 +5843,111 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    integrityReports: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        summary: {
+                            reports: number;
+                            unresolvedReportedIncidents: number;
+                            receivedLastDay: number;
+                            maximumDeliveryDelaySeconds: number;
+                        };
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: date-time */
+                            receivedAt: string;
+                            reporterName: string;
+                            report: {
+                                /** Format: uuid */
+                                accountId: string;
+                                /** Format: uuid */
+                                deviceId: string;
+                                /** Format: uuid */
+                                incidentId: string;
+                                event: "locked" | "recovered";
+                                /** Format: date-time */
+                                occurredAt: string;
+                                /** Format: date-time */
+                                incidentAt: string;
+                                release: string;
+                                incidentRelease: string;
+                                failureCode: "invalid-manifest" | "unexpected-asset" | "missing-asset" | "changed-asset" | "unreadable-assets" | "invalid-signature" | "unreadable-audit";
+                                asset?: string;
+                            };
+                            /** @enum {string} */
+                            source: "client-report";
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    integrityReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    accountId: string;
+                    /** Format: uuid */
+                    deviceId: string;
+                    /** Format: uuid */
+                    incidentId: string;
+                    event: "locked" | "recovered";
+                    /** Format: date-time */
+                    occurredAt: string;
+                    /** Format: date-time */
+                    incidentAt: string;
+                    release: string;
+                    incidentRelease: string;
+                    failureCode: "invalid-manifest" | "unexpected-asset" | "missing-asset" | "changed-asset" | "unreadable-assets" | "invalid-signature" | "unreadable-audit";
+                    asset?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: date-time */
+                        receivedAt: string;
+                    };
+                };
             };
         };
     };

@@ -1,3 +1,5 @@
+import { IntegrityDelivery, integrityDeviceId } from "./integrity/delivery";
+import { BootstrapSchema, type IntegrityScope } from "@suite/contracts";
 import {
   checkApplicationIntegrity,
   inspectApplication,
@@ -484,6 +486,16 @@ const integritySupport = new IntegritySupport(
   integrityOptions,
   clearIntegritySession,
 );
+let diagnosticScope: { value: IntegrityScope; epoch: number } | undefined;
+let faultScope: IntegrityScope | undefined;
+let diagnosticRequestSequence = 0;
+let diagnosticDevice: Promise<string> | undefined;
+const currentDiagnosticScope = () =>
+  !profileLock.locked &&
+  diagnosticScope?.epoch === identityEpoch &&
+  diagnosticScope.value.accountId === userId
+    ? diagnosticScope.value
+    : undefined;
 let integrityCleanup: Promise<unknown> = Promise.resolve();
 let integrityDeadline: ReturnType<typeof setTimeout> | undefined;
 async function boundedShutdown(tasks: Promise<unknown>[]) {
@@ -502,6 +514,8 @@ async function boundedShutdown(tasks: Promise<unknown>[]) {
 const runtimeIntegrity = new IntegrityMonitor({
   inspect: () => inspectApplication(integrityOptions()),
   lock: () => {
+    faultScope = currentDiagnosticScope();
+    integrityDelivery.stop();
     integrityDeadline = setTimeout(() => app.exit(1), 15000);
     integrityDeadline.unref();
     identityEpoch++;
@@ -532,6 +546,7 @@ const runtimeIntegrity = new IntegrityMonitor({
     new IntegrityJournal(
       resolve(app.getPath("userData"), "integrity"),
       app.getVersion(),
+      faultScope,
     ).record(failure),
   stop: async (auditFailed) => {
     await boundedShutdown([
@@ -599,6 +614,24 @@ function cacheKey(scope: Scope, key: CacheKey) {
     throw Error("Invalid cache key");
   return `${scope.userId}/${scope.workspaceId}/${key}`;
 }
+const integrityDelivery = new IntegrityDelivery({
+  profile: () => app.getPath("userData"),
+  current: (scope) =>
+    !runtimeIntegrity.locked &&
+    !profileLock.locked &&
+    userId === scope.accountId &&
+    currentDiagnosticScope()?.workspaceId === scope.workspaceId,
+  send: (scope, body) =>
+    execute(
+      {
+        operation: "integrityReport",
+        params: { workspaceId: scope.workspaceId },
+        expectedUserId: scope.accountId,
+        body,
+      },
+      2000,
+    ),
+});
 async function client() {
   if (!oidcConfigured)
     throw Error(
@@ -620,6 +653,16 @@ async function execute(
   runtimeIntegrity.assertAvailable();
   const actor = userId;
   const validated = validateOperation(raw);
+  const diagnosticSequence =
+    validated.operation === "bootstrap" ||
+    validated.operation === "workspacePolicy"
+      ? ++diagnosticRequestSequence
+      : undefined;
+  if (
+    diagnosticSequence !== undefined &&
+    validated.params?.workspaceId !== diagnosticScope?.value.workspaceId
+  )
+    diagnosticScope = undefined;
   let lockEpoch = profileLock.epoch;
   const lockFailure = () => ({
     status: 423,
@@ -822,6 +865,53 @@ async function execute(
     }
   }
   if (!current()) return stale();
+  if (
+    actor &&
+    actor === userId &&
+    res.ok &&
+    diagnosticSequence === diagnosticRequestSequence &&
+    (request.operation === "bootstrap" ||
+      request.operation === "workspacePolicy")
+  ) {
+    const snapshot = request.operation === "bootstrap" ? body : body.bootstrap;
+    try {
+      assertSchema(BootstrapSchema, snapshot);
+      diagnosticScope = undefined;
+      if (
+        snapshot.workspace.kind === "company" &&
+        snapshot.workspace.id.toLowerCase() ===
+          request.params?.workspaceId?.toLowerCase()
+      ) {
+        diagnosticDevice ??= integrityDeviceId(app.getPath("userData")).catch(
+          (error) => {
+            diagnosticDevice = undefined;
+            throw error;
+          },
+        );
+        const deviceId = await diagnosticDevice;
+        if (!current()) return stale();
+        if (diagnosticSequence !== diagnosticRequestSequence)
+          return { status: res.status, body, actorId: authenticatedActor };
+        diagnosticScope = {
+          epoch: identityEpoch,
+          value: {
+            accountId: actor,
+            workspaceId: snapshot.workspace.id.toLowerCase(),
+            deviceId,
+          },
+        };
+        void integrityDelivery.flush(diagnosticScope.value);
+      }
+    } catch {
+      /* Diagnostics must not change business admission or cross profiles. */
+    }
+  } else if (
+    actor &&
+    [401, 403].includes(res.status) &&
+    request.params?.workspaceId === diagnosticScope?.value.workspaceId
+  )
+    diagnosticScope = undefined;
+  if (!current()) return stale();
   return {
     status: res.status,
     body,
@@ -993,6 +1083,10 @@ setVaultHost(localUnlock, (change) => {
 function handlers() {
   handle("suite:local-vault", (event, id, action, input) => {
     sender(event, true);
+    if (["create", "unlock", "restore", "quickUnlock"].includes(action)) {
+      diagnosticScope = undefined;
+      diagnosticRequestSequence++;
+    }
     return localUnlockAction(async () => {
       if (
         typeof id !== "string" ||
@@ -1889,6 +1983,7 @@ async function start() {
   };
   createWindow();
   runtimeIntegrity.start();
+  integrityDelivery.start(currentDiagnosticScope);
   powerMonitor.on("resume", () => {
     void runtimeIntegrity.check();
   });

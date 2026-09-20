@@ -1,3 +1,13 @@
+import {
+  IntegrityReportSchema,
+  IntegrityReceiptSchema,
+  IntegrityPageSchema,
+  type IntegrityReport,
+} from "@suite/contracts";
+import {
+  recordIntegrityReport,
+  integrityReports,
+} from "@suite/server-core/identity/integrity";
 import { CapabilityReviewSchema } from "@suite/module-sdk/capability-review";
 import {
   AttemptSettlementRequestSchema,
@@ -284,6 +294,59 @@ export async function registerPlatform(
           "modules.manage",
         );
         return moduleFleet(tx, ctx, req.params.moduleId, req.query.offset ?? 0);
+      }),
+  );
+
+  app.post<{ Params: { workspaceId: string }; Body: IntegrityReport }>(
+    "/api/v1/workspaces/:workspaceId/integrity-reports",
+    {
+      preValidation: async (req) => {
+        assertSchema(IntegrityReportSchema, req.body);
+      },
+      schema: {
+        operationId: "integrityReport",
+        params: T.Object({ workspaceId: id }),
+        body: IntegrityReportSchema,
+        response: { 200: IntegrityReceiptSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+        );
+        return recordIntegrityReport(tx, ctx, req.body);
+      }),
+  );
+  app.get<{
+    Params: { workspaceId: string };
+    Querystring: { cursor?: string };
+  }>(
+    "/api/v1/workspaces/:workspaceId/integrity-reports",
+    {
+      schema: {
+        operationId: "integrityReports",
+        params: T.Object({ workspaceId: id }),
+        querystring: T.Object(
+          { cursor: T.Optional(id) },
+          { additionalProperties: false },
+        ),
+        response: { 200: IntegrityPageSchema },
+      },
+    },
+    async (req) =>
+      inWorkspace(db, req.params.workspaceId, async (tx) => {
+        const ctx = await authorize(
+          tx,
+          req.actor,
+          req.params.workspaceId,
+          req.id,
+          "audit.read",
+        );
+        return integrityReports(tx, ctx, req.query.cursor);
       }),
   );
 

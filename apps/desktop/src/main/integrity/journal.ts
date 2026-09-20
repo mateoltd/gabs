@@ -1,3 +1,4 @@
+import type { IntegrityScope } from "@suite/contracts";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -24,6 +25,7 @@ export class IntegrityJournal {
   constructor(
     private readonly root: string,
     release: string,
+    private readonly scope?: IntegrityScope,
   ) {
     this.release = parseIntegrityRelease(release);
   }
@@ -67,12 +69,13 @@ export class IntegrityJournal {
           state === undefined ? undefined : parseIntegrityIncident(state);
         if (currentFailure) {
           if (!original) {
-            original = {
+            original = parseIntegrityIncident({
               id: randomUUID(),
               at: new Date().toISOString(),
               release: this.release,
               failure: currentFailure,
-            };
+              ...(this.scope ? { scope: this.scope } : {}),
+            });
             await this.replace("lockdown.json", original);
           }
           await this.event("locked", original);

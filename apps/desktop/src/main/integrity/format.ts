@@ -1,14 +1,14 @@
+import {
+  IntegrityFailureCodeSchema,
+  IntegrityScopeSchema,
+  type IntegrityScope,
+} from "@suite/contracts";
+import { assertSchema } from "@suite/module-sdk";
 import { valid as validVersion } from "semver";
 
-export const integrityFailureCodes = [
-  "invalid-manifest",
-  "unexpected-asset",
-  "missing-asset",
-  "changed-asset",
-  "unreadable-assets",
-  "invalid-signature",
-  "unreadable-audit",
-] as const;
+export const integrityFailureCodes = IntegrityFailureCodeSchema.anyOf.map(
+  (value) => value.const,
+);
 export type IntegrityFailure = {
   code: (typeof integrityFailureCodes)[number];
   asset?: string;
@@ -65,12 +65,22 @@ export function parseIntegrityFailure(value: unknown): IntegrityFailure {
   return { code, asset };
 }
 export function parseIntegrityIncident(value: unknown) {
-  const item = object(value, ["id", "at", "release", "failure"]);
+  const item = object(value, ["id", "at", "release", "failure", "scope"]);
+  let scope: IntegrityScope | undefined;
+  if (item.scope !== undefined) {
+    assertSchema(IntegrityScopeSchema, item.scope);
+    scope = {
+      accountId: item.scope.accountId.toLowerCase(),
+      workspaceId: item.scope.workspaceId.toLowerCase(),
+      deviceId: item.scope.deviceId.toLowerCase(),
+    };
+  }
   return {
     id: integrityId(item.id),
     at: timestamp(item.at),
     release: parseIntegrityRelease(item.release),
     failure: parseIntegrityFailure(item.failure),
+    ...(scope ? { scope } : {}),
   };
 }
 export type IntegrityIncident = ReturnType<typeof parseIntegrityIncident>;
@@ -83,7 +93,7 @@ export function parseIntegrityEvent(value: unknown) {
     incident: parseIntegrityIncident(item.incident),
     at: timestamp(item.at),
     release: parseIntegrityRelease(item.release),
-  };
+  } as const;
 }
 export type IntegrityEvent = ReturnType<typeof parseIntegrityEvent>;
 

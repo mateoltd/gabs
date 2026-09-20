@@ -1,3 +1,4 @@
+export * from "./identity/integrity";
 export * from "./commerce/business-cutover";
 export * from "./workspaces/receipts";
 export * from "./workspaces/attempts";
@@ -203,6 +204,14 @@ export const OPERATIONS = {
     path: "/api/v1/workspaces/:workspaceId/billing",
   },
   moduleTrust: { method: "GET", path: "/api/v1/module-trust" },
+  integrityReport: {
+    method: "POST",
+    path: "/api/v1/workspaces/:workspaceId/integrity-reports",
+  },
+  integrityReports: {
+    method: "GET",
+    path: "/api/v1/workspaces/:workspaceId/integrity-reports",
+  },
   installationReport: {
     method: "POST",
     path: "/api/v1/workspaces/:workspaceId/installation-reports",

@@ -19,6 +19,14 @@ while (!stop) {
       console.log(
         JSON.stringify({ event: "job_health", ...(health.rows[0] as object) }),
       );
+      const integrity =
+        await sql`select * from suite.integrity_health()`.execute(db);
+      console.log(
+        JSON.stringify({
+          event: "integrity_health",
+          ...(integrity.rows[0] as object),
+        }),
+      );
       lastHealth = Date.now();
     }
     if (count) console.log(JSON.stringify({ event: "jobs_processed", count }));

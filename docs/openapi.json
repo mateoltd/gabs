@@ -12154,6 +12154,409 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/integrity-reports": {
+      "post": {
+        "operationId": "integrityReport",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "accountId",
+                  "deviceId",
+                  "incidentId",
+                  "event",
+                  "occurredAt",
+                  "incidentAt",
+                  "release",
+                  "incidentRelease",
+                  "failureCode"
+                ],
+                "properties": {
+                  "accountId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "deviceId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "incidentId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "event": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "locked"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "recovered"
+                        ]
+                      }
+                    ]
+                  },
+                  "occurredAt": {
+                    "format": "date-time",
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "incidentAt": {
+                    "format": "date-time",
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "release": {
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][a-zA-Z0-9.+-]+)?$",
+                    "type": "string"
+                  },
+                  "incidentRelease": {
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][a-zA-Z0-9.+-]+)?$",
+                    "type": "string"
+                  },
+                  "failureCode": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "invalid-manifest"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "unexpected-asset"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "missing-asset"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "changed-asset"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "unreadable-assets"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "invalid-signature"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "unreadable-audit"
+                        ]
+                      }
+                    ]
+                  },
+                  "asset": {
+                    "maxLength": 512,
+                    "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[a-zA-Z0-9_@.+-]+(?:/[a-zA-Z0-9_@.+-]+)*$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "receivedAt"
+                  ],
+                  "properties": {
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "receivedAt": {
+                      "format": "date-time",
+                      "maxLength": 40,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "integrityReports",
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "summary",
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "summary": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "reports",
+                        "unresolvedReportedIncidents",
+                        "receivedLastDay",
+                        "maximumDeliveryDelaySeconds"
+                      ],
+                      "properties": {
+                        "reports": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "unresolvedReportedIncidents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "receivedLastDay": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "maximumDeliveryDelaySeconds": {
+                          "minimum": 0,
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "receivedAt",
+                          "reporterName",
+                          "report",
+                          "source"
+                        ],
+                        "properties": {
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "receivedAt": {
+                            "format": "date-time",
+                            "maxLength": 40,
+                            "type": "string"
+                          },
+                          "reporterName": {
+                            "type": "string"
+                          },
+                          "report": {
+                            "additionalProperties": false,
+                            "type": "object",
+                            "required": [
+                              "accountId",
+                              "deviceId",
+                              "incidentId",
+                              "event",
+                              "occurredAt",
+                              "incidentAt",
+                              "release",
+                              "incidentRelease",
+                              "failureCode"
+                            ],
+                            "properties": {
+                              "accountId": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "deviceId": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "incidentId": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "event": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "locked"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "recovered"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "occurredAt": {
+                                "format": "date-time",
+                                "maxLength": 40,
+                                "type": "string"
+                              },
+                              "incidentAt": {
+                                "format": "date-time",
+                                "maxLength": 40,
+                                "type": "string"
+                              },
+                              "release": {
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][a-zA-Z0-9.+-]+)?$",
+                                "type": "string"
+                              },
+                              "incidentRelease": {
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][a-zA-Z0-9.+-]+)?$",
+                                "type": "string"
+                              },
+                              "failureCode": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "invalid-manifest"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "unexpected-asset"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "missing-asset"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "changed-asset"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "unreadable-assets"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "invalid-signature"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "unreadable-audit"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "asset": {
+                                "maxLength": 512,
+                                "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[a-zA-Z0-9_@.+-]+(?:/[a-zA-Z0-9_@.+-]+)*$",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "client-report"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/module/{moduleId}/workspaces/{workspaceId}/queries/{operationName}": {
       "post": {
         "operationId": "moduleQuery",

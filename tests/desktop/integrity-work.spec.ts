@@ -24,7 +24,12 @@ import {
 } from "../support/corporate-portability/devices";
 import { selectValue } from "../e2e/controls.helpers";
 
-for (const scenario of ["offline", "accepted", "audit-repair"] as const)
+for (const scenario of [
+  "offline",
+  "accepted",
+  "audit-repair",
+  "diagnostic-retry",
+] as const)
   test(`runtime lockdown preserves ${scenario} work and a draft through repair and fresh sign-in`, async () => {
     test.setTimeout(150000);
     const boundary = scenario === "offline" ? "offline" : "accepted";
@@ -177,32 +182,88 @@ for (const scenario of ["offline", "accepted", "audit-repair"] as const)
           await readFile(resolve(profile, retained!, "lockdown.json"), "utf8"),
         ).toBe(corrupt);
       }
-      device = await nativePortabilityDevice(profile, {
-        reuse: true,
-        beforeSignIn: async (app) => {
-          // Allow fresh authentication and authoritative reads, but hold new business
-          // delivery until the test observes the retained durable work after repair.
-          await app.evaluate(() => {
-            const host = globalThis as typeof globalThis & {
-              holdIntegrityWrites?: boolean;
-            };
-            const fetch = globalThis.fetch;
-            host.holdIntegrityWrites = true;
-            globalThis.fetch = (...args) =>
-              host.holdIntegrityWrites &&
-              String(args[0]).includes("/api/v1/module/") &&
-              args[1]?.method === "POST"
-                ? Promise.reject(
-                    new TypeError("fetch failed", {
-                      cause: { code: "ECONNREFUSED" },
-                    }),
-                  )
-                : fetch(...args);
-          });
-        },
-      });
+      const restart = (holdDiagnostics = false) =>
+        nativePortabilityDevice(profile, {
+          reuse: true,
+          beforeSignIn: async (app) => {
+            await app.evaluate((_electron, holdDiagnostics) => {
+              const host = globalThis as typeof globalThis & {
+                holdIntegrityWrites?: boolean;
+              };
+              const fetch = globalThis.fetch;
+              host.holdIntegrityWrites = true;
+              globalThis.fetch = async (...args) => {
+                if (
+                  host.holdIntegrityWrites &&
+                  String(args[0]).includes("/api/v1/module/") &&
+                  args[1]?.method === "POST"
+                )
+                  throw new TypeError("fetch failed", {
+                    cause: { code: "ECONNREFUSED" },
+                  });
+                const response = await fetch(...args);
+                if (
+                  holdDiagnostics &&
+                  String(args[0]).endsWith("/integrity-reports") &&
+                  args[1]?.method === "POST" &&
+                  response.ok
+                )
+                  return new Promise<Response>(() => {});
+                return response;
+              };
+            }, holdDiagnostics);
+          },
+        });
+      device = await restart(scenario === "diagnostic-retry");
       page = device.page;
       await selectValue(page, "Workspace", scope.workspaceId);
+      if (scenario === "diagnostic-retry") {
+        await expect
+          .poll(
+            async () =>
+              (
+                await database.query(
+                  "select id from suite.integrity_reports where workspace_id=$1",
+                  [scope.workspaceId],
+                )
+              ).rows.length,
+          )
+          .toBe(1);
+        await device.close();
+        device = await restart();
+        page = device.page;
+        await selectValue(page, "Workspace", scope.workspaceId);
+      }
+      await expect
+        .poll(
+          async () =>
+            (
+              await database.query(
+                "select id from suite.integrity_reports where workspace_id=$1",
+                [scope.workspaceId],
+              )
+            ).rows.length,
+        )
+        .toBe(scenario === "audit-repair" ? 1 : 2);
+      const diagnostics = await database.query(
+        "select payload from suite.integrity_reports where workspace_id=$1 order by event",
+        [scope.workspaceId],
+      );
+      expect(
+        diagnostics.rows.every(
+          (row) =>
+            row.payload.accountId === scope.userId &&
+            row.payload.incidentId === state.id,
+        ),
+      ).toBe(true);
+      expect(
+        (
+          await database.query(
+            "select id from suite.audit where workspace_id=$1 and action like 'desktop.integrity.%'",
+            [scope.workspaceId],
+          )
+        ).rows,
+      ).toHaveLength(scenario === "audit-repair" ? 1 : 2);
       const recovered = await portabilityStorage(page, scope);
       expect(recovered.journal).toHaveLength(1);
       expect(recovered.journal[0]).toMatchObject({
@@ -245,7 +306,11 @@ for (const scenario of ["offline", "accepted", "audit-repair"] as const)
         ).violations,
       ).toEqual([]);
       const evidence =
-        scenario === "audit-repair" ? "integrity-support" : "integrity-runtime";
+        scenario === "diagnostic-retry"
+          ? "integrity-delivery"
+          : scenario === "audit-repair"
+            ? "integrity-support"
+            : "integrity-runtime";
       await mkdir(`docs/verification/${evidence}`, { recursive: true });
       await page.screenshot({
         path: `docs/verification/${evidence}/recovered-${boundary}.png`,
@@ -327,6 +392,23 @@ for (const scenario of ["offline", "accepted", "audit-repair"] as const)
           )
         ).rows,
       ).toHaveLength(1);
+      if (scenario === "diagnostic-retry") {
+        await page
+          .getByRole("link", { name: "Audit history", exact: true })
+          .click();
+        await expect(
+          page.getByText("desktop.integrity.locked.reported", { exact: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByText("desktop.integrity.recovered.reported", {
+            exact: true,
+          }),
+        ).toBeVisible();
+        await page.screenshot({
+          path: "docs/verification/integrity-delivery/audit.png",
+          animations: "disabled",
+        });
+      }
     } finally {
       await reply?.dispose();
       await device?.close();
