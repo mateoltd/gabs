@@ -392,11 +392,9 @@ export async function corporateRequestTargets(
       .setInputFiles(path);
     const copy =
       options.snapshots && path === parent.path
-        ? dialog
-            .locator("section")
-            .filter({
-              has: page.getByText(child.dependencies[0], { exact: true }),
-            })
+        ? dialog.locator("section").filter({
+            has: page.getByText(child.dependencies[0], { exact: true }),
+          })
         : dialog;
     await copy
       .getByRole("button", { name: "Restore for review", exact: true })
@@ -476,6 +474,7 @@ export async function corporateRequestTargets(
   ).toBeVisible();
   if (secondSnapshot)
     await switchSnapshots({
+      kind: "draft",
       page,
       scope,
       first: file,

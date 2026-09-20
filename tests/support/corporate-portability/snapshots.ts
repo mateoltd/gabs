@@ -50,17 +50,27 @@ export async function exportNextSnapshot(options: {
   return { path: options.path, bytes: await readFile(options.path) };
 }
 
+type SnapshotSwitchMode =
+  | {
+      kind: "draft";
+      recordChoice: "original" | "reassigned";
+    }
+  | {
+      kind: "command";
+      commandName: string;
+    };
+
 /** Switch exact UI-exported copies repeatedly, preserving each displaced local review. */
-export async function switchSnapshots(options: {
-  page: Page;
-  scope: { userId: string; workspaceId: string };
-  first: { path: string; bytes: Buffer };
-  second: { path: string; bytes: Buffer };
-  recordChoice?: "original" | "reassigned";
-  commandName?: string;
-  evidence: string;
-  surface: string;
-}) {
+export async function switchSnapshots(
+  options: {
+    page: Page;
+    scope: { userId: string; workspaceId: string };
+    first: { path: string; bytes: Buffer };
+    second: { path: string; bytes: Buffer };
+    evidence: string;
+    surface: string;
+  } & SnapshotSwitchMode,
+) {
   const { page } = options;
   const dialog = page.getByRole("dialog", {
     name: "Imported saved work",
@@ -88,14 +98,16 @@ export async function switchSnapshots(options: {
       name: "Confirm restoration",
       exact: true,
     });
-    if (options.recordChoice)
+    if (options.kind === "draft")
       await selectValue(page, "Record to review", options.recordChoice);
     await expect(confirm).toBeDisabled();
     await dialog.getByText("Compare saved input", { exact: true }).click();
     await expect(dialog).toContainText(
-      options.commandName ? "Linked effect" : "Draft reference edit",
+      options.kind === "command" ? "Linked effect" : "Draft reference edit",
     );
-    await expect(dialog).toContainText(options.commandName ?? snapshotName);
+    await expect(dialog).toContainText(
+      options.kind === "command" ? options.commandName : snapshotName,
+    );
     const choice = dialog.getByRole("combobox", {
       name: "Existing review",
       exact: true,
@@ -163,7 +175,7 @@ export async function switchSnapshots(options: {
         ([key, copy]) =>
           key !== firstDigest &&
           key !== secondDigest &&
-          (options.commandName
+          (options.kind === "command"
             ? copy.input.selection === "request" &&
               (
                 (copy.input.review?.input ??

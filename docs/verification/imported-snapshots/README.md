@@ -1,6 +1,6 @@
 # Imported snapshot switching
 
-Scope: **ID-03-BACKUP-SNAPSHOTS**, under ID-03-BACKUP-CORPORATE. Resource-draft acceptance passed on 20 September 2026. Command-switching interface acceptance remains open.
+Scope: **ID-03-BACKUP-SNAPSHOTS**, under ID-03-BACKUP-CORPORATE. Resource-draft and command-switching acceptance passed on 20 September 2026.
 
 ## Behavior
 
@@ -16,7 +16,7 @@ The private client import layer owns capture, retention and atomic replacement. 
 
 The new browser/native fixture exports two different drafts through Settings after actual public-SDK capture and a create collision. A fresh destination imports them, selects target and reference independently, switches from first to second, restores the automatically retained local review, and switches to second again, with a reload between switches. The current review is retained each time. Missing prerequisite receipts still block correction. Once the accepted receipt is restored, one new correction updates exactly the chosen record. Other records, stopped originals, exact-retry results and source file bytes are checked.
 
-Focused tests additionally exercise commands, stale choices before/during settlement, storage failure, revocation, lock, capacity exhaustion, reassigned targets and unresolved field removal. Command switching has unit coverage; the new end-to-end switching path is a linked resource draft.
+Focused tests additionally exercise stale choices before/during settlement, storage failure, revocation, lock, capacity exhaustion, reassigned targets and unresolved field removal. The command exported-file journeys are recorded below.
 
 ## Verification
 
@@ -40,6 +40,32 @@ All 12 final captures were inspected. The shortened selection fits at 390px; sco
 | Browser | [Wide](web-update-original.png), [narrow](web-update-original-narrow.png) | [Wide](web-switch.png), [narrow](web-switch-narrow.png) | [Wide](web-update-original-review.png), [narrow](web-update-original-review-narrow.png) |
 | Desktop | [Wide](native-update-original.png), [narrow](native-update-original-narrow.png) | [Wide](native-switch.png), [narrow](native-switch-narrow.png) | [Wide](native-update-original-review.png), [narrow](native-update-original-review-narrow.png) |
 
+## Command exported-file acceptance
+
+Actual public-SDK capture produces a request with a collision-reference hint. The source exports that request, saves a changed command review through the module interface, then exports the second snapshot through Settings. A fresh destination imports both exact files, switches to the second snapshot, restores the automatically retained first review, and switches back to the second after reload. Explicit keyboard selection is required each time.
+
+Both original-record and separate-record corrections are covered in headless browser and independently keyed hidden/minimized desktop stores. Missing prerequisite receipts block correction; restoring the actual exported parent receipt requires current server verification. The command then requires an explicit reference choice. Original input, retained copies and source bytes remain intact. The final server state has exactly three records and three create audit entries, including exactly one corrected command effect. Exact correction retries do not add effects, and the original request receives `ATTEMPT_CANCELLED`.
+
+Checkpoint `179beb8` was followed by the requested Sol xhigh architecture review. The only cleanup makes the shared helper require an explicit draft or command mode. Parent review accepted its three-file diff; production code, public contracts and UI remain unchanged. See the [architecture review](../architecture/README.md#command-snapshot-checkpoint-review-20-september-2026).
+
+Verification for this test-only increment:
+
+- Strict TypeScript environment checks and boundary/copy checks passed: `/tmp/gabs-command-snapshots-final-types.log`, `/tmp/gabs-command-snapshots-final-lint.log`.
+- Two headless command journeys passed: `/tmp/gabs-command-snapshots-web.log`.
+- Two hidden/minimized desktop command journeys passed: `/tmp/gabs-command-snapshots-native.log`.
+- Three shared browser regressions passed, covering resource snapshot switching and both existing reference-hint targets: `/tmp/gabs-command-snapshots-shared-web.log`.
+- After delegated cleanup, final strict checks passed (`/tmp/gabs-command-review-types.log`, `/tmp/gabs-command-review-lint.log`), followed by **three headless browser and three hidden/minimized desktop journeys** covering both command targets and resource-draft switching (`/tmp/gabs-command-review-web.log`, `/tmp/gabs-command-review-native.log`). The inspected captures from the initial acceptance pass are retained; rerun UUID-only image churn was discarded. Scoped helper formatting also passes.
+- The initial browser fixture incorrectly looked for export in the module inbox. It was corrected to use the existing Settings export action; no production code changed.
+- All 16 new command captures were inspected. Scoped Axe and 390px overflow checks passed. Dialog content remains scrollable; long values use ordinary input scrolling. These checks do not approve the broader UI design.
+- Temporary databases and device profiles were removed. The earlier 939-test/four-build result is the unchanged production baseline, not a new run for these acceptance additions. Desktop protection and authentication are still controlled development fixtures.
+
+| Surface and target | Snapshot comparison | Saved command review |
+| --- | --- | --- |
+| Browser, original | [Wide](web-command-original-switch.png), [narrow](web-command-original-switch-narrow.png) | [Wide](web-command-review-original.png), [narrow](web-command-review-original-narrow.png) |
+| Browser, separate | [Wide](web-command-separate-switch.png), [narrow](web-command-separate-switch-narrow.png) | [Wide](web-command-review-separate.png), [narrow](web-command-review-separate-narrow.png) |
+| Desktop, original | [Wide](native-command-original-switch.png), [narrow](native-command-original-switch-narrow.png) | [Wide](native-command-review-original.png), [narrow](native-command-review-original-narrow.png) |
+| Desktop, separate | [Wide](native-command-separate-switch.png), [narrow](native-command-separate-switch-narrow.png) | [Wide](native-command-review-separate.png), [narrow](native-command-review-separate-narrow.png) |
+
 ## Remaining scope
 
-Command switching is implemented and unit-tested; its real exported-file browser/native interface journey is the next acceptance gate. ID-03-BACKUP-SNAPSHOTS remains **verify** until that passes. This switches snapshots of the same exact original request while preserving current local prerequisites. It does not merge contradictory request identities or automatically remap business references. Broader mixed graphs, authority/source/failure transitions, encrypted corporate archives, corporate key loss and real provider/platform acceptance remain required. Overall parity and later UI refinement remain open.
+ID-03-BACKUP-SNAPSHOTS is **verified** within the resource-draft and command evidence above. ID-03-BACKUP-ARCHIVE is the next ready item. This switches snapshots of the same exact original request while preserving current local prerequisites. It does not merge contradictory request identities or automatically remap business references. Broader mixed graphs, authority/source/failure transitions, encrypted corporate archives, corporate key loss and real provider/platform acceptance remain required. Overall parity and later UI refinement remain open.

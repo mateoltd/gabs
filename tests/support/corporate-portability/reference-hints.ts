@@ -158,6 +158,7 @@ export async function corporateReferenceHints(
           const evidence = resolve("docs/verification/imported-snapshots");
           await mkdir(evidence, { recursive: true });
           await switchSnapshots({
+            kind: "command",
             page,
             scope,
             first: childFile,
