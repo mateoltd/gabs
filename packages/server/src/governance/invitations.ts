@@ -1,3 +1,5 @@
+import { sql } from "kysely";
+import type { InvitationQuery, InvitationPage } from "@suite/contracts";
 import { randomUUID } from "node:crypto";
 import type { Tx } from "../persistence/database";
 import {
@@ -306,4 +308,86 @@ export async function revokeInvitation(tx: Tx, ctx: Context, id: string) {
     .execute();
   await audit(tx, ctx, "invitations.revoked", id);
   return { ok: true };
+}
+
+/** One authorized snapshot supplies a bounded page and workspace-wide summary. */
+export async function listInvitations(
+  tx: Tx,
+  ctx: Context,
+  query: InvitationQuery,
+): Promise<InvitationPage> {
+  await lockWorkspace(tx, ctx.workspaceId);
+  ctx = await authorize(
+    tx,
+    ctx.actor,
+    ctx.workspaceId,
+    ctx.requestId,
+    ctx.runtime,
+    "members.manage",
+  );
+  const now = new Date();
+  const limit = query.limit ?? 20;
+  const scope = tx
+    .selectFrom("suite.invitations")
+    .where("workspace_id", "=", ctx.workspaceId);
+  const summary = await scope
+    .select((eb) => [
+      eb.fn.countAll<string>().as("total"),
+      sql<string>`count(*) filter (where state = 'pending' and expires_at > ${now})`.as(
+        "pending",
+      ),
+    ])
+    .executeTakeFirstOrThrow();
+  let matching = scope;
+  const search = query.search?.trim();
+  if (search)
+    matching = matching.where(
+      "email",
+      "ilike",
+      `%${search.replace(/[\\%_]/g, "\\$&")}%`,
+    );
+  const count = search
+    ? await matching
+        .select((eb) => eb.fn.countAll<string>().as("total"))
+        .executeTakeFirstOrThrow()
+    : summary;
+  if (query.cursor) {
+    const anchor = await scope
+      .select("id")
+      .where("id", "=", query.cursor)
+      .executeTakeFirst();
+    requireCondition(
+      anchor,
+      400,
+      "INVALID_CURSOR",
+      "This invitation page is no longer available. Return to the first page.",
+    );
+    // Compare in PostgreSQL to preserve timestamp microseconds and tie ordering.
+    matching = matching.where(sql<boolean>`(created_at, id) < (
+      select created_at, id from suite.invitations
+      where workspace_id = ${ctx.workspaceId} and id = ${query.cursor}
+    )`);
+  }
+  const rows = await matching
+    .selectAll()
+    .orderBy("created_at", "desc")
+    .orderBy("id", "desc")
+    .limit(limit + 1)
+    .execute();
+  return {
+    items: rows.slice(0, limit).map((row) => ({
+      id: row.id,
+      email: row.email,
+      roleId: row.role_id,
+      state:
+        row.state === "pending" && new Date(row.expires_at) <= now
+          ? "expired"
+          : row.state,
+      expiresAt: iso(row.expires_at),
+    })),
+    nextCursor: rows.length > limit ? rows[limit - 1].id : null,
+    total: Number(count.total),
+    workspaceTotal: Number(summary.total),
+    pendingTotal: Number(summary.pending),
+  };
 }

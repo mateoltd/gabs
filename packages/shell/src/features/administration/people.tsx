@@ -21,6 +21,7 @@ import {
   ListToolbar,
   Modal,
   PageHeading,
+  Pagination,
   RecordIdentity,
   ResultsMotion,
   SearchField,
@@ -101,6 +102,14 @@ export function People(props: FeatureProps) {
     memberAttempt.current = undefined;
   };
   const [search, setSearch] = useState("");
+  const [invitationCursors, setInvitationCursors] = useState<
+    (string | undefined)[]
+  >([undefined]);
+  const invitationCursor = invitationCursors[invitationCursors.length - 1];
+  const changeSearch = (value: string) => {
+    setSearch(value);
+    setInvitationCursors([undefined]);
+  };
   const [email, setEmail] = useState(""),
     [roleId, setRoleId] = useState(""),
     [roleName, setRoleName] = useState(""),
@@ -115,8 +124,26 @@ export function People(props: FeatureProps) {
     queryFn: () => client.request({ operation: "roles", params }),
   });
   const invitations = useQuery({
-    queryKey: [scope.userId, scope.workspaceId, "invitations"],
-    queryFn: () => client.request({ operation: "invitations", params }),
+    queryKey: [
+      scope.userId,
+      scope.workspaceId,
+      "invitations",
+      invitationCursor,
+      tab === "invitations" ? search.trim() : "",
+    ],
+    queryFn: ({ signal }) =>
+      client.request(
+        {
+          operation: "invitations",
+          params,
+          query: {
+            cursor: invitationCursor,
+            limit: 20,
+            search: tab === "invitations" ? search.trim() : "",
+          },
+        },
+        { signal },
+      ),
   });
   const refresh = () =>
     qc.invalidateQueries({
@@ -160,15 +187,13 @@ export function People(props: FeatureProps) {
       .toLowerCase()
       .includes(needle),
   );
-  const filteredInvitations = (invitations.data ?? []).filter((i) =>
-    i.email.toLowerCase().includes(needle),
-  );
+  const filteredInvitations = invitations.data?.items ?? [];
   const filteredRoles = (roles.data ?? []).filter((r) =>
     r.name.toLowerCase().includes(needle),
   );
   const viewCounts: Record<string, number | undefined> = {
     members: members.data?.length,
-    invitations: invitations.data?.length,
+    invitations: invitations.data?.workspaceTotal,
     roles: roles.data?.length,
   };
   const isPending =
@@ -215,7 +240,7 @@ export function People(props: FeatureProps) {
           value={tab}
           onChange={(value) => {
             setTab(value);
-            setSearch("");
+            changeSearch("");
           }}
           options={["members", "invitations", "roles"].map((value) => ({
             value,
@@ -264,14 +289,12 @@ export function People(props: FeatureProps) {
             className="summary-link"
             onClick={() => {
               setTab("invitations");
-              setSearch("");
+              changeSearch("");
             }}
             aria-label="View invitations"
           >
             <strong className="summary-value">
-              {invitations.data
-                ? invitations.data.filter((i) => i.state === "pending").length
-                : "—"}
+              {invitations.data ? invitations.data.pendingTotal : "—"}
             </strong>
             <ArrowRight size={16} />
           </button>
@@ -284,7 +307,7 @@ export function People(props: FeatureProps) {
       <ListToolbar>
         <SearchField
           value={search}
-          onChange={setSearch}
+          onChange={changeSearch}
           placeholder={
             tab === "members"
               ? "Search members"
@@ -405,7 +428,7 @@ export function People(props: FeatureProps) {
             />
           )
         ) : tab === "invitations" ? (
-          filteredInvitations.length ? (
+          invitations.isError ? null : filteredInvitations.length ? (
             <ListTable className="people-table" aria-label="Invitations">
               <thead>
                 <tr>
@@ -545,21 +568,63 @@ export function People(props: FeatureProps) {
           />
         )}
       </ResultsMotion>
-      {!isPending && (
+      {(!isPending || tab === "invitations") && (
         <div className="list-footer" aria-live="polite">
-          <span>
-            {visibleCount}{" "}
-            {visibleCount === 1
-              ? tab === "members"
-                ? "member"
-                : tab === "roles"
-                  ? "role"
-                  : "invitation"
-              : tab}{" "}
-            {search ? "matching your search" : "in this workspace"}
-          </span>
+          {tab === "invitations" && isPending ? (
+            <span>Loading invitations…</span>
+          ) : tab === "invitations" && invitations.isError ? (
+            <>
+              <span>Invitations could not be loaded.</span>
+              <Button
+                disabled={invitations.isFetching}
+                onClick={() => void invitations.refetch()}
+              >
+                Try again
+              </Button>
+              {invitationCursors.length > 1 && (
+                <Button onClick={() => setInvitationCursors([undefined])}>
+                  Return to first page
+                </Button>
+              )}
+            </>
+          ) : (
+            <span>
+              {visibleCount}
+              {tab === "invitations" &&
+              invitations.data &&
+              invitations.data.total !== visibleCount
+                ? ` of ${invitations.data.total}`
+                : ""}{" "}
+              {visibleCount === 1
+                ? tab === "members"
+                  ? "member"
+                  : tab === "roles"
+                    ? "role"
+                    : "invitation"
+                : tab}{" "}
+              {search ? "matching your search" : "in this workspace"}
+            </span>
+          )}
+          {tab === "invitations" &&
+            (invitationCursors.length > 1 || invitations.data?.nextCursor) && (
+              <Pagination
+                pending={invitations.isFetching || busy}
+                next={invitations.data?.nextCursor}
+                hasPrevious={invitationCursors.length > 1}
+                onNext={() => {
+                  if (invitations.data?.nextCursor)
+                    setInvitationCursors([
+                      ...invitationCursors,
+                      invitations.data.nextCursor,
+                    ]);
+                }}
+                onPrevious={() =>
+                  setInvitationCursors(invitationCursors.slice(0, -1))
+                }
+              />
+            )}
           {search && (
-            <Button variant="ghost" onClick={() => setSearch("")}>
+            <Button variant="ghost" onClick={() => changeSearch("")}>
               Clear search
             </Button>
           )}
@@ -583,7 +648,11 @@ export function People(props: FeatureProps) {
                   body: { email, roleId },
                   idempotencyKey: attempt,
                 }),
-              () => setInvite(false),
+              () => {
+                setInvite(false);
+                setTab("invitations");
+                changeSearch("");
+              },
               "Invitation creation could not be confirmed. Retry without changing the details to check its saved result.",
             );
           }}

@@ -3821,7 +3821,11 @@ export interface operations {
     };
     invitations: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+                search?: string;
+            };
             header?: never;
             path: {
                 workspaceId: string;
@@ -3839,14 +3843,20 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        email: string;
-                        state: string;
-                        expiresAt: string;
-                        /** Format: uuid */
-                        roleId: string;
-                    }[];
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            email: string;
+                            state: string;
+                            expiresAt: string;
+                            /** Format: uuid */
+                            roleId: string;
+                        }[];
+                        nextCursor: string | null;
+                        total: number;
+                        workspaceTotal: number;
+                        pendingTotal: number;
+                    };
                 };
             };
             /** @description Default Response */

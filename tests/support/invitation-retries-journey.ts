@@ -1,7 +1,7 @@
 import { expect, type Page, type ElectronApplication } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
-import type { InvitationSchema, Static } from "@suite/contracts";
+import type { InvitationPage } from "@suite/contracts";
 import type { ReviewTransport } from "./capability-review-journey";
 import { selectValue } from "../e2e/controls.helpers";
 import { dropAcceptedReply } from "./drop-reply";
@@ -15,9 +15,8 @@ export async function invitationRetriesJourney(
   const params = { workspaceId };
   const email = `invite-${crypto.randomUUID().slice(0, 8)}@test.local`;
   const invitations = async () =>
-    (await send({ operation: "invitations", params })).body as Static<
-      typeof InvitationSchema
-    >[];
+    ((await send({ operation: "invitations", params })).body as InvitationPage)
+      .items;
   const audits = async (action: string) =>
     (
       (await send({ operation: "audit", params })).body as {

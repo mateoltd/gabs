@@ -55,6 +55,7 @@ import {
   saveRole,
   listRoles,
   createInvitation,
+  listInvitations,
   acceptInvitation,
   revokeInvitation,
   requireInvitationRoleAuthority,
@@ -610,7 +611,7 @@ export async function createApp(
       module?: S.ModuleId;
       // Export metadata is host-owned; its worker selects and validates the current business backend.
       hostStorageBridge?: boolean;
-      query?: boolean;
+      query?: boolean | S.TSchema;
       businessRead?: boolean;
       // Replayed access changes must wait behind the same workspace writers and
       // recheck the route's current authority before returning a saved result.
@@ -635,12 +636,15 @@ export async function createApp(
         ...(options.body ? { body: options.body } : {}),
         ...(options.query
           ? {
-              querystring: options.businessRead
-                ? T.Object({
-                    ...S.PageQuery.properties,
-                    cursor: T.Optional(T.String({ maxLength: 24576 })),
-                  })
-                : S.PageQuery,
+              querystring:
+                typeof options.query === "object"
+                  ? options.query
+                  : options.businessRead
+                    ? T.Object({
+                        ...S.PageQuery.properties,
+                        cursor: T.Optional(T.String({ maxLength: 24576 })),
+                      })
+                    : S.PageQuery,
             }
           : {}),
         response: {
@@ -1002,27 +1006,10 @@ export async function createApp(
     handler: (tx, ctx, req) => saveRole(tx, ctx, req.body, req.params.id),
   });
   route("invitations", {
-    response: T.Array(S.InvitationSchema),
+    query: S.InvitationQuerySchema,
+    response: S.InvitationPageSchema,
     permission: "members.manage",
-    handler: async (tx, ctx) => {
-      const rows = await tx
-        .selectFrom("suite.invitations")
-        .selectAll()
-        .where("workspace_id", "=", ctx.workspaceId)
-        .orderBy("created_at", "desc")
-        .limit(100)
-        .execute();
-      return rows.map((i) => ({
-        id: i.id,
-        email: i.email,
-        state:
-          i.state === "pending" && new Date(i.expires_at).getTime() < Date.now()
-            ? "expired"
-            : i.state,
-        expiresAt: iso(i.expires_at),
-        roleId: i.role_id,
-      }));
-    },
+    handler: (tx, ctx, req) => listInvitations(tx, ctx, req.query),
   });
   route("inviteCreate", {
     body: T.Object(

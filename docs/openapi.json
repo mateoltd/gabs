@@ -7372,6 +7372,34 @@
               "format": "uuid",
               "type": "string"
             },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "maxLength": 254,
+              "type": "string"
+            },
+            "in": "query",
+            "name": "search",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
             "in": "path",
             "name": "workspaceId",
             "required": true
@@ -7409,34 +7437,69 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "id",
-                      "email",
-                      "state",
-                      "expiresAt",
-                      "roleId"
-                    ],
-                    "properties": {
-                      "id": {
-                        "format": "uuid",
-                        "type": "string"
-                      },
-                      "email": {
-                        "type": "string"
-                      },
-                      "state": {
-                        "type": "string"
-                      },
-                      "expiresAt": {
-                        "type": "string"
-                      },
-                      "roleId": {
-                        "format": "uuid",
-                        "type": "string"
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "nextCursor",
+                    "total",
+                    "workspaceTotal",
+                    "pendingTotal"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "email",
+                          "state",
+                          "expiresAt",
+                          "roleId"
+                        ],
+                        "properties": {
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "expiresAt": {
+                            "type": "string"
+                          },
+                          "roleId": {
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        }
                       }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "total": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "workspaceTotal": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "pendingTotal": {
+                      "minimum": 0,
+                      "type": "integer"
                     }
                   }
                 }
