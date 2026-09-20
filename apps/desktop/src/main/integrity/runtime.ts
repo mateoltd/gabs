@@ -1,5 +1,5 @@
 import type { IpcMain } from "electron";
-import type { IntegrityFailure } from "./assets";
+import type { IntegrityFailure } from "./format";
 
 /** Runtime admission is monotonic: only a new, verified process can recover. */
 export class IntegrityMonitor {

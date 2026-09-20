@@ -2,12 +2,11 @@ import { createHash } from "node:crypto";
 import { open, readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
+import type { IntegrityFailure } from "./format";
 
 export type AssetManifest = Readonly<
   Record<string, { size: number; sha256: string }>
 >;
-import type { IntegrityFailure } from "./format";
-export type { IntegrityFailure } from "./format";
 const namePattern = /^[a-zA-Z0-9_@.+-]+(?:\/[a-zA-Z0-9_@.+-]+)*$/;
 
 /** A diagnostic gate anchored by signed main, not a substitute for OS code signing. */
@@ -28,6 +27,7 @@ export async function inspectAssets(
     ) ||
     expected.some(
       ([name, file]) =>
+        name.length > 512 ||
         !namePattern.test(name) ||
         name.split("/").some((part) => part === "." || part === "..") ||
         name === "main.cjs" ||

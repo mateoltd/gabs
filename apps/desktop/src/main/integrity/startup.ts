@@ -1,11 +1,8 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
-import {
-  inspectAssets,
-  type AssetManifest,
-  type IntegrityFailure,
-} from "./assets";
+import { inspectAssets, type AssetManifest } from "./assets";
+import type { IntegrityFailure } from "./format";
 import { IntegrityJournal } from "./journal";
 
 const execute = promisify(execFile);

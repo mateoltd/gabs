@@ -87,6 +87,12 @@ describe("desktop installation integrity", () => {
         "../outside": manifest["preload.cjs"],
       }),
     ).toEqual({ code: "invalid-manifest" });
+    expect(
+      await inspectAssets(assets, {
+        ...manifest,
+        ["a".repeat(513)]: manifest["preload.cjs"],
+      }),
+    ).toEqual({ code: "invalid-manifest" });
   });
   it("allows post-sign native bytes only with verified macOS coverage, without exempting preload", async () => {
     const { assets, manifest } = await fixture();
@@ -155,7 +161,7 @@ describe("desktop installation integrity", () => {
   it("finishes interrupted audit publication before clearing the persisted incident", async () => {
     const { profile } = await fixture();
     const root = resolve(profile, "integrity");
-    const journal = new IntegrityJournal(root, "1.0.0");
+    const journal = new IntegrityJournal(root, "1.0.0-beta.1+build.2");
     await Promise.all([
       journal.record({ code: "changed-asset", asset: "preload.cjs" }),
       journal.record({ code: "changed-asset", asset: "preload.cjs" }),
@@ -164,16 +170,56 @@ describe("desktop installation integrity", () => {
       await readFile(resolve(root, "lockdown.json"), "utf8"),
     );
     await rm(resolve(root, `${blocked.id}.locked.json`));
-    await new IntegrityJournal(root, "1.0.1").record();
+    expect(blocked.release).toBe("1.0.0-beta.1+build.2");
+    await new IntegrityJournal(root, "1.0.1-rc.1+build.3").record();
     const recovery = JSON.parse(
       await readFile(resolve(root, `${blocked.id}.recovered.json`), "utf8"),
     );
     expect(recovery).toMatchObject({
       event: "recovered",
-      release: "1.0.1",
+      release: "1.0.1-rc.1+build.3",
       incident: blocked,
     });
     expect(await readdir(root)).toHaveLength(2);
+  });
+  it("refuses failures it could not read back before writing audit state", async () => {
+    const { profile } = await fixture();
+    const root = resolve(profile, "integrity");
+    const journal = new IntegrityJournal(root, "1.0.0");
+    await expect(
+      journal.record({ code: "future-failure" } as never),
+    ).rejects.toThrow("Invalid integrity record");
+    await expect(
+      journal.record({
+        code: "changed-asset",
+        asset: "a".repeat(513),
+      }),
+    ).rejects.toThrow("Invalid integrity record");
+    await expect(readFile(resolve(root, "lockdown.json"))).rejects.toThrow();
+  });
+  it("refuses a symlinked journal directory without changing retained files", async () => {
+    const { directory, profile } = await fixture();
+    const target = resolve(directory, "outside-integrity");
+    await mkdir(target);
+    await writeFile(resolve(target, "existing.json"), "retained audit bytes");
+    await symlink(
+      target,
+      resolve(profile, "integrity"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    await expect(
+      new IntegrityJournal(resolve(profile, "integrity"), "1.0.0").record({
+        code: "changed-asset",
+        asset: "preload.cjs",
+      }),
+    ).rejects.toThrow("ordinary directory");
+    expect(await readdir(target)).toEqual(["existing.json"]);
+    expect(await readFile(resolve(target, "existing.json"), "utf8")).toBe(
+      "retained audit bytes",
+    );
+    expect(
+      await readFile(resolve(profile, "secure-cache/pending"), "utf8"),
+    ).toBe("retained encrypted data");
   });
   it("fails closed when audit state is corrupt and preserves the original bytes", async () => {
     const options = await fixture();

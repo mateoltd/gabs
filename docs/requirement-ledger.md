@@ -557,3 +557,7 @@ DESK-001/SEC-003 gain a [desktop startup integrity gate](verification/integrity-
 ## Runtime integrity and original-outcome recovery, 20 September 2026
 
 DESK-001/SEC-003 gain [periodic/resume integrity monitoring and native IPC fencing](verification/integrity-runtime/README.md). Actual encrypted requests and drafts survive runtime shutdown and repaired-build sign-in both before server submission and after the exact server commitment loses its reply. Original identity, one record/audit effect and an independent draft remain intact. Thirteen focused tests, strict checks, a fresh desktop build, six cumulatively passing native cases and four inspected captures provide scoped acceptance. ID-04 remains active for evidence/support recovery tooling, operational audit and real signed-platform/provider/physical acceptance. No whole requirement or overall parity is complete.
+
+## 20 September 2026: integrity architecture review
+
+DESK-001/SEC-003 retain their current scope after the [integrity checkpoint review](verification/architecture/README.md#integrity-checkpoint-review-20-september-2026). Typed audit formats, durable file access and incident sequencing have distinct desktop owners, with valid prerelease/build metadata retained and invalid new records refused before persistence. Twenty-nine focused tests, strict/build checks and four minimized native journeys verify this bounded extraction. Support inspection/export/repair and actual provider/platform/operational gates remain under active ID-04; no whole requirement or overall parity is marked complete.

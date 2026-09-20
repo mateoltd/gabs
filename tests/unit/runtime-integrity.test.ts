@@ -4,7 +4,7 @@ import {
   IntegrityMonitor,
   guardedHandle,
 } from "../../apps/desktop/src/main/integrity/runtime";
-import type { IntegrityFailure } from "../../apps/desktop/src/main/integrity/assets";
+import type { IntegrityFailure } from "../../apps/desktop/src/main/integrity/format";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

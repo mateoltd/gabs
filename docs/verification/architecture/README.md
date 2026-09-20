@@ -350,3 +350,21 @@ The explicitly delegated `gpt-5.6-sol` subagent at `xhigh` independently inspect
 Fresh acceptance passed **14 architecture boundary fixtures**, strict root/browser/Node/preload/worker checks, dependency/copy checks and all **four cached build targets**. Logs: `/tmp/gabs-schema-architecture-tests.log` and `/tmp/gabs-schema-architecture-build.log`. No fresh bundling, new full regression, browser launch or desktop launch is claimed for this review. Existing chunk-size warnings remain. Production/package/configuration sources are unchanged from the previous accepted review at `deea1cb`.
 
 Parent review also finished inspecting the final wide schema-recovery captures and reconciled their [local acceptance and provider limits](../corporate-recovery/README.md) with the tracker and ledger. The recorded two product journeys and 104 focused tests ran before this architecture checkpoint; they are not presented as new architecture runs. No UI source, style, signed release or wire contract changed. Full parity remains active; ID-04 is next independent implementation work, while identity/OS-provider, signed-platform and physical durability gates remain required.
+
+## Integrity checkpoint review, 20 September 2026
+
+Checkpoint `77264f3` and pushed annotated tag `checkpoint/architecture-integrity-review-2026-09-20` preserve the unfinished integrity support extraction before the explicitly requested `gpt-5.6-sol` review at `xhigh`. The parent independently reviewed the diff, package hierarchy, workspace discovery, public exports, environment configurations, build/generator paths and dependency fixtures.
+
+The earlier physical migration remains complete: `sdk`, `client`, `server`, `shell`, `ui/web`, `ui/tokens` and outermost `composition`. No further package move or public identifier rename was justified. Within desktop main, `integrity/format.ts` owns typed record validation, `files.ts` owns bounded reads and durable replacement, and `journal.ts` owns incident/recovery sequencing. Startup and runtime import the canonical failure type directly.
+
+The review fixed a checkpoint regression rejecting valid release versions containing both prerelease and build metadata. Validation now uses the existing SemVer dependency and retains the original version string. Failures are validated before persistence, manifest asset names respect the audit format limit, and symlinked audit directories are refused without changing their targets or business data. The unused future repair format was removed. Report export and explicit unreadable-audit recovery remain unfinished ID-04 work; this extraction does not claim them complete.
+
+Final parent verification:
+
+- **29 focused tests passed** across architecture boundaries, desktop integrity and runtime admission: `/tmp/gabs-integrity-architecture-final-unit.log`. Coverage includes prerelease recovery after interrupted publication, invalid failure rejection before writing, long manifest names and symlink target preservation.
+- Strict root/browser/Node/preload/worker checks, dependency/copy checks and all four build targets passed: `/tmp/gabs-integrity-architecture-final-build.log`. Desktop rebuilt; three other targets used cache. Existing bundle-size warnings remain.
+- **Four hidden/minimized native journeys passed in one run:** startup corruption/repair, runtime IPC/held-reply fencing, offline saved-work recovery and already-server-committed work recovery: `/tmp/gabs-integrity-architecture-final-native.log`. The disposable database was removed.
+- Scoped Axe and narrow overflow assertions passed. The parent inspected all four regenerated wide/narrow recovery captures and restored incidental screenshot differences. Renderer, shell, UI kit and styles are unchanged. This is continuity evidence, not final UI approval.
+- Scoped source formatting, whitespace checks and documentation links passed; the ledger retains 29 original requirement IDs and the tracker 106 stable IDs.
+
+Native acceptance uses the existing development identity and controlled OS-protection fixtures described in [runtime integrity evidence](../integrity-runtime/README.md). Real provider, signed-platform, physical durability and operational acceptance remain open. This completes the requested checkpoint/delegation/review only; parity remains active and the later UI-refinement goal has not begun.
