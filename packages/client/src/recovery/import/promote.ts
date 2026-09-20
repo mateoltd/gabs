@@ -22,6 +22,16 @@ import { authorizeWorkImport, type SavedWorkImportOptions } from "./authority";
 import type { SavedWorkImport } from "./format";
 import { readImportSource } from "./stored";
 
+import {
+  checkImportedRecordTarget,
+  prepareImportedRequestTarget,
+  type ImportedRecordTarget,
+} from "./target";
+
+export type SavedWorkImportChoice =
+  | { draftSource: ImportedDraftSource; recordTarget?: never }
+  | { recordTarget: ImportedRecordTarget; draftSource?: never };
+
 const exactCall = (entry: JournalEntry) =>
   canonical({ ...entry.call, key: entry.id });
 function matchingRequest(state: ModuleStorage, entry?: JournalEntry) {
@@ -42,10 +52,11 @@ function matchingRequest(state: ModuleStorage, entry?: JournalEntry) {
 export async function promoteSavedWorkImport(
   options: SavedWorkImportOptions,
   digest: string,
-  choice?: { draftSource: ImportedDraftSource },
+  choice?: SavedWorkImportChoice,
 ) {
   const scope = { ...options.scope };
   const draftSource = choice?.draftSource;
+  const recordTarget = choice?.recordTarget;
   return navigator.locks.request(
     `suite-sync:${scope.userId}:${scope.workspaceId}`,
     async () => {
@@ -63,6 +74,23 @@ export async function promoteSavedWorkImport(
       const entry = input.entry;
       if (entry) assertSchema(RequestKeySchema, entry.id);
       const existing = matchingRequest(before, entry);
+      const choosingTarget =
+        input.selection === "request" && !!entry?.recordRecovery;
+      if (choosingTarget) {
+        checkImportedRecordTarget(input, recordTarget);
+        if (
+          existing &&
+          (existing.supersededBy ||
+            existing.recordRecovery ||
+            existing.createRecovery?.length ||
+            Object.values(before.draftReviews ?? {}).some(
+              (review) => review.entryId === existing.id,
+            ))
+        )
+          throw Error(
+            "This request already has local recovery work. Preserve its current review before choosing another imported target.",
+          );
+      }
       const destinations = importedDraftKeys(input, digest, draftSource);
       if (input.selection === "draft" && existing?.supersededBy)
         throw Error(
@@ -108,6 +136,16 @@ export async function promoteSavedWorkImport(
         // A lost reply or denial retains the import; retry asks for this exact permanent outcome.
         await authority.refresh();
       }
+      const requestTarget =
+        choosingTarget && input.selection === "request" && outcome
+          ? await prepareImportedRequestTarget(
+              options,
+              input,
+              authority,
+              outcome,
+              recordTarget,
+            )
+          : undefined;
       const draft =
         input.selection === "draft"
           ? await prepareImportedDraft(
@@ -130,6 +168,7 @@ export async function promoteSavedWorkImport(
         draftSource
           ? { draftSource }
           : {}),
+        ...(choosingTarget && recordTarget ? { recordTarget } : {}),
         restoredAt: Date.now(),
       };
       await changeModuleStorage(
@@ -219,7 +258,8 @@ export async function promoteSavedWorkImport(
               };
             }
           }
-          if (draft?.recordRecovery) {
+          const selectedTarget = draft?.recordRecovery ?? requestTarget;
+          if (selectedTarget) {
             const restored = state.journal.find(
               (item) => item.id === entry?.id,
             );
@@ -227,7 +267,15 @@ export async function promoteSavedWorkImport(
               throw Error(
                 "The original request must be stopped before its target can change.",
               );
-            restored.recordRecovery = draft.recordRecovery;
+            if (
+              Object.values(state.draftReviews ?? {}).some(
+                (review) => review.entryId === restored.id,
+              )
+            )
+              throw Error(
+                "A local review appeared during restoration. Preserve it before changing this request's target.",
+              );
+            restored.recordRecovery = selectedTarget;
           }
           if (draft) {
             state.drafts[draft.key] = draft.data;

@@ -11,6 +11,7 @@ import {
   type ImportAccess,
   type ImportedDraftSource,
   importedDraftChoices,
+  importedRequestTargets,
 } from "@suite/client/work-import";
 import {
   Button,
@@ -155,7 +156,10 @@ export function SavedWorkImports(props: FeatureProps) {
       );
   };
   const selected = visible.find((copy) => copy.digest === confirm?.digest);
-  const collision = selected ? importedDraftChoices(selected.input) : undefined;
+  const collision = selected
+    ? (importedDraftChoices(selected.input) ??
+      importedRequestTargets(selected.input))
+    : undefined;
   if (!props.offlineEnabled) return null;
   return (
     <>
@@ -392,7 +396,9 @@ export function SavedWorkImports(props: FeatureProps) {
                     </summary>
                     <p>
                       {collision.linked
-                        ? "Saved draft input"
+                        ? selected.input.selection === "request"
+                          ? "Saved request input"
+                          : "Saved draft input"
                         : "Original draft"}
                     </p>
                     <ResourceValue value={collision.originalData} />
@@ -432,7 +438,9 @@ export function SavedWorkImports(props: FeatureProps) {
                           options,
                           selected.digest,
                           confirm!.draftSource
-                            ? { draftSource: confirm!.draftSource }
+                            ? selected.input.selection === "request"
+                              ? { recordTarget: confirm!.draftSource }
+                              : { draftSource: confirm!.draftSource }
                             : undefined,
                         );
                         setNotice(

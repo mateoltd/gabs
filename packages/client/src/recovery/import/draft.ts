@@ -7,22 +7,20 @@ import {
 import type { JournalEntry } from "@suite/module-sdk/sync";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 import { resourceDraftKey, type DraftReview } from "../../modules/drafts";
-import { sendModuleCall } from "../../modules/transport";
-import { validateModuleResponse } from "../../modules/response";
+import {
+  recordInput,
+  checkImportedRecordTarget,
+  readCurrentTarget,
+  type ImportedRecordTarget,
+} from "./target";
 import type { settleModuleCall } from "../../modules/settlement";
 import type { authorizeWorkImport, SavedWorkImportOptions } from "./authority";
 
-export type ImportedDraftSource = "original" | "reassigned";
+export type ImportedDraftSource = ImportedRecordTarget;
 
 type ImportedDraft = Extract<SavedWorkRecovery, { selection: "draft" }>;
 type Authority = Awaited<ReturnType<typeof authorizeWorkImport>>;
 type Outcome = Awaited<ReturnType<typeof settleModuleCall>>;
-const recordInput = Type.Object({
-  id: Type.String({ minLength: 1 }),
-  baseData: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-  baseVersion: Type.Optional(Type.Integer({ minimum: 1 })),
-});
-
 /** Copied destinations are suggestions only; the caller must make a fresh choice. */
 export function importedDraftChoices(input: SavedWorkRecovery) {
   if (input.selection !== "draft") return;
@@ -47,38 +45,6 @@ export function importedDraftChoices(input: SavedWorkRecovery) {
       linked: true,
     };
   }
-}
-
-function checkLinkedTarget(input: ImportedDraft, choice?: ImportedDraftSource) {
-  const entry = input.entry!;
-  if (
-    !entry.recordRecovery ||
-    entry.call.action !== "update" ||
-    input.review?.collision
-  )
-    throw Error(
-      "This saved review needs its original dependency recovery before restoration.",
-    );
-  assertSchema(recordInput, entry.call.input);
-  const originalId = entry.call.input.id;
-  // This choice confirms one record destination, never other resource-reference remappings.
-  for (const mapping of [
-    ...(entry.createRecovery ?? []),
-    ...(input.review?.createRecovery ?? []),
-  ])
-    if (
-      mapping.moduleId !== input.moduleId ||
-      mapping.resource !== input.resource ||
-      mapping.originalId !== originalId ||
-      mapping.replacementId !== entry.recordRecovery.targetId
-    )
-      throw Error(
-        "This saved review includes other reassigned references. Recover those dependencies before restoring it.",
-      );
-  if (choice !== "original" && choice !== "reassigned")
-    throw Error(
-      "Choose the original or reassigned draft before restoring this copy.",
-    );
 }
 
 /** Check prospective destinations before permanently settling the original request. */
@@ -115,7 +81,7 @@ export function importedDraftKeys(
       "Review this original request through its own recovery controls before restoring a record draft.",
     );
   if (input.entry.recordRecovery) {
-    checkLinkedTarget(input, draftSource);
+    checkImportedRecordTarget(input, draftSource);
   } else if (
     input.entry.createRecovery?.length ||
     input.review?.createRecovery?.length ||
@@ -212,7 +178,8 @@ export async function prepareImportedDraft(
     // The draft was reviewed against this snapshot; fields inherited from that
     // snapshot are not new user edits when the server advances again.
     let base = input.target?.data ?? input.entry.call.input.baseData;
-    if (input.entry.recordRecovery) checkLinkedTarget(input, draftSource);
+    if (input.entry.recordRecovery)
+      checkImportedRecordTarget(input, draftSource);
     if (outcome.outcome === "accepted") {
       if (input.entry.recordRecovery && draftSource === "reassigned")
         throw Error(
@@ -275,35 +242,4 @@ export async function prepareImportedDraft(
     version: input.draftVersion,
     recordRecovery,
   };
-}
-
-async function readCurrentTarget(
-  options: SavedWorkImportOptions,
-  input: ImportedDraft,
-  authority: Authority,
-  targetId: string,
-) {
-  authority.check();
-  const call = {
-    moduleId: input.moduleId,
-    moduleVersion: authority.module.version,
-    resource: input.resource,
-    action: "get" as const,
-    input: { id: targetId },
-  };
-  const current = await sendModuleCall(
-    options.client.forUser(options.scope.userId),
-    options.scope,
-    call,
-    { signal: options.signal },
-  );
-  authority.check();
-  validateModuleResponse(authority.module, call, current);
-  assertSchema(
-    resourceRecordSchema(Type.Record(Type.String(), Type.Unknown())),
-    current,
-  );
-  if (current.id !== targetId)
-    throw Error("The server returned a different recovery record.");
-  return current;
 }

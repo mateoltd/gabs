@@ -1347,3 +1347,167 @@ it("does not attribute a reassigned snapshot version to an archived original rec
     (await f.read()).draftReviews![restored.draftKey!].recoveryInput,
   ).toMatchObject({ recordId: record.id, baseVersion: 1 });
 });
+
+function reassignedRequest(
+  f: ReturnType<typeof fixture>,
+  action: "update" | "archive" = "update",
+) {
+  const source = reassignedLinkedDraft(f);
+  const entry = source.input.entry!;
+  if (action === "archive")
+    entry.call = {
+      moduleId: module.id,
+      moduleVersion: module.version,
+      key: entry.id,
+      resource: "notes",
+      action,
+      input: { id: source.record.id, baseVersion: 1 },
+    };
+  const input: Extract<SavedWorkRecovery, { selection: "request" }> = {
+    kind: source.input.kind,
+    formatVersion: 1,
+    ...f.options.scope,
+    moduleId: module.id,
+    moduleVersion: module.version,
+    selection: "request",
+    entry,
+  };
+  return { ...source, input };
+}
+
+it.each(["update", "archive"] as const)(
+  "requires fresh targets for imported %s requests while retaining exact calls and prerequisites",
+  async (action) => {
+    for (const recordTarget of ["original", "reassigned"] as const) {
+      const f = fixture();
+      const { input, record, target } = reassignedRequest(f, action);
+      const { digest } = await f.stage(input);
+      await expect(f.promote(digest)).rejects.toThrow(/Choose the original/);
+      expect(f.calls).not.toContain("moduleAttemptSettle");
+      f.replies.moduleAttemptSettle = {
+        key: input.entry.id,
+        outcome: "cancelled",
+      };
+      f.replies.moduleRequest = recordTarget === "original" ? record : target;
+      const result = await promoteSavedWorkImport(f.options, digest, {
+        recordTarget,
+      });
+      const state = await f.read();
+      expect(result.recordTarget).toBe(recordTarget);
+      expect(state.journal).toHaveLength(1);
+      expect(state.journal[0]).toMatchObject({
+        id: input.entry.id,
+        call: input.entry.call,
+        dependencies: input.entry.dependencies,
+        captureDependencies: input.entry.captureDependencies,
+        requestedDependencies: input.entry.requestedDependencies,
+        state: "rejected",
+        settlement: "cancelled",
+        recordRecovery: {
+          targetId: recordTarget === "original" ? record.id : target.id,
+          destination: recordTarget === "original" ? "existing" : "separate",
+        },
+      });
+      expect(state.journal[0].createRecovery).toBeUndefined();
+      expect(state.drafts).toEqual({});
+      expect(state.recoveryImports![digest].input).toEqual(input);
+      const again = await promoteSavedWorkImport(f.options, digest, {
+        recordTarget: recordTarget === "original" ? "reassigned" : "original",
+      });
+      expect(again).toMatchObject({ recordTarget, alreadyRestored: true });
+    }
+  },
+);
+
+it.each(["update", "archive"] as const)(
+  "recovers an accepted %s request only on its actual record",
+  async (action) => {
+    const f = fixture();
+    const { input, record } = reassignedRequest(f, action);
+    const { digest } = await f.stage(input);
+    const result = { ...record, archived: action === "archive", version: 2 };
+    f.replies.moduleAttemptSettle = {
+      key: input.entry.id,
+      outcome: "accepted",
+      result,
+    };
+    await expect(
+      promoteSavedWorkImport(f.options, digest, { recordTarget: "reassigned" }),
+    ).rejects.toThrow(/already accepted/);
+    expect((await f.read()).journal).toEqual([]);
+    await promoteSavedWorkImport(f.options, digest, {
+      recordTarget: "original",
+    });
+    expect((await f.read()).journal[0]).toMatchObject({
+      state: "accepted",
+      result,
+    });
+    expect((await f.read()).journal[0].recordRecovery).toBeUndefined();
+    expect(f.calls).not.toContain("moduleRequest");
+  },
+);
+
+it.each(["wrong-record", "revocation", "lock", "abort", "new-review"] as const)(
+  "retains a request import when %s interrupts target confirmation",
+  async (failure) => {
+    const f = fixture();
+    const { input, target } = reassignedRequest(f, "archive");
+    const { digest } = await f.stage(input);
+    f.replies.moduleAttemptSettle = {
+      key: input.entry.id,
+      outcome: "cancelled",
+    };
+    f.replies.moduleRequest = {
+      ...target,
+      ...(failure === "wrong-record" ? { id: randomUUID() } : {}),
+    };
+    f.onRequest((operation) => {
+      if (operation !== "moduleRequest") return;
+      if (failure === "revocation") f.policy.permissions = [];
+      if (failure === "lock") f.lock();
+      if (failure === "abort") f.abort.abort();
+      if (failure === "new-review")
+        f.state()!.draftReviews = { independent: { entryId: input.entry.id } };
+    });
+    await expect(
+      promoteSavedWorkImport(f.options, digest, { recordTarget: "reassigned" }),
+    ).rejects.toThrow();
+    expect((await f.read()).journal).toEqual([]);
+    expect((await f.read()).recoveryImports![digest].promotion).toBeUndefined();
+    expect((await f.read()).recoveryImports![digest].input).toEqual(input);
+    if (failure === "new-review")
+      expect((await f.read()).draftReviews).toEqual({
+        independent: { entryId: input.entry.id },
+      });
+  },
+);
+
+it("refuses to replace existing local request-target decisions before settlement", async () => {
+  const f = fixture();
+  const { input } = reassignedRequest(f);
+  const { digest } = await f.stage(input);
+  f.state()!.journal = [structuredClone(input.entry)];
+  const before = await f.read();
+  await expect(
+    promoteSavedWorkImport(f.options, digest, { recordTarget: "original" }),
+  ).rejects.toThrow(/already has local recovery/);
+  expect(f.calls).not.toContain("moduleAttemptSettle");
+  expect((await f.read()).journal).toEqual(before.journal);
+});
+
+it("captures request target intent before asynchronous recovery", async () => {
+  const f = fixture();
+  const { input, target } = reassignedRequest(f);
+  const { digest } = await f.stage(input);
+  const choice: { recordTarget: "original" | "reassigned" } = {
+    recordTarget: "reassigned",
+  };
+  f.replies.moduleAttemptSettle = { key: input.entry.id, outcome: "cancelled" };
+  f.replies.moduleRequest = target;
+  f.onRequest((operation) => {
+    if (operation === "profileRecovery") choice.recordTarget = "original";
+  });
+  expect(
+    (await promoteSavedWorkImport(f.options, digest, choice)).recordTarget,
+  ).toBe("reassigned");
+});

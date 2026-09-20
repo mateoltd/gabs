@@ -14,7 +14,8 @@ export {
 } from "./format";
 export type { SavedWorkImportOptions, ImportAccess } from "./authority";
 export { importedDraftChoices, type ImportedDraftSource } from "./draft";
-export { promoteSavedWorkImport } from "./promote";
+export { promoteSavedWorkImport, type SavedWorkImportChoice } from "./promote";
+export { importedRequestTargets, type ImportedRecordTarget } from "./target";
 export { inspectSavedWorkImport, discardSavedWorkImport } from "./stored";
 
 /** Imported observations remain separate from executable journals and server receipts. */

@@ -19,6 +19,7 @@ export interface SavedWorkImport {
     existingRequest: boolean;
     outcome?: "accepted" | "cancelled";
     draftSource?: import("./draft").ImportedDraftSource;
+    recordTarget?: import("./target").ImportedRecordTarget;
     restoredAt: number;
   };
 }
