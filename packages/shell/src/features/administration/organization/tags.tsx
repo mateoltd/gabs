@@ -11,6 +11,7 @@ import {
   Input,
   Select,
   SelectOption,
+  SearchSelect,
 } from "@suite/ui-web";
 
 export function OrganizationTags({
@@ -30,7 +31,6 @@ export function OrganizationTags({
 }) {
   const addButton = useRef<HTMLButtonElement>(null);
   const [selected, setSelected] = useState("");
-  const [search, setSearch] = useState("");
   const tags = policy.tags ?? [];
   const tag = tags.find((item) => item.id === selected);
   const update = (value: PolicyTag) =>
@@ -64,7 +64,6 @@ export function OrganizationTags({
             };
             onChange({ ...policy, tags: [...tags, value] });
             setSelected(value.id);
-            setSearch("");
           }}
         >
           Add role tag
@@ -76,34 +75,16 @@ export function OrganizationTags({
         organization.
       </p>
       {!!tags.length && (
-        <>
-          <Field label="Find a role tag">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </Field>
-          <Field label="Role tag">
-            <Select
-              value={selected}
-              onValueChange={setSelected}
-              disabled={disabled}
-            >
-              <SelectOption value="">Choose a tag</SelectOption>
-              {tags
-                .filter(
-                  (item) =>
-                    item.id === selected ||
-                    item.name.toLowerCase().includes(search.toLowerCase()),
-                )
-                .map((item) => (
-                  <SelectOption value={item.id} key={item.id}>
-                    {item.name}
-                  </SelectOption>
-                ))}
-            </Select>
-          </Field>
-        </>
+        <Field label="Role tag">
+          <SearchSelect
+            options={tags.map((item) => ({ value: item.id, label: item.name }))}
+            value={selected}
+            onValueChange={setSelected}
+            disabled={disabled}
+            placeholder="Find a role tag"
+            clearLabel="Clear role tag selection"
+          />
+        </Field>
       )}
       {!tags.length && (
         <p className="organization-empty">

@@ -1,0 +1,21 @@
+.organization-classification {
+  margin-block-end: 16px;
+}
+.organization-classification > .field {
+  max-width: 400px;
+}
+.organization-classification > p {
+  margin-block: 10px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.organization-canvas g[data-classification-match] rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+.organization-canvas g[data-classification-match] text {
+  font-weight: 600;
+}
+.organization-minimap rect[data-classification-match] {
+  fill: var(--accent);
+}

@@ -17,6 +17,10 @@ export {
   NumberInput,
 } from "./controls/controls";
 export { Button, ActionMenu } from "./controls/actions";
+export {
+  SearchSelect,
+  type SearchSelectOption,
+} from "./controls/search-select";
 export { Pagination, SegmentedControl } from "./controls/navigation";
 export { Tooltip, FeedbackProvider, useToast } from "./overlays/feedback";
 export { PreservedSurface, Modal, DetailPanel } from "./overlays/surfaces";

@@ -1,5 +1,6 @@
 import { PolicyModules } from "./organization/modules";
 import { OrganizationTags } from "./organization/tags";
+import "./organization/classification.css";
 import { PermissionOrigin } from "./permission-origin";
 import { PermissionDecision } from "./permission-decision";
 import { type FeatureProps } from "@suite/client";
@@ -21,10 +22,11 @@ import {
   PageHeading,
   Select,
   SelectOption,
+  SearchSelect,
   Table,
 } from "@suite/ui-web";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./module-lifecycle";
@@ -53,8 +55,10 @@ export function Organization(props: FeatureProps) {
     [selected, setSelected] = useState(""),
     [zoom, setZoom] = useState(1),
     [newRole, setNewRole] = useState(""),
+    [classificationFilter, setClassificationFilter] = useState(""),
     [filter, setFilter] = useState(searchParams.get("module") ?? "");
   const svg = useRef<SVGSVGElement>(null);
+  const matchDescription = useId();
   const dragging = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (state.data?.organization && !dirty) {
@@ -75,6 +79,26 @@ export function Organization(props: FeatureProps) {
     setDirty(true);
   };
   const rank = policy.ranks.find((r) => r.id === selected);
+  const classifications = [
+    ...policy.groups.map((group) => ({
+      value: `group:${group.id}`,
+      label: `Group: ${group.name}`,
+      rankIds: group.rankIds,
+    })),
+    ...(policy.tags ?? []).map((tag) => ({
+      value: `tag:${tag.id}`,
+      label: `Tag: ${tag.name}`,
+      rankIds: tag.rankIds,
+    })),
+  ];
+  const classification = classifications.find(
+    (item) => item.value === classificationFilter,
+  );
+  const matchingRanks = new Set(
+    policy.ranks
+      .filter((r) => classification?.rankIds.includes(r.id))
+      .map((r) => r.id),
+  );
   const grantMap = Object.fromEntries(
     state.data.roles.map((r) => [r.id, r.permissions]),
   );
@@ -201,6 +225,28 @@ export function Organization(props: FeatureProps) {
           </Button>
         </div>
       </div>
+      <section
+        className="organization-classification"
+        aria-label="Chart classification filter"
+      >
+        <Field label="Highlight group or tag">
+          <SearchSelect
+            options={classifications}
+            value={classification?.value ?? ""}
+            onValueChange={setClassificationFilter}
+            placeholder="Search groups and role tags"
+            clearLabel="Clear chart filter"
+          />
+        </Field>
+        <p role="status">
+          {classification
+            ? `${matchingRanks.size} of ${policy.ranks.length} roles match ${classification.label}.`
+            : "All roles shown. Choose a group or tag to highlight its roles."}
+        </p>
+        <span id={matchDescription} className="sr-only">
+          Matches the chart classification filter.
+        </span>
+      </section>
       <div className="organization-canvas">
         <svg
           ref={svg}
@@ -255,6 +301,10 @@ export function Organization(props: FeatureProps) {
               role="button"
               tabIndex={0}
               aria-label={`Configure ${r.name}`}
+              aria-describedby={
+                matchingRanks.has(r.id) ? matchDescription : undefined
+              }
+              data-classification-match={matchingRanks.has(r.id) || undefined}
               transform={`translate(${r.x},${r.y})`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -278,6 +328,15 @@ export function Organization(props: FeatureProps) {
               <text x="10" y="30" fill="currentColor">
                 {r.name.slice(0, 20)}
               </text>
+              {matchingRanks.has(r.id) && (
+                <circle
+                  cx="146"
+                  cy="11"
+                  r="3"
+                  fill="currentColor"
+                  aria-hidden="true"
+                />
+              )}
             </g>
           ))}
         </svg>
@@ -294,6 +353,7 @@ export function Organization(props: FeatureProps) {
               width="160"
               height="50"
               fill="currentColor"
+              data-classification-match={matchingRanks.has(r.id) || undefined}
             />
           ))}
         </svg>
