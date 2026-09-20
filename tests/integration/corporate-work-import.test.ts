@@ -11,6 +11,7 @@ import {
 import { hashToken } from "@suite/server-core";
 import { operationPath } from "../../packages/contracts/src";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
+import { assertSchema, resourceRecordSchema, Type } from "@suite/module-sdk";
 import type { Platform } from "../../packages/client/src";
 import { SuiteClient } from "../../packages/client/src/api";
 import {
@@ -182,7 +183,8 @@ async function fixture() {
           input: input.entry.call.input,
         },
       }),
-    stage: () => stageSavedWorkImport(options, JSON.stringify(input)),
+    stage: (value: SavedWorkRecovery = input) =>
+      stageSavedWorkImport(options, JSON.stringify(value)),
     setCookie: (token: string) => {
       cookie = token;
     },
@@ -318,4 +320,64 @@ it("refuses changed request content against an existing server receipt while ret
   const state = await f.read();
   expect(state.journal).toEqual([]);
   expect(state.recoveryImports![digest].promotion).toBeUndefined();
+});
+
+it("restores saved edits of an already accepted create as a current-record review without another create", async () => {
+  const f = await fixture();
+  const accepted = await f.send();
+  const schema = resourceRecordSchema(
+    Type.Record(Type.String(), Type.Unknown()),
+  );
+  assertSchema(schema, accepted);
+  const latest = await f.client.forUser(f.scope.userId).request({
+    operation: "moduleRequest",
+    params: { workspaceId: f.scope.workspaceId, moduleId: "contacts" },
+    moduleVersion: f.input.moduleVersion,
+    idempotencyKey: randomUUID(),
+    body: {
+      action: "update",
+      resource: "contacts",
+      input: {
+        id: accepted.id,
+        baseVersion: accepted.version,
+        data: { ...accepted.data, email: "latest@example.test" },
+      },
+    },
+  });
+  assertSchema(schema, latest);
+  const draft: SavedWorkRecovery = {
+    kind: "module-work-recovery",
+    formatVersion: 1,
+    ...f.scope,
+    moduleId: "contacts",
+    moduleVersion: f.input.moduleVersion,
+    selection: "draft",
+    resource: "contacts",
+    key: `contacts/contacts/review/journal/${f.input.entry.id}`,
+    data: { ...accepted.data, name: "Reviewed accepted contact" },
+    target: null,
+    draftVersion: f.input.moduleVersion,
+    entry: f.input.entry,
+    review: { entryId: f.input.entry.id },
+  };
+  const { digest } = await f.stage(draft);
+  const promotion = await f.promote(digest);
+  const state = await f.read();
+  expect(promotion.outcome).toBe("accepted");
+  expect(state.draftReviews![promotion.draftKey!].entryId).toBeUndefined();
+  expect(state.draftTargets![promotion.draftKey!]).toEqual(latest);
+  expect(state.drafts[promotion.draftKey!]).toMatchObject({
+    name: "Reviewed accepted contact",
+    email: "latest@example.test",
+  });
+  const records = await inWorkspace(db, f.scope.workspaceId, (tx) =>
+    tx
+      .selectFrom("suite.module_records")
+      .selectAll()
+      .where("module_id", "=", "contacts")
+      .execute(),
+  );
+  expect(records).toHaveLength(1);
+  expect(records[0].data).toEqual(latest.data);
+  expect((await f.promote(digest)).alreadyRestored).toBe(true);
 });

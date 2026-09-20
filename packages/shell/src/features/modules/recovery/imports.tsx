@@ -237,6 +237,14 @@ export function SavedWorkImports(props: FeatureProps) {
                           : "Original request stopped by the server. Review saved input before submitting a correction."}
                       </p>
                     )}
+                    {copy.input.selection === "draft" &&
+                      copy.input.entry &&
+                      copy.promotion?.outcome === "accepted" && (
+                        <p>
+                          Saved edits are restored for review against the
+                          accepted record. They do not create another record.
+                        </p>
+                      )}
                     <details>
                       <summary>Inspect saved input</summary>
                       <ResourceValue
@@ -320,6 +328,16 @@ export function SavedWorkImports(props: FeatureProps) {
                   work.
                 </p>
               )}
+              {confirm?.action === "restore" &&
+                selected.input.selection === "draft" &&
+                selected.input.entry && (
+                  <p>
+                    If the original was accepted, this draft becomes a review of
+                    that record. Otherwise it stays linked to the stopped
+                    request. Current server values are checked again, and
+                    conflicting fields need fresh choices.
+                  </p>
+                )}
               <div className="actions">
                 <Button
                   disabled={busy}

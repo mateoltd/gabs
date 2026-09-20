@@ -7,7 +7,7 @@ import {
   readModuleStorage,
   type ModuleStorage,
 } from "../../modules/storage";
-import { resourceDraftKey } from "../../modules/drafts";
+import { importedDraftKeys, prepareImportedDraft } from "./draft";
 import { settleModuleCall } from "../../modules/settlement";
 import {
   responseContract,
@@ -57,13 +57,19 @@ export async function promoteSavedWorkImport(
       const entry = input.entry;
       if (entry) assertSchema(RequestKeySchema, entry.id);
       const existing = matchingRequest(before, entry);
-      const draftKey =
-        input.selection === "draft"
-          ? resourceDraftKey(input.moduleId, input.resource, {
-              draftId: `import-${digest}`,
-            })
-          : undefined;
-      if (draftKey && Object.hasOwn(before.drafts, draftKey))
+      const destinations = importedDraftKeys(input, digest);
+      if (input.selection === "draft" && existing?.supersededBy)
+        throw Error(
+          "This original request already has a correction on this device. Inspect the retained imported copy alongside the current work.",
+        );
+      if (
+        input.selection === "draft" &&
+        (existing?.recordRecovery || existing?.createRecovery?.length)
+      )
+        throw Error(
+          "This original request was reassigned on this device. Preserve its current record and dependency review before restoring another copy.",
+        );
+      if (destinations.some((key) => Object.hasOwn(before.drafts, key)))
         throw Error(
           "The recovery draft destination is already in use. Existing work was retained.",
         );
@@ -96,6 +102,17 @@ export async function promoteSavedWorkImport(
         // A lost reply or denial retains the import; retry asks for this exact permanent outcome.
         await authority.refresh();
       }
+      const draft =
+        input.selection === "draft"
+          ? await prepareImportedDraft(
+              options,
+              input,
+              digest,
+              authority,
+              outcome,
+            )
+          : undefined;
+      const draftKey = draft?.key;
       const promotion: NonNullable<SavedWorkImport["promotion"]> = {
         ...(entry ? { requestId: entry.id } : {}),
         ...(draftKey ? { draftKey } : {}),
@@ -121,7 +138,7 @@ export async function promoteSavedWorkImport(
             throw Error(
               "The existing request changed during restoration. Retry with its current state.",
             );
-          if (draftKey && Object.hasOwn(state.drafts, draftKey))
+          if (destinations.some((key) => Object.hasOwn(state.drafts, key)))
             throw Error(
               "The recovery draft destination changed. Existing work was retained.",
             );
@@ -190,21 +207,11 @@ export async function promoteSavedWorkImport(
               };
             }
           }
-          if (input.selection === "draft" && draftKey) {
-            state.drafts[draftKey] = structuredClone(input.data);
-            (state.draftVersions ??= {})[draftKey] = input.draftVersion;
-            (state.draftTargets ??= {})[draftKey] = structuredClone(
-              input.target,
-            );
-            (state.draftReviews ??= {})[draftKey] = {
-              draftId: `import-${digest}`,
-              ...(input.review?.comparison
-                ? { comparison: structuredClone(input.review.comparison) }
-                : {}),
-              ...(input.review?.recoveryInput
-                ? { recoveryInput: structuredClone(input.review.recoveryInput) }
-                : {}),
-            };
+          if (draft) {
+            state.drafts[draft.key] = draft.data;
+            (state.draftVersions ??= {})[draft.key] = draft.version;
+            (state.draftTargets ??= {})[draft.key] = draft.target;
+            (state.draftReviews ??= {})[draft.key] = draft.review;
           }
           Object.assign(
             (state.responseContracts ??= {}),

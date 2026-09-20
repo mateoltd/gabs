@@ -693,3 +693,206 @@ it("passes exact original/current permission requirements to the host before com
   ).rejects.toThrow(/Received current denial/);
   expect(f.state()).toBeUndefined();
 });
+
+function linkedDraft(
+  f: ReturnType<typeof fixture>,
+  action: "create" | "update" = "update",
+) {
+  const record = {
+    id: randomUUID(),
+    data: { name: "Original base" },
+    version: 1,
+    archived: false,
+    updatedAt: new Date().toISOString(),
+  };
+  const entry = {
+    ...f.input.entry,
+    dependencies: [],
+    call: {
+      ...f.input.entry.call,
+      action,
+      operation: undefined,
+      resource: "notes",
+      input: {
+        id: record.id,
+        data: { name: "First edit" },
+        ...(action === "update"
+          ? { baseVersion: 1, baseData: record.data }
+          : {}),
+      },
+    },
+  };
+  const input: Extract<SavedWorkRecovery, { selection: "draft" }> = {
+    kind: "module-work-recovery",
+    formatVersion: 1,
+    ...f.options.scope,
+    moduleId: module.id,
+    moduleVersion: module.version,
+    selection: "draft",
+    resource: "notes",
+    key: `${module.id}/notes/review/journal/${entry.id}`,
+    data: { name: "Reviewed edit" },
+    target: action === "create" ? null : record,
+    draftVersion: module.version,
+    review: {
+      entryId: entry.id,
+      comparison: {
+        base: record.data,
+        local: { name: "Reviewed edit" },
+        remote: { name: "Prior remote" },
+        conflicts: ["name"],
+        choices: { name: "local" },
+      },
+    },
+    entry,
+  };
+  return { input, record };
+}
+
+it("restores a stopped resource review under the original request and rechecks current conflicts", async () => {
+  const f = fixture();
+  const { input, record } = linkedDraft(f);
+  input.review!.recoveryInput = {
+    moduleVersion: module.version,
+    baseVersion: record.version,
+    recordId: record.id,
+  };
+  const { digest } = await f.stage(input);
+  const current = { ...record, version: 3, data: { name: "Current remote" } };
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  f.replies.moduleRequest = current;
+  const result = await f.promote(digest);
+  const state = await f.read();
+  expect(result.draftKey).toBe(input.key);
+  expect(state.draftTargets![input.key]).toEqual(current);
+  expect(state.draftReviews![input.key]).toEqual({
+    entryId: input.entry!.id,
+    recoveryInput: input.review!.recoveryInput,
+    comparison: {
+      base: record.data,
+      local: input.data,
+      remote: current.data,
+      conflicts: ["name"],
+      choices: {},
+    },
+  });
+  expect(state.drafts[input.key]).toEqual(current.data);
+  expect(state.journal[0]).toMatchObject({
+    id: input.entry!.id,
+    settlement: "cancelled",
+    call: { input: input.entry!.call.input },
+  });
+  expect(state.recoveryImports![digest].input).toEqual(
+    JSON.parse(JSON.stringify(input)),
+  );
+});
+
+it("turns a review of an accepted create into a current-record edit instead of another create", async () => {
+  const f = fixture();
+  const { input, record } = linkedDraft(f, "create");
+  const { digest } = await f.stage(input);
+  const accepted = { ...record, data: { name: "First edit" } };
+  const current = { ...accepted, version: 2, data: { name: "Later remote" } };
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "accepted",
+    result: accepted,
+  };
+  f.replies.moduleRequest = current;
+  const result = await f.promote(digest);
+  const state = await f.read();
+  expect(result.draftKey).toBe(
+    `${module.id}/notes/review/direct/import-${digest}`,
+  );
+  expect(state.draftTargets![result.draftKey!]).toEqual(current);
+  expect(state.draftReviews![result.draftKey!]).toMatchObject({
+    draftId: `import-${digest}`,
+    comparison: {
+      base: accepted.data,
+      local: input.data,
+      remote: current.data,
+      conflicts: ["name"],
+      choices: {},
+    },
+  });
+  expect(state.draftReviews![result.draftKey!].entryId).toBeUndefined();
+  expect(state.journal[0]).toMatchObject({
+    state: "accepted",
+    result: accepted,
+  });
+});
+
+it("preserves newer local linked reviews and refuses detached or reassigned source claims before settlement", async () => {
+  for (const mode of ["existing", "missing", "reassigned"] as const) {
+    const f = fixture();
+    const { input } = linkedDraft(f);
+    if (mode === "missing") delete input.entry;
+    if (mode === "reassigned")
+      input.entry!.recordRecovery = {
+        targetId: randomUUID(),
+        destination: "existing",
+      };
+    const { digest } = await f.stage(input);
+    if (mode === "existing")
+      f.state()!.drafts[input.key] = { name: "Newer local review" };
+    const before = structuredClone(await f.read());
+    await expect(f.promote(digest)).rejects.toThrow();
+    expect(f.calls).not.toContain("moduleAttemptSettle");
+    expect(await f.read()).toEqual(before);
+  }
+});
+
+it("retains a linked review when its current record cannot be verified or access changes", async () => {
+  for (const mode of ["identity", "denial"] as const) {
+    const f = fixture();
+    const { input, record } = linkedDraft(f);
+    const { digest } = await f.stage(input);
+    f.replies.moduleAttemptSettle = {
+      key: input.entry!.id,
+      outcome: "cancelled",
+    };
+    f.replies.moduleRequest = {
+      ...record,
+      id: mode === "identity" ? randomUUID() : record.id,
+    };
+    if (mode === "denial")
+      f.onRequest((operation) => {
+        if (operation === "moduleRequest") f.policy.permissions = [];
+      });
+    await expect(f.promote(digest)).rejects.toThrow();
+    const state = await f.read();
+    expect(state.journal).toEqual([]);
+    expect(state.drafts).toEqual({});
+    expect(state.recoveryImports![digest].promotion).toBeUndefined();
+  }
+});
+
+it("preserves archived targets and original create identity without activating copied comparisons", async () => {
+  const created = fixture();
+  const draft = linkedDraft(created, "create").input;
+  const { digest } = await created.stage(draft);
+  created.replies.moduleAttemptSettle = {
+    key: draft.entry!.id,
+    outcome: "cancelled",
+  };
+  await created.promote(digest);
+  const state = await created.read();
+  expect(state.draftReviews![draft.key]).toEqual({ entryId: draft.entry!.id });
+  expect(state.draftTargets![draft.key]).toBeNull();
+  expect(state.drafts[draft.key]).toEqual(draft.data);
+  expect(created.calls).not.toContain("moduleRequest");
+  const archived = fixture();
+  const { input, record } = linkedDraft(archived);
+  const copy = await archived.stage(input);
+  archived.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  archived.replies.moduleRequest = { ...record, archived: true, version: 2 };
+  await archived.promote(copy.digest);
+  expect((await archived.read()).draftTargets![input.key]?.archived).toBe(true);
+  expect((await archived.read()).drafts[input.key]).toEqual(input.data);
+});

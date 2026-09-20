@@ -121,6 +121,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
   const [archiveAttempt, setArchiveAttempt] = useState<ModuleCall>();
   const [archiveNotice, setArchiveNotice] = useState<string>();
   const [archiveReviewId, setArchiveReviewId] = useState<string>();
+  const editorTrigger = useRef<HTMLElement | null>(null);
   const qc = useQueryClient();
   const names = Object.keys(module.resources).sort((a, b) =>
     a === module.id ? -1 : b === module.id ? 1 : a.localeCompare(b),
@@ -1179,7 +1180,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
               <Button
                 variant="primary"
                 disabled={!resourceAvailable}
-                onClick={() => {
+                onClick={(event) => {
+                  editorTrigger.current = event.currentTarget;
                   setForm(
                     createSchemaDraft(definition.schema) as Record<
                       string,
@@ -1406,7 +1408,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 <div className="actions">
                   <Button
                     variant="ghost"
-                    onClick={() => {
+                    onClick={(event) => {
+                      editorTrigger.current = event.currentTarget;
                       draftGeneration.current = {
                         key: ordinaryDraftKey,
                         value:
@@ -1521,7 +1524,10 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                 </strong>
                 <Button
                   disabled={!write || busy}
-                  onClick={() => void resumeDraft(key)}
+                  onClick={(event) => {
+                    editorTrigger.current = event.currentTarget;
+                    void resumeDraft(key);
+                  }}
                 >
                   Resume review
                 </Button>
@@ -1597,7 +1603,8 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
                         )
                       )
                     }
-                    onClick={async () => {
+                    onClick={async (event) => {
+                      editorTrigger.current = event.currentTarget;
                       if (entry.call.action === "archive") {
                         setArchiveReviewId(entry.id);
                         return;
@@ -1953,6 +1960,7 @@ export function ModuleView(props: FeatureProps & { module: ModuleDefinition }) {
         </Button>
       </Modal>
       <Modal
+        returnFocusRef={editorTrigger}
         open={
           editing !== undefined && settling?.type !== "edit" && !separateCreate
         }

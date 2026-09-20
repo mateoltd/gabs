@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "../controls/actions";
@@ -51,6 +52,7 @@ export function Modal({
   children,
   wide = false,
   className = "",
+  returnFocusRef,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -59,6 +61,8 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
   className?: string;
+  /** Preserve the opener when asynchronous preparation temporarily disables it. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const surfaceContainer = useContext(SurfacePortalContext);
   const [present, setPresent] = useState(open);
@@ -77,7 +81,8 @@ export function Modal({
   useLayoutEffect(() => {
     if (open) {
       if (!present || !returnFocus.current)
-        returnFocus.current = document.activeElement as HTMLElement;
+        returnFocus.current =
+          returnFocusRef?.current ?? (document.activeElement as HTMLElement);
       setPresent(true);
       setPhase("");
     } else if (present) {
