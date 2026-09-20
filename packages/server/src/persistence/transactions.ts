@@ -56,6 +56,7 @@ export async function idempotent<T>(
   operation: string,
   input: unknown,
   fn: () => Promise<T>,
+  options?: { beforeReplay?: () => Promise<void> },
 ): Promise<T> {
   const { hash, previous } = await lockedReceipt(
     tx,
@@ -65,6 +66,7 @@ export async function idempotent<T>(
     input,
   );
   if (previous) {
+    await options?.beforeReplay?.();
     requireCondition(
       previous.outcome !== "cancelled",
       409,

@@ -1266,3 +1266,10 @@ Final acceptance includes 26 focused checks, strict environment/boundary/copy ch
 [Group-administration acceptance](group-administration/README.md) replaces raw permission text fields with shared explicit decisions and adds searchable single-group editing, metadata preservation, distinct default names and focus recovery after removal. Drafts remain provisional; the server and shared evaluator retain authority.
 
 Verification includes 27 focused checks, strict checks/four fresh builds, four affected browser journeys, four minimized native journeys, final expanded group journeys on both clients and eight inspected captures. The final fixtures exercise the supported 100-group limit and prove exact preservation of the other 99 groups and hierarchy. GOV-01 remains active for employee administration and combined organization-scale/provider acceptance; the separate UI-refinement goal has not begun.
+
+
+## 21 September 2026: member access and architecture review
+
+[Member-access acceptance](member-edits/README.md) extends GOV-01 and ORG-003 with stale-edit preconditions, preserved drafts, explicit reload/focus recovery and duplicate-safe lost-response retries. The requested Sol xhigh [checkpoint review](architecture/README.md#member-access-checkpoint-review-21-september-2026) preserves `72c969f`, extracts cohesive member governance and corrects accepted-replay authority without changing lock order or UI styles.
+
+Parent verification passes 20 focused checks, all 1,023 regression tests, strict checks/four fresh builds and all six final affected browser/native journeys. The preceding broader 22-case product suite passed; six captures were inspected, with final scoped accessibility/keyboard/overflow assertions. Databases were removed and incidental historical captures restored. Actual providers, signed-platform acceptance, combined organization scale and remaining employee administration are open. Full parity remains active; later UI refinement has not started.

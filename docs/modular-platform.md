@@ -483,3 +483,10 @@ These local incident/recovery records contain no business input or credentials a
 Server registry services capture selection health under the workspace lock and validate the requested pin or configuration change transactionally. An unrelated pre-existing unavailable selection does not prevent suspension or a valid repair; healthy supported client releases retain compatibility checks. Enabling or replacing configuration still validates the current contract. Fresh bootstrap returns an empty accepted-version list when a configured pin cannot resolve, preventing unrestricted installed-module admission. Already disconnected leases retain their documented expiry.
 
 Persisted activations remain visible after registry metadata loss. Names use verified history where available and otherwise the stable module ID. This metadata never substitutes for executable code. See [release recovery evidence and limits](verification/module-release-recovery/README.md).
+
+
+### Concurrent member administration
+
+Member reads include a revision of editable access. `MemberEditSchema` requires that revision along with active status, roles and module selections; PATCH transport also requires an idempotency key. The server validates current authority under the workspace lock, rejects stale drafts with `MEMBER_CHANGED`, and commits accepted access, audit and receipt together. Accepted replay rechecks current authority after the receipt lock, retaining the same lock order as fresh execution.
+
+People keeps unsaved choices visible after a conflict. Reload current access explicitly replaces them with current assignments and restores keyboard focus. An unchanged retry after a lost response retains its key and cannot duplicate audit or revert a later edit. These are current host API requirements; clients must fetch a fresh member revision before starting a new edit. Existing unversioned calls fail validation. Schemas remain in contracts, transport in API, member governance in `server/governance/members.ts`, and draft presentation in the shell. See [acceptance and limits](verification/member-edits/README.md).

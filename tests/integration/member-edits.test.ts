@@ -315,3 +315,67 @@ it("rechecks membership after access reads and edits wait for the workspace lock
     }
   }
 });
+
+it("rechecks current authority before replaying an accepted member edit", async () => {
+  for (const lock of ["workspace", "receipt"] as const) {
+    const f = await fixture(),
+      before = await f.read(),
+      key = randomUUID();
+    const input = {
+      revision: before.revision,
+      active: true,
+      roleIds: [f.warehouse],
+      modules: [],
+      directModules: [],
+    };
+    expect((await f.patch(input, key)).statusCode).toBe(200);
+    const blocker = await admin.connect();
+    let pending: Promise<number> | undefined;
+    try {
+      await blocker.query("begin");
+      const pid = (
+        await blocker.query<{ pid: number }>("select pg_backend_pid() pid")
+      ).rows[0].pid;
+      if (lock === "workspace")
+        await blocker.query(
+          "select id from suite.workspaces where id=$1 for update",
+          [f.workspace],
+        );
+      else
+        await blocker.query(
+          "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          [`${f.workspace}:${f.owner.id}:${key}`],
+        );
+      pending = f.patch(input, key).then((response) => response.statusCode);
+      await expect
+        .poll(async () =>
+          Number(
+            (
+              await admin.query<{ count: string }>(
+                "select count(*) from pg_stat_activity where $1=any(pg_blocking_pids(pid))",
+                [pid],
+              )
+            ).rows[0].count,
+          ),
+        )
+        .toBeGreaterThan(0);
+      // Simulate the normal writer's workspace lock even when the replay is
+      // initially blocked on its receipt, then revoke before either wait ends.
+      await blocker.query(
+        "select id from suite.workspaces where id=$1 for update",
+        [f.workspace],
+      );
+      await blocker.query(
+        "update suite.memberships set active=false where workspace_id=$1 and user_id=$2",
+        [f.workspace, f.owner.id],
+      );
+      await blocker.query("commit");
+      expect(await pending).toBe(403);
+      expect(await f.auditCount()).toBe(1);
+    } finally {
+      await blocker.query("rollback");
+      blocker.release();
+      await pending;
+    }
+  }
+});

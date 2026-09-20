@@ -48,6 +48,7 @@ import {
   iso,
   provisionWorkspace,
   lockKey,
+  lockWorkspace,
   bootstrap,
   listMembers,
   editMember,
@@ -608,6 +609,9 @@ export async function createApp(
       hostStorageBridge?: boolean;
       query?: boolean;
       businessRead?: boolean;
+      // Replayed access changes must wait behind the same workspace writers and
+      // recheck the route's current authority before returning a saved result.
+      reauthorizeReplay?: boolean;
       handler: (
         tx: Tx,
         ctx: Context,
@@ -653,15 +657,17 @@ export async function createApp(
           db,
           req.params.workspaceId,
           async (tx) => {
+            const permission =
+              typeof options.permission === "function"
+                ? options.permission(req)
+                : options.permission;
             let ctx = await authorize(
               tx,
               request.actor,
               req.params.workspaceId,
               request.id,
               runtime,
-              typeof options.permission === "function"
-                ? options.permission(req)
-                : options.permission,
+              permission,
               options.module,
             );
             if (operation === "bootstrap") {
@@ -716,6 +722,22 @@ export async function createApp(
                   version: req.headers["if-match"],
                 },
                 execute,
+                options.reauthorizeReplay
+                  ? {
+                      beforeReplay: async () => {
+                        await lockWorkspace(tx, ctx.workspaceId);
+                        ctx = await authorize(
+                          tx,
+                          request.actor,
+                          ctx.workspaceId,
+                          request.id,
+                          runtime,
+                          permission,
+                          options.module,
+                        );
+                      },
+                    }
+                  : undefined,
               );
             return execute();
           },
@@ -949,6 +971,7 @@ export async function createApp(
     body: S.MemberEditSchema,
     response: S.OkSchema,
     permission: "members.manage",
+    reauthorizeReplay: true,
     handler: (tx, ctx, req) => editMember(tx, ctx, req.params.id, req.body),
   });
   route("roles", {

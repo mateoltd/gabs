@@ -51,7 +51,7 @@ New production workspaces start with inactive entitlements and Draft modules. An
 
 `/api/v1` uses runtime TypeBox request/response schemas. `pnpm generate:api` emits `docs/openapi.json` and `packages/client/src/api/schema.d.ts`. The portable client supports named operations and response types; runtime validation remains authoritative for input. Lists use opaque UUID cursors, bounded page sizes and optional search. Lists represent the current page, not global totals.
 
-POST commands require an idempotency key. Replaying the same operation and payload returns its stored result after rechecking current authorization. A different payload with that key returns 409. Editable records require an `If-Match` version; stale versions return 412, missing versions 428. Draft uploads also use idempotency keys for PUT retries. Uncertain client commands retain their original key and input.
+POST commands and member-access PATCH commands require an idempotency key. Member-access edits also require the opaque revision from the current member read; stale revisions return `MEMBER_CHANGED`. Replaying the same operation and payload returns its stored result after rechecking current authorization. A different payload with that key returns 409. Editable records require an `If-Match` version; stale versions return 412, missing versions 428. Draft uploads also use idempotency keys for PUT retries. Uncertain client commands retain their original key and input.
 
 Errors contain a stable code, readable message and request ID. API responses are not cached by the service worker. Authentication cookies are Secure in production, HttpOnly and SameSite=Lax; mutations require the configured Origin and session CSRF token. Request logs omit URL query strings, cookies and tokens.
 
