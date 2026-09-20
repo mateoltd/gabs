@@ -7,8 +7,14 @@ import { SuiteClient } from "../../packages/client/src/api";
 import {
   parseSavedWorkImport,
   stageSavedWorkImport,
+  promoteSavedWorkImport,
+  inspectSavedWorkImport,
+  discardSavedWorkImport,
 } from "../../packages/client/src/recovery/import";
-import type { ModuleStorage } from "../../packages/client/src/modules/storage";
+import {
+  readModuleStorage,
+  type ModuleStorage,
+} from "../../packages/client/src/modules/storage";
 import { assertWorkspacePurgeable } from "../../packages/client/src/offline/storage-retention";
 import definition from "../fixtures/queued-notes/module";
 const module = { ...definition, views: {}, navigation: undefined };
@@ -139,6 +145,8 @@ function fixture() {
     abort,
     records,
     state: () => records.get("module-state") as ModuleStorage | undefined,
+    read: () => readModuleStorage(platform, scope),
+    promote: (digest: string) => promoteSavedWorkImport(options, digest),
     stage: (value: SavedWorkRecovery = input) =>
       stageSavedWorkImport(options, JSON.stringify(value)),
     lock: () => {
@@ -374,4 +382,272 @@ it("refuses full import storage without replacing retained work", async () => {
   f.records.set("module-state", structuredClone(original));
   await expect(f.stage()).rejects.toThrow(/storage is full/);
   expect(f.state()).toEqual(original);
+});
+
+it("reconciles forged acceptance against the server and restores a stopped command with its original identity", async () => {
+  const f = fixture();
+  f.input.entry.state = "accepted";
+  f.input.entry.result = { id: "forged" };
+  const copy = structuredClone(f.input);
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  const restored = await f.promote(digest);
+  const state = await f.read();
+  expect(restored).toMatchObject({
+    requestId: f.input.entry.id,
+    alreadyRestored: false,
+    existingRequest: false,
+  });
+  expect(state.journal).toHaveLength(1);
+  expect(state.journal[0]).toMatchObject({
+    id: f.input.entry.id,
+    call: f.input.entry.call,
+    dependencies: f.input.entry.dependencies,
+    state: "rejected",
+    settlement: "cancelled",
+  });
+  expect(state.journal[0].result).toBeUndefined();
+  expect(state.commandReviews![f.input.entry.id]).toMatchObject({
+    source: f.input.entry.call,
+    input: f.input.review!.input,
+  });
+  expect(state.commandReviews![f.input.entry.id].continuations).toBeUndefined();
+  expect(state.recoveryImports![digest].input).toEqual(copy);
+  expect(state.recoveryVersions![module.id]).toBe(module.version);
+  expect(
+    state.responseContracts![`${module.id}@${module.version}`],
+  ).toBeDefined();
+  const retry = await f.promote(digest);
+  expect(retry.alreadyRestored).toBe(true);
+  expect(f.calls.filter((call) => call === "moduleAttemptSettle")).toHaveLength(
+    1,
+  );
+});
+it("uses the authoritative accepted output rather than a copied result or cancellation claim", async () => {
+  const f = fixture();
+  f.input.entry.state = "accepted";
+  f.input.entry.result = { id: "file-result" };
+  f.input.entry.settlement = "cancelled";
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "accepted",
+    result: { id: "server-result" },
+  };
+  await f.promote(digest);
+  const state = await f.read();
+  expect(state.journal[0]).toMatchObject({
+    state: "accepted",
+    result: { id: "server-result" },
+  });
+  expect(state.journal[0].settlement).toBeUndefined();
+  expect(state.commandReviews).toBeUndefined();
+});
+it("retains the import across lost settlement responses and interrupted local commits", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  f.onRequest((operation) => {
+    if (operation === "moduleAttemptSettle")
+      throw Error("Lost settlement response");
+  });
+  await expect(f.promote(digest)).rejects.toThrow(/Lost settlement/);
+  expect((await f.read()).journal).toEqual([]);
+  f.onRequest(() => {});
+  f.fail(true);
+  await expect(f.promote(digest)).rejects.toThrow(/Storage interrupted/);
+  f.fail(false);
+  expect((await f.read()).recoveryImports![digest].promotion).toBeUndefined();
+  await f.promote(digest);
+  expect((await f.read()).journal).toHaveLength(1);
+  expect((await f.promote(digest)).alreadyRestored).toBe(true);
+});
+it("refuses a conflicting local request identity before fencing any server work", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  const state = f.state()!;
+  state.journal.push({
+    ...f.input.entry,
+    call: { ...f.input.entry.call, input: { name: "Different local input" } },
+  });
+  const before = structuredClone(state);
+  await expect(f.promote(digest)).rejects.toThrow(/different saved work/);
+  expect(f.calls).not.toContain("moduleAttemptSettle");
+  expect(f.state()).toEqual(before);
+});
+it("preserves existing matching requests and reviews instead of replacing newer local work", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  const entry = {
+    ...f.input.entry,
+    state: "accepted" as const,
+    delivery: undefined,
+    result: { id: "server-result" },
+  };
+  f.state()!.journal.push(entry);
+  const review = { ...f.input.review!, input: { name: "Newer local review" } };
+  f.state()!.commandReviews = { [entry.id]: review };
+  f.replies.moduleAttemptSettle = {
+    key: entry.id,
+    outcome: "accepted",
+    result: entry.result,
+  };
+  expect((await f.promote(digest)).existingRequest).toBe(true);
+  const state = await f.read();
+  expect(state.journal).toEqual([entry]);
+  expect(state.commandReviews![entry.id]).toEqual(review);
+});
+it("never promotes after revocation, lock, cancellation or a malformed authoritative result", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "accepted",
+    result: { invalid: true },
+  };
+  await expect(f.promote(digest)).rejects.toThrow();
+  expect((await f.read()).journal).toEqual([]);
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  f.onRequest((operation) => {
+    if (operation === "moduleAttemptSettle") f.policy.permissions = [];
+  });
+  await expect(f.promote(digest)).rejects.toThrow(/access/);
+  expect((await f.read()).journal).toEqual([]);
+  expect((await f.read()).recoveryImports![digest].promotion).toBeUndefined();
+});
+it("serializes duplicate promotion and requires the retained copy to match its fingerprint", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  const results = await Promise.all([f.promote(digest), f.promote(digest)]);
+  expect(results.map((value) => value.alreadyRestored).sort()).toEqual([
+    false,
+    true,
+  ]);
+  expect((await f.read()).journal).toHaveLength(1);
+  f.state()!.recoveryImports![digest].input.moduleVersion = "other";
+  await expect(f.promote(digest)).rejects.toThrow();
+});
+it("restores drafts into a deterministic independent slot and keeps collision provenance inert", async () => {
+  const f = fixture();
+  const input: SavedWorkRecovery = {
+    kind: "module-work-recovery",
+    formatVersion: 1,
+    ...f.options.scope,
+    moduleId: module.id,
+    moduleVersion: module.version,
+    selection: "draft",
+    resource: "notes",
+    key: `${module.id}/notes`,
+    data: { name: "Copied draft" },
+    target: null,
+    draftVersion: module.version,
+    review: {
+      collision: {
+        parentId: "untrusted-parent",
+        sourceData: { name: "Before collision" },
+        sourceTarget: null,
+        moduleVersion: module.version,
+        ready: true,
+      },
+    },
+  };
+  const { digest } = await f.stage(input);
+  f.state()!.drafts[input.key] = { name: "Newer ordinary draft" };
+  const result = await f.promote(digest);
+  const state = await f.read();
+  expect(result.draftKey).toBe(
+    `${module.id}/notes/review/direct/import-${digest}`,
+  );
+  expect(state.drafts[input.key]).toEqual({ name: "Newer ordinary draft" });
+  expect(state.drafts[result.draftKey!]).toEqual(input.data);
+  expect(state.draftReviews![result.draftKey!].collision).toBeUndefined();
+  expect(state.recoveryImports![digest].input).toEqual(input);
+  expect(f.calls).not.toContain("moduleAttemptSettle");
+});
+
+it("updates an existing pending request from the verified outcome without replacing its saved input", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  f.state()!.journal.push(structuredClone(f.input.entry));
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  await f.promote(digest);
+  const state = await f.read();
+  expect(state.journal).toHaveLength(1);
+  expect(state.journal[0]).toMatchObject({
+    call: f.input.entry.call,
+    dependencies: f.input.entry.dependencies,
+    state: "rejected",
+    settlement: "cancelled",
+  });
+  expect(state.journal[0].delivery).toBeUndefined();
+});
+
+it("reauthorizes inspection and copy removal while preserving promoted requests", async () => {
+  const f = fixture();
+  const { digest } = await f.stage();
+  const shown = await inspectSavedWorkImport(f.options, digest);
+  expect(shown.input).toEqual(f.input);
+  f.replies.moduleAttemptSettle = {
+    key: f.input.entry.id,
+    outcome: "cancelled",
+  };
+  await f.promote(digest);
+  const restored = (await f.read()).journal;
+  f.policy.permissions = [];
+  await expect(inspectSavedWorkImport(f.options, digest)).rejects.toThrow(
+    /access/,
+  );
+  await expect(discardSavedWorkImport(f.options, digest)).rejects.toThrow(
+    /access/,
+  );
+  expect((await f.read()).recoveryImports![digest]).toBeDefined();
+  f.policy.permissions = [...module.permissions];
+  await discardSavedWorkImport(f.options, digest);
+  const state = await f.read();
+  expect(state.journal).toEqual(restored);
+  expect(state.recoveryImports![digest]).toBeUndefined();
+});
+
+it("passes exact original/current permission requirements to the host before commit", async () => {
+  const f = fixture();
+  let denied = false;
+  f.onPrune(() => {
+    denied = true;
+  });
+  const check: typeof f.options.check = f.options.check;
+  await expect(
+    stageSavedWorkImport(
+      {
+        ...f.options,
+        check(access) {
+          check();
+          if (access) {
+            expect(access.permissions).toContain(
+              module.operations.capture.permission,
+            );
+            expect(access.modules).toContain(module.id);
+            if (denied) throw Error("Received current denial");
+          }
+        },
+      },
+      JSON.stringify(f.input),
+    ),
+  ).rejects.toThrow(/Received current denial/);
+  expect(f.state()).toBeUndefined();
 });

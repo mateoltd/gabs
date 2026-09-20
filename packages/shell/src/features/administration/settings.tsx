@@ -1,3 +1,4 @@
+import { SavedWorkImports } from "../modules/recovery/imports";
 import { ProfileLockSettings } from "../identity/profile-lock";
 import { type FeatureProps } from "@suite/client";
 import {
@@ -103,6 +104,7 @@ export function Settings(
             Local drafts are not a backup. Signing out locks access; saved work
             stays on this device.
           </p>
+          <SavedWorkImports {...props} />
           <SavedWorkRecovery {...props} />
           <ClearDownloads {...props} />
         </section>

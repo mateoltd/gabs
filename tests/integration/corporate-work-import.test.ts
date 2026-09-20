@@ -13,8 +13,14 @@ import { operationPath } from "../../packages/contracts/src";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 import type { Platform } from "../../packages/client/src";
 import { SuiteClient } from "../../packages/client/src/api";
-import { stageSavedWorkImport } from "../../packages/client/src/recovery/import";
-import type { ModuleStorage } from "../../packages/client/src/modules/storage";
+import {
+  stageSavedWorkImport,
+  promoteSavedWorkImport,
+} from "../../packages/client/src/recovery/import";
+import {
+  readModuleStorage,
+  type ModuleStorage,
+} from "../../packages/client/src/modules/storage";
 const db = connectDatabase();
 let server: Awaited<ReturnType<typeof createApp>>;
 beforeAll(async () => {
@@ -53,6 +59,7 @@ async function fixture() {
   const session = await server.auth.issue(actor.id, true);
   let cookie = session.token;
   const operations: string[] = [];
+  let loseSettlement = false;
   const client = new SuiteClient(async (request) => {
     operations.push(request.operation);
     const op = operationPath(request);
@@ -61,11 +68,32 @@ async function fixture() {
       url: op.path,
       headers: {
         cookie: `suite_session=${cookie}`,
+        origin: "http://localhost:4300",
+        ...(request.body !== undefined
+          ? { "content-type": "application/json" }
+          : {}),
+        "x-csrf-token": session.csrfToken,
+        ...(request.moduleVersion
+          ? { "x-module-version": request.moduleVersion }
+          : {}),
+        ...(request.idempotencyKey
+          ? { "idempotency-key": request.idempotencyKey }
+          : {}),
         ...(request.expectedUserId
           ? { "x-suite-actor": request.expectedUserId }
           : {}),
       },
+      payload:
+        request.body === undefined ? undefined : JSON.stringify(request.body),
     });
+    if (
+      loseSettlement &&
+      request.operation === "moduleAttemptSettle" &&
+      response.statusCode === 200
+    ) {
+      loseSettlement = false;
+      throw Error("Lost authoritative response");
+    }
     return {
       status: response.statusCode,
       body: response.json(),
@@ -136,6 +164,24 @@ async function fixture() {
     input,
     values,
     operations,
+    client,
+    read: () => readModuleStorage(platform, scope),
+    promote: (digest: string) => promoteSavedWorkImport(options, digest),
+    loseResponse: () => {
+      loseSettlement = true;
+    },
+    send: () =>
+      client.forUser(scope.userId).request({
+        operation: "moduleRequest",
+        params: { workspaceId: scope.workspaceId, moduleId: input.moduleId },
+        moduleVersion: input.moduleVersion,
+        idempotencyKey: input.entry.id,
+        body: {
+          action: input.entry.call.action,
+          resource: "contacts",
+          input: input.entry.call.input,
+        },
+      }),
     stage: () => stageSavedWorkImport(options, JSON.stringify(input)),
     setCookie: (token: string) => {
       cookie = token;
@@ -202,4 +248,74 @@ it("honors real current resource-write denial even when the source file was capt
   });
   await expect(f.stage()).rejects.toThrow(/access/);
   expect(f.values.size).toBe(0);
+});
+
+it("recovers an actual accepted receipt and cannot duplicate the imported contact", async () => {
+  const f = await fixture();
+  const accepted = await f.send();
+  const { digest } = await f.stage();
+  f.loseResponse();
+  await expect(f.promote(digest)).rejects.toThrow(
+    /Lost authoritative response/,
+  );
+  expect((await f.read()).journal).toEqual([]);
+  expect((await f.read()).recoveryImports![digest].promotion).toBeUndefined();
+  expect((await f.promote(digest)).outcome).toBe("accepted");
+  expect((await f.read()).journal[0]).toMatchObject({
+    state: "accepted",
+    result: accepted,
+  });
+  expect((await f.promote(digest)).alreadyRestored).toBe(true);
+  const records = await inWorkspace(db, f.scope.workspaceId, (tx) =>
+    tx
+      .selectFrom("suite.module_records")
+      .selectAll()
+      .where("id", "=", (f.input.entry.call.input as { id: string }).id)
+      .execute(),
+  );
+  expect(records).toHaveLength(1);
+});
+it("permanently stops an unseen original once and retains exact saved input for correction", async () => {
+  const f = await fixture();
+  const { digest } = await f.stage();
+  f.loseResponse();
+  await expect(f.promote(digest)).rejects.toThrow(
+    /Lost authoritative response/,
+  );
+  expect((await f.promote(digest)).outcome).toBe("cancelled");
+  const state = await f.read();
+  expect(state.journal[0]).toMatchObject({
+    call: f.input.entry.call,
+    state: "rejected",
+    settlement: "cancelled",
+  });
+  expect(state.recoveryImports![digest].input).toEqual(f.input);
+  await expect(f.send()).rejects.toMatchObject({ code: "ATTEMPT_CANCELLED" });
+  const audits = await inWorkspace(db, f.scope.workspaceId, (tx) =>
+    tx
+      .selectFrom("suite.audit")
+      .selectAll()
+      .where("target_id", "=", f.input.entry.id)
+      .execute(),
+  );
+  expect(audits.map((a) => a.action)).toEqual(["module.attempt.cancel"]);
+});
+it("refuses changed request content against an existing server receipt while retaining the imported copy", async () => {
+  const f = await fixture();
+  await f.send();
+  f.input.entry.call.input = {
+    ...(f.input.entry.call.input as object),
+    data: {
+      name: "Altered archive content",
+      kind: "person",
+      relationship: "customer",
+    },
+  };
+  const { digest } = await f.stage();
+  await expect(f.promote(digest)).rejects.toMatchObject({
+    code: "IDEMPOTENCY_CONFLICT",
+  });
+  const state = await f.read();
+  expect(state.journal).toEqual([]);
+  expect(state.recoveryImports![digest].promotion).toBeUndefined();
 });
