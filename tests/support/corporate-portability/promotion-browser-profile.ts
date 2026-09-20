@@ -7,6 +7,7 @@ import type { operations } from "../../../packages/client/src/api";
 import type { RestorationContext } from "./journey";
 import { portabilityStorage } from "./devices";
 import { holdServerReply } from "./server-reply";
+import { holdBrowserWriteReply } from "./browser-write-reply";
 import { captureArchive } from "./archives";
 import { selectValue } from "../../e2e/controls.helpers";
 
@@ -45,8 +46,11 @@ async function switchProfile(page: Page) {
 /** Real second-tab policy/session changes interrupt a first-tab restoration. */
 export async function promotionBrowserProfile(
   context: RestorationContext,
-  action: "lock" | "replace",
+  options:
+    | { action: "lock" | "replace"; boundary: "settlement" }
+    | { action: "lock"; boundary: "committed" },
 ) {
+  const { action, boundary } = options;
   const { page, scope, input } = context;
   if (input.selection !== "request")
     throw Error("Expected a captured request.");
@@ -92,6 +96,7 @@ export async function promotionBrowserProfile(
     page.getByRole("button", { name: "Update device unlock", exact: true }),
   ).toBeVisible();
   const before = await portabilityStorage(page, scope);
+  let retained = before;
   expect(Object.values(before.drafts)).toContainEqual(
     expect.objectContaining({ name: "Preserved across browser tabs" }),
   );
@@ -101,9 +106,9 @@ export async function promotionBrowserProfile(
   const unchanged = async () => {
     // Inspect durable bytes only; this raw IDB read is not an application authorization claim.
     const saved = await portabilityStorage(page, scope);
-    expect(saved.recoveryImports).toEqual(before.recoveryImports);
-    expect(saved.journal).toEqual(before.journal);
-    expect(saved.drafts).toEqual(before.drafts);
+    expect(saved.recoveryImports).toEqual(retained.recoveryImports);
+    expect(saved.journal).toEqual(retained.journal);
+    expect(saved.drafts).toEqual(retained.drafts);
   };
   const audit = async () => {
     const pool = new Pool({
@@ -124,10 +129,17 @@ export async function promotionBrowserProfile(
   };
   const peer = await page.context().newPage();
   peer.setDefaultTimeout(15000);
-  const gate = await holdServerReply(
-    page,
-    `/api/v1/module/${input.entry.call.moduleId}/workspaces/${scope.workspaceId}/attempts/settle`,
-  );
+  const gate =
+    boundary === "committed"
+      ? await holdBrowserWriteReply(
+          page,
+          `${scope.userId}/${scope.workspaceId}/module-state`,
+          digest,
+        )
+      : await holdServerReply(
+          page,
+          `/api/v1/module/${input.entry.call.moduleId}/workspaces/${scope.workspaceId}/attempts/settle`,
+        );
   try {
     await peer.goto("/");
     await expect(lockHeading(peer)).toBeVisible();
@@ -147,6 +159,15 @@ export async function promotionBrowserProfile(
       .click();
     await gate.arrived();
     await audit();
+    if (boundary === "committed") {
+      retained = await portabilityStorage(page, scope);
+      expect(retained.recoveryImports![digest].promotion).toMatchObject({
+        requestId: input.entry.id,
+        outcome: "cancelled",
+      });
+      expect(retained.recoveryImports![digest].input).toEqual(input);
+      expect(retained.drafts).toEqual(before.drafts);
+    }
     await unchanged();
     if (action === "lock") {
       await peer
@@ -156,8 +177,23 @@ export async function promotionBrowserProfile(
         .getByRole("menuitem", { name: "Lock profile", exact: true })
         .click();
       await expect(lockHeading(peer)).toBeVisible();
-      await expect(lockHeading(page)).toBeVisible();
-      await expect(dialog()).not.toBeVisible();
+      if (boundary === "settlement") {
+        await expect(lockHeading(page)).toBeVisible();
+        await expect(dialog()).not.toBeVisible();
+      } else {
+        // The committed write still owns the profile lock until its real reply is delivered.
+        await expect
+          .poll(() =>
+            page.evaluate(async (name) => {
+              const locks = await navigator.locks.query();
+              return (
+                locks.held?.some((lock) => lock.name === name) &&
+                locks.pending?.some((lock) => lock.name === name)
+              );
+            }, `suite-profile-lock:${scope.userId}`),
+          )
+          .toBe(true);
+      }
     } else {
       await switchProfile(peer);
       await expect(dialog()).not.toBeVisible();
@@ -182,6 +218,10 @@ export async function promotionBrowserProfile(
       ).toHaveCount(0);
     }
     await gate.release();
+    if (boundary === "committed") {
+      await expect(lockHeading(page)).toBeVisible();
+      await expect(dialog()).not.toBeVisible();
+    }
     await expect
       .poll(() =>
         page.evaluate(
@@ -194,9 +234,13 @@ export async function promotionBrowserProfile(
       )
       .toBe(false);
     await unchanged();
-    await expect(
-      page.getByText("Saved work restored for review.", { exact: false }),
-    ).toHaveCount(0);
+    const notice = page.getByText("Saved work restored for review.", {
+      exact: false,
+    });
+    // A serialized commit may finish before the cross-tab lock takes effect.
+    // Its preserved surface must be hidden while locked and cleared on reactivation.
+    if (boundary === "committed") await expect(notice).not.toBeVisible();
+    else await expect(notice).toHaveCount(0);
     if (action === "lock") await unlock(page);
     else {
       await switchProfile(peer);
@@ -228,18 +272,29 @@ export async function promotionBrowserProfile(
         .click();
     }
     await unchanged();
+    await expect(notice).toHaveCount(0);
     const refresh = dialog().getByRole("button", {
       name: "Refresh imported copies",
       exact: true,
     });
     await expect(refresh).toBeEnabled();
     await refresh.click();
-    await section()
-      .getByRole("button", { name: "Restore for review", exact: true })
-      .click();
-    await dialog()
-      .getByRole("button", { name: "Confirm restoration", exact: true })
-      .click();
+    if (boundary === "settlement") {
+      await section()
+        .getByRole("button", { name: "Restore for review", exact: true })
+        .click();
+      await dialog()
+        .getByRole("button", { name: "Confirm restoration", exact: true })
+        .click();
+    } else {
+      await expect(
+        section().getByRole("button", {
+          name: "Restore for review",
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await unchanged();
+    }
     await expect(section()).toContainText(
       "Restored. The imported copy is retained separately.",
     );
@@ -256,7 +311,11 @@ export async function promotionBrowserProfile(
     expect(after.drafts).toEqual(before.drafts);
     expect(await readFile(context.path)).toEqual(bytes);
     await audit();
-    await captureArchive(page, `web-promotion-tab-${action}`, false);
+    await captureArchive(
+      page,
+      `web-promotion-tab-${action}${boundary === "committed" ? "-committed" : ""}`,
+      false,
+    );
     return page;
   } finally {
     await gate.dispose();

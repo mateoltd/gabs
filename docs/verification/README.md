@@ -1203,3 +1203,7 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 ## Browser recovery architecture checkpoint, 20 September 2026
 
 [The requested Sol xhigh audit and parent review](architecture/README.md#browser-recovery-checkpoint-review-20-september-2026) preserve checkpoint `65cb7df` and confirm that the existing directory hierarchy and subsystem ownership need no further structural change. Fourteen boundary fixtures, strict checks and all four cached build targets passed. The checkpointed browser fixtures now have scoped acceptance, including their corrected capture labeling. No production source or UI changed; parity remains active.
+
+## Restoration interruption matrix, 20 September 2026
+
+[Browser committed-write acceptance and matrix reconciliation](corporate-promotion-interruption/README.md#browser-committed-write-and-matrix-reconciliation) close ID-03-BACKUP-INTERRUPTION within its scoped evidence. A real IndexedDB commit holds profile serialization until its acknowledgement is delivered; queued cross-tab locking then hides the preserved surface, and unlock/refresh observes the existing receipt without duplicate restoration. All three browser transition cases, strict checks and scoped formatting passed; two new captures were inspected with scoped accessibility/overflow checks. Production source is unchanged. Source/schema/target reconciliation and actual provider/platform/physical durability gates remain in the corporate parent; parity and later UI refinement are incomplete.

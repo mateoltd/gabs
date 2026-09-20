@@ -6,8 +6,12 @@ import { corporatePortability } from "../support/corporate-portability/journey";
 import { browserPortabilityDevice } from "../support/corporate-portability/devices";
 import { promotionBrowserProfile } from "../support/corporate-portability/promotion-browser-profile";
 
-for (const action of ["lock", "replace"] as const)
-  test(`another browser tab can ${action} the profile during restoration without losing saved work`, async ({
+for (const options of [
+  { action: "lock", boundary: "settlement" },
+  { action: "replace", boundary: "settlement" },
+  { action: "lock", boundary: "committed" },
+] as const)
+  test(`another browser tab can ${options.action} the profile during ${options.boundary} restoration without losing saved work`, async ({
     browser,
   }) => {
     test.setTimeout(240000);
@@ -47,7 +51,7 @@ for (const action of ["lock", "replace"] as const)
               .click();
             return context.page;
           }
-          return promotionBrowserProfile(context, action);
+          return promotionBrowserProfile(context, options);
         },
       });
       await device.page
