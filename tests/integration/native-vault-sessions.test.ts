@@ -1,8 +1,8 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { deserialize } from "node:v8";
 import type { LocalVault } from "../../packages/client/src/identity/local-vault/contracts";
 import { openProtectedDatabase } from "../../apps/desktop/src/utility/storage/database";
@@ -27,7 +27,12 @@ function fixture() {
   const key = randomBytes(32);
   const connections: ReturnType<typeof openProtectedDatabase>[] = [];
   const changes: string[] = [];
-  let prompts = 0;
+  let prompts = 0,
+    generation = 1;
+  const providerKeys = new Map([
+    [1, randomBytes(32)],
+    [2, randomBytes(32)],
+  ]);
   // Controlled provider only. This verifies utility custody, not OS key protection.
   const protection = new NativeLocalUnlock({
     available: () => true,
@@ -35,8 +40,39 @@ function fixture() {
     biometric: async () => {
       prompts++;
     },
-    encrypt: async (text) => Buffer.from(text),
-    decrypt: async (bytes) => Buffer.from(bytes).toString(),
+    encrypt: async (text) => {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv(
+        "aes-256-gcm",
+        providerKeys.get(generation)!,
+        iv,
+      );
+      const payload = Buffer.concat([cipher.update(text), cipher.final()]);
+      return Buffer.concat([
+        Buffer.from([generation]),
+        iv,
+        cipher.getAuthTag(),
+        payload,
+      ]);
+    },
+    decrypt: async (value) => {
+      const bytes = Buffer.from(value);
+      const providerKey = providerKeys.get(bytes[0]);
+      if (!providerKey) throw Error("Provider key retired");
+      const cipher = createDecipheriv(
+        "aes-256-gcm",
+        providerKey,
+        bytes.subarray(1, 13),
+      );
+      cipher.setAuthTag(bytes.subarray(13, 29));
+      return {
+        result: Buffer.concat([
+          cipher.update(bytes.subarray(29)),
+          cipher.final(),
+        ]).toString(),
+        shouldReEncrypt: bytes[0] !== generation,
+      };
+    },
   });
   const start = () => {
     const db = openProtectedDatabase(path, key, () => {
@@ -53,13 +89,23 @@ function fixture() {
       request: LocalVaultRequest,
       signal = new AbortController().signal,
     ) => sessions.run(request, signal);
-    return { db, sessions, call };
+    return { db, sessions, call, store };
   };
   cleanup.push(() => {
     for (const db of connections) if (db.open) db.close();
     rmSync(dir, { recursive: true, force: true });
   });
-  return { start, path, changes, prompts: () => prompts };
+  return {
+    start,
+    path,
+    changes,
+    prompts: () => prompts,
+    protection,
+    rotate: () => {
+      generation = 2;
+    },
+    retire: () => providerKeys.delete(1),
+  };
 }
 const password = "correct horse battery staple";
 it("keeps keys behind opaque grants, persists records and rejects stale grants across close and restart", async () => {
@@ -317,3 +363,169 @@ it("rejects invalid envelope batches atomically and revokes an issued handle on 
     await native.call({ action: "list", input: { removed: false } }),
   ).toEqual([]);
 });
+
+async function enrolled(f: ReturnType<typeof fixture>) {
+  const s = f.start();
+  const created = (await s.call({
+    action: "create",
+    input: { name: "Renewable", password, data: { note: "retained work" } },
+  })) as OpenedNativeVault;
+  await s.call({
+    action: "configure",
+    input: {
+      id: created.profile.id,
+      password,
+      pin: "12345678",
+      biometric: true,
+    },
+  });
+  const original = (await s.store.get(created.profile.id))!;
+  return { s, original, id: created.profile.id };
+}
+
+it.each(["pin", "biometric"] as const)(
+  "%s unlock renews both envelopes atomically and preserves data after provider retirement and database restart",
+  async (method) => {
+    const f = fixture();
+    const { s, id, original } = await enrolled(f);
+    f.rotate();
+    const prompts = f.prompts();
+    const grant = (await s.call({
+      action: "quickUnlock",
+      input: { id, method, pin: "12345678" },
+    })) as OpenedNativeVault;
+    expect(grant.data).toEqual({ note: "retained work" });
+    expect(f.prompts() - prompts).toBe(method === "biometric" ? 1 : 0);
+    const renewed = (await s.store.get(id))!;
+    expect(renewed.ciphertext).toEqual(original.ciphertext);
+    expect(renewed.revision).toBe(original.revision);
+    expect(renewed.unlock?.epoch).toBe(original.unlock?.epoch);
+    expect(renewed.unlock?.pin).not.toEqual(original.unlock?.pin);
+    expect(renewed.unlock?.biometric).not.toBe(original.unlock?.biometric);
+    f.retire();
+    s.sessions.close();
+    s.db.close();
+    const reopened = f.start();
+    for (const method of ["pin", "biometric"] as const) {
+      const accepted = (await reopened.call({
+        action: "quickUnlock",
+        input: { id, method, pin: "12345678" },
+      })) as OpenedNativeVault;
+      expect(accepted.data).toEqual({ note: "retained work" });
+      expect("key" in accepted).toBe(false);
+    }
+    expect(
+      (
+        (await reopened.call({
+          action: "unlock",
+          input: { id, password },
+        })) as OpenedNativeVault
+      ).data,
+    ).toEqual({ note: "retained work" });
+  },
+);
+
+it("a rejected PIN never renews envelopes, and failure renewing the second envelope commits neither", async () => {
+  const f = fixture();
+  const { s, id, original } = await enrolled(f);
+  f.rotate();
+  const renew = f.protection.renew.bind(f.protection);
+  const calls = vi.spyOn(f.protection, "renew");
+  await expect(
+    s.call({
+      action: "quickUnlock",
+      input: { id, method: "pin", pin: "87654321" },
+    }),
+  ).rejects.toThrow("PIN was not accepted");
+  expect(calls).not.toHaveBeenCalled();
+  const failed = (await s.store.get(id))!;
+  expect(failed.unlock?.failures).toBe(1);
+  expect(failed.unlock?.pin).toEqual(original.unlock?.pin);
+  calls.mockImplementation(async (scope, sealed) => {
+    if (scope.kind === "biometric") throw Error("Renewal unavailable");
+    return renew(scope, sealed);
+  });
+  await expect(
+    s.call({
+      action: "quickUnlock",
+      input: { id, method: "pin", pin: "12345678" },
+    }),
+  ).rejects.toThrow("Renewal unavailable");
+  expect(await s.store.get(id)).toEqual(failed);
+  calls.mockRestore();
+  await s.call({
+    action: "quickUnlock",
+    input: { id, method: "pin", pin: "12345678" },
+  });
+  expect((await s.store.get(id))?.unlock?.failures).toBe(0);
+});
+
+it.each(["cancel", "remove", "edit"] as const)(
+  "%s during renewal cannot commit stale wrappers or overwrite current vault data",
+  async (action) => {
+    const f = fixture();
+    const { s, id, original } = await enrolled(f);
+    const access = (await s.call({
+      action: "unlock",
+      input: { id, password },
+    })) as OpenedNativeVault;
+    f.rotate();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const renew = f.protection.renew.bind(f.protection);
+    const spy = vi
+      .spyOn(f.protection, "renew")
+      .mockImplementationOnce(async (...args) => {
+        entered();
+        await hold;
+        return renew(...args);
+      });
+    const controller = new AbortController();
+    const pending = s
+      .call(
+        {
+          action: "quickUnlock",
+          input: { id, method: "pin", pin: "12345678" },
+        },
+        controller.signal,
+      )
+      .then(
+        () => false,
+        () => true,
+      );
+    await started;
+    if (action === "cancel") controller.abort();
+    if (action === "remove") await s.call({ action: "remove", input: { id } });
+    if (action === "edit")
+      await s.call({
+        action: "commit",
+        input: {
+          handle: access.handle,
+          revision: access.revision,
+          value: { note: "newer saved work" },
+        },
+      });
+    release();
+    expect(await pending).toBe(true);
+    spy.mockRestore();
+    const current = (await s.store.get(id))!;
+    expect(current.unlock).toEqual(
+      action === "remove" ? undefined : original.unlock,
+    );
+    if (action === "edit")
+      expect(
+        (
+          (await s.call({
+            action: "unlock",
+            input: { id, password },
+          })) as OpenedNativeVault
+        ).data,
+      ).toEqual({ note: "newer saved work" });
+    else expect(current.ciphertext).toEqual(original.ciphertext);
+  },
+);

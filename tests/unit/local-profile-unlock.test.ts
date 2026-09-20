@@ -333,6 +333,7 @@ it("rejects a delayed native biometric result after removal and rejects foreign 
         entered = resolve;
       });
       const protection: Unlock.LocalUnlockProtection = {
+        renew: async (_binding, sealed) => sealed,
         status: async () => ({ available: true, biometric: true }),
         seal: async (binding, value) => JSON.stringify({ binding, value }),
         open: async (binding, sealed) => {
@@ -441,6 +442,7 @@ it("cancels enrollment before storage and prevents replay after a concurrent pro
         release = resolve;
       });
       const protection: Unlock.LocalUnlockProtection = {
+        renew: async (_binding, sealed) => sealed,
         status: async () => ({ available: true, biometric: false }),
         seal: async () => {
           entered();

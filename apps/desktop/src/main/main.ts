@@ -861,7 +861,7 @@ const localUnlock = new NativeLocalUnlock({
   decrypt: async (value) => {
     if (!(await safeStorage.isAsyncEncryptionAvailable()))
       throw Error("Protected storage is unavailable. Use your passphrase.");
-    return (await safeStorage.decryptStringAsync(Buffer.from(value))).result;
+    return safeStorage.decryptStringAsync(Buffer.from(value));
   },
 });
 async function localUnlockAction<T>(run: () => Promise<T>) {

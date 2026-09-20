@@ -985,3 +985,10 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 [ID-03-WRAP evidence](protected-key-renewal/README.md) covers durable ciphertext replacement/deletion and serialized OS-envelope renewal. Four minimized native journeys pass, including real standalone data through two provider generations and old-key retirement using a controlled provider. The evidence distinguishes this from database master-key rotation, vault-contained quick-unlock renewal, backup/lost-key recovery and actual OS-provider acceptance. No UI layout or renderer capability changed; the broader parity goal remains active.
 
 Final verification for this slice passed 18 focused tests, 753 unit/PostgreSQL tests across 112 files, strict checks and four fresh application builds. The final deletion-flush retry correction is included in those results. Disposable databases were removed; changed-source formatting, links and original requirement mappings pass.
+
+
+## 20 September 2026: standalone credential-envelope renewal
+
+[ID-03-UNLOCK-WRAP evidence](vault-key-renewal/README.md) covers atomic renewal of native PIN and biometric wrappers after verified quick unlock. Six minimized native journeys and strict checks/four fresh builds pass, including use of both methods after controlled provider-key retirement. The record distinguishes real app/SQLite behavior from simulated OS/biometric callbacks. Database master/page-key rotation, backup/lost-key recovery, actual hardware/provider acceptance and full parity remain open. No UI source or style changed.
+
+Final verification for ID-03-UNLOCK-WRAP passed 760 unit/PostgreSQL tests across 112 files, all strict environment/boundary checks and four fresh builds, six minimized native journeys and two headless browser journeys. Controlled callbacks do not establish physical hardware acceptance. All disposable databases were removed.

@@ -5,7 +5,9 @@ interface ProtectionHost {
   biometricAvailable(): boolean;
   biometric(): Promise<void>;
   encrypt(value: string): Promise<Uint8Array>;
-  decrypt(value: Uint8Array): Promise<string>;
+  decrypt(
+    value: Uint8Array,
+  ): Promise<{ result: string; shouldReEncrypt: boolean }>;
 }
 const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 function binding(value: LocalUnlockBinding) {
@@ -19,7 +21,10 @@ function binding(value: LocalUnlockBinding) {
   )
     throw Error("Invalid local unlock request.");
 }
-function payload(value: number[], kind: LocalUnlockBinding["kind"]) {
+function payload(
+  value: unknown,
+  kind: LocalUnlockBinding["kind"],
+): asserts value is number[] {
   if (
     !Array.isArray(value) ||
     value.length !== (kind === "pin" ? 48 : 32) ||
@@ -61,7 +66,7 @@ export class NativeLocalUnlock implements LocalUnlockProtection {
       await this.host.encrypt(JSON.stringify(envelope)),
     ).toString("base64");
   }
-  async open(scope: LocalUnlockBinding, sealed: string) {
+  private async read(scope: LocalUnlockBinding, sealed: string) {
     binding(scope);
     const expected = { ...scope };
     if (
@@ -73,9 +78,19 @@ export class NativeLocalUnlock implements LocalUnlockProtection {
       throw Error("Invalid protected credential.");
     if (!this.host.available())
       throw Error("Protected storage is unavailable. Use your passphrase.");
-    const stored = JSON.parse(
-      await this.host.decrypt(Buffer.from(sealed, "base64")),
-    );
+    const decrypted = await this.host.decrypt(Buffer.from(sealed, "base64"));
+    let stored: {
+      version?: unknown;
+      profileId?: unknown;
+      epoch?: unknown;
+      kind?: unknown;
+      value?: unknown;
+    } | null;
+    try {
+      stored = JSON.parse(decrypted.result);
+    } catch {
+      throw Error("Invalid protected credential.");
+    }
     if (
       !stored ||
       stored.version !== 1 ||
@@ -87,7 +102,20 @@ export class NativeLocalUnlock implements LocalUnlockProtection {
         "This credential belongs to another profile or unlock method.",
       );
     payload(stored.value, expected.kind);
-    await this.authorize(expected.kind);
-    return stored.value as number[];
+    return { ...decrypted, value: stored.value, kind: expected.kind };
+  }
+  async open(scope: LocalUnlockBinding, sealed: string) {
+    const stored = await this.read(scope, sealed);
+    await this.authorize(stored.kind);
+    return stored.value;
+  }
+  async renew(scope: LocalUnlockBinding, sealed: string) {
+    const stored = await this.read(scope, sealed);
+    // Renewal returns ciphertext only; it cannot authorize biometric key access.
+    await this.authorize("pin");
+    if (!stored.shouldReEncrypt) return sealed;
+    const renewed = await this.host.encrypt(stored.result);
+    await this.authorize("pin");
+    return Buffer.from(renewed).toString("base64");
   }
 }

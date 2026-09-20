@@ -85,6 +85,11 @@ export function openCache(path: string, secret: string) {
                 args[0] as Parameters<LocalUnlockProtection["open"]>[0],
                 args[1] as string,
               );
+            else if (message.method === "renew")
+              value = await vaultProtection.renew(
+                args[0] as Parameters<LocalUnlockProtection["renew"]>[0],
+                args[1] as string,
+              );
             else throw Error("Invalid protected unlock method.");
             if (worker === target)
               target.postMessage({

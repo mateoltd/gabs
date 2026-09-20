@@ -20,7 +20,7 @@ Filesystem tests use actual temporary files and AES-GCM ciphertext with a contro
 
 The minimized desktop journey uses the real main/utility/database paths and a controlled provider. It creates business data, renews the master-key envelope after a provider-key change, then reopens with the old provider key removed. This is not physical Keychain, DPAPI, secret-service or biometric acceptance.
 
-Remaining ID-03 work includes transactional database master/page-key rotation, renewal of standalone quick-unlock envelopes stored inside vault records, verified backup/lost-key recovery, actual provider failure/rotation acceptance and signed platform installation/update acceptance. No entire original requirement, full parity or final UI-design gate is closed by this milestone.
+Remaining ID-03 work includes transactional database master/page-key rotation, renewal of standalone quick-unlock envelopes stored inside vault records, verified backup/lost-key recovery, actual provider failure/rotation acceptance and signed platform installation/update acceptance. The subsequent [standalone renewal milestone](../vault-key-renewal/README.md) implements and verifies the vault-contained renewal slice; the other gates remain required. No entire original requirement, full parity or final UI-design gate is closed by this milestone.
 
 ## Acceptance results
 

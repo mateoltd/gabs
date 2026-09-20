@@ -14,7 +14,10 @@ function fixture() {
       await prompt();
     },
     encrypt: async (value) => Buffer.from(value),
-    decrypt: async (value) => Buffer.from(value).toString(),
+    decrypt: async (value) => ({
+      result: Buffer.from(value).toString(),
+      shouldReEncrypt: false,
+    }),
   });
   return {
     adapter,
@@ -97,4 +100,29 @@ it("captures enrollment inputs and rejects protection lost during a biometric pr
   await expect(
     f.adapter.open({ profileId, epoch, kind: "biometric" }, sealed),
   ).rejects.toThrow("became unavailable");
+});
+
+it("renewal returns only the same bound ciphertext and never replaces biometric authorization", async () => {
+  const f = fixture();
+  const scope = { profileId, epoch, kind: "biometric" as const };
+  const sealed = await f.adapter.seal(scope, Array(32).fill(7));
+  const prompts = f.prompts();
+  f.prompt(async () => {
+    throw Error("Biometric denied");
+  });
+  expect(await f.adapter.renew(scope, sealed)).toBe(sealed);
+  expect(f.prompts()).toBe(prompts);
+  await expect(f.adapter.open(scope, sealed)).rejects.toThrow(
+    "Biometric denied",
+  );
+  for (const foreign of [
+    { ...scope, profileId: epoch },
+    { ...scope, epoch: profileId },
+    { ...scope, kind: "pin" as const },
+  ])
+    await expect(f.adapter.renew(foreign, sealed)).rejects.toThrow(
+      "another profile or unlock method",
+    );
+  f.available(false);
+  await expect(f.adapter.renew(scope, sealed)).rejects.toThrow("unavailable");
 });

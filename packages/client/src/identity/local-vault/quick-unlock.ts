@@ -261,7 +261,24 @@ export function createQuickUnlockEngine(store: LocalVaultStore) {
       }
       signal?.throwIfAborted();
       const data = await decryptWithKey<T>(vault, key);
-      const stored = await updateAttempts(vault, policy, true, signal);
+      let renewed = policy;
+      if (protection && policy.pin.kind === "native") {
+        signal?.throwIfAborted();
+        const sealed = await protection.renew(
+          { profileId: id, epoch: policy.epoch, kind: "pin" },
+          policy.pin.sealed,
+        );
+        signal?.throwIfAborted();
+        const biometric =
+          policy.biometric === undefined
+            ? undefined
+            : await protection.renew(
+                { profileId: id, epoch: policy.epoch, kind: "biometric" },
+                policy.biometric,
+              );
+        renewed = { ...policy, pin: { kind: "native", sealed }, biometric };
+      }
+      const stored = await updateAttempts(vault, renewed, true, signal);
       return { vault: stored, key, data };
     });
   }

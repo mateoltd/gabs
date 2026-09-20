@@ -8,6 +8,8 @@ export interface LocalUnlockProtection {
   status(): Promise<{ available: boolean; biometric: boolean }>;
   seal(binding: LocalUnlockBinding, bytes: number[]): Promise<string>;
   open(binding: LocalUnlockBinding, sealed: string): Promise<number[]>;
+  /** Rewraps the same bound credential without releasing its plaintext. */
+  renew(binding: LocalUnlockBinding, sealed: string): Promise<string>;
 }
 
 export interface LocalUnlockCredential {

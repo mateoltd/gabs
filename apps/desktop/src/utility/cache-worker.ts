@@ -99,6 +99,7 @@ const protection: LocalUnlockProtection = {
     protect("status", []) as ReturnType<LocalUnlockProtection["status"]>,
   seal: (...args) => protect("seal", args) as Promise<string>,
   open: (...args) => protect("open", args) as Promise<number[]>,
+  renew: (...args) => protect("renew", args) as Promise<string>,
 };
 process.parentPort.on("message", async (event) => {
   if (event.data?.protectionResult !== undefined) {

@@ -5,9 +5,13 @@ export async function controlledNativeProtection(
   app: ElectronApplication,
   key: string,
   previousKey?: string,
+  biometric = false,
 ) {
   await app.evaluate(
-    async ({ safeStorage, systemPreferences }, { key, previousKey }) => {
+    async (
+      { safeStorage, systemPreferences },
+      { key, previousKey, biometric },
+    ) => {
       const { createCipheriv, createDecipheriv, randomBytes } =
         process.getBuiltinModule("node:crypto");
       const secret = Buffer.from(key, "hex");
@@ -45,9 +49,14 @@ export async function controlledNativeProtection(
           };
         }
       };
-      if (process.platform === "darwin")
-        systemPreferences.canPromptTouchID = () => false;
+      if (process.platform === "darwin") {
+        systemPreferences.canPromptTouchID = () => biometric;
+        systemPreferences.promptTouchID = async () => {
+          if (!biometric)
+            throw Error("Controlled biometric provider unavailable");
+        };
+      }
     },
-    { key, previousKey },
+    { key, previousKey, biometric },
   );
 }
