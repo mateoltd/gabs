@@ -26,6 +26,7 @@ export async function integrityDeviceId(profile: string) {
 export class IntegrityDelivery {
   private flight?: Promise<void>;
   private timer?: ReturnType<typeof setInterval>;
+  private readonly cursors = new Map<string, string>();
   constructor(
     private readonly host: {
       profile(): string;
@@ -99,8 +100,26 @@ export class IntegrityDelivery {
         pending.set(digest, report);
       }
     const root = resolve(profile, "integrity-delivery");
+    const scopeKey = JSON.stringify([
+      profile,
+      scope.accountId,
+      scope.workspaceId,
+      scope.deviceId,
+    ]);
+    const entries = [...pending];
+    const cursor = this.cursors.get(scopeKey);
+    const cursorIndex = cursor
+      ? entries.findIndex(([digest]) => digest === cursor)
+      : -1;
+    const ordered =
+      cursorIndex < 0
+        ? entries
+        : [
+            ...entries.slice(cursorIndex + 1),
+            ...entries.slice(0, cursorIndex + 1),
+          ];
     let attempted = 0;
-    for (const [digest, report] of pending) {
+    for (const [digest, report] of ordered) {
       if (!this.host.current(scope) || attempted >= 50) return;
       const name = `${digest}.receipt.json`;
       try {
@@ -126,6 +145,7 @@ export class IntegrityDelivery {
         response.status === 426
       )
         return;
+      this.cursors.set(scopeKey, digest);
       if (response.status !== 200) continue; // An individually rejected event cannot block others.
       try {
         assertSchema(IntegrityReceiptSchema, response.body);

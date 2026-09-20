@@ -96,3 +96,16 @@ The manual release workflow uses a protected `desktop-release` environment. Conf
 Host the platform-appropriate update feed over HTTPS with compatible artifacts. Built-in autoUpdater applies on macOS/Windows; Ubuntu uses reviewed manual package updates. Updates install on application quit and preserve user data. Keep current and previous desktop releases supported for at least 90 days except urgent security retirement. MIN_DESKTOP_VERSION is a compatibility gate, not an entitlement control or proof of an honest client.
 
 Deploy additive schema/API changes before dependent clients. Delay destructive migrations until supported clients and running backend versions no longer need the old shape. Prefer forward repairs. Test a real signed update between two releases with unsent drafts before opening the pilot to users.
+
+
+## Desktop integrity observations
+
+Desktop runtime incidents retain the account and company confirmed when the incident was captured. After application repair and fresh authentication, delivery retries the original event only while that same account and company are active. Unattributed historical/startup records remain local; signing in does not assign them to the new account. Retained readable evidence from explicit audit repair can still be delivered. Keep the local audit directories when investigating failures.
+
+`POST /api/v1/workspaces/:workspaceId/integrity-reports` checks current membership and binds the reporter to the authenticated account. The server commits the diagnostic receipt and ordinary audit entry together. Replaying the exact event returns the original receipt; changing its metadata returns 409. Client reports and profile changes cannot grant trust or permissions through this endpoint.
+
+Administrators with `audit.read` can inspect observations with the corresponding GET endpoint (50 records per page and a continuation cursor). The existing Audit history shows `desktop.integrity.locked.reported` and `desktop.integrity.recovered.reported`. These describe **client reports**, not server attestation or proof that a device is currently safe. The source page exposes only bounded diagnostic metadata, server receipt time and reporter name.
+
+The worker logs `integrity_health` once per minute: `received_last_day`, `unresolved_reported_incidents` and `maximum_delivery_delay_seconds`. The worker's narrow aggregate function exposes no account, company, device or asset identifiers. A recovery received before its lockdown report does not reopen the incident. The global delivery-delay measure covers receipts in the last day; the per-company page summarizes all received reports. Both depend on client timestamps and cannot measure events that have never reached the server.
+
+Investigate newly unresolved reports and sustained delivery delays alongside installation, update and authentication failures. Reconcile against the sanitized local report using the [support procedure](verification/integrity-support/README.md). A retained lockdown without a readable original recovery remains unresolved; explicit repair does not fabricate a recovery for corrupted evidence. Do not automatically suspend users or grant access based on these observations. Hosted alert routing and signed/provider acceptance remain release gates.

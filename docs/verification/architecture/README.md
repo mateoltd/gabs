@@ -368,3 +368,16 @@ Final parent verification:
 - Scoped source formatting, whitespace checks and documentation links passed; the ledger retains 29 original requirement IDs and the tracker 106 stable IDs.
 
 Native acceptance uses the existing development identity and controlled OS-protection fixtures described in [runtime integrity evidence](../integrity-runtime/README.md). Real provider, signed-platform, physical durability and operational acceptance remain open. This completes the requested checkpoint/delegation/review only; parity remains active and the later UI-refinement goal has not begun.
+
+
+## Integrity delivery checkpoint review, 20 September 2026
+
+Checkpoint `24fcbc2`, preserved by pushed annotated tag `checkpoint/architecture-delivery-review-2026-09-20`, captures the unfinished diagnostic-delivery slice before the explicitly requested `gpt-5.6-sol` review at `xhigh`. The delegate inspected directory depth, public exports, dependency enforcement and desktop/server ownership. The parent independently reviewed workspace discovery, environment/CI configurations, server transactions, migration privileges and acceptance fixtures.
+
+Both reviews retain the existing `sdk`, `client`, `server`, `shell`, `ui/web`, `ui/tokens` and outer `composition` hierarchy. Public package names remain stable contracts. Diagnostic schemas belong to contracts, retained-event delivery to desktop integrity, and receipt/audit transactions to server identity/persistence. Main retains orchestration coupled to request freshness, identity epochs and profile locking; wrapping those guards in another callback layer would not clarify ownership.
+
+The delegate added the missing root-owned `@suite/contracts` test dependency and fixed a parent-reproduced starvation defect after 50 rejected diagnostic events. A process-local per-scope cursor rotates subsequent bounded passes. Authorization/transport failures and obsolete-profile responses retain exact retry behavior. Original records and durable acknowledgements are unchanged. The parent accepted the source diff and added the failing-before/passing-after regression.
+
+Frozen offline installation, **45 focused tests**, strict environment/boundary/copy checks and **four fresh build targets** passed. **All ten hidden/minimized native cases passed together** after the Mac woke; the earlier four sleep-interrupted timeouts are retained in the [delivery acceptance record](../integrity-delivery/README.md). Real server-received observations retry without duplicate audit effects after process termination; accepted business work and unrelated drafts survive. Recovery and Audit history captures were inspected, with historical incidental differences discarded. No UI source or style changed.
+
+This completes the bounded architecture review and local diagnostic-delivery acceptance. ID-04 is at **verify** for actual identity/OS providers, signed target-platform/physical durability and foreground native support-dialog acceptance. Hosted monitoring acceptance remains an operational gate. GOV-01 is the next ready independent engineering item. Full parity remains active and the later UI-refinement goal has not begun.

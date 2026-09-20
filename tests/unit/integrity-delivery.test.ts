@@ -152,3 +152,32 @@ it("never attributes legacy evidence to the currently connected account", async 
   await writeFile(resolve(profile, "integrity-device.json"), "broken original");
   await expect(integrityDeviceId(profile)).rejects.toThrow();
 });
+
+it("advances past a full batch of rejected events so later evidence can be delivered", async () => {
+  const { profile, scope } = await fixture();
+  const journal = new IntegrityJournal(
+    resolve(profile, "integrity"),
+    "1.0.0",
+    scope,
+  );
+  for (let index = 0; index < 26; index++) {
+    await journal.record({ code: "missing-asset", asset: "preload.cjs" });
+    await journal.record();
+  }
+  const attempted = new Set<string>();
+  let calls = 0;
+  const delivery = new IntegrityDelivery({
+    profile: () => profile,
+    current: () => true,
+    send: async (_scope, report) => {
+      calls++;
+      attempted.add(`${report.incidentId}/${report.event}`);
+      return { status: 409, body: {} };
+    },
+  });
+  await delivery.flush(scope);
+  expect(calls).toBe(50);
+  await delivery.flush(scope);
+  expect(attempted.size).toBe(54);
+  expect(calls).toBeLessThanOrEqual(100);
+});

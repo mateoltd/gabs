@@ -404,10 +404,17 @@ for (const scenario of [
             exact: true,
           }),
         ).toBeVisible();
-        await page.screenshot({
-          path: "docs/verification/integrity-delivery/audit.png",
-          animations: "disabled",
-        });
+        for (const event of ["locked", "recovered"] as const) {
+          const entry = page.getByText(`desktop.integrity.${event}.reported`, {
+            exact: true,
+          });
+          await entry.scrollIntoViewIfNeeded();
+          await expect(entry).toBeInViewport();
+          await page.screenshot({
+            path: `docs/verification/integrity-delivery/audit-${event}.png`,
+            animations: "disabled",
+          });
+        }
       }
     } finally {
       await reply?.dispose();

@@ -115,15 +115,13 @@ export async function integrityReports(
   const rows = await query.limit(51).execute();
   return {
     summary,
-    items: rows
-      .slice(0, 50)
-      .map((row) => ({
-        id: row.id,
-        receivedAt: row.received_at.toISOString(),
-        reporterName: row.name,
-        report: row.payload,
-        source: "client-report",
-      })),
+    items: rows.slice(0, 50).map((row) => ({
+      id: row.id,
+      receivedAt: row.received_at.toISOString(),
+      reporterName: row.name,
+      report: row.payload,
+      source: "client-report",
+    })),
     nextCursor: rows.length > 50 ? rows[49].id : null,
   };
 }

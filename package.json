@@ -41,6 +41,7 @@
     "@sinclair/typebox": "0.34.52",
     "@suite/api": "workspace:*",
     "@suite/app-web": "workspace:*",
+    "@suite/contracts": "workspace:*",
     "@suite/design-tokens": "workspace:*",
     "@suite/inventory": "workspace:*",
     "@suite/module-catalog": "workspace:*",
