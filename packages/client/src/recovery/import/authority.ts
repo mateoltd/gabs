@@ -50,7 +50,7 @@ export interface SavedWorkImportOptions {
   signal: AbortSignal;
   /** Host-owned guard for active profile, workspace, unlock and offline-storage consent. */
   check(access?: ImportAccess): void;
-  receivePolicy?(policy: Bootstrap, signal: AbortSignal): Promise<unknown>;
+  receivePolicy?(policy: Bootstrap, signal: AbortSignal): Promise<Bootstrap>;
 }
 
 /** Online-only authority comes from current server observations, never the imported file. */
@@ -66,6 +66,19 @@ export async function authorizeWorkImport(
     options.signal.throwIfAborted();
     options.check(access);
   };
+  const requestPolicy = async () => {
+    check();
+    const candidate = await client.request(
+      { operation: "bootstrap", params: { workspaceId: scope.workspaceId } },
+      { signal: options.signal },
+    );
+    check();
+    const accepted = options.receivePolicy
+      ? await options.receivePolicy(candidate, options.signal)
+      : candidate;
+    check();
+    return accepted;
+  };
   check();
   const proof = await client.request(
     { operation: "profileRecovery" },
@@ -73,10 +86,7 @@ export async function authorizeWorkImport(
   );
   checkSession(proof, scope);
   check();
-  const policy = await client.request(
-    { operation: "bootstrap", params: { workspaceId: scope.workspaceId } },
-    { signal: options.signal },
-  );
+  const policy = await requestPolicy();
   const platform = await client.request(
     { operation: "platformState", params: { workspaceId: scope.workspaceId } },
     { signal: options.signal },
@@ -88,12 +98,15 @@ export async function authorizeWorkImport(
     { operation: "moduleTrust" },
     { signal: options.signal },
   );
+  check();
   const params = { workspaceId: scope.workspaceId, moduleId: input.moduleId };
   const current = await client.request(
     { operation: "moduleArtifact", params },
     { signal: options.signal },
   );
+  check();
   await verifyArtifact(current, publicKey);
+  check();
   const module = hydrateModule(moduleContract(current.artifact));
   if (
     module.id !== input.moduleId ||
@@ -121,9 +134,11 @@ export async function authorizeWorkImport(
       },
       { signal: options.signal },
     );
+    check();
     contracts.responseContracts![key] = { signed, publicKey };
   }
   const originals = await savedWorkContracts(contracts, input);
+  check();
   checkRecoveryPolicy(policy, input, dependencies, false, Date.now(), {
     current: module,
     originals,
@@ -143,10 +158,7 @@ export async function authorizeWorkImport(
     checkSession(proof, scope);
   };
   const refresh = async () => {
-    const latest = await client.request(
-      { operation: "bootstrap", params: { workspaceId: scope.workspaceId } },
-      { signal: options.signal },
-    );
+    const latest = await requestPolicy();
     if (latest.policyRevision !== policy.policyRevision)
       throw Error(
         "Workspace access changed during import. Retry with current access.",
@@ -155,7 +167,6 @@ export async function authorizeWorkImport(
       current: module,
       originals,
     });
-    await options.receivePolicy?.(latest, options.signal);
     check();
     const refreshed = await client.request(
       { operation: "profileRecovery" },

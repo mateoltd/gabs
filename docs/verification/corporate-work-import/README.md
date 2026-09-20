@@ -1,6 +1,6 @@
-# Corporate saved-work import admission
+# Corporate saved-work import and reviewed restoration
 
-Scope: ID-03-BACKUP-CORPORATE, admission foundation only. This is not a complete product restore flow. User-facing selection, fresh-authentication guidance, inspection, outcome reconciliation and reviewed promotion remain required. No production-facing placeholder was added.
+Scope: ID-03-BACKUP-CORPORATE. The initial admission foundation below is extended by explicit inspection, server outcome reconciliation and reviewed restoration in Settings. Larger corporate archives and the additional acceptance listed at the end remain required; this is not complete corporate backup parity.
 
 ## Implemented contract
 
@@ -12,7 +12,7 @@ The exact imported snapshot is stored in `ModuleStorage.recoveryImports`, separa
 
 Inputs are limited to 1 MiB of UTF-8 JSON and 64 object/array nesting levels. A workspace can retain up to 32 imported copies totaling 1 MiB including metadata; exceeding either bound fails explicitly without evicting prior work. The desktop's existing overall cache-value limit still applies. Large/bulk encrypted corporate archives remain separate unfinished work. Existing exports are authorized JSON copies, not newly encrypted corporate backups.
 
-## Verification, 20 September 2026
+## Admission baseline verification, 20 September 2026
 
 - Focused admission and real encrypted-SQLite retention tests passed before the final two additional guard/capacity cases.
 - Three real API/PostgreSQL cases passed: fresh MFA-session and signed registry admission with no business receipts, expired/wrong-account refusal, and current resource-write denial.
@@ -24,10 +24,31 @@ Unit coverage includes exact request/review preservation, independent draft/coll
 
 These tests do not establish browser/native product journeys, OS-provider acceptance, live identity-provider MFA or complete corporate restoration. No UI source, layout or style changed.
 
+## Reviewed restoration implementation
+
+The client import directory separates bounded parsing/fingerprints (`format.ts`), current server and host authority (`authority.ts`), retained-copy inspection/removal (`stored.ts`), authoritative restoration (`promote.ts`) and the public admission entry (`index.ts`). The existing public package export is preserved. Settings owns the file input, inspection and confirmations through the existing UI kit; no styles or shell layout were changed.
+
+`promoteSavedWorkImport` serializes with ordinary workspace synchronization. It revalidates the retained copy and signed contracts, rejects a conflicting local request identity before settlement, and asks the server for the exact original outcome. An accepted response is validated against the original signed contract; an uncommitted request is permanently cancelled before correction. The imported file cannot grant acceptance, remappings, replacement identities or continuation choices. Lost replies and failed local commits preserve the copy for retry. Matching existing requests receive only the verified outcome, retaining their input and independent reviews. Independent draft slots preserve ordinary drafts; copied collision/continuation choices stay inert in the retained source. Durable promotion metadata prevents duplicate restoration.
+
+Inspection and explicit copy removal require fresh authority too. Removal affects only the imported copy. Per-copy permission/module guards control both rendered content and final commit, even when a host policy revision is unchanged. Browser and desktop use the same workflow and retention contract. The native journey controls OS protection through a test entry before loading the actual Electron main/utility code; it does not introduce a production bypass.
+
+## Restoration and architecture review verification, 20 September 2026
+
+Checkpoint `225390c` retains the unfinished restoration slice. The requested `gpt-5.6-sol` review at `xhigh` accepted the five-file ownership split and fixed a real policy-delivery issue: both initial and refreshed bootstrap responses reach the host before validation; the host-accepted policy is used. Original/current requirements still guard every subsequent async boundary and final commit. Parent review corrected the test collection's contract type and found a native UI race: a refresh could abort itself when its accepted policy changed the revision. Scope/offline/consent transitions still cancel; revision/permission gates hide stale copies, and revision changes clear stale confirmations without cancelling their own refresh.
+
+- Full isolated unit/PostgreSQL regression: **853 tests across 121 files**, `/tmp/gabs-work-promotion-regression.log`. This includes 24 import unit cases and six real API cases, including lost accepted replies, exact cancelled-original fencing/audit identity and conflicting-body rejection. The final UI-only race correction followed this regression.
+- Final strict root/browser/Node/preload/worker checks, boundary/copy checks and **four fresh builds** passed after that correction, `/tmp/gabs-work-promotion-build.log`.
+- Final headless Chromium journey: **1 passed**, `/tmp/gabs-work-promotion-web.log`.
+- Final actual Electron/main/utility journey: **1 passed**, `/tmp/gabs-work-promotion-desktop.log`. Every window remained hidden/minimized and unfocused. Protected storage uses the explicitly controlled test provider; physical OS protection is not established.
+- Both journeys import/deduplicate/inspect a draft, explicitly restore it, restart/reload, remove only the imported copy, resume and submit the retained draft, import/stop an uncertain original, reject its late exact send, revoke/regrant access without deleting retained work, and refuse unsafe offline-storage removal. Keyboard Escape restores focus. Scoped Axe A/AA checks report no violations; native uses the existing single-window compatibility mode. Disposable databases were removed.
+
+Wide and 390-pixel screenshots were inspected: [browser wide](web-restored.png), [browser narrow](web-narrow.png), [browser actions](web-narrow-actions.png), [desktop wide](desktop-restored.png), [desktop narrow](desktop-narrow.png), [desktop actions](desktop-narrow-actions.png). Long identifiers wrap and lower actions remain reachable through the existing modal scroll area. This verifies continuity of this dialog, not complete accessibility conformance or approval of the current UI as polished. No CSS changed.
+
+Earlier failed native attempts exposed a development-session restart assumption, unsupported multi-window Axe execution and the policy-refresh race. The final passing tests retain the original behavioral assertions; no acceptance check was weakened. Live identity-provider MFA, signed/installed platform acceptance and full corporate backup parity remain open.
+
 ## Required continuation
 
-1. Add an explicit inspection and promotion flow for retained imports. Verify source and current permissions again after fresh authentication.
-2. Reconcile exact original requests with authoritative outcomes before activating recovery state. File-supplied acceptance/cancellation and continuation choices cannot grant effects or bypass review. Preserve existing local work and conflicting import copies; never overwrite current journals or drafts.
-3. Restore independent drafts and advanced reviews with their original provenance, requiring explicit choices where contracts or targets changed. Missing dependencies remain visible and held.
-4. Connect host-owned browser and desktop file selection, scoped storage, current-access inspection and explicit copy removal. Verify profiles, received revocation, expiry, crashes, retries and loss of old desktop keys through real minimized/headless journeys.
-5. Complete larger encrypted corporate backup/import, current authority after device recovery and the broader ID-03/provider/platform gates. The standalone archive intentionally excludes corporate cache and credentials.
+1. Verify advanced imported collision/continuation graphs and source-schema/target transitions with explicit fresh choices. Missing dependencies must stay visible and held; copying a review does not authorize a new business effect.
+2. Add a complete actual UI export-to-import portability journey. Current product fixtures supply schema-valid recovery files; they do not prove cross-device export portability.
+3. Extend real interface acceptance to delayed denial during restoration, profile/sign-out/expiry transitions, process death during promotion and loss of the old native corporate key. Unit-level races and exact server retries do not establish all these interface gates.
+4. Complete larger encrypted corporate backup/import, current authority after device recovery and the broader ID-03/provider/platform gates. The standalone archive intentionally excludes corporate cache and credentials. Live provider MFA, actual OS protection and signed/installed target-platform acceptance remain open.

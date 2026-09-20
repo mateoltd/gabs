@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
+import type { Bootstrap } from "../../packages/contracts/src";
 import { signPackage } from "@suite/module-sdk/node/signing";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 import type { Platform } from "../../packages/client/src";
@@ -312,6 +313,47 @@ it("refuses current permission denial, changed policy and unknown or corrupt sig
   };
   await expect(corrupt.stage()).rejects.toThrow(/signed module version/);
   expect(corrupt.state()).toBeUndefined();
+});
+it("delivers server policy before rejecting a same-revision permission denial", async () => {
+  const f = fixture();
+  const received: Bootstrap[] = [];
+  let requests = 0;
+  f.onRequest((operation) => {
+    if (operation === "bootstrap" && ++requests === 2)
+      f.policy.permissions = [];
+  });
+  await expect(
+    stageSavedWorkImport(
+      {
+        ...f.options,
+        receivePolicy: async (policy) => {
+          received.push(structuredClone(policy));
+          return policy;
+        },
+      },
+      JSON.stringify(f.input),
+    ),
+  ).rejects.toThrow(/access/);
+  expect(received).toHaveLength(2);
+  expect(received[1].policyRevision).toBe(received[0].policyRevision);
+  expect(received[1].permissions).toEqual([]);
+  expect(f.state()).toBeUndefined();
+});
+it("uses the policy accepted by the host rather than the raw server candidate", async () => {
+  const f = fixture();
+  await expect(
+    stageSavedWorkImport(
+      {
+        ...f.options,
+        receivePolicy: async (policy) => ({ ...policy, permissions: [] }),
+      },
+      JSON.stringify(f.input),
+    ),
+  ).rejects.toThrow(/access/);
+  expect(f.calls.filter((operation) => operation === "bootstrap")).toHaveLength(
+    1,
+  );
+  expect(f.state()).toBeUndefined();
 });
 it("rechecks profile lock after asynchronous storage preparation and preserves work on failed commits", async () => {
   const f = fixture();

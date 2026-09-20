@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
+import { Pool } from "pg";
 import { selectValue } from "../e2e/controls.helpers";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 
@@ -243,6 +244,7 @@ export async function corporateImportJourney(
   await mkdir(dir, { recursive: true });
   await page.screenshot({ path: resolve(dir, `${surface}-restored.png`) });
   const a11y = await new AxeBuilder({ page })
+    .setLegacyMode(surface === "desktop")
     .include('[role="dialog"]')
     .withTags(["wcag2a", "wcag2aa"])
     .analyze();
@@ -260,6 +262,55 @@ export async function corporateImportJourney(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+  const pool = new Pool({
+    connectionString: process.env.MIGRATION_DATABASE_URL,
+  });
+  try {
+    await pool.query(
+      "update suite.roles set permissions=array_remove(permissions,'contacts.contacts.read') where workspace_id=$1",
+      [scope.workspaceId],
+    );
+    await dialog
+      .getByRole("button", { name: "Refresh imported copies", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("Uncommitted recovered contact", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: "Remove imported copy", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", {
+        name: "Refresh imported copies",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await pool.query(
+      "update suite.roles set permissions=array_append(permissions,'contacts.contacts.read') where workspace_id=$1 and not ('contacts.contacts.read'=any(permissions))",
+      [scope.workspaceId],
+    );
+    await dialog
+      .getByRole("button", { name: "Refresh imported copies", exact: true })
+      .click();
+    try {
+      await expect(
+        dialog.getByText(
+          "Restored. The imported copy is retained separately.",
+          {
+            exact: true,
+          },
+        ),
+      ).toBeVisible();
+    } catch (error) {
+      console.error("Imported work after regrant:", await dialog.innerText());
+      await page.screenshot({
+        path: `/tmp/gabs-import-${surface}-regrant.png`,
+      });
+      throw error;
+    }
+  } finally {
+    await pool.end();
+  }
   await dialog
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();

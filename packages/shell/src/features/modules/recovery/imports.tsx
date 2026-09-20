@@ -53,10 +53,12 @@ export function SavedWorkImports(props: FeatureProps) {
   }, [
     props.scope.userId,
     props.scope.workspaceId,
-    props.bootstrap.policyRevision,
     props.online,
     props.offlineEnabled,
   ]);
+  useLayoutEffect(() => {
+    setConfirm(undefined);
+  }, [props.bootstrap.policyRevision]);
   const currentAccess = (p: FeatureProps, access: ImportAccess) =>
     access.permissions.every((permission) =>
       p.bootstrap.permissions.includes(permission),
@@ -71,6 +73,8 @@ export function SavedWorkImports(props: FeatureProps) {
       ),
     );
   const allowed = canReadSavedWork(props, true);
+  // A policy delivered by this refresh may render before the provider returns.
+  // Hide stale results by revision without aborting the refresh that delivered it.
   const visible =
     allowed && revision === props.bootstrap.policyRevision
       ? copies.filter((copy) => currentAccess(props, copy.access))

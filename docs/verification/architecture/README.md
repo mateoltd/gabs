@@ -263,3 +263,11 @@ This is foundation acceptance, not complete product restoration. ID-03-BACKUP-RE
 | Patch/source review | `git diff --check` passed; shell, renderer, UI kit, CSS and theme sources unchanged |
 
 The native tests use controlled protection adapters where noted in their fixtures. They verify real Electron/main/utility execution without asserting actual OS-provider or physical biometric acceptance. The backup portability fixture still stages recovery through its test harness; it does not establish a product restore command. Existing web bundle-size warnings remain. Test databases were removed after both isolated runs.
+
+## Corporate-import checkpoint review, 20 September 2026
+
+Checkpoint `225390c` preserves the current saved-work import/restoration slice. A requested `gpt-5.6-sol` subagent at `xhigh` reviewed ownership, depth, public exports, authority and exact-request promotion. The physical migration remains complete; public package identifiers stay compatible. The current split places format validation, authority, stored-copy operations and promotion under `packages/client/src/recovery/import`, while the shell owns interaction through the existing UI kit.
+
+The delegate fixed policy delivery before rejection, respected the host-returned policy and tightened async guards. Parent review corrected the test's contract typing and verified the patch independently. Native acceptance then exposed a React timing race: applying a new policy revision cancelled the same refresh. The scoped correction preserves scope/consent/offline cancellation and revision/permission visibility guards, while clearing only stale confirmations on a revision change.
+
+[Product evidence](../corporate-work-import/README.md) records 853 tests across 121 files before the final UI-only race correction, followed by final strict checks, four fresh builds, one headless browser journey and one hidden/minimized native journey. Final screenshots and keyboard/Axe checks passed within the dialog's scope. No styles or package names changed. Desktop protection and development authentication are controlled fixtures; actual providers, signed platforms and broader corporate recovery remain required. This review does not complete parity or start UI refinement.
