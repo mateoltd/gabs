@@ -3,8 +3,16 @@ import { effectiveModulePolicies } from "@suite/module-sdk/governance";
 import type { Tx } from "../persistence/database";
 import { lockWorkspace } from "../identity/authorization";
 import { AppError, requireCondition, found } from "../errors";
-import { organizationPolicy } from "./module-policy";
-export { organizationPolicy } from "./module-policy";
+import {
+  organizationPolicy,
+  modulePolicyIntents,
+  type ModulePolicyIntents,
+} from "./module-policy";
+export {
+  organizationPolicy,
+  modulePolicyIntents,
+  type ModulePolicyIntents,
+} from "./module-policy";
 import { workspaceDependencyIds } from "../registry/module-releases";
 
 async function expand(
@@ -45,6 +53,7 @@ export async function reconcileModulePolicies(
   workspaceId: string,
   catalog: ModuleCatalog,
   mode: "strict" | "available" = "strict",
+  previous?: ModulePolicyIntents,
 ) {
   await lockWorkspace(tx, workspaceId);
   const policy = await organizationPolicy(tx, workspaceId);
@@ -108,49 +117,72 @@ export async function reconcileModulePolicies(
     (a) => a.direct && active.some((m) => m.id === a.membership_id),
   ))
     counts.set(row.module_id, (counts.get(row.module_id) ?? 0) + 1);
-  for (const member of active) {
+  const requests = active
+    .flatMap((member, order) => {
+      const existing = new Set(
+        assignments
+          .filter((a) => a.membership_id === member.id)
+          .map((a) => a.module_id),
+      );
+      return Object.keys(
+        effectiveModulePolicies(
+          roles
+            .filter((r) => r.membership_id === member.id)
+            .map((r) => r.role_id),
+          policy,
+        ),
+      )
+        .sort()
+        .map((root) => {
+          const ids = expanded.get(root) ?? [];
+          return {
+            memberId: member.id,
+            root,
+            ids,
+            order,
+            retained: ids.length > 0 && ids.every((id) => existing.has(id)),
+          };
+        });
+    })
+    .sort(
+      (a, b) =>
+        Number(b.retained) - Number(a.retained) ||
+        a.order - b.order ||
+        a.root.localeCompare(b.root),
+    );
+  for (const request of requests) {
     const direct = new Set(
       assignments
-        .filter((a) => a.membership_id === member.id && a.direct)
+        .filter((a) => a.membership_id === request.memberId && a.direct)
         .map((a) => a.module_id),
     );
-    const selected = Object.keys(
-      effectiveModulePolicies(
-        roles
-          .filter((r) => r.membership_id === member.id)
-          .map((r) => r.role_id),
-        policy,
-      ),
-    ).sort();
-    const derived = new Set<string>();
-    for (const root of selected) {
-      const ids = expanded.get(root) ?? [];
-      const added = ids.filter((id) => !direct.has(id) && !derived.has(id));
-      if (
-        mode === "available" &&
-        added.some((id) => {
-          const limit = modules.find((m) => m.module_id === id)?.seat_limit;
-          return limit != null && (counts.get(id) ?? 0) >= limit;
-        })
-      )
-        continue;
-      for (const id of added) counts.set(id, (counts.get(id) ?? 0) + 1);
-      for (const id of ids) derived.add(id);
-    }
-    desired.set(member.id, derived);
-  }
-  for (const module of modules) {
-    requireCondition(
-      module.seat_limit === null ||
-        (counts.get(module.module_id) ?? 0) <= module.seat_limit,
-      409,
-      "NO_MODULE_SEATS",
-      `The assignment needs ${counts.get(module.module_id) ?? 0} ${module.module_id} seats; ${module.seat_limit} are available.`,
+    const derived = desired.get(request.memberId) ?? new Set<string>();
+    const added = request.ids.filter(
+      (id) => !direct.has(id) && !derived.has(id),
     );
+    const full = added.find((id) => {
+      const limit = modules.find((m) => m.module_id === id)?.seat_limit;
+      return limit != null && (counts.get(id) ?? 0) >= limit;
+    });
+    if (full) {
+      requireCondition(
+        mode === "available" ||
+          previous?.get(request.memberId)?.has(request.root),
+        409,
+        "NO_MODULE_SEATS",
+        `No ${full} seats are available for this policy assignment.`,
+      );
+      continue;
+    }
+    for (const id of added) counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const id of request.ids) derived.add(id);
+    desired.set(request.memberId, derived);
   }
   // Diff rather than rebuilding unchanged rows: policy revisions describe actual changes.
+  let removed = 0;
   for (const row of assignments.filter((a) => !a.direct)) {
     if (desired.get(row.membership_id)?.has(row.module_id)) continue;
+    removed++;
     await tx
       .deleteFrom("suite.module_assignments")
       .where("workspace_id", "=", workspaceId)
@@ -172,8 +204,12 @@ export async function reconcileModulePolicies(
         direct: false,
       })),
   );
-  if (additions.length)
-    await tx.insertInto("suite.module_assignments").values(additions).execute();
+  for (let offset = 0; offset < additions.length; offset += 500)
+    await tx
+      .insertInto("suite.module_assignments")
+      .values(additions.slice(offset, offset + 500))
+      .execute();
+  return { added: additions.length, removed };
 }
 
 /** Replace explicit member grants; group/tag contributions remain independent. */
@@ -183,8 +219,10 @@ export async function assignModules(
   membershipId: string,
   moduleIds: string[],
   catalog: ModuleCatalog,
+  previous?: ModulePolicyIntents,
 ) {
   await lockWorkspace(tx, workspaceId);
+  previous ??= await modulePolicyIntents(tx, workspaceId);
   const member = found(
     await tx
       .selectFrom("suite.memberships")
@@ -209,9 +247,31 @@ export async function assignModules(
       "MODULE_UNAVAILABLE",
       "Only entitled, enabled modules can be assigned.",
     );
+    if (module.seat_limit !== null) {
+      const used = await tx
+        .selectFrom("suite.module_assignments as a")
+        .innerJoin("suite.memberships as m", (j) =>
+          j
+            .onRef("a.workspace_id", "=", "m.workspace_id")
+            .onRef("a.membership_id", "=", "m.id"),
+        )
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("a.workspace_id", "=", workspaceId)
+        .where("a.module_id", "=", id)
+        .where("a.membership_id", "!=", membershipId)
+        .where("m.active", "=", true)
+        .executeTakeFirstOrThrow();
+      requireCondition(
+        Number(used.n) < module.seat_limit,
+        409,
+        "NO_MODULE_SEATS",
+        `No ${id} seats are available.`,
+      );
+    }
   }
   await tx
-    .deleteFrom("suite.module_assignments")
+    .updateTable("suite.module_assignments")
+    .set({ direct: false })
     .where("workspace_id", "=", workspaceId)
     .where("membership_id", "=", membershipId)
     .execute();
@@ -226,11 +286,17 @@ export async function assignModules(
           direct: true,
         })),
       )
+      .onConflict((oc) =>
+        oc
+          .columns(["workspace_id", "membership_id", "module_id"])
+          .doUpdateSet({ direct: true }),
+      )
       .execute();
   await reconcileModulePolicies(
     tx,
     workspaceId,
     catalog,
     member.active ? "strict" : "available",
+    previous,
   );
 }

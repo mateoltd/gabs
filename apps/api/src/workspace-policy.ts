@@ -1,3 +1,4 @@
+import { refreshModulePolicies } from "@suite/server-core/governance/module-policy-refresh";
 import type { FastifyInstance } from "fastify";
 import { Type, Id, BootstrapSchema } from "@suite/contracts";
 import {
@@ -45,6 +46,14 @@ export async function registerWorkspacePolicy(
       let subscription: ReturnType<PolicySignals["subscribe"]>;
       const read = (actor: Actor) =>
         inWorkspace(db, workspaceId, async (tx) => {
+          const initial = await authorize(
+            tx,
+            actor,
+            workspaceId,
+            request.id,
+            runtime,
+          );
+          await refreshModulePolicies(tx, initial);
           // Shared row lock makes the policy snapshot and its revision coherent.
           await tx
             .selectFrom("suite.workspace_policy")

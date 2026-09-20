@@ -21,7 +21,8 @@
     "./runtime/attempts": "./src/runtime/attempts.ts",
     "./runtime/receipts": "./src/runtime/receipts.ts",
     "./identity/integrity": "./src/identity/integrity.ts",
-    "./governance/module-assignments": "./src/governance/module-assignments.ts"
+    "./governance/module-assignments": "./src/governance/module-assignments.ts",
+    "./governance/module-policy-refresh": "./src/governance/module-policy-refresh.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

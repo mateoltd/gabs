@@ -74,3 +74,35 @@ export async function currentPolicyModules(
     )(roles.map((r) => r.role_id)),
   );
 }
+
+export type ModulePolicyIntents = Map<string, Set<string>>;
+/** Capture accepted intent before changing the policy or role membership. */
+export async function modulePolicyIntents(
+  tx: Tx,
+  workspaceId: string,
+): Promise<ModulePolicyIntents> {
+  const policy = await organizationPolicy(tx, workspaceId);
+  const rows = await tx
+    .selectFrom("suite.role_assignments as r")
+    .innerJoin("suite.memberships as m", (j) =>
+      j
+        .onRef("m.id", "=", "r.membership_id")
+        .onRef("m.workspace_id", "=", "r.workspace_id"),
+    )
+    .select(["r.membership_id", "r.role_id"])
+    .where("r.workspace_id", "=", workspaceId)
+    .where("m.active", "=", true)
+    .execute();
+  const roles = new Map<string, string[]>();
+  for (const row of rows)
+    roles.set(row.membership_id, [
+      ...(roles.get(row.membership_id) ?? []),
+      row.role_id,
+    ]);
+  return new Map(
+    [...roles].map(([id, ids]) => [
+      id,
+      new Set(Object.keys(effectiveModulePolicies(ids, policy))),
+    ]),
+  );
+}

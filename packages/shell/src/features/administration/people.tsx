@@ -61,6 +61,10 @@ export function People(props: FeatureProps) {
   const { catalog, businessPermissions: productBusinessPermissions } =
     useShellComposition();
   const moduleState = usePlatformState(props);
+  const moduleName = (id: string) =>
+    moduleState.data?.modules.find((module) => module.id === id)?.name ??
+    catalog.definition(id)?.name ??
+    id;
   const businessPermissions = [
     ...new Set(
       moduleState.data?.permissionCatalog?.map((entry) => entry.permission) ??
@@ -333,9 +337,8 @@ export function People(props: FeatureProps) {
                       </div>
                     </td>
                     <td className="people-modules">
-                      {m.modules
-                        .map((id) => catalog.definition(id)?.name ?? id)
-                        .join(", ") || "No modules assigned"}
+                      {m.modules.map((id) => moduleName(id)).join(", ") ||
+                        "No modules assigned"}
                     </td>
                     <td>
                       <Status status={m.active ? "active" : "removed"} />
@@ -648,10 +651,9 @@ export function People(props: FeatureProps) {
                 <ul>
                   {member.modulePolicies.map((policy) => (
                     <li key={policy.moduleId}>
-                      {catalog.definition(policy.moduleId)?.name ??
-                        policy.moduleId}
-                      : {policy.assigned ? "Assigned" : "Awaiting availability"}
-                      . {policy.sources.join(", ")}
+                      {moduleName(policy.moduleId)}:{" "}
+                      {policy.assigned ? "Assigned" : "Awaiting availability"}.{" "}
+                      {policy.sources.join(", ")}
                     </li>
                   ))}
                 </ul>

@@ -168,6 +168,8 @@ export interface Database {
     access_policy: Generated<string>;
     config: Generated<Record<string, unknown>>;
   };
+  "suite.registry_revision": { id: boolean; revision: string };
+  "suite.module_policy_refresh": Tenant & { registry_revision: string };
   "suite.module_assignments": Tenant & {
     direct: Generated<boolean>;
     membership_id: string;

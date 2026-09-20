@@ -1,5 +1,7 @@
 import {
   organizationPolicy,
+  modulePolicyIntents,
+  type ModulePolicyIntents,
   reconcileModulePolicies,
 } from "@suite/server-core/governance/module-assignments";
 import {
@@ -1138,7 +1140,12 @@ export async function registerPlatform(
               );
             }
             let key = "";
+            let previousModuleIntents: ModulePolicyIntents | undefined;
             if (req.body.action === "organization") {
+              previousModuleIntents = await modulePolicyIntents(
+                tx,
+                ctx.workspaceId,
+              );
               Object.assign(
                 ctx,
                 await authorize(
@@ -1503,6 +1510,8 @@ export async function registerPlatform(
                 tx,
                 ctx.workspaceId,
                 runtime.catalog,
+                "strict",
+                previousModuleIntents,
               );
             if (req.body.action === "pin" || req.body.action === "rollout")
               await reconcileModulePolicies(

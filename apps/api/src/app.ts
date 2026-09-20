@@ -1,3 +1,4 @@
+import { refreshModulePolicies } from "@suite/server-core/governance/module-policy-refresh";
 import { assertModuleStorage } from "@suite/server-core/persistence/module-storage";
 import { businessQuery } from "./business-queries";
 import { registerWorkspacePolicy } from "./workspace-policy";
@@ -651,14 +652,7 @@ export async function createApp(
           db,
           req.params.workspaceId,
           async (tx) => {
-            if (operation === "bootstrap")
-              await tx
-                .selectFrom("suite.workspace_policy")
-                .select("revision")
-                .where("workspace_id", "=", req.params.workspaceId)
-                .forShare()
-                .executeTakeFirst();
-            const ctx = await authorize(
+            let ctx = await authorize(
               tx,
               request.actor,
               req.params.workspaceId,
@@ -669,6 +663,22 @@ export async function createApp(
                 : options.permission,
               options.module,
             );
+            if (operation === "bootstrap") {
+              await refreshModulePolicies(tx, ctx);
+              await tx
+                .selectFrom("suite.workspace_policy")
+                .select("revision")
+                .where("workspace_id", "=", ctx.workspaceId)
+                .forShare()
+                .executeTakeFirst();
+              ctx = await authorize(
+                tx,
+                request.actor,
+                ctx.workspaceId,
+                request.id,
+                runtime,
+              );
+            }
             const execute = async () => {
               if (
                 options.hostStorageBridge !== false &&

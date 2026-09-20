@@ -2,6 +2,7 @@ import {
   organizationPolicy,
   policyModuleSourceResolver,
   currentPolicyModules,
+  modulePolicyIntents,
 } from "./module-policy";
 import { assignModules, reconcileModulePolicies } from "./module-assignments";
 export { assignModules } from "./module-assignments";
@@ -198,42 +199,43 @@ export async function listMembers(tx: Tx, ctx: Context) {
     policy,
   );
   return Promise.all(
-    members.map(async (m) => ({
-      id: m.id,
-      userId: m.user_id,
-      name: m.name,
-      email: m.email,
-      active: m.active,
-      roles: assignments
-        .filter((a) => a.membership_id === m.id)
-        .map(({ id, name, permissions, protected: protectedRole }) => ({
-          id,
-          name,
-          permissions,
-          protected: protectedRole,
-        })),
-      modules: modules
-        .filter((a) => a.membership_id === m.id)
-        .map((a) => a.module_id),
-      modulePolicies: Object.entries(
-        await sources(
-          assignments.filter((a) => a.membership_id === m.id).map((a) => a.id),
+    members.map(async (member) => {
+      const roles = assignments.filter((a) => a.membership_id === member.id);
+      const policySources = await sources(roles.map((a) => a.id));
+      const assigned = modules.filter(
+        (a) =>
+          a.membership_id === member.id &&
+          (a.direct || Object.hasOwn(policySources, a.module_id)),
+      );
+      return {
+        id: member.id,
+        userId: member.user_id,
+        name: member.name,
+        email: member.email,
+        active: member.active,
+        roles: roles.map(
+          ({ id, name, permissions, protected: protectedRole }) => ({
+            id,
+            name,
+            permissions,
+            protected: protectedRole,
+          }),
         ),
-      ).map(([moduleId, sources]) => ({
-        moduleId,
-        sources,
-        assigned:
-          m.active &&
-          modules.some(
-            (a) => a.membership_id === m.id && a.module_id === moduleId,
-          ),
-      })),
-      directModules: modules
-        .filter((a) => a.membership_id === m.id && a.direct)
-        .map((a) => a.module_id),
-    })),
+        modules: assigned.map((a) => a.module_id),
+        modulePolicies: Object.entries(policySources).map(
+          ([moduleId, sources]) => ({
+            moduleId,
+            sources,
+            assigned:
+              member.active && assigned.some((a) => a.module_id === moduleId),
+          }),
+        ),
+        directModules: assigned.filter((a) => a.direct).map((a) => a.module_id),
+      };
+    }),
   );
 }
+
 export async function editMember(
   tx: Tx,
   ctx: Context,
@@ -254,6 +256,7 @@ export async function editMember(
     ctx.runtime,
     "members.manage",
   );
+  const previousModuleIntents = await modulePolicyIntents(tx, ctx.workspaceId);
   const member = found(
     await tx
       .selectFrom("suite.memberships")
@@ -388,6 +391,7 @@ export async function editMember(
     id,
     input.active ? direct : [],
     ctx.runtime.catalog,
+    previousModuleIntents,
   );
   await audit(
     tx,
@@ -648,6 +652,7 @@ export async function acceptInvitation(
       "There are no available company seats. Ask the owner to add a seat.",
     );
   }
+  const previousModuleIntents = await modulePolicyIntents(tx, ctx.workspaceId);
   const membershipId = member?.id ?? randomUUID();
   if (member)
     await tx
@@ -679,7 +684,13 @@ export async function acceptInvitation(
     })
     .execute();
   // Existing group/tag policies apply to the accepted role under the same seat checks.
-  await reconcileModulePolicies(tx, ctx.workspaceId, ctx.runtime.catalog);
+  await reconcileModulePolicies(
+    tx,
+    ctx.workspaceId,
+    ctx.runtime.catalog,
+    "strict",
+    previousModuleIntents,
+  );
   await tx
     .updateTable("suite.invitations")
     .set({ state: "accepted" })
