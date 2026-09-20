@@ -1,11 +1,11 @@
+import { OrganizationRoles } from "./organization/roles";
+import { OrganizationChart } from "./organization/chart";
+import { OrganizationMatrix } from "./organization/matrix";
 import { OrganizationGroups } from "./organization/groups";
 import { OrganizationTags } from "./organization/tags";
 import "./organization/classification.css";
-import { PermissionOrigin } from "./permission-origin";
-import { PermissionDecision } from "./permission-decision";
 import { type FeatureProps } from "@suite/client";
 import {
-  effectivePermissions,
   layoutOrganization,
   validateOrganization,
   type OrganizationPolicy,
@@ -20,13 +20,10 @@ import {
   Loading,
   Modal,
   PageHeading,
-  Select,
-  SelectOption,
   SearchSelect,
-  Table,
 } from "@suite/ui-web";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./module-lifecycle";
@@ -57,9 +54,7 @@ export function Organization(props: FeatureProps) {
     [newRole, setNewRole] = useState(""),
     [classificationFilter, setClassificationFilter] = useState(""),
     [filter, setFilter] = useState(searchParams.get("module") ?? "");
-  const svg = useRef<SVGSVGElement>(null);
   const matchDescription = useId();
-  const dragging = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (state.data?.organization && !dirty) {
       setPolicy(state.data.organization);
@@ -98,9 +93,6 @@ export function Organization(props: FeatureProps) {
     policy.ranks
       .filter((r) => classification?.rankIds.includes(r.id))
       .map((r) => r.id),
-  );
-  const grantMap = Object.fromEntries(
-    state.data.roles.map((r) => [r.id, r.permissions]),
   );
   const policyPermissions = [
     ...new Set([
@@ -248,117 +240,14 @@ export function Organization(props: FeatureProps) {
           Matches the chart classification filter.
         </span>
       </section>
-      <div className="organization-canvas">
-        <svg
-          ref={svg}
-          viewBox={`0 0 ${1000 / zoom} ${500 / zoom}`}
-          role="group"
-          aria-roledescription="Organization chart"
-          aria-label="Organization hierarchy"
-          onPointerMove={(e) => {
-            if (!dragging.current || !svg.current) return;
-            const rect = svg.current.getBoundingClientRect();
-            const x =
-                Math.round(
-                  (((e.clientX - rect.left) / rect.width) * (1000 / zoom) -
-                    80) /
-                    10,
-                ) * 10,
-              y =
-                Math.round(
-                  (((e.clientY - rect.top) / rect.height) * (500 / zoom) - 25) /
-                    10,
-                ) * 10;
-            const id = dragging.current;
-            update((p) => ({
-              ...p,
-              ranks: p.ranks.map((r) =>
-                r.id === id
-                  ? { ...r, x: Math.max(0, x), y: Math.max(0, y) }
-                  : r,
-              ),
-            }));
-          }}
-          onPointerUp={() => {
-            dragging.current = undefined;
-          }}
-        >
-          {policy.ranks.flatMap((r) =>
-            r.parents.map((id) => {
-              const p = policy.ranks.find((n) => n.id === id);
-              return p ? (
-                <path
-                  key={`${id}/${r.id}`}
-                  d={`M${p.x + 80},${p.y + 50} L${r.x + 80},${r.y}`}
-                  fill="none"
-                  stroke="currentColor"
-                />
-              ) : null;
-            }),
-          )}
-          {policy.ranks.map((r) => (
-            <g
-              key={r.id}
-              role="button"
-              tabIndex={0}
-              aria-label={`Configure ${r.name}`}
-              aria-describedby={
-                matchingRanks.has(r.id) ? matchDescription : undefined
-              }
-              data-classification-match={matchingRanks.has(r.id) || undefined}
-              transform={`translate(${r.x},${r.y})`}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSelected(r.id);
-                }
-              }}
-              onClick={() => setSelected(r.id)}
-              onPointerDown={(e) => {
-                dragging.current = r.id;
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-            >
-              <rect
-                width="160"
-                height="50"
-                rx="8"
-                fill="var(--surface)"
-                stroke="currentColor"
-              />
-              <text x="10" y="30" fill="currentColor">
-                {r.name.slice(0, 20)}
-              </text>
-              {matchingRanks.has(r.id) && (
-                <circle
-                  cx="146"
-                  cy="11"
-                  r="3"
-                  fill="currentColor"
-                  aria-hidden="true"
-                />
-              )}
-            </g>
-          ))}
-        </svg>
-        <svg
-          className="organization-minimap"
-          viewBox="0 0 1000 500"
-          aria-label="Organization overview"
-        >
-          {policy.ranks.map((r) => (
-            <rect
-              key={r.id}
-              x={r.x}
-              y={r.y}
-              width="160"
-              height="50"
-              fill="currentColor"
-              data-classification-match={matchingRanks.has(r.id) || undefined}
-            />
-          ))}
-        </svg>
-      </div>
+      <OrganizationChart
+        policy={policy}
+        zoom={zoom}
+        matchingRanks={matchingRanks}
+        matchDescription={matchDescription}
+        onSelect={setSelected}
+        onChange={(value) => update(() => value)}
+      />
       <OrganizationGroups
         policy={policy}
         modules={state.data.modules}
@@ -379,128 +268,18 @@ export function Organization(props: FeatureProps) {
         disabled={busy}
         onChange={(value) => update(() => value)}
       />
-      <section className="panel organization-section permission-section">
-        <h2>Permission matrix</h2>
-        <p>Review each role’s access and where its permissions come from.</p>
-        <Field label="Module">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectOption value="">All modules</SelectOption>
-            {[
-              ...state.data.modules,
-              ...(state.data.unavailableModules ?? []).map((m) => ({
-                id: m.moduleId,
-                name: m.name,
-              })),
-            ].map((m) => (
-              <SelectOption value={m.id} key={m.id}>
-                {m.name}
-              </SelectOption>
-            ))}
-          </Select>
-        </Field>
-        <div
-          className="table-scroll permission-scroll"
-          tabIndex={0}
-          role="region"
-          aria-label="Permission matrix"
-        >
-          <Table className="module-table">
-            <thead>
-              <tr>
-                <th>Permission</th>
-                {state.data.roles.map((r) => (
-                  <th key={r.id}>{r.name}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {permissions.map((permission) => (
-                <tr key={permission}>
-                  <th scope="row">
-                    <span className="permission-name">
-                      {permission
-                        .split(".")
-                        .map((part) => part.replaceAll("_", " "))
-                        .join(" / ")}
-                    </span>
-                    <PermissionOrigin
-                      entries={state.data.permissionCatalog?.filter(
-                        (entry) => entry.permission === permission,
-                      )}
-                    />
-                  </th>
-                  {state.data.roles.map((role) => {
-                    let result;
-                    try {
-                      result = effectivePermissions(
-                        [role.id],
-                        grantMap,
-                        policy,
-                      );
-                    } catch {}
-                    const source = result?.sources[permission];
-                    return (
-                      <td key={role.id}>
-                        <Checkbox
-                          aria-label={`${role.name}: ${permission}`}
-                          checked={role.permissions.includes(permission)}
-                          disabled={role.protected || busy}
-                          onCheckedChange={async (checked) => {
-                            setBusy(true);
-                            try {
-                              await props.client.request({
-                                operation: "roleEdit",
-                                params: {
-                                  workspaceId: props.scope.workspaceId,
-                                  id: role.id,
-                                },
-                                body: {
-                                  name: role.name,
-                                  permissions: checked
-                                    ? [...role.permissions, permission]
-                                    : role.permissions.filter(
-                                        (p) => p !== permission,
-                                      ),
-                                },
-                              });
-                              await state.refetch();
-                            } catch (e) {
-                              setError(e);
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        />
-                        <PermissionDecision
-                          decision={
-                            result && {
-                              allowed: result.permissions.includes(permission),
-                              grants: (source?.grants ?? []).map(
-                                (id) =>
-                                  policy.ranks.find((r) => r.id === id)?.name ??
-                                  state.data.roles.find((r) => r.id === id)
-                                    ?.name ??
-                                  id,
-                              ),
-                              denies: (source?.denies ?? []).map(
-                                (id) =>
-                                  policy.ranks.find((r) => r.id === id)?.name ??
-                                  state.data.roles.find((r) => r.id === id)
-                                    ?.name ??
-                                  id,
-                              ),
-                            }
-                          }
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        </div>
-      </section>
+      <OrganizationMatrix
+        props={props}
+        policy={policy}
+        state={state.data}
+        permissions={permissions}
+        filter={filter}
+        setFilter={setFilter}
+        busy={busy}
+        setBusy={setBusy}
+        onError={setError}
+        refresh={state.refetch}
+      />
       <Modal
         open={!!rank}
         onOpenChange={(v) => {
@@ -527,33 +306,21 @@ export function Organization(props: FeatureProps) {
                   />
                 </Field>
                 <h3>Parents</h3>
-                {policy.ranks
-                  .filter((r) => r.id !== rank.id)
-                  .map((parent) => (
-                    <label key={parent.id} className="check-row">
-                      <Checkbox
-                        checked={rank.parents.includes(parent.id)}
-                        onCheckedChange={(checked) =>
-                          update((p) => ({
-                            ...p,
-                            ranks: p.ranks.map((r) =>
-                              r.id === rank.id
-                                ? {
-                                    ...r,
-                                    parents: checked
-                                      ? [...r.parents, parent.id]
-                                      : r.parents.filter(
-                                          (id) => id !== parent.id,
-                                        ),
-                                  }
-                                : r,
-                            ),
-                          }))
-                        }
-                      />
-                      {parent.name}
-                    </label>
-                  ))}
+                <OrganizationRoles
+                  key={rank.id}
+                  roles={policy.ranks.filter((item) => item.id !== rank.id)}
+                  selected={rank.parents}
+                  searchLabel="Search parent roles"
+                  disabled={busy}
+                  onChange={(parents) =>
+                    update((p) => ({
+                      ...p,
+                      ranks: p.ranks.map((item) =>
+                        item.id === rank.id ? { ...item, parents } : item,
+                      ),
+                    }))
+                  }
+                />
                 <Field label="Explicit denials (comma separated)">
                   <Input
                     value={rank.denies.join(", ")}

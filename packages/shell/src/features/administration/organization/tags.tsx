@@ -1,3 +1,4 @@
+import { OrganizationRoles } from "./roles";
 import { PolicyPermissions } from "./permissions";
 import { PolicyModules } from "./modules";
 import { useRef, useState } from "react";
@@ -5,7 +6,7 @@ import type {
   OrganizationPolicy,
   PolicyTag,
 } from "@suite/module-sdk/governance";
-import { Button, Checkbox, Field, Input, SearchSelect } from "@suite/ui-web";
+import { Button, Field, Input, SearchSelect } from "@suite/ui-web";
 
 export function OrganizationTags({
   policy,
@@ -97,24 +98,14 @@ export function OrganizationTags({
           </Field>
           <fieldset className="form-stack">
             <legend>Tagged roles</legend>
-            <div className="module-toolbar">
-              {policy.ranks.map((rank) => (
-                <label key={rank.id} className="check-row">
-                  <Checkbox
-                    checked={tag.rankIds.includes(rank.id)}
-                    onCheckedChange={(checked) =>
-                      update({
-                        ...tag,
-                        rankIds: checked
-                          ? [...tag.rankIds, rank.id]
-                          : tag.rankIds.filter((id) => id !== rank.id),
-                      })
-                    }
-                  />
-                  {rank.name}
-                </label>
-              ))}
-            </div>
+            <OrganizationRoles
+              key={tag.id}
+              roles={policy.ranks}
+              selected={tag.rankIds}
+              disabled={disabled}
+              searchLabel="Search tag roles"
+              onChange={(rankIds) => update({ ...tag, rankIds })}
+            />
           </fieldset>
           <PolicyModules
             modules={modules}

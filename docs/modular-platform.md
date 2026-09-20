@@ -490,3 +490,10 @@ Persisted activations remain visible after registry metadata loss. Names use ver
 Member reads include a revision of editable access. `MemberEditSchema` requires that revision along with active status, roles and module selections; PATCH transport also requires an idempotency key. The server validates current authority under the workspace lock, rejects stale drafts with `MEMBER_CHANGED`, and commits accepted access, audit and receipt together. Accepted replay rechecks current authority after the receipt lock, retaining the same lock order as fresh execution.
 
 People keeps unsaved choices visible after a conflict. Reload current access explicitly replaces them with current assignments and restores keyboard focus. An unchanged retry after a lost response retains its key and cannot duplicate audit or revert a later edit. These are current host API requirements; clients must fetch a fresh member revision before starting a new edit. Existing unversioned calls fail validation. Schemas remain in contracts, transport in API, member governance in `server/governance/members.ts`, and draft presentation in the shell. See [acceptance and limits](verification/member-edits/README.md).
+
+
+### Large organization navigation
+
+The organization chart uses a navigable viewport and a complete-layout minimap. Find role in chart brings any role into view and focuses it for keyboard configuration. Arrow keys and background dragging pan; node dragging uses SVG coordinates; Fit chart covers the complete extent. Existing zoom and automatic layout remain available.
+
+The central matrix searches roles and displays eight role columns per page. It computes effective decisions once per visible role and policy snapshot with the shared SDK evaluator. A one-role result fits narrow screens. Group, tag and parent editors page twenty role choices and preserve off-page selections. These are rendering boundaries, not smaller policy limits; accepted organization schemas still allow 500 roles, 100 groups and 100 tags. See [combined acceptance and limits](verification/organization-scale/README.md).

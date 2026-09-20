@@ -2433,6 +2433,10 @@ legend {
   height: 400px;
   touch-action: none;
 }
+.organization-canvas > svg:first-child:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: -2px;
+}
 .organization-canvas > svg:first-child > path {
   stroke: var(--muted);
   stroke-opacity: 0.45;
@@ -2449,7 +2453,7 @@ legend {
 .organization-canvas g:focus rect {
   stroke: var(--muted);
 }
-.organization-canvas g:focus-visible {
+.organization-canvas g:focus {
   outline: none;
 }
 .organization-minimap {
@@ -2489,6 +2493,14 @@ legend {
 }
 .permission-scroll table {
   min-width: 720px;
+}
+.permission-scroll[data-role-count="1"] table {
+  min-width: 0;
+  table-layout: fixed;
+}
+.permission-scroll[data-role-count="1"] tbody th {
+  min-width: 0;
+  max-width: none;
 }
 .permission-scroll thead {
   position: sticky;

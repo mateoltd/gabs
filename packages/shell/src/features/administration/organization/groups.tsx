@@ -1,9 +1,10 @@
+import { OrganizationRoles } from "./roles";
 import { useRef, useState } from "react";
 import type {
   OrganizationPolicy,
   PolicyGroup,
 } from "@suite/module-sdk/governance";
-import { Button, Checkbox, Field, Input, SearchSelect } from "@suite/ui-web";
+import { Button, Field, Input, SearchSelect } from "@suite/ui-web";
 import { PolicyModules } from "./modules";
 import { PolicyPermissions } from "./permissions";
 
@@ -117,24 +118,14 @@ export function OrganizationGroups({
           </Field>
           <fieldset className="form-stack">
             <legend>Grouped roles</legend>
-            <div className="module-toolbar">
-              {policy.ranks.map((rank) => (
-                <label key={rank.id} className="check-row">
-                  <Checkbox
-                    checked={group.rankIds.includes(rank.id)}
-                    onCheckedChange={(checked) =>
-                      update({
-                        ...group,
-                        rankIds: checked
-                          ? [...group.rankIds, rank.id]
-                          : group.rankIds.filter((id) => id !== rank.id),
-                      })
-                    }
-                  />
-                  {rank.name}
-                </label>
-              ))}
-            </div>
+            <OrganizationRoles
+              key={group.id}
+              roles={policy.ranks}
+              selected={group.rankIds}
+              disabled={disabled}
+              searchLabel="Search group roles"
+              onChange={(rankIds) => update({ ...group, rankIds })}
+            />
           </fieldset>
           <PolicyModules
             modules={modules}
