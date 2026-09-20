@@ -1,4 +1,5 @@
 import { assertLocalVaultRequest } from "@suite/client/vault-protocol";
+import { ProtectedFiles } from "./identity/protected-files";
 import { NativeLocalUnlock } from "./identity/local-unlock";
 import { NativeProfileLock } from "./identity/profile-lock";
 import { NativeInputRecovery } from "./input-recovery";
@@ -49,9 +50,9 @@ import {
   autoUpdater,
   type IpcMainInvokeEvent,
 } from "electron";
-import { readFile, writeFile, rename, mkdir, rm, open } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm, open } from "node:fs/promises";
 import { mkdirSync, existsSync } from "node:fs";
-import { resolve, sep, dirname } from "node:path";
+import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { NativeCredentials } from "./identity/credentials";
 import { nativeLoginCallback } from "./identity/callback";
@@ -123,7 +124,7 @@ const credentials = new NativeCredentials({
   },
   remove: async () => {
     volatile.delete("credentials");
-    await rm(resolve(root(), "credentials.bin"), { force: true });
+    await protectedFiles.remove("credentials");
   },
   renew: async (token) => oidc.refreshTokenGrant(await client(), token),
 });
@@ -170,8 +171,7 @@ const profileLock = new NativeProfileLock({
         "Protected storage is unavailable. Device unlock was not changed.",
       );
     const key = unlockKey(account);
-    if (value === undefined)
-      await rm(resolve(root(), key + ".bin"), { force: true });
+    if (value === undefined) await protectedFiles.remove(key);
     else if (!(await writeSecure(key, value)))
       throw Error("Device unlock settings could not be saved.");
   },
@@ -209,6 +209,11 @@ const secureAvailable = () =>
   (process.platform !== "linux" ||
     safeStorage.getSelectedStorageBackend() !== "basic_text");
 const root = () => resolve(app.getPath("userData"), "secure-cache");
+const protectedFiles = new ProtectedFiles(root, {
+  available: secureAvailable,
+  encrypt: (value) => safeStorage.encryptStringAsync(value),
+  decrypt: (value) => safeStorage.decryptStringAsync(value),
+});
 const lanConfigured = (scope?: Scope) =>
   !!(
     process.env.SUITE_LAN_CERT &&
@@ -425,13 +430,7 @@ async function writeSecure(key: string, value: unknown) {
     await cacheWrite(key, value);
     return true;
   }
-  const path = resolve(root(), key + ".bin");
-  if (!path.startsWith(root() + sep)) throw Error("Invalid storage key");
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const encrypted = await safeStorage.encryptStringAsync(JSON.stringify(value));
-  const temp = path + "." + randomUUID() + ".tmp";
-  await writeFile(temp, encrypted, { mode: 0o600 });
-  await rename(temp, path);
+  await protectedFiles.write(key, value);
   return true;
 }
 async function readSecure<T>(key: string): Promise<T | undefined> {
@@ -440,16 +439,11 @@ async function readSecure<T>(key: string): Promise<T | undefined> {
     await ensureCache();
     const value = await cacheRead(key);
     if (value !== undefined) return value as T;
+    // Legacy per-workspace files are read-only fallback. A read must not recreate
+    // a scoped file while workspace removal retires that directory.
+    return protectedFiles.read<T>(key, { renew: false });
   }
-  try {
-    const result = await safeStorage.decryptStringAsync(
-      await readFile(resolve(root(), key + ".bin")),
-    );
-    return JSON.parse(result.result) as T;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw Error("Protected storage could not be unlocked. Sign in again.");
-  }
+  return protectedFiles.read<T>(key);
 }
 const authorityHost: ConstructorParameters<
   typeof NativeCapabilityAuthority
@@ -739,7 +733,7 @@ async function login(options: LoginOptions, signal: AbortSignal) {
     await credentials.clear();
     if (previousUser)
       await writeSecure(`${previousUser}/account-revision`, randomUUID());
-    await rm(resolve(root(), "identity.bin"), { force: true });
+    await protectedFiles.remove("identity");
     signal.throwIfAborted();
     if (devAuth) {
       const result = await fetch(config.apiOrigin + "/auth/development", {
@@ -1245,7 +1239,7 @@ function handlers() {
       } finally {
         // Session removal is separate from the encrypted account's business data.
         await clearingCredentials;
-        await rm(resolve(root(), "identity.bin"), { force: true });
+        await protectedFiles.remove("identity");
         volatile.clear();
       }
       if (token && config.issuer)
@@ -1349,7 +1343,7 @@ function handlers() {
           throw Error("Invalid profile");
         await writeSecure("identity", identity);
       } else {
-        await rm(resolve(root(), "identity.bin"), { force: true });
+        await protectedFiles.remove("identity");
         volatile.delete("identity");
       }
     },

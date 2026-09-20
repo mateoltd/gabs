@@ -978,3 +978,10 @@ Checkpoint `1522b55` preserves unfinished profile and collision work. The reques
 ## 20 September 2026: native vault custody and architecture review
 
 [ID-03-LOCAL evidence](native-vaults/README.md) records the requested checkpoint/Sol xhigh/parent-review workflow, utility-owned encrypted standalone storage and safe legacy migration. Reviewed session identities close delayed-unlock and process-exit gaps. Verification includes 28 focused checks, 744 unit/PostgreSQL tests, strict checks/four fresh builds, eight headless browser journeys and six minimized native passes. Actual protected-key providers, physical biometrics, durable key rotation and lost-key recovery remain required. No full-parity or final UI-approval claim is made.
+
+
+## 20 September 2026: protected file durability and provider renewal
+
+[ID-03-WRAP evidence](protected-key-renewal/README.md) covers durable ciphertext replacement/deletion and serialized OS-envelope renewal. Four minimized native journeys pass, including real standalone data through two provider generations and old-key retirement using a controlled provider. The evidence distinguishes this from database master-key rotation, vault-contained quick-unlock renewal, backup/lost-key recovery and actual OS-provider acceptance. No UI layout or renderer capability changed; the broader parity goal remains active.
+
+Final verification for this slice passed 18 focused tests, 753 unit/PostgreSQL tests across 112 files, strict checks and four fresh application builds. The final deletion-flush retry correction is included in those results. Disposable databases were removed; changed-source formatting, links and original requirement mappings pass.
