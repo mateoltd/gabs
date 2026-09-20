@@ -204,4 +204,5 @@ export async function openManagedStorage(options: {
       active: record.active,
     } satisfies StorageKeyRecord);
   }
+  return { path: pathFor(root, record.active), secret: record.active.secret };
 }

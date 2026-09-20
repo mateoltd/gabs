@@ -1,3 +1,4 @@
+import { stageLocalBackup, type LocalBackupSource } from "./storage/backup";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { NativeVaultSessions } from "./storage/vault-sessions";
 import { localVaultStore, importLocalVaults } from "./storage/local-vaults";
@@ -133,6 +134,7 @@ process.parentPort.on("message", async (event) => {
     path?: string;
     secret?: string;
     rotation?: StorageRotationSource;
+    backup?: LocalBackupSource;
     verify?: boolean;
     key?: string;
     value?: unknown;
@@ -154,6 +156,24 @@ process.parentPort.on("message", async (event) => {
         throw Error("Invalid storage session.");
       key = Buffer.from(message.secret!, "base64");
       if (key.length !== 32) throw Error("Invalid storage key.");
+      if (message.backup) {
+        if (message.rotation) throw Error("Choose one storage copy operation.");
+        const sourceKey = Buffer.from(message.backup.sourceSecret, "base64");
+        try {
+          stageLocalBackup(
+            message.backup.sourcePath,
+            sourceKey,
+            message.path!,
+            key,
+          );
+        } finally {
+          sourceKey.fill(0);
+        }
+        // Snapshot maintenance leaves the file closed. Do not reopen it in WAL mode or
+        // initialize ordinary vault sessions before main streams the completed snapshot.
+        process.parentPort.postMessage({ id: message.id, value: true });
+        return;
+      }
       if (message.rotation) {
         const sourceKey = Buffer.from(message.rotation.sourceSecret, "base64");
         try {

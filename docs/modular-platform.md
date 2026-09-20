@@ -430,3 +430,8 @@ Main-process identity code owns credentials, sign-in requests and the registered
 ## Desktop database key maintenance
 
 Quit the desktop app and launch its executable with `--rotate-storage-key` to request a new database master key at the next protected-storage access. The utility stages and verifies a separate encrypted generation before main activates its OS-protected key record. Saved corporate operations, standalone vaults, migration receipts and other tables are retained; an interrupted rotation resumes without repeating the flag. This requires enough free space for another encrypted database and SQLite journals. Older executables that cannot read the versioned key record are incompatible after upgrade. Do not edit or rename storage/key files to downgrade. See the [rotation procedure, recovery states and acceptance limits](verification/storage-rotation/README.md). Lost-key and cross-device backup recovery remain unfinished ID-03 work.
+
+
+## Local-profile backup maintenance
+
+The desktop executable accepts `--backup-local-profiles=<new-file>` after all running instances are closed. Supply the backup passphrase through standard input. This creates a portable encrypted archive of standalone profiles, excluding corporate caches and device unlock wrappers. The archive retains the profiles' original passphrase protection. The [procedure and acceptance limits](verification/local-profile-backup/README.md) distinguish verified archive creation/extraction from unfinished product restore activation and corporate recovery. No supported restore command or restore UI is available yet.

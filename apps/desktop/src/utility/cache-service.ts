@@ -1,3 +1,4 @@
+import type { LocalBackupSource } from "./storage/backup";
 import type { StorageRotationSource } from "./storage/rotation";
 import { once } from "node:events";
 import type { LocalUnlockProtection } from "@suite/client/vault-engine";
@@ -48,6 +49,24 @@ export function openCache(
   secret: string,
   rotation?: StorageRotationSource,
   verify = false,
+) {
+  return openWorker(path, secret, { rotation, verify });
+}
+export function openLocalBackup(
+  path: string,
+  secret: string,
+  backup: LocalBackupSource,
+) {
+  return openWorker(path, secret, { backup });
+}
+function openWorker(
+  path: string,
+  secret: string,
+  options: {
+    rotation?: StorageRotationSource;
+    backup?: LocalBackupSource;
+    verify?: boolean;
+  },
 ) {
   return (ready ??= (async () => {
     const session = randomUUID();
@@ -144,7 +163,7 @@ export function openCache(
       ready = undefined;
     });
     try {
-      await send("open", { path, secret, session, rotation, verify });
+      await send("open", { path, secret, session, ...options });
     } catch (error) {
       if (worker === target) await closeCache();
       throw error;

@@ -1,3 +1,5 @@
+import { createLocalBackup } from "./storage/backup";
+import { readBackupPassphrase } from "./storage/passphrase";
 import { assertLocalVaultRequest } from "@suite/client/vault-protocol";
 import { openManagedStorage } from "./identity/storage-key";
 import { ProtectedFiles } from "./identity/protected-files";
@@ -24,6 +26,7 @@ import { registerLanRecovery } from "./lan/ipc";
 import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
+  openLocalBackup,
   closeCache,
   setVaultHost,
   cacheVaultRequest,
@@ -1413,10 +1416,48 @@ async function start() {
     app.setPath("userData", profile);
   }
   if (!app.requestSingleInstanceLock()) {
-    app.quit();
+    if (app.commandLine.hasSwitch("backup-local-profiles")) {
+      process.stderr.write(
+        "Quit the running application before creating a local profile backup.\n",
+      );
+      app.exit(1);
+    } else app.quit();
     return;
   }
   await app.whenReady();
+  if (app.commandLine.hasSwitch("backup-local-profiles")) {
+    app.dock?.hide();
+    try {
+      if (app.commandLine.hasSwitch("rotate-storage-key"))
+        throw Error(
+          "Run local backup and key rotation as separate maintenance operations.",
+        );
+      const destination = app.commandLine.getSwitchValue(
+        "backup-local-profiles",
+      );
+      if (!destination)
+        throw Error("Specify a destination file for --backup-local-profiles.");
+      const passphrase = await readBackupPassphrase(process.stdin);
+      await createLocalBackup({
+        root: root(),
+        files: protectedFiles,
+        open: openCache,
+        close: closeCache,
+        snapshot: openLocalBackup,
+        destination,
+        passphrase,
+      });
+      process.stdout.write("Encrypted local profile backup saved.\n");
+      app.exit(0);
+    } catch {
+      // Provider/filesystem errors can embed paths or data; retain a fixed, non-secret CLI error.
+      process.stderr.write(
+        "Local profile backup failed. Check the destination, protected storage and piped passphrase. Existing data was retained.\n",
+      );
+      app.exit(1);
+    }
+    return;
+  }
   if (app.isPackaged && !config.apiOrigin.startsWith("https://")) {
     await dialog.showMessageBox({
       type: "error",
@@ -1534,7 +1575,15 @@ async function start() {
     void win.loadURL("suite://app/index.html");
   };
   createWindow();
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, args) => {
+    if (
+      args.some(
+        (arg) =>
+          arg === "--backup-local-profiles" ||
+          arg.startsWith("--backup-local-profiles="),
+      )
+    )
+      return;
     if (!minimizedTest) {
       win?.show();
       win?.focus();
