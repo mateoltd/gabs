@@ -49,6 +49,6 @@ Earlier failed native attempts exposed a development-session restart assumption,
 ## Required continuation
 
 1. Verify advanced imported collision/continuation graphs and source-schema/target transitions with explicit fresh choices. Missing dependencies must stay visible and held; copying a review does not authorize a new business effect.
-2. Add a complete actual UI export-to-import portability journey. Current product fixtures supply schema-valid recovery files; they do not prove cross-device export portability.
+2. [Actual export-to-import portability](../corporate-work-portability/README.md) now passes all browser/desktop directions for ordinary drafts and queued create requests using independent destination stores and exact UI-exported files. Extend that evidence to advanced saved reviews and broader archive recovery; physical providers remain separate gates.
 3. Extend real interface acceptance to delayed denial during restoration, profile/sign-out/expiry transitions, process death during promotion and loss of the old native corporate key. Unit-level races and exact server retries do not establish all these interface gates.
 4. Complete larger encrypted corporate backup/import, current authority after device recovery and the broader ID-03/provider/platform gates. The standalone archive intentionally excludes corporate cache and credentials. Live provider MFA, actual OS protection and signed/installed target-platform acceptance remain open.
