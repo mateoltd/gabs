@@ -5,7 +5,7 @@ import {
   PLATFORM_PERMISSIONS,
   type MemberSchema,
   type Permission,
-  type RoleSchema,
+  type RoleDetailsSchema,
   type Static,
 } from "@suite/contracts";
 import {
@@ -32,11 +32,11 @@ import {
 } from "@suite/ui-web";
 import { ArrowRight, Plus, Shield, UserPlus } from "@suite/ui-web/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./platform-admin";
 type Member = Static<typeof MemberSchema>;
-type Role = Static<typeof RoleSchema>;
+type Role = Static<typeof RoleDetailsSchema>;
 const permissionLabels: Record<Permission, string> = {
   "workspace.manage": "Manage workspace settings",
   "members.manage": "Manage members",
@@ -83,6 +83,16 @@ export function People(props: FeatureProps) {
     [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
   const memberAttempt = useRef<string | undefined>(undefined);
+  const roleNameInput = useRef<HTMLInputElement>(null);
+  const restoreRoleFocus = useRef(false);
+  useEffect(() => {
+    if (!busy && restoreRoleFocus.current) {
+      restoreRoleFocus.current = false;
+      roleNameInput.current?.focus();
+    }
+  }, [busy]);
+  const roleConflict =
+    error instanceof ApiError && error.code === "ROLE_CHANGED";
   const firstMemberRole = useRef<HTMLSpanElement>(null);
   const memberConflict =
     error instanceof ApiError && error.code === "MEMBER_CHANGED";
@@ -132,7 +142,11 @@ export function People(props: FeatureProps) {
           ? new Error(uncertainMessage)
           : cause;
       setError(e);
-      if (!(e instanceof ApiError && e.code === "MEMBER_CHANGED")) onError(e);
+      if (!(
+        e instanceof ApiError &&
+        ["MEMBER_CHANGED", "ROLE_CHANGED"].includes(e.code)
+      ))
+        onError(e);
     } finally {
       setBusy(false);
     }
@@ -506,6 +520,7 @@ export function People(props: FeatureProps) {
                       variant="ghost"
                       onClick={() => {
                         setRole(r);
+                        setAttempt(crypto.randomUUID());
                         setRoleName(r.name);
                         setPermissions(r.permissions);
                         setError(undefined);
@@ -812,6 +827,13 @@ export function People(props: FeatureProps) {
           className="form-stack"
           onSubmit={(e) => {
             e.preventDefault();
+            if (
+              busy ||
+              roleConflict ||
+              !role ||
+              (role !== "new" && role.protected)
+            )
+              return;
             void act(
               () =>
                 role === "new"
@@ -823,19 +845,26 @@ export function People(props: FeatureProps) {
                     })
                   : client.request({
                       operation: "roleEdit",
-                      params: { ...params, id: (role as Role).id },
-                      body: { name: roleName, permissions },
+                      params: { ...params, id: role.id },
+                      body: {
+                        name: roleName,
+                        permissions,
+                        revision: role.revision,
+                      },
+                      idempotencyKey: attempt,
                     }),
               () => setRole(null),
+              "The role update could not be confirmed. Retry without changing your choices to check its saved result.",
             );
           }}
         >
           <Field label="Role name">
             <Input
+              ref={roleNameInput}
               required
               maxLength={60}
               value={roleName}
-              disabled={role !== "new" && !!role?.protected}
+              disabled={busy || (role !== "new" && !!role?.protected)}
               onChange={(e) => {
                 setRoleName(e.target.value);
                 setAttempt(crypto.randomUUID());
@@ -867,7 +896,7 @@ export function People(props: FeatureProps) {
                         : undefined
                     }
                     checked={permissions.includes(p)}
-                    disabled={role !== "new" && !!role?.protected}
+                    disabled={busy || (role !== "new" && !!role?.protected)}
                     onCheckedChange={(e) => {
                       setPermissions(
                         e
@@ -888,12 +917,46 @@ export function People(props: FeatureProps) {
               </div>
             ))}
           </fieldset>
-          <ErrorMessage error={error} />
+          <ErrorMessage error={roleConflict ? undefined : error} />
+          {roleConflict && role && role !== "new" && (
+            <section aria-label="Changed role permissions" className="notice">
+              <p role="alert">
+                This role changed. Your unsaved choices are still shown. Reload
+                replaces them with current permissions for review.
+              </p>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void act(async () => {
+                    const current = await client.request({
+                      operation: "roles",
+                      params,
+                    });
+                    const latest = current.find((item) => item.id === role.id);
+                    if (!latest)
+                      throw new Error("This role is no longer available.");
+                    setRole(latest);
+                    setRoleName(latest.name);
+                    setPermissions(latest.permissions);
+                    setAttempt(crypto.randomUUID());
+                    restoreRoleFocus.current = true;
+                  })
+                }
+              >
+                Reload current permissions
+              </Button>
+            </section>
+          )}
           {(role === "new" || !role?.protected) && (
             <div className="form-footer">
               <Button
                 variant="primary"
-                disabled={busy || moduleState.isPending || !!moduleState.error}
+                disabled={
+                  busy ||
+                  roleConflict ||
+                  moduleState.isPending ||
+                  !!moduleState.error
+                }
                 type="submit"
               >
                 Save role

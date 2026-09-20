@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { ApiError } from "@suite/client/api";
+import { PLATFORM_PERMISSIONS, type RoleEdit } from "@suite/contracts";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeatureProps } from "@suite/client";
 import {
   effectivePermissions,
@@ -6,6 +8,8 @@ import {
 } from "@suite/module-sdk/governance";
 import type { PlatformState } from "@suite/module-sdk/platform";
 import {
+  Button,
+  ErrorMessage,
   Checkbox,
   Field,
   Select,
@@ -40,8 +44,64 @@ export function OrganizationMatrix({
   busy: boolean;
   setBusy(value: boolean): void;
   onError(error: unknown): void;
-  refresh(): Promise<unknown>;
+  refresh(): Promise<{ error: unknown }>;
 }) {
+  const [pending, setPending] = useState<{
+    id: string;
+    body: RoleEdit;
+    key: string;
+    error?: unknown;
+  }>();
+  const matrix = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (!busy && !pending && restoreFocus.current) {
+      restoreFocus.current = false;
+      matrix.current?.focus();
+    }
+  }, [busy, pending]);
+  const conflict =
+    pending?.error instanceof ApiError && pending.error.code === "ROLE_CHANGED";
+  const apply = async (attempt: NonNullable<typeof pending>) => {
+    setBusy(true);
+    setPending(attempt);
+    try {
+      await props.client.request({
+        operation: "roleEdit",
+        params: { workspaceId: props.scope.workspaceId, id: attempt.id },
+        body: attempt.body,
+        idempotencyKey: attempt.key,
+      });
+    } catch (cause) {
+      setPending({
+        ...attempt,
+        error:
+          cause instanceof ApiError
+            ? cause
+            : new Error(
+                "The permission change could not be confirmed. Retry to check its saved result.",
+              ),
+      });
+      setBusy(false);
+      return;
+    }
+    setPending(undefined);
+    try {
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const reload = async () => {
+    try {
+      const result = await refresh();
+      if (result.error) throw result.error;
+      restoreFocus.current = !!pending;
+      setPending(undefined);
+    } catch (error) {
+      onError(error);
+    }
+  };
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const filteredRoles = useMemo(
@@ -79,6 +139,37 @@ export function OrganizationMatrix({
     <section className="panel organization-section permission-section">
       <h2>Permission matrix</h2>
       <p>Review each role’s access and where its permissions come from.</p>
+      {pending?.error !== undefined && (
+        <section aria-label="Permission change review" className="notice">
+          {conflict ? (
+            <p role="alert">
+              This role changed. Reload current roles before reviewing the
+              permission again.
+            </p>
+          ) : (
+            <ErrorMessage error={pending.error} />
+          )}
+          <p>{pending.body.name}</p>
+          {!conflict && (
+            <Button disabled={busy} onClick={() => void apply(pending)}>
+              Retry permission change
+            </Button>
+          )}
+          <Button
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await reload();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Reload current roles
+          </Button>
+        </section>
+      )}
       <Field label="Module">
         <Select value={filter} onValueChange={setFilter}>
           <SelectOption value="">All modules</SelectOption>
@@ -118,6 +209,7 @@ export function OrganizationMatrix({
         />
       )}
       <div
+        ref={matrix}
         className="table-scroll permission-scroll"
         data-role-count={visibleRoles.length}
         tabIndex={0}
@@ -157,32 +249,29 @@ export function OrganizationMatrix({
                       <Checkbox
                         aria-label={`${role.name}: ${permission}`}
                         checked={role.permissions.includes(permission)}
-                        disabled={role.protected || busy}
-                        onCheckedChange={async (checked) => {
-                          setBusy(true);
-                          try {
-                            await props.client.request({
-                              operation: "roleEdit",
-                              params: {
-                                workspaceId: props.scope.workspaceId,
-                                id: role.id,
-                              },
-                              body: {
-                                name: role.name,
-                                permissions: checked
-                                  ? [...role.permissions, permission]
-                                  : role.permissions.filter(
-                                      (p) => p !== permission,
-                                    ),
-                              },
-                            });
-                            await refresh();
-                          } catch (e) {
-                            onError(e);
-                          } finally {
-                            setBusy(false);
-                          }
-                        }}
+                        disabled={
+                          role.protected ||
+                          (PLATFORM_PERMISSIONS as readonly string[]).includes(
+                            permission,
+                          ) ||
+                          busy ||
+                          !!pending
+                        }
+                        onCheckedChange={(checked) =>
+                          void apply({
+                            id: role.id,
+                            key: crypto.randomUUID(),
+                            body: {
+                              revision: role.revision,
+                              name: role.name,
+                              permissions: checked
+                                ? [...role.permissions, permission]
+                                : role.permissions.filter(
+                                    (p) => p !== permission,
+                                  ),
+                            },
+                          })
+                        }
                       />
                       <PermissionDecision
                         decision={

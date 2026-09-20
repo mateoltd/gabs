@@ -98,7 +98,7 @@ export async function promotionRevocation(
       data: { name: roleName, permissions },
     });
     expect(created.ok(), await created.text()).toBe(true);
-    const role: Roles[number] = await created.json();
+    let role = (await created.json()) as Roles[number] & { revision: string };
 
     // Preserve a real unrelated local draft before changing the recovering actor's role.
     await page.getByRole("link", { name: "Projects", exact: true }).click();
@@ -166,6 +166,7 @@ export async function promotionRevocation(
       const denied = await admin.put(`${base}/roles/${role.id}`, {
         headers: { ...adminHeaders, "idempotency-key": randomUUID() },
         data: {
+          revision: role.revision,
           name: roleName,
           permissions: permissions.filter(
             (permission) => permission !== "contacts.contacts.write",
@@ -173,6 +174,7 @@ export async function promotionRevocation(
         },
       });
       expect(denied.ok(), await denied.text()).toBe(true);
+      role = await denied.json();
       await gate.release();
       await expect(refresh()).toBeEnabled();
       await expect(dialog().getByRole("alert").first()).toBeVisible();
@@ -211,7 +213,7 @@ export async function promotionRevocation(
     }
     const granted = await admin.put(`${base}/roles/${role.id}`, {
       headers: { ...adminHeaders, "idempotency-key": randomUUID() },
-      data: { name: roleName, permissions },
+      data: { name: roleName, permissions, revision: role.revision },
     });
     expect(granted.ok(), await granted.text()).toBe(true);
     await refresh().click();

@@ -15,3 +15,5 @@ export {
   workspaceDependencyIds,
   workspaceModule,
 } from "./registry/module-releases";
+
+export * from "./governance/roles";

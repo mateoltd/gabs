@@ -47,6 +47,7 @@ export interface PlatformState {
   }[];
   organization: (OrganizationPolicy & { version: number }) | null;
   roles: {
+    revision: string;
     id: string;
     name: string;
     permissions: string[];

@@ -53,6 +53,7 @@ import {
   listMembers,
   editMember,
   saveRole,
+  listRoles,
   createInvitation,
   acceptInvitation,
   revokeInvitation,
@@ -713,6 +714,7 @@ export async function createApp(
             if (
               op.method === "POST" ||
               operation === "memberEdit" ||
+              operation === "roleEdit" ||
               (op.method === "PUT" && req.headers["idempotency-key"])
             )
               return idempotent(
@@ -981,30 +983,22 @@ export async function createApp(
     handler: (tx, ctx, req) => editMember(tx, ctx, req.params.id, req.body),
   });
   route("roles", {
-    response: T.Array(S.RoleSchema),
+    response: T.Array(S.RoleDetailsSchema),
     permission: "roles.manage",
-    handler: (tx, ctx) =>
-      tx
-        .selectFrom("suite.roles")
-        .select(["id", "name", "permissions", "protected"])
-        .where("workspace_id", "=", ctx.workspaceId)
-        .orderBy("name")
-        .execute(),
+    handler: (tx, ctx) => listRoles(tx, ctx),
   });
-  const RoleInput = T.Object(
-    { name: S.Text(60), permissions: StringArray },
-    { additionalProperties: false },
-  );
   route("roleCreate", {
-    body: RoleInput,
-    response: S.RoleSchema,
+    body: S.RoleCreateSchema,
+    response: S.RoleDetailsSchema,
     permission: "roles.manage",
+    reauthorizeReplay: true,
     handler: (tx, ctx, req) => saveRole(tx, ctx, req.body),
   });
   route("roleEdit", {
-    body: RoleInput,
-    response: S.RoleSchema,
+    body: S.RoleEditSchema,
+    response: S.RoleDetailsSchema,
     permission: "roles.manage",
+    reauthorizeReplay: true,
     handler: (tx, ctx, req) => saveRole(tx, ctx, req.body, req.params.id),
   });
   route("invitations", {

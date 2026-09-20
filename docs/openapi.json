@@ -6555,7 +6555,8 @@
                       "id",
                       "name",
                       "permissions",
-                      "protected"
+                      "protected",
+                      "revision"
                     ],
                     "properties": {
                       "id": {
@@ -6573,6 +6574,10 @@
                       },
                       "protected": {
                         "type": "boolean"
+                      },
+                      "revision": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
                       }
                     }
                   }
@@ -6844,7 +6849,8 @@
                     "id",
                     "name",
                     "permissions",
-                    "protected"
+                    "protected",
+                    "revision"
                   ],
                   "properties": {
                     "id": {
@@ -6862,6 +6868,10 @@
                     },
                     "protected": {
                       "type": "boolean"
+                    },
+                    "revision": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
                     }
                   }
                 }
@@ -7065,7 +7075,8 @@
                 "type": "object",
                 "required": [
                   "name",
-                  "permissions"
+                  "permissions",
+                  "revision"
                 ],
                 "properties": {
                   "name": {
@@ -7080,6 +7091,10 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
                   }
                 }
               }
@@ -7134,7 +7149,8 @@
                     "id",
                     "name",
                     "permissions",
-                    "protected"
+                    "protected",
+                    "revision"
                   ],
                   "properties": {
                     "id": {
@@ -7152,6 +7168,10 @@
                     },
                     "protected": {
                       "type": "boolean"
+                    },
+                    "revision": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
                     }
                   }
                 }

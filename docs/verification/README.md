@@ -1285,3 +1285,8 @@ Final verification passes 27 focused tests, strict checks/four fresh builds, fiv
 ## Invitation governance and retry recovery, 21 September 2026
 
 [Invitation transition acceptance](invitation-transitions/README.md) records the requested checkpoint, Sol xhigh delegation and parent review. It covers competing responses/revocation, fresh administrator and ownership authority after transaction waits, verified-account boundaries, actual lost creation/revocation replies, exact retries and preserved replacement invitations. Final verification and inspected captures are linked in the evidence; broader GOV-01 and full parity remain open.
+
+
+## Role editing and concurrent permission changes, 21 September 2026
+
+[Role-edit acceptance](role-edits/README.md) covers canonical contracts, conflicting direct-grant changes, exact retries after committed replies are lost, current authority after receipt/workspace waits, explicit People and central-matrix review and keyboard recovery. Local checks and inspected images are recorded there. Invitation pagination, wider employee administration, actual providers/platforms and full parity remain open.

@@ -8,7 +8,6 @@ import { type Bootstrap } from "@suite/contracts";
 import {
   workspaceModule,
   workspaceDependencyIds,
-  workspaceBusinessPermissions,
   registeredModuleIds,
   isUnavailableRelease,
 } from "../registry/module-releases";
@@ -164,76 +163,6 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
           .executeTakeFirst()
       )?.revision ?? "0",
   };
-}
-export async function saveRole(
-  tx: Tx,
-  ctx: Context,
-  input: { name: string; permissions: string[] },
-  id?: string,
-) {
-  const permitted = await workspaceBusinessPermissions(
-    tx,
-    ctx.workspaceId,
-    ctx.runtime.catalog,
-  );
-  requireCondition(
-    input.permissions.every((p) => permitted.includes(p)),
-    400,
-    "INVALID_PERMISSION",
-    "Custom roles can grant registered business permissions only.",
-  );
-  requireCondition(
-    !["owner", "administrator"].includes(input.name.trim().toLowerCase()),
-    400,
-    "PROTECTED_ROLE",
-    "This role name is reserved.",
-  );
-  if (id) {
-    const role = found(
-      await tx
-        .selectFrom("suite.roles")
-        .selectAll()
-        .where("workspace_id", "=", ctx.workspaceId)
-        .where("id", "=", id)
-        .forUpdate()
-        .executeTakeFirst(),
-    );
-    requireCondition(
-      !role.protected,
-      403,
-      "PROTECTED_ROLE",
-      "Protected platform roles cannot be edited.",
-    );
-    await tx
-      .updateTable("suite.roles")
-      .set({
-        name: input.name.trim(),
-        permissions: [...new Set(input.permissions)],
-      })
-      .where("workspace_id", "=", ctx.workspaceId)
-      .where("id", "=", id)
-      .execute();
-  } else {
-    id = randomUUID();
-    await tx
-      .insertInto("suite.roles")
-      .values({
-        id,
-        workspace_id: ctx.workspaceId,
-        name: input.name.trim(),
-        permissions: [...new Set(input.permissions)],
-      })
-      .execute();
-  }
-  await audit(tx, ctx, "roles.saved", id);
-  return found(
-    await tx
-      .selectFrom("suite.roles")
-      .select(["id", "name", "permissions", "protected"])
-      .where("workspace_id", "=", ctx.workspaceId)
-      .where("id", "=", id)
-      .executeTakeFirst(),
-  );
 }
 export async function configureModule(
   tx: Tx,

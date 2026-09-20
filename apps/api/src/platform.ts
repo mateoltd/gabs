@@ -1,3 +1,4 @@
+import { roleSnapshot } from "@suite/server-core";
 import {
   organizationPolicy,
   modulePolicyIntents,
@@ -797,7 +798,9 @@ export async function registerPlatform(
           organization: ctx.permissions.includes("roles.manage")
             ? { ...policy, version: org?.version ?? 0 }
             : null,
-          roles: ctx.permissions.includes("roles.manage") ? roles : [],
+          roles: ctx.permissions.includes("roles.manage")
+            ? roles.map((role) => roleSnapshot(ctx.workspaceId, role))
+            : [],
           settings: settings.filter(
             (s) =>
               !s.key.startsWith("secret:") &&

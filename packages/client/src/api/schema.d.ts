@@ -3463,6 +3463,7 @@ export interface operations {
                         name: string;
                         permissions: string[];
                         protected: boolean;
+                        revision: string;
                     }[];
                 };
             };
@@ -3591,6 +3592,7 @@ export interface operations {
                         name: string;
                         permissions: string[];
                         protected: boolean;
+                        revision: string;
                     };
                 };
             };
@@ -3703,6 +3705,7 @@ export interface operations {
                 "application/json": {
                     name: string;
                     permissions: string[];
+                    revision: string;
                 };
             };
         };
@@ -3719,6 +3722,7 @@ export interface operations {
                         name: string;
                         permissions: string[];
                         protected: boolean;
+                        revision: string;
                     };
                 };
             };
