@@ -5,6 +5,7 @@ import { signPackage } from "@suite/module-sdk/node/signing";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 import type { Platform } from "../../packages/client/src";
 import { SuiteClient } from "../../packages/client/src/api";
+import { authorizeWorkImport } from "../../packages/client/src/recovery/import/authority";
 import {
   parseSavedWorkImport,
   stageSavedWorkImport,
@@ -19,7 +20,11 @@ import {
 import { assertWorkspacePurgeable } from "../../packages/client/src/offline/storage-retention";
 import definition from "../fixtures/queued-notes/module";
 const module = { ...definition, views: {}, navigation: undefined };
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 function fixture() {
   const scope = { userId: randomUUID(), workspaceId: randomUUID() };
   const pair = generateKeyPairSync("ed25519");
@@ -30,12 +35,14 @@ function fixture() {
   const publicKey = pair.publicKey
     .export({ type: "spki", format: "pem" })
     .toString();
+  const serverNow = Date.now();
   const proof = {
     userId: scope.userId,
     sessionId: "a".repeat(64),
-    authenticatedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 299_000).toISOString(),
+    authenticatedAt: new Date(serverNow).toISOString(),
+    expiresAt: new Date(serverNow + 299_000).toISOString(),
   };
+  const clock = { now: new Date(serverNow).toISOString() };
   const policy = {
     workspace: { id: scope.workspaceId },
     permissions: [...module.permissions],
@@ -110,6 +117,7 @@ function fixture() {
   const calls: string[] = [];
   const replies: Record<string, unknown> = {
     profileRecovery: proof,
+    profileRecoveryClock: clock,
     bootstrap: policy,
     platformState: { modules: [module] },
     moduleTrust: { publicKey },
@@ -122,7 +130,8 @@ function fixture() {
     observe(request.operation);
     return {
       status: 200,
-      actorId: scope.userId,
+      actorId:
+        request.operation === "profileRecoveryClock" ? undefined : scope.userId,
       body: structuredClone(replies[request.operation]),
     };
   });
@@ -142,6 +151,7 @@ function fixture() {
     replies,
     policy,
     proof,
+    clock,
     calls,
     abort,
     records,
@@ -293,6 +303,67 @@ it("requires a fresh scoped session and the same session throughout admission", 
   });
   await expect(other.stage()).rejects.toThrow(/Sign in again/);
   expect(other.state()).toBeUndefined();
+});
+it.each([-3_600_000, 3_600_000])(
+  "uses one server-clock observation with a %s ms local offset",
+  async (localOffset) => {
+    const f = fixture();
+    const serverNow = Date.now() - localOffset;
+    f.proof.authenticatedAt = new Date(serverNow).toISOString();
+    f.proof.expiresAt = new Date(serverNow + 300_000).toISOString();
+    f.clock.now = new Date(serverNow).toISOString();
+    await f.stage();
+    expect(
+      f.calls.filter((operation) => operation === "profileRecoveryClock"),
+    ).toHaveLength(1);
+  },
+);
+it("rejects malformed server and session dates", async () => {
+  const clock = fixture();
+  clock.clock.now = "invalid";
+  await expect(clock.stage()).rejects.toThrow(/clock is unavailable/);
+  expect(clock.state()).toBeUndefined();
+
+  const issued = fixture();
+  issued.proof.authenticatedAt = "invalid";
+  await expect(issued.stage()).rejects.toThrow(/Sign in again/);
+  expect(issued.state()).toBeUndefined();
+
+  const expiry = fixture();
+  expiry.proof.expiresAt = "invalid";
+  await expect(expiry.stage()).rejects.toThrow(/Sign in again/);
+  expect(expiry.state()).toBeUndefined();
+});
+it("counts asynchronous elapsed time against the original recovery expiry", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-20T12:00:00Z"));
+  const f = fixture();
+  let advanced = false;
+  f.onRequest((operation) => {
+    if (operation === "moduleReceiptArtifact" && !advanced) {
+      advanced = true;
+      vi.advanceTimersByTime(300_000);
+    }
+  });
+  await expect(f.stage()).rejects.toThrow(/Sign in again/);
+  expect(f.state()).toBeUndefined();
+});
+it("rejects a non-finite elapsed clock and rechecks the host around the public observation", async () => {
+  const malformed = fixture();
+  let readings = 0;
+  vi.stubGlobal("performance", {
+    now: () => (readings++ === 0 ? 0 : Number.POSITIVE_INFINITY),
+  });
+  await expect(malformed.stage()).rejects.toThrow(/clock is unavailable/);
+  expect(malformed.state()).toBeUndefined();
+
+  vi.unstubAllGlobals();
+  const locked = fixture();
+  locked.onRequest((operation) => {
+    if (operation === "profileRecoveryClock") locked.lock();
+  });
+  await expect(locked.stage()).rejects.toThrow(/Profile locked/);
+  expect(locked.state()).toBeUndefined();
 });
 it("refuses current permission denial, changed policy and unknown or corrupt signed source releases", async () => {
   const f = fixture();
@@ -895,4 +966,39 @@ it("preserves archived targets and original create identity without activating c
   await archived.promote(copy.digest);
   expect((await archived.read()).draftTargets![input.key]?.archived).toBe(true);
   expect((await archived.read()).drafts[input.key]).toEqual(input.data);
+});
+
+it("does not restore consumed session lifetime after a wall-clock rollback", async () => {
+  const f = fixture();
+  let wall = Date.now();
+  const initial = wall;
+  vi.spyOn(Date, "now").mockImplementation(() => wall);
+  vi.stubGlobal("performance", { now: () => 0 });
+  const authority = await authorizeWorkImport(f.options, f.input);
+  authority.check();
+  wall += 300_000;
+  expect(() => authority.check()).toThrow(/Sign in again/);
+  wall = initial;
+  expect(() => authority.check()).toThrow(/Sign in again/);
+});
+
+it("expires on monotonic progress despite a backward wall-clock change", async () => {
+  const f = fixture();
+  let wall = Date.now(),
+    monotonic = 100;
+  vi.spyOn(Date, "now").mockImplementation(() => wall);
+  vi.stubGlobal("performance", { now: () => monotonic });
+  const authority = await authorizeWorkImport(f.options, f.input);
+  wall -= 3_600_000;
+  monotonic += 300_000;
+  expect(() => authority.check()).toThrow(/Sign in again/);
+});
+
+it("refuses a reset monotonic clock while an import authorization is held", async () => {
+  const f = fixture();
+  let monotonic = 100;
+  vi.stubGlobal("performance", { now: () => monotonic });
+  const authority = await authorizeWorkImport(f.options, f.input);
+  monotonic = 0;
+  expect(() => authority.check()).toThrow(/clock is unavailable/);
 });

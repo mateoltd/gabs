@@ -1,6 +1,6 @@
 # Imported command dependencies
 
-Scope: **ID-03-BACKUP-DEPENDENCIES**, within ID-03-BACKUP-CORPORATE. Verification pending on 20 September 2026.
+Scope: **ID-03-BACKUP-DEPENDENCIES**, within ID-03-BACKUP-CORPORATE. Locally verified on 20 September 2026.
 
 ## Behavior
 
@@ -20,22 +20,31 @@ An independently authenticated destination receives only those unchanged files. 
 
 Native tests use actual Electron/main/IPC/utility storage with independently keyed controlled OS protection and controlled native save-dialog selection. They are not physical-device, live MFA or actual OS-provider acceptance. Browser tests run headless and desktop tests hidden/minimized and unfocused.
 
-## Checkpoint status
+## Checkpoint failure and correction
 
-The final regression on the latest source failed three fresh-session import checks (865 passed, 3 failed across 121 files). PostgreSQL was measured 4–5 milliseconds ahead of the client wall clock; the strict client timestamp comparison can reject a valid authoritative session. This must be resolved before acceptance. The latest 17 focused continuation cases and four fresh builds passed. The browser/native and 867-case results below preceded the final legacy-resource metadata refinement and do not verify the checkpoint as a whole.
+The checkpoint regression failed three fresh-session import checks (865 passed, 3 failed across 121 files). PostgreSQL was measured 4–5 milliseconds ahead of the client wall clock; the strict client timestamp comparison rejected valid authoritative sessions. The latest-source review regression now passes 880 tests across 121 files, including a deterministic one-hour client clock skew against the real database. All final product journeys pass on the corrected source, as recorded below.
 
-## Earlier product acceptance
+## Architecture and authentication review
 
-- Actual headless browser, fresh source/destination storage: **1 passed**, `/tmp/gabs-import-continuation-web.log`.
-- Actual hidden/minimized Electron, independently keyed source/destination stores: **1 passed**, `/tmp/gabs-import-continuation-native.log`.
-- Full isolated unit/PostgreSQL regression: **867 tests across 121 files passed**, `/tmp/gabs-import-continuation-regression.log`.
-- Four existing headless command/resource journeys passed, covering cross-module selection, a submitted/cancelled descendant and update/archive descendants: `/tmp/gabs-import-continuation-existing-web.log`.
-- Focused continuation tests: **17 passed**, `/tmp/gabs-import-continuation-unit.log`. New cases cover cancelled command/create/update/archive prerequisites, separately corrected child ordering, unselected preservation, legacy capture metadata and permission/accepted-outcome/input changes during settlement.
-- Strict checks and four fresh builds passed on final product source: `/tmp/gabs-import-continuation-build.log`. Later changes were confined to acceptance fixtures and documentation. Final root/browser/Node/preload/worker type checks and boundary/copy checks also passed: `/tmp/gabs-import-continuation-final-types.log` and `/tmp/gabs-import-continuation-final-lint.log`.
+Checkpoint `bd44cdb` preserves the unfinished implementation and its failing final regression. The requested Sol (`gpt-5.6-sol`, `xhigh`) review retained the existing responsibility-based package layout. Parent review confirmed command continuation uses the existing journal transaction and current contract/permission checks. No public package identifier or stylesheet was changed.
+
+Import session timing now belongs in the private `packages/client/src/recovery/import/session.ts` helper; policy and signed-contract orchestration remain in `authority.ts`. One live database clock observation anchors the original five-minute session lifetime. Request latency and the greater of wall/monotonic elapsed time consume that lifetime; the elapsed maximum never decreases, and an invalid/reset monotonic clock is rejected. Refresh must still return the exact original proof. In both the shared API client and Electron main transport, the public clock response is exempt only from the missing actor-header check: scoped account checks, host access guards, session generation checks and request headers remain intact.
+
+Parent tests reproduced four defects in the first review draft: lost local account/scope checks on the public clock, restored lifetime after wall-clock rollback, and acceptance of a reset monotonic clock. The final implementation corrects these without extending authentication or restoring authority from an imported file. Cross-surface acceptance then found the same missing-header rule in Electron main: two native-destination cases signed out during import. Parent corrected that transport rule and Sol independently reviewed its identity/lock lifecycle. The failing run is retained at `/tmp/gabs-dependency-review-native-clock-failure.log`; six other cases in that run passed. The original regression failure log is retained at `/tmp/gabs-import-continuation-checkpoint-regression.log`; the first parent review run is `/tmp/gabs-dependency-parent-review-tests.log`.
+
+## Product acceptance
+
+- Final headless browser/cross-surface suite: **8 passed**, `/tmp/gabs-dependency-final-web.log`.
+- Final hidden/minimized Electron suite: **4 passed**, `/tmp/gabs-dependency-final-native.log`.
+- These 12 journeys cover the new stopped-command graph on both clients, ordinary and linked-review exports through all four browser/desktop directions, and Settings import/restoration with native protected-store restart.
+- Final focused continuation, import and API identity tests: **65 passed**, `/tmp/gabs-dependency-review-focused.log`.
+- Final isolated unit/PostgreSQL regression: **880 tests across 121 files passed**, `/tmp/gabs-dependency-final-regression.log`.
+- Strict root/browser/Node/preload/worker types, boundary/copy checks and **four fresh builds** passed: `/tmp/gabs-dependency-final-build.log`.
+- Earlier four headless command/resource journeys passed before the final legacy-resource refinement and clock correction: `/tmp/gabs-import-continuation-existing-web.log`. These are historical regression evidence, not final-source acceptance.
 
 Scoped dialog Axe A/AA checks and 390-pixel overflow checks pass. The final [browser review](web-review.png), [browser narrow actions](web-narrow.png), [native review](native-review.png) and [native narrow actions](native-narrow.png) were inspected. Selection labels, stopped-request explanations and lower actions remain readable and reachable in the existing scroll area. No stylesheet changed. This is scoped continuity evidence, not whole-product accessibility or final UI approval.
 
-Fixture corrections wait for durable installation before going offline, use Settings for export and module views for corrections, reopen recovery after connectivity changes, scope navigation links and use the host's actual dialog markup for Axe. The first fixture run was deliberately interrupted after confirming the missing installation state; later failures ended normally. Final cases preserve the original behavioral assertions. Isolated databases and device profiles were removed. 9 historical captures rewritten by existing regression fixtures were restored; this milestone retains its four new captures.
+Fixture corrections wait for durable installation before going offline, use Settings for export and module views for corrections, reopen recovery after connectivity changes, scope navigation links and use the host's actual dialog markup for Axe. The first fixture run was deliberately interrupted after confirming the missing installation state; later failures ended normally. Final cases preserve the original behavioral assertions. Isolated databases and device profiles were removed. Historical captures rewritten by existing regression fixtures were restored; this milestone retains its four new captures.
 
 ## Remaining requirements
 

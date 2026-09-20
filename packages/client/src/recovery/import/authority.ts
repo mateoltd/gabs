@@ -1,13 +1,8 @@
-import {
-  ProfileRecoverySchema,
-  type ProfileRecovery,
-  type Bootstrap,
-} from "@suite/contracts";
-import { assertSchema, hydrateModule } from "@suite/module-sdk";
+import type { Bootstrap } from "@suite/contracts";
+import { hydrateModule } from "@suite/module-sdk";
 import { createModuleCatalog } from "@suite/module-sdk/catalog";
 import { moduleContract } from "@suite/module-sdk/client-artifact";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
-import { canonical } from "@suite/module-sdk/registry";
 import { verifyArtifact } from "@suite/module-sdk/verification";
 import type { Platform, Scope } from "../../index";
 import type { SuiteClient } from "../../api";
@@ -20,25 +15,7 @@ import {
   validateSavedWork,
   checkSavedWorkPermissions,
 } from "../work";
-function checkSession(
-  proof: ProfileRecovery,
-  scope: Scope,
-  previous?: ProfileRecovery,
-) {
-  assertSchema(ProfileRecoverySchema, proof);
-  const now = Date.now();
-  const issued = Date.parse(proof.authenticatedAt);
-  const expires = Date.parse(proof.expiresAt);
-  if (
-    proof.userId !== scope.userId ||
-    issued > now ||
-    expires <= now ||
-    expires <= issued ||
-    expires - issued > 300_000 ||
-    (previous && canonical(proof) !== canonical(previous))
-  )
-    throw Error("Sign in again to import saved work into this account.");
-}
+import { createImportSession } from "./session";
 export interface ImportAccess {
   permissions: string[];
   modules: string[];
@@ -79,13 +56,12 @@ export async function authorizeWorkImport(
     check();
     return accepted;
   };
-  check();
-  const proof = await client.request(
-    { operation: "profileRecovery" },
-    { signal: options.signal },
+  const session = await createImportSession(
+    client,
+    scope,
+    options.signal,
+    check,
   );
-  checkSession(proof, scope);
-  check();
   const policy = await requestPolicy();
   const platform = await client.request(
     { operation: "platformState", params: { workspaceId: scope.workspaceId } },
@@ -155,7 +131,7 @@ export async function authorizeWorkImport(
   check();
   const commitCheck = () => {
     check();
-    checkSession(proof, scope);
+    session.check();
   };
   const refresh = async () => {
     const latest = await requestPolicy();
@@ -172,7 +148,7 @@ export async function authorizeWorkImport(
       { operation: "profileRecovery" },
       { signal: options.signal },
     );
-    checkSession(refreshed, scope, proof);
+    session.check(refreshed);
     commitCheck();
   };
   await refresh();

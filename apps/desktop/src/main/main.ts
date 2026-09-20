@@ -618,7 +618,9 @@ async function execute(
   if (
     res.ok &&
     request.expectedUserId &&
-    authenticatedActor !== request.expectedUserId
+    authenticatedActor !== request.expectedUserId &&
+    (authenticatedActor !== undefined ||
+      request.operation !== "profileRecoveryClock")
   ) {
     if (actor) await writeSecure(`${actor}/account-revision`, randomUUID());
     return {

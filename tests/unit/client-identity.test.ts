@@ -168,3 +168,68 @@ it.each([A, B])(
     expect(client.isCurrentUser(actor)).toBe(true);
   },
 );
+
+it("accepts a public recovery clock without dropping the scoped local account fence", async () => {
+  let actor = A;
+  const transport = vi.fn<Transport>(async (request) =>
+    request.operation === "me"
+      ? identity(actor)
+      : { status: 200, body: { now: "2026-09-20T12:00:00Z" } },
+  );
+  const client = new SuiteClient(transport);
+  await client.request({ operation: "me" });
+  const bound = client.forUser(A);
+  await expect(
+    bound.request({ operation: "profileRecoveryClock" }),
+  ).resolves.toEqual({ now: "2026-09-20T12:00:00Z" });
+  actor = B;
+  await client.request({ operation: "me" });
+  const calls = transport.mock.calls.length;
+  await expect(
+    bound.request({ operation: "profileRecoveryClock" }),
+  ).rejects.toMatchObject({ code: "PROFILE_CHANGED" });
+  expect(transport).toHaveBeenCalledTimes(calls);
+});
+
+it("rejects a delayed public recovery clock after the active profile changes", async () => {
+  let actor = A,
+    release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const client = new SuiteClient(async (request) => {
+    if (request.operation === "me") return identity(actor);
+    await held;
+    return { status: 200, body: { now: "2026-09-20T12:00:00Z" } };
+  });
+  await client.request({ operation: "me" });
+  const pending = client
+    .forUser(A)
+    .request({ operation: "profileRecoveryClock" });
+  const rejected = expect(pending).rejects.toMatchObject({
+    code: "PROFILE_CHANGED",
+  });
+  actor = B;
+  await client.request({ operation: "me" });
+  release();
+  await rejected;
+});
+
+it("retains both local access guards around a public recovery clock", async () => {
+  const finish = vi.fn(async () => {
+    throw Error("Profile locked");
+  });
+  const before = vi.fn(async () => finish);
+  const client = new SuiteClient(
+    async () => ({ status: 200, body: { now: "2026-09-20T12:00:00Z" } }),
+    { before, identity: async () => {} },
+  );
+  await expect(
+    client.forUser(A).request({ operation: "profileRecoveryClock" }),
+  ).rejects.toThrow("Profile locked");
+  expect(before).toHaveBeenCalledWith(
+    { operation: "profileRecoveryClock", expectedUserId: A },
+    A,
+  );
+  expect(finish).toHaveBeenCalledOnce();
+});

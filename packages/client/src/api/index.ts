@@ -285,7 +285,12 @@ export class SuiteClient {
     }
     if (result.status === 401 && (expected || this.session.userId))
       await this.invalidateIdentity(expected ?? this.session.userId);
-    if (expected && result.status < 400 && !result.actorId)
+    if (
+      expected &&
+      result.status < 400 &&
+      !result.actorId &&
+      request.operation !== "profileRecoveryClock"
+    )
       throw new ApiError(
         409,
         "IDENTITY_UNVERIFIED",

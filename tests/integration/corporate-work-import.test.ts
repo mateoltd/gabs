@@ -39,7 +39,10 @@ afterAll(async () => {
   await server?.app.close();
   await db.destroy();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 async function fixture() {
   const actor = await identify(db, {
     issuer: "test",
@@ -207,6 +210,16 @@ it("admits a saved copy using real MFA-session, workspace policy and signed regi
       .execute(),
   );
   expect(receipts).toEqual([]);
+});
+it("uses the database recovery clock when the client wall clock is behind", async () => {
+  const f = await fixture();
+  const localNow = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(localNow - 3_600_000);
+  await f.stage();
+  expect(f.operations.filter((op) => op === "profileRecoveryClock")).toEqual([
+    "profileRecoveryClock",
+  ]);
+  expect((await f.read()).recoveryImports).toBeDefined();
 });
 it("refuses expired sessions and a different authenticated account without modifying destination storage", async () => {
   const f = await fixture();
