@@ -12,7 +12,7 @@ Scope: **ID-03-BACKUP-INTERRUPTION**, under ID-03-BACKUP-CORPORATE. Status: **ac
 | Permission revocation during restoration | Unit revoked authority and real UI denial before restoration | **Passed on web and desktop:** revoke an ordinary business role through the public administration API while settlement waits; retain input and require fresh grant/review |
 | Recovery session expires during restoration | Server recovery clock and five-minute MFA checks | **Passed on web and desktop:** expire the exact recovering server session while settlement waits, retain work and require fresh UI sign-in before explicit restoration |
 | Profile lock after a committed restoration write | Shared session/host guards and process-crash receipt checks | **Passed on desktop:** real request promotion commits before PIN lock; its held acknowledgement is released while locked or after unlock, with preserved receipt/input and usable explicit refresh |
-| Profile/session replacement or lock before restoration commits | Shared session/host guards and archive-admission lifecycle journeys; fresh session after expiry below | Ordinary-promotion-specific replacement and pre-commit lock acceptance remain required |
+| Profile/session replacement or lock before restoration commits | Shared session/host guards and archive-admission lifecycle journeys; fresh session after expiry below | **Passed on desktop:** lock during held settlement, replace the actor during held settlement, and replace the actor after an actual committed write; browser cross-tab/profile acceptance remains required |
 
 The matrix does not reopen completed archive, device, collision/reference or snapshot gates. Source/schema/target transitions remain in the corporate parent until their existing evidence has been reconciled separately.
 
@@ -38,7 +38,7 @@ Captures are in [the archive evidence directory](../corporate-work-archives/READ
 
 ## Remaining acceptance
 
-The eight storage-boundary cases kill the process after the server reply has arrived. The separate settlement-response case below covers reply loss before consumption. Server-enforced expiry and post-commit request acknowledgement across PIN lock are verified below. Pre-commit locks and profile/session replacement during ordinary restoration remain open.
+The eight storage-boundary cases kill the process after the server reply has arrived. The separate settlement-response case below covers reply loss before consumption. Server-enforced expiry and native pre/post-commit profile transitions are verified below. Browser cross-tab/profile transitions during ordinary restoration remain open.
 
 Actual identity/OS providers, signed target platforms and physical power-loss durability remain parent gates. Controlled development authentication and native protection are stated limits. No UI design approval or whole-product parity is claimed.
 
@@ -101,3 +101,21 @@ All **four** new wide/narrow captures were inspected, including the changed narr
 Local logs: `/tmp/gabs-promotion-lock-before.log` (the two reproduced UI failures), `/tmp/gabs-promotion-lock-final-unit.log`, `/tmp/gabs-promotion-lock-final-build.log`, `/tmp/gabs-promotion-lock-browser-final.log`, `/tmp/gabs-promotion-lock-native-final.log` and `/tmp/gabs-promotion-lock-format-check.log`. Reproduce with isolated PostgreSQL and `playwright test tests/e2e/corporate-import.spec.ts tests/e2e/corporate-archive.spec.ts`, followed by `playwright test --config playwright.desktop.config.ts tests/desktop/corporate-promotion-lock.spec.ts tests/desktop/corporate-archive-profile.spec.ts`.
 
 Captures: [locked reply, wide](../corporate-work-archives/native-promotion-lock-locked.png), [locked reply, narrow](../corporate-work-archives/native-promotion-lock-locked-narrow.png), [reply after unlock, wide](../corporate-work-archives/native-promotion-lock-unlocked.png), [reply after unlock, narrow](../corporate-work-archives/native-promotion-lock-unlocked-narrow.png).
+
+
+## Native pre-commit lock and account replacement
+
+[The profile-transition fixture](../../../tests/support/corporate-portability/promotion-profile.ts) adds normal online account replacement to the existing [native restoration journey](../../../tests/desktop/corporate-promotion-lock.spec.ts). Three additional cases cover PIN lock before local promotion, changing to another account while the real settlement reply waits, and changing accounts after the actual SQLite restoration write commits but before its acknowledgement arrives. The existing shared reply gates preserve real responses and writes.
+
+Before locking, each case verifies exactly one committed original cancellation audit and the appropriate local state: either exact unpromoted copies or the actual committed receipt and request. Locking denies native reads. Replacement signs into `sales@demo.local` through the development sign-in UI while the old reply remains held; the API issues the new session. The second account lacks the source company, cannot read its native cache or obtain its server bootstrap, receives no restored copies/journal/drafts, and retains its own workspace selection when the old reply is released.
+
+Returning uses the saved-profile UI and produces a different fresh recovery-session proof for the owner. Copied input, the original journal identity and unrelated Projects draft remain exact. A previously uncommitted restoration still requires explicit review/confirmation. A committed restoration is observed through its existing receipt. Both paths retain one cancellation audit, refuse the late original send, produce one independent Contacts draft effect, and resume the unrelated draft.
+
+This is test-only work against production source `1a70294`. Native provider selection and OS protection are controlled fixtures; no actual-provider, signed-target or physical durability acceptance is claimed. Browser cross-tab/profile transitions during ordinary restoration remain open before ID-03-BACKUP-INTERRUPTION can close. The source/schema/target evidence reconciliation remains in the corporate parent.
+
+
+Final verification on 20 September 2026: **five native journeys passed**, comprising the three new pre-commit/replacement cases and both earlier post-commit PIN timings. The three new cases also passed in their initial targeted run. Strict root/browser/Node/preload/worker type checks, dependency/copy checks, scoped formatting and local documentation links passed. Both disposable databases were removed. All **six new wide/narrow captures** were inspected, including five changed images after the final rerun; scoped Axe and overflow checks passed. Native windows remained hidden/minimized and unfocused. Historical screenshot changes from shared fixtures were discarded. No new product build, unit suite or browser journey is claimed for this test-only increment.
+
+Reproduce with isolated PostgreSQL and `playwright test --config playwright.desktop.config.ts tests/desktop/corporate-promotion-lock.spec.ts`. Logs: `/tmp/gabs-promotion-profile-native.log`, `/tmp/gabs-promotion-profile-native-final.log`, `/tmp/gabs-promotion-profile-final-types.log`, `/tmp/gabs-promotion-profile-final-lint.log` and `/tmp/gabs-promotion-profile-format-check.log`. The ledger retains 29 unique original requirements and the tracker 106 unique task IDs.
+
+Captures in the [archive evidence directory](../corporate-work-archives/README.md): `native-promotion-profile-committed-replaced`, `native-promotion-profile-settlement-locked` and `native-promotion-profile-settlement-replaced`, each with `.png` and `-narrow.png` variants.

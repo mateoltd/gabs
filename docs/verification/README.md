@@ -1190,3 +1190,8 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 ## Committed restoration across profile lock, 20 September 2026
 
 [Post-commit profile-lock acceptance](corporate-promotion-interruption/README.md#profile-lock-after-committed-restoration) records real native request restoration with the SQLite acknowledgement held across PIN lock and unlock. The initial run reproduced stuck refresh controls and a stale success notice. Post-write caller checks and cancelled controller/busy cleanup preserve durable results while requiring fresh scoped inspection. Source input, unrelated drafts, cancellation identity and independent draft effects remain intact. Pre-commit lock and profile/session replacement acceptance remain open.
+
+
+## Native profile replacement during restoration, 20 September 2026
+
+[Pre-commit lock and account replacement](corporate-promotion-interruption/README.md#native-pre-commit-lock-and-account-replacement) exercise the actual server-settlement and SQLite acknowledgement boundaries through normal native PIN/profile UI. Another account receives neither source-workspace access nor restored work; the original account returns through fresh authentication and explicit recovery. Input, receipts, unrelated drafts and the single cancellation audit remain intact. Browser cross-tab/profile checks and full parity remain open.

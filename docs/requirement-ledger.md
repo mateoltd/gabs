@@ -532,3 +532,8 @@ SEC-002/CORE-003 gain [server-enforced recovery expiry](verification/corporate-p
 ### 20 September 2026: committed restoration across profile lock
 
 SEC-002/CORE-003 gain [post-commit profile-lock evidence](verification/corporate-promotion-interruption/README.md#profile-lock-after-committed-restoration). Actual native request restoration commits before PIN lock; releasing its real SQLite acknowledgement while locked or after unlock preserves the receipt, original input and unrelated drafts. Explicit refresh recovers the stored result with one cancellation audit. Client import/restoration/removal recheck the caller after durable writes, and the preserved shell clears cancelled busy state. Scoped tests distinguish retained commit from caller success. Pre-commit locks and profile/session replacement keep ID-03-BACKUP-INTERRUPTION active; actual providers/platforms and full parity remain open. No original requirement status changes.
+
+
+### 20 September 2026: native profile replacement during restoration
+
+SEC-002/CORE-003 gain [native pre-commit lock and account replacement evidence](verification/corporate-promotion-interruption/README.md#native-pre-commit-lock-and-account-replacement). A real settlement reply or committed SQLite acknowledgement remains held across lock and sign-in to another account. The new account cannot access original workspace storage or bootstrap; returning requires a fresh owner session and preserves exact input, receipts and unrelated drafts without duplicate cancellation. This is test-only work against `1a70294`. Browser cross-tab/profile restoration and parent provider/platform gates keep ID-03-BACKUP-INTERRUPTION and overall parity open; no original requirement status changes.

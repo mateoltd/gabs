@@ -7,8 +7,14 @@ import { nativePortabilityDevice } from "../support/corporate-portability/device
 import { storageReplyWorker } from "../support/corporate-portability/storage-reply";
 import { promotionLock } from "../support/corporate-portability/promotion-lock";
 
-for (const release of ["locked", "unlocked"] as const)
-  test(`committed restoration acknowledgement after profile lock while ${release}`, async () => {
+for (const [boundary, release] of [
+  ["committed", "locked"],
+  ["committed", "unlocked"],
+  ["committed", "replaced"],
+  ["settlement", "locked"],
+  ["settlement", "replaced"],
+] as const)
+  test(`${boundary} restoration acknowledgement after profile lock while ${release}`, async () => {
     test.setTimeout(240000);
     const directory = await mkdtemp(resolve(tmpdir(), "suite-promotion-lock-"));
     const api = await request.newContext({ baseURL: "http://localhost:4310" });
@@ -48,7 +54,14 @@ for (const release of ["locked", "unlocked"] as const)
               .click();
             return context.page;
           }
-          return promotionLock(context, { release, worker, device: device! });
+          return promotionLock(context, {
+            release,
+            device: device!,
+            boundary:
+              boundary === "committed"
+                ? { kind: boundary, worker }
+                : { kind: boundary },
+          });
         },
       });
       await device.page
