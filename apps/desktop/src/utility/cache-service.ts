@@ -1,3 +1,4 @@
+import type { RestoreSource, RestoreResult } from "./storage/restore";
 import type { LocalBackupSource } from "./storage/backup";
 import type { StorageRotationSource } from "./storage/rotation";
 import { once } from "node:events";
@@ -59,12 +60,22 @@ export function openLocalBackup(
 ) {
   return openWorker(path, secret, { backup });
 }
+export function openRestoration(
+  path: string,
+  secret: string,
+  restoration: RestoreSource,
+) {
+  return openWorker(path, secret, { restoration });
+}
+export const cacheMergeRestoration = (source: RestoreSource) =>
+  send("merge-restoration", { source }) as Promise<RestoreResult>;
 function openWorker(
   path: string,
   secret: string,
   options: {
     rotation?: StorageRotationSource;
     backup?: LocalBackupSource;
+    restoration?: RestoreSource;
     verify?: boolean;
   },
 ) {

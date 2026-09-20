@@ -114,6 +114,7 @@ export class NativeVaultSessions {
           await this.engine.unlockVault(
             request.input.id,
             request.input.password,
+            signal,
           ),
           signal,
           requestId,

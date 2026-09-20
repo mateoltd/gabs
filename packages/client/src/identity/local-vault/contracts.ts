@@ -42,6 +42,8 @@ export interface LocalVault {
   revision?: number;
   removedAt?: number;
   unlock?: LocalUnlockCredential;
+  /** Must be cleared atomically with recovery safeguards before an unlocked grant is issued. */
+  recoveryRequired?: true;
 }
 
 /** Atomic updates run synchronously against the latest stored revision. */

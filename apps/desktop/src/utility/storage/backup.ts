@@ -69,7 +69,14 @@ export function stageLocalBackup(
               "SELECT digest FROM local_vault_imports WHERE id=?",
             )
             .get(vault.id);
-          if (imported) receipt.run(vault.id, imported.digest);
+          if (imported) {
+            if (
+              typeof imported.digest !== "string" ||
+              !/^[\da-f]{64}$/.test(imported.digest)
+            )
+              throw Error("Invalid local migration receipt.");
+            receipt.run(vault.id, imported.digest);
+          }
         }
       }
     })();

@@ -112,6 +112,10 @@ export function createQuickUnlockEngine(store: LocalVaultStore) {
     return store.exclusive(id, async () => {
       signal?.throwIfAborted();
       const vault = await activeVault(id);
+      if (vault.recoveryRequired)
+        throw Error(
+          "Unlock the restored profile with its passphrase before setting up quick unlock.",
+        );
       // Only the enrollment copy is extractable, after passphrase verification.
       const verified = await decryptVault<unknown>(
         vault,

@@ -126,10 +126,10 @@ async function fixture(quickUnlock = false) {
   );
   db!
     .prepare("INSERT INTO local_vault_imports VALUES(?,?)")
-    .run(created.vault.id, "retained-migration-receipt");
+    .run(created.vault.id, "a".repeat(64));
   db!
     .prepare("INSERT INTO local_vault_imports VALUES(?,?)")
-    .run(crypto.randomUUID(), "detached-receipt-excluded");
+    .run(crypto.randomUUID(), "b".repeat(64));
   await host.close();
   await files.write("credentials", {
     refreshToken: "never part of a portable backup",
@@ -155,7 +155,7 @@ async function fixture(quickUnlock = false) {
       restored.prepare("SELECT COUNT(*) AS count FROM cache").get(),
     ).toEqual({ count: 0 });
     expect(restored.prepare("SELECT * FROM local_vault_imports").all()).toEqual(
-      [{ id: created.vault.id, digest: "retained-migration-receipt" }],
+      [{ id: created.vault.id, digest: "a".repeat(64) }],
     );
     const vault = await createVaultEngine(
       localVaultStore(restored, () => {}),

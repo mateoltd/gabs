@@ -1,3 +1,8 @@
+import {
+  prepareLocalRestore,
+  mergeLocalRestore,
+  type RestoreSource,
+} from "./storage/restore";
 import { stageLocalBackup, type LocalBackupSource } from "./storage/backup";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { NativeVaultSessions } from "./storage/vault-sessions";
@@ -123,6 +128,7 @@ process.parentPort.on("message", async (event) => {
     action:
       | "vault"
       | "open"
+      | "merge-restoration"
       | "read"
       | "write"
       | "purge"
@@ -135,6 +141,8 @@ process.parentPort.on("message", async (event) => {
     secret?: string;
     rotation?: StorageRotationSource;
     backup?: LocalBackupSource;
+    restoration?: RestoreSource;
+    source?: RestoreSource;
     verify?: boolean;
     key?: string;
     value?: unknown;
@@ -156,6 +164,23 @@ process.parentPort.on("message", async (event) => {
         throw Error("Invalid storage session.");
       key = Buffer.from(message.secret!, "base64");
       if (key.length !== 32) throw Error("Invalid storage key.");
+      if (message.restoration) {
+        if (message.backup || message.rotation)
+          throw Error("Choose one storage copy operation.");
+        const sourceKey = Buffer.from(message.restoration.secret, "base64");
+        try {
+          prepareLocalRestore(
+            message.restoration.path,
+            sourceKey,
+            message.path!,
+            key,
+          );
+        } finally {
+          sourceKey.fill(0);
+        }
+        process.parentPort.postMessage({ id: message.id, value: true });
+        return;
+      }
       if (message.backup) {
         if (message.rotation) throw Error("Choose one storage copy operation.");
         const sourceKey = Buffer.from(message.backup.sourceSecret, "base64");
@@ -209,6 +234,17 @@ process.parentPort.on("message", async (event) => {
       return;
     }
     if (!db || !key) throw Error("Storage is unavailable.");
+    if (message.action === "merge-restoration") {
+      if (!message.source) throw Error("Missing restoration source.");
+      const sourceKey = Buffer.from(message.source.secret, "base64");
+      try {
+        const value = mergeLocalRestore(db, message.source.path, sourceKey);
+        process.parentPort.postMessage({ id: message.id, value });
+      } finally {
+        sourceKey.fill(0);
+      }
+      return;
+    }
     if (message.action === "vault") {
       if (!message.requestId || vaultRequests.has(message.requestId))
         throw Error("Invalid local vault request identifier.");

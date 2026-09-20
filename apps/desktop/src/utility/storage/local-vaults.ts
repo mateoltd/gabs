@@ -92,6 +92,7 @@ export function assertLocalVault(value: unknown): asserts value is LocalVault {
     vault.updatedAt < 0 ||
     (vault.revision !== undefined &&
       (!Number.isSafeInteger(vault.revision) || vault.revision < 0)) ||
+    (vault.recoveryRequired !== undefined && vault.recoveryRequired !== true) ||
     (vault.removedAt !== undefined &&
       (!Number.isSafeInteger(vault.removedAt) || vault.removedAt < 0))
   )
@@ -111,6 +112,11 @@ export function importLocalVaults(
   db.exec(
     "CREATE TABLE IF NOT EXISTS local_vault_imports (id TEXT PRIMARY KEY, digest TEXT NOT NULL)",
   );
+  const recovering = !!db
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_backup_restores'",
+    )
+    .get();
   return db.transaction(() => {
     for (const vault of vaults) {
       const digest = createHash("sha256")
@@ -131,7 +137,11 @@ export function importLocalVaults(
         );
       db.prepare("INSERT INTO local_vaults VALUES(?,?)").run(
         vault.id,
-        serialize(vault),
+        serialize(
+          recovering
+            ? { ...vault, unlock: undefined, recoveryRequired: true }
+            : vault,
+        ),
       );
       db.prepare("INSERT INTO local_vault_imports VALUES(?,?)").run(
         vault.id,
