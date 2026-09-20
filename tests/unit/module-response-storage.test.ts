@@ -3860,3 +3860,36 @@ it("keeps the prior durable state if saving the bounded cache is interrupted", a
   expect(Object.keys(restored.pages)).toHaveLength(50);
   expect(restored.drafts).toEqual(originalState.drafts);
 });
+
+it("exposes accepted resource prerequisites for portable recovery only while scoped unfinished work needs them", async () => {
+  const { platform, install } = storage();
+  await install();
+  await enqueue(platform, scope, call("accepted-parent"));
+  await changeModuleStorage(platform, scope, (state) => {
+    const parent = state.journal[0];
+    parent.state = "accepted";
+    parent.result = row;
+    state.journal.push({
+      ...structuredClone(parent),
+      id: "dependent",
+      state: "conflict",
+      result: undefined,
+      dependencies: [parent.id],
+    });
+  });
+  const state = await readModuleStorage(platform, scope);
+  const ids = async () =>
+    (await resourceRecoveryInputs(state, scope, "contacts")).changes.map(
+      ({ entry }) => entry.id,
+    );
+  expect(await ids()).toContain("accepted-parent");
+  state.journal[1].workspaceId = "another-company";
+  expect(await ids()).not.toContain("accepted-parent");
+  state.journal[1].workspaceId = scope.workspaceId;
+  state.journal[1].supersededBy = "corrected";
+  expect(await ids()).not.toContain("accepted-parent");
+  delete state.journal[1].supersededBy;
+  state.journal[1].state = "accepted";
+  state.journal[1].result = row;
+  expect(await ids()).not.toContain("accepted-parent");
+});

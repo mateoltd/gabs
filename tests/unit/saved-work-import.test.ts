@@ -789,9 +789,10 @@ function linkedDraft(
     ...f.input.entry,
     dependencies: [],
     call: {
-      ...f.input.entry.call,
+      moduleId: f.input.entry.call.moduleId,
+      moduleVersion: f.input.entry.call.moduleVersion,
+      key: f.input.entry.id,
       action,
-      operation: undefined,
       resource: "notes",
       input: {
         id: record.id,
@@ -1148,4 +1149,201 @@ it("captures the user's source choice before asynchronous recovery starts", asyn
   expect((await f.read()).draftTargets![restored.draftKey!]?.id).toBe(
     record.id,
   );
+});
+
+function reassignedLinkedDraft(f: ReturnType<typeof fixture>) {
+  const { input, record } = linkedDraft(f);
+  const target = {
+    ...record,
+    id: randomUUID(),
+    data: { name: "Separate base" },
+  };
+  input.entry!.recordRecovery = {
+    targetId: target.id,
+    destination: "separate",
+  };
+  input.entry!.dependencies = ["accepted-parent"];
+  input.entry!.captureDependencies = ["original-parent"];
+  input.entry!.requestedDependencies = ["accepted-parent"];
+  input.target = target;
+  input.entry!.createRecovery = [
+    {
+      moduleId: module.id,
+      resource: "notes",
+      originalId: record.id,
+      replacementId: target.id,
+    },
+  ];
+  input.review!.createRecovery = structuredClone(input.entry!.createRecovery);
+  return { input, record, target };
+}
+
+it.each(["original", "reassigned"] as const)(
+  "restores a stopped linked edit against a freshly selected %s record without rewriting its request",
+  async (choice) => {
+    const f = fixture();
+    const { input, record, target } = reassignedLinkedDraft(f);
+    const { digest } = await f.stage(input);
+    await expect(f.promote(digest)).rejects.toThrow(/Choose the original/);
+    expect(f.calls).not.toContain("moduleAttemptSettle");
+    f.replies.moduleAttemptSettle = {
+      key: input.entry!.id,
+      outcome: "cancelled",
+    };
+    const current = {
+      ...(choice === "original" ? record : target),
+      version: 3,
+      data: { name: "New server value" },
+    };
+    f.replies.moduleRequest = current;
+    const result = await f.promote(digest, choice);
+    const state = await f.read();
+    expect(state.journal).toHaveLength(1);
+    expect(state.journal[0]).toMatchObject({
+      id: input.entry!.id,
+      call: input.entry!.call,
+      dependencies: input.entry!.dependencies,
+      captureDependencies: input.entry!.captureDependencies,
+      requestedDependencies: input.entry!.requestedDependencies,
+      state: "rejected",
+      settlement: "cancelled",
+      recordRecovery: {
+        targetId: current.id,
+        destination: choice === "original" ? "existing" : "separate",
+      },
+    });
+    expect(state.journal[0].createRecovery).toBeUndefined();
+    expect(state.draftReviews![result.draftKey!]).toMatchObject({
+      entryId: input.entry!.id,
+      comparison: {
+        choices: {},
+        conflicts: ["name"],
+        local: input.data,
+        remote: current.data,
+      },
+    });
+    expect(state.draftTargets![result.draftKey!]).toEqual(current);
+    expect(state.recoveryImports![digest].input).toEqual(input);
+    expect((await f.promote(digest, choice)).alreadyRestored).toBe(true);
+  },
+);
+
+it("refuses unrelated copied reference mappings before settling a linked edit", async () => {
+  const f = fixture();
+  const { input } = reassignedLinkedDraft(f);
+  input.review!.createRecovery!.push({
+    moduleId: module.id,
+    resource: "notes",
+    originalId: randomUUID(),
+    replacementId: randomUUID(),
+  });
+  const { digest } = await f.stage(input);
+  await expect(f.promote(digest, "reassigned")).rejects.toThrow(
+    /other reassigned references/,
+  );
+  expect(f.calls).not.toContain("moduleAttemptSettle");
+  expect((await f.read()).journal).toEqual([]);
+});
+
+it("keeps an accepted linked edit on its actual record despite a copied reassignment", async () => {
+  const f = fixture();
+  const { input, record } = reassignedLinkedDraft(f);
+  const { digest } = await f.stage(input);
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "accepted",
+    result: record,
+  };
+  await expect(f.promote(digest, "reassigned")).rejects.toThrow(
+    /already accepted/,
+  );
+  expect((await f.read()).recoveryImports![digest].promotion).toBeUndefined();
+  f.replies.moduleRequest = record;
+  const result = await f.promote(digest, "original");
+  const state = await f.read();
+  expect(state.journal[0].state).toBe("accepted");
+  expect(state.journal[0].recordRecovery).toBeUndefined();
+  expect(state.draftReviews![result.draftKey!].entryId).toBeUndefined();
+  expect(state.draftTargets![result.draftKey!]?.id).toBe(record.id);
+});
+
+it("retains a linked import after target access is denied following cancellation", async () => {
+  const f = fixture();
+  const { input, target } = reassignedLinkedDraft(f);
+  const { digest } = await f.stage(input);
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  f.replies.moduleRequest = target;
+  f.onRequest((operation) => {
+    if (operation === "moduleRequest") f.policy.permissions = [];
+  });
+  await expect(f.promote(digest, "reassigned")).rejects.toThrow();
+  const state = await f.read();
+  expect(state.journal).toEqual([]);
+  expect(state.drafts).toEqual({});
+  expect(state.recoveryImports![digest].input).toEqual(input);
+  expect(state.recoveryImports![digest].promotion).toBeUndefined();
+});
+
+it.each([
+  [false, false],
+  [false, true],
+  [true, false],
+  [true, true],
+])(
+  "preserves accepted values inherited by a linked draft (reassigned: %s, advanced: %s)",
+  async (reassigned, advanced) => {
+    const f = fixture();
+    const { input, record } = reassigned
+      ? reassignedLinkedDraft(f)
+      : linkedDraft(f);
+    input.data = structuredClone(input.target!.data);
+    const { digest } = await f.stage(input);
+    const accepted = {
+      ...record,
+      version: 2,
+      data: { name: "Accepted original change" },
+    };
+    f.replies.moduleAttemptSettle = {
+      key: input.entry!.id,
+      outcome: "accepted",
+      result: accepted,
+    };
+    const current = advanced
+      ? {
+          ...accepted,
+          version: 3,
+          data: { name: "More recent corporate value" },
+        }
+      : accepted;
+    f.replies.moduleRequest = current;
+    const restored = await f.promote(
+      digest,
+      reassigned ? "original" : undefined,
+    );
+    const state = await f.read();
+    expect(state.drafts[restored.draftKey!]).toEqual(current.data);
+    expect(
+      state.draftReviews![restored.draftKey!].comparison?.conflicts,
+    ).toEqual([]);
+    expect(state.journal[0].result).toEqual(accepted);
+  },
+);
+
+it("does not attribute a reassigned snapshot version to an archived original record", async () => {
+  const f = fixture();
+  const { input, record } = reassignedLinkedDraft(f);
+  input.target!.version = 17;
+  const { digest } = await f.stage(input);
+  f.replies.moduleAttemptSettle = {
+    key: input.entry!.id,
+    outcome: "cancelled",
+  };
+  f.replies.moduleRequest = { ...record, version: 3, archived: true };
+  const restored = await f.promote(digest, "original");
+  expect(
+    (await f.read()).draftReviews![restored.draftKey!].recoveryInput,
+  ).toMatchObject({ recordId: record.id, baseVersion: 1 });
 });

@@ -10,6 +10,7 @@ import {
   type SavedWorkImportOptions,
   type ImportAccess,
   type ImportedDraftSource,
+  importedDraftChoices,
 } from "@suite/client/work-import";
 import {
   Button,
@@ -154,10 +155,7 @@ export function SavedWorkImports(props: FeatureProps) {
       );
   };
   const selected = visible.find((copy) => copy.digest === confirm?.digest);
-  const collision =
-    selected?.input.selection === "draft" && !selected.input.entry
-      ? selected.input.review?.collision
-      : undefined;
+  const collision = selected ? importedDraftChoices(selected.input) : undefined;
   if (!props.offlineEnabled) return null;
   return (
     <>
@@ -339,7 +337,8 @@ export function SavedWorkImports(props: FeatureProps) {
               )}
               {confirm?.action === "restore" &&
                 selected.input.selection === "draft" &&
-                selected.input.entry && (
+                selected.input.entry &&
+                !collision?.linked && (
                   <p>
                     If the original was accepted, this draft becomes a review of
                     that record. Otherwise it stays linked to the stopped
@@ -350,7 +349,9 @@ export function SavedWorkImports(props: FeatureProps) {
               {confirm?.action === "restore" && collision && (
                 <>
                   <Field
-                    label="Draft to restore"
+                    label={
+                      collision.linked ? "Record to review" : "Draft to restore"
+                    }
                     hint="Choose again for this import. Current record values will be fetched, and conflicting fields need fresh choices."
                   >
                     <Select
@@ -366,38 +367,53 @@ export function SavedWorkImports(props: FeatureProps) {
                         });
                       }}
                     >
-                      <SelectOption value="">Choose a draft</SelectOption>
+                      <SelectOption value="">
+                        {collision.linked
+                          ? "Choose a record"
+                          : "Choose a draft"}
+                      </SelectOption>
                       <SelectOption value="original">
-                        Original draft before reassignment
+                        {collision.linked
+                          ? "Original record"
+                          : "Original draft before reassignment"}
                       </SelectOption>
                       <SelectOption value="reassigned">
-                        Reassigned draft
+                        {collision.linked
+                          ? "Reassigned record"
+                          : "Reassigned draft"}
                       </SelectOption>
                     </Select>
                   </Field>
                   <details>
-                    <summary>Compare original and reassigned input</summary>
-                    <p>Original draft</p>
-                    <ResourceValue value={collision.sourceData} />
+                    <summary>
+                      {collision.linked
+                        ? "Compare record targets"
+                        : "Compare original and reassigned input"}
+                    </summary>
                     <p>
-                      Original record:{" "}
-                      {collision.sourceTarget?.id ?? "New record"}
+                      {collision.linked
+                        ? "Saved draft input"
+                        : "Original draft"}
                     </p>
-                    <p>Reassigned draft</p>
-                    <ResourceValue
-                      value={
-                        selected.input.selection === "draft"
-                          ? selected.input.data
-                          : {}
-                      }
-                    />
+                    <ResourceValue value={collision.originalData} />
                     <p>
-                      Reassigned record: {collision.targetId ?? "New record"}
+                      Original record: {collision.originalId ?? "New record"}
+                    </p>
+                    {!collision.linked && (
+                      <>
+                        <p>Reassigned draft</p>
+                        <ResourceValue value={collision.reassignedData} />
+                      </>
+                    )}
+                    <p>
+                      Reassigned record:{" "}
+                      {collision.reassignedId ?? "New record"}
                     </p>
                   </details>
                   <p>
-                    This restores an independent draft. It does not confirm or
-                    recreate the prerequisite request named in the file.
+                    {collision.linked
+                      ? "A stopped request keeps its identity and prerequisites. Restore prerequisite receipts before submitting a correction. An accepted request can only restore a review of its actual record."
+                      : "This restores an independent draft. It does not confirm or recreate the prerequisite request named in the file."}
                   </p>
                 </>
               )}

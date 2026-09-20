@@ -4,6 +4,7 @@ import {
   resourceRecordSchema,
   reviewFields,
 } from "@suite/module-sdk";
+import type { JournalEntry } from "@suite/module-sdk/sync";
 import type { SavedWorkRecovery } from "@suite/module-sdk/platform";
 import { resourceDraftKey, type DraftReview } from "../../modules/drafts";
 import { sendModuleCall } from "../../modules/transport";
@@ -19,7 +20,66 @@ type Outcome = Awaited<ReturnType<typeof settleModuleCall>>;
 const recordInput = Type.Object({
   id: Type.String({ minLength: 1 }),
   baseData: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  baseVersion: Type.Optional(Type.Integer({ minimum: 1 })),
 });
+
+/** Copied destinations are suggestions only; the caller must make a fresh choice. */
+export function importedDraftChoices(input: SavedWorkRecovery) {
+  if (input.selection !== "draft") return;
+  if (!input.entry && input.review?.collision) {
+    const source = input.review.collision;
+    return {
+      originalData: source.sourceData,
+      originalId: source.sourceTarget?.id,
+      reassignedData: input.data,
+      reassignedId: source.targetId,
+      linked: false,
+    };
+  }
+  if (input.entry?.recordRecovery && input.entry.call.action === "update") {
+    const original = input.entry.call.input as { id?: unknown } | null;
+    if (!original || typeof original.id !== "string") return;
+    return {
+      originalData: input.data,
+      originalId: original.id,
+      reassignedData: input.data,
+      reassignedId: input.entry.recordRecovery.targetId,
+      linked: true,
+    };
+  }
+}
+
+function checkLinkedTarget(input: ImportedDraft, choice?: ImportedDraftSource) {
+  const entry = input.entry!;
+  if (
+    !entry.recordRecovery ||
+    entry.call.action !== "update" ||
+    input.review?.collision
+  )
+    throw Error(
+      "This saved review needs its original dependency recovery before restoration.",
+    );
+  assertSchema(recordInput, entry.call.input);
+  const originalId = entry.call.input.id;
+  // This choice confirms one record destination, never other resource-reference remappings.
+  for (const mapping of [
+    ...(entry.createRecovery ?? []),
+    ...(input.review?.createRecovery ?? []),
+  ])
+    if (
+      mapping.moduleId !== input.moduleId ||
+      mapping.resource !== input.resource ||
+      mapping.originalId !== originalId ||
+      mapping.replacementId !== entry.recordRecovery.targetId
+    )
+      throw Error(
+        "This saved review includes other reassigned references. Recover those dependencies before restoring it.",
+      );
+  if (choice !== "original" && choice !== "reassigned")
+    throw Error(
+      "Choose the original or reassigned draft before restoring this copy.",
+    );
+}
 
 /** Check prospective destinations before permanently settling the original request. */
 export function importedDraftKeys(
@@ -54,8 +114,9 @@ export function importedDraftKeys(
     throw Error(
       "Review this original request through its own recovery controls before restoring a record draft.",
     );
-  if (
-    input.entry.recordRecovery ||
+  if (input.entry.recordRecovery) {
+    checkLinkedTarget(input, draftSource);
+  } else if (
     input.entry.createRecovery?.length ||
     input.review?.createRecovery?.length ||
     input.review?.collision
@@ -67,7 +128,8 @@ export function importedDraftKeys(
   if (
     input.entry.call.action === "update" &&
     input.target &&
-    input.target.id !== input.entry.call.input.id
+    input.target.id !== input.entry.call.input.id &&
+    input.target.id !== input.entry.recordRecovery?.targetId
   )
     throw Error("This saved review does not match its original record target.");
   return [
@@ -90,6 +152,7 @@ export async function prepareImportedDraft(
   let review: DraftReview = { draftId: `import-${digest}` };
   let target = structuredClone(input.target);
   let data = structuredClone(input.data);
+  let recordRecovery: JournalEntry["recordRecovery"];
   if (!input.entry && input.review?.collision) {
     const source = input.review.collision;
     if (draftSource !== "original" && draftSource !== "reassigned")
@@ -129,6 +192,7 @@ export async function prepareImportedDraft(
       target,
       review,
       version,
+      recordRecovery,
     };
   }
   if (!input.entry) {
@@ -148,18 +212,35 @@ export async function prepareImportedDraft(
     // The draft was reviewed against this snapshot; fields inherited from that
     // snapshot are not new user edits when the server advances again.
     let base = input.target?.data ?? input.entry.call.input.baseData;
+    if (input.entry.recordRecovery) checkLinkedTarget(input, draftSource);
     if (outcome.outcome === "accepted") {
+      if (input.entry.recordRecovery && draftSource === "reassigned")
+        throw Error(
+          "The original request was already accepted. Choose the original draft to review its actual record.",
+        );
       const accepted: unknown = outcome.result;
       assertSchema(
         resourceRecordSchema(Type.Record(Type.String(), Type.Unknown())),
         accepted,
       );
       targetId = accepted.id;
-      base = accepted.data;
+      base = input.target?.data ?? accepted.data;
     } else {
       review = { entryId: input.entry.id };
-      if (input.entry.call.action === "update")
-        targetId = input.entry.call.input.id;
+      if (input.entry.call.action === "update") {
+        targetId =
+          input.entry.recordRecovery && draftSource === "reassigned"
+            ? input.entry.recordRecovery.targetId
+            : input.entry.call.input.id;
+        if (input.entry.recordRecovery)
+          recordRecovery = {
+            targetId,
+            destination:
+              draftSource === "reassigned"
+                ? input.entry.recordRecovery.destination
+                : "existing",
+          };
+      }
     }
     if (input.review?.recoveryInput)
       review.recoveryInput = structuredClone(input.review.recoveryInput);
@@ -171,10 +252,16 @@ export async function prepareImportedDraft(
         data = compared.data;
         review.comparison = compared.review;
       } else {
+        const baseVersion =
+          input.target?.id === target.id
+            ? input.target.version
+            : input.entry.call.input.id === target.id
+              ? input.entry.call.input.baseVersion
+              : undefined;
         review.recoveryInput = {
           moduleVersion: input.moduleVersion,
           recordId: target.id,
-          ...(input.target ? { baseVersion: input.target.version } : {}),
+          ...(baseVersion !== undefined ? { baseVersion } : {}),
         };
       }
       await authority.refresh();
@@ -186,6 +273,7 @@ export async function prepareImportedDraft(
     target,
     review,
     version: input.draftVersion,
+    recordRecovery,
   };
 }
 

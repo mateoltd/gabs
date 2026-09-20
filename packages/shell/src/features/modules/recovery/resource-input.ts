@@ -61,6 +61,17 @@ export async function resourceRecoveryInputs(
   const changes: (ResourceInput & { entry: JournalEntry })[] = [];
   const drafts: SavedResourceDraft[] = [];
   const failures: unknown[] = [];
+  const prerequisites = new Set(
+    state.journal
+      .filter(
+        (entry) =>
+          entry.userId === scope.userId &&
+          entry.workspaceId === scope.workspaceId &&
+          !entry.supersededBy &&
+          entry.state !== "accepted",
+      )
+      .flatMap((entry) => entry.dependencies),
+  );
   for (const entry of state.journal) {
     if (
       entry.userId !== scope.userId ||
@@ -68,7 +79,9 @@ export async function resourceRecoveryInputs(
       entry.call.moduleId !== moduleId ||
       entry.supersededBy ||
       !["create", "update", "archive"].includes(entry.call.action) ||
-      (entry.state === "accepted" && entry.recoveredAt === undefined)
+      (entry.state === "accepted" &&
+        entry.recoveredAt === undefined &&
+        !prerequisites.has(entry.id))
     )
       continue;
     try {

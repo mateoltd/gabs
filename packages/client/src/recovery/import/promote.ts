@@ -126,7 +126,7 @@ export async function promoteSavedWorkImport(
         ...(outcome ? { outcome: outcome.outcome } : {}),
         existingRequest: !!existing,
         ...(input.selection === "draft" &&
-        input.review?.collision &&
+        (input.review?.collision || input.entry?.recordRecovery) &&
         draftSource
           ? { draftSource }
           : {}),
@@ -218,6 +218,16 @@ export async function promoteSavedWorkImport(
                 updatedAt: input.review.updatedAt,
               };
             }
+          }
+          if (draft?.recordRecovery) {
+            const restored = state.journal.find(
+              (item) => item.id === entry?.id,
+            );
+            if (!restored || restored.settlement !== "cancelled")
+              throw Error(
+                "The original request must be stopped before its target can change.",
+              );
+            restored.recordRecovery = draft.recordRecovery;
           }
           if (draft) {
             state.drafts[draft.key] = draft.data;

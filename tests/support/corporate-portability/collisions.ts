@@ -13,6 +13,7 @@ import type { corporatePortability } from "./journey";
 export async function corporateCollisionPortability(
   options: Parameters<typeof corporatePortability>[0] & {
     choice: "original" | "reassigned";
+    linked?: boolean;
   },
 ) {
   let page = options.source;
@@ -124,7 +125,11 @@ export async function corporateCollisionPortability(
   await options.offline(true);
   await row.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Phone", { exact: true }).fill("444");
-  await page.keyboard.press("Escape");
+  if (options.linked)
+    await page
+      .getByRole("button", { name: "Save pending change", exact: true })
+      .click();
+  else await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await options.offline(false);
   await page
@@ -140,7 +145,11 @@ export async function corporateCollisionPortability(
   await page
     .getByRole("button", { name: "Create separate record", exact: true })
     .click();
-  await selectValue(page, "Record for saved draft 1", "separate");
+  await selectValue(
+    page,
+    options.linked ? "Record for later edit 1" : "Record for saved draft 1",
+    "separate",
+  );
   await page
     .getByRole("button", {
       name: "Check and create separate record",
@@ -152,10 +161,21 @@ export async function corporateCollisionPortability(
     .poll(
       async () =>
         (await portabilityStorage(page, scope)).journal.find(
-          (item) => item.id !== entry.id,
+          (item) => item.id !== entry.id && item.call.action === "create",
         )?.state,
     )
     .toBe("accepted");
+  if (options.linked) {
+    await page
+      .getByRole("group", {
+        name: "Pending update: Original corporate contact",
+        exact: true,
+      })
+      .getByRole("button", { name: "Review", exact: true })
+      .click();
+    await expect(page.getByLabel("Phone", { exact: true })).toHaveValue("444");
+    await page.keyboard.press("Escape");
+  }
   await options.offline(true);
   await navigate("Settings");
   await page.getByRole("button", { name: /^Saved records and drafts/ }).click();
@@ -171,15 +191,32 @@ export async function corporateCollisionPortability(
   const bytes = await readFile(path);
   const input: unknown = JSON.parse(bytes.toString());
   assertSchema(SavedWorkRecoverySchema, input);
-  if (input.selection !== "draft" || !input.review?.collision?.targetId)
-    throw Error("Expected actual reassigned draft export");
-  expect(input.entry).toBeUndefined();
-  expect(input.target?.id).toBe(originalId);
-  expect(input.review.collision.ready).not.toBe(true);
-  expect(input.review.collision.targetId).not.toBe(originalId);
-  const separate = await command("get", {
-    id: input.review.collision.targetId,
-  });
+  if (input.selection !== "draft") throw Error("Expected saved draft export");
+  const targetId = options.linked
+    ? input.entry?.recordRecovery?.targetId
+    : input.review?.collision?.targetId;
+  if (!targetId) throw Error("Expected actual reassigned target export");
+  const parentPath = resolve(options.directory, "accepted-parent.json");
+  let parentBytes: Buffer | undefined;
+  if (options.linked) {
+    expect(input.entry?.call.action).toBe("update");
+    const parentId = input.entry!.dependencies[0];
+    await options.exportFile(
+      source
+        .getByRole("listitem")
+        .filter({ has: page.getByText(parentId, { exact: true }) })
+        .getByRole("button", { name: "Export saved request", exact: true }),
+      parentPath,
+    );
+    parentBytes = await readFile(parentPath);
+    expect(JSON.parse(parentBytes.toString()).entry.state).toBe("accepted");
+  } else {
+    expect(input.entry).toBeUndefined();
+    expect(input.target?.id).toBe(originalId);
+    expect(input.review!.collision!.ready).not.toBe(true);
+  }
+  expect(targetId).not.toBe(originalId);
+  const separate = await command("get", { id: targetId });
   const originals = [existing, separate];
   const updated: ResourceRecord[] = [];
   for (const record of originals)
@@ -212,7 +249,11 @@ export async function corporateCollisionPortability(
   await expect(
     imported.getByRole("button", { name: "Confirm restoration", exact: true }),
   ).toBeDisabled();
-  await selectValue(page, "Draft to restore", options.choice);
+  await selectValue(
+    page,
+    options.linked ? "Record to review" : "Draft to restore",
+    options.choice,
+  );
   await imported
     .getByRole("button", { name: "Back to imported copies", exact: true })
     .click();
@@ -223,14 +264,17 @@ export async function corporateCollisionPortability(
     imported.getByRole("button", { name: "Confirm restoration", exact: true }),
   ).toBeDisabled();
   const picker = imported.getByRole("combobox", {
-    name: "Draft to restore",
+    name: options.linked ? "Record to review" : "Draft to restore",
     exact: true,
   });
   await picker.focus();
   await page.keyboard.press("Enter");
   const option = page.getByRole("option", {
-    name:
-      options.choice === "original"
+    name: options.linked
+      ? options.choice === "original"
+        ? "Original record"
+        : "Reassigned record"
+      : options.choice === "original"
         ? "Original draft before reassignment"
         : "Reassigned draft",
     exact: true,
@@ -238,7 +282,11 @@ export async function corporateCollisionPortability(
   await option.focus();
   await page.keyboard.press("Enter");
   await expect(picker).toHaveAttribute("aria-expanded", "false");
-  const evidence = resolve("docs/verification/imported-collision-drafts");
+  const evidence = resolve(
+    options.linked
+      ? "docs/verification/imported-linked-targets"
+      : "docs/verification/imported-collision-drafts",
+  );
   await mkdir(evidence, { recursive: true });
   const name = `${options.evidenceName}-${options.choice}`;
   await page.screenshot({
@@ -286,6 +334,51 @@ export async function corporateCollisionPortability(
     .click();
   await page.reload();
   await navigate("Contacts");
+  if (options.linked) {
+    await expect(
+      page.getByRole("button", { name: "Resume review", exact: true }),
+    ).toBeDisabled();
+    const restored = (await portabilityStorage(page, scope)).journal.find(
+      (item) => item.id === input.entry!.id,
+    )!;
+    expect(restored.call).toEqual(input.entry!.call);
+    expect(restored.dependencies).toEqual(input.entry!.dependencies);
+    expect(restored.settlement).toBe("cancelled");
+    await navigate("Settings");
+    await page
+      .getByRole("button", { name: "Import saved work", exact: true })
+      .click();
+    imported = page.getByRole("dialog", {
+      name: "Imported saved work",
+      exact: true,
+    });
+    await expect(
+      imported.getByLabel("Saved-work recovery file", { exact: true }),
+    ).toBeEnabled();
+    await imported
+      .getByLabel("Saved-work recovery file", { exact: true })
+      .setInputFiles(parentPath);
+    await imported
+      .getByRole("button", { name: "Restore for review", exact: true })
+      .click();
+    await imported
+      .getByRole("button", { name: "Confirm restoration", exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await portabilityStorage(page, scope)).journal.find(
+            (item) => item.id === input.entry!.dependencies[0],
+          )?.state,
+      )
+      .toBe("accepted");
+    await imported
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await page.reload();
+    await navigate("Contacts");
+    expect(await readFile(parentPath)).toEqual(parentBytes);
+  }
   await page
     .getByRole("button", { name: "Resume review", exact: true })
     .click();
@@ -316,6 +409,33 @@ export async function corporateCollisionPortability(
   });
   expect(await command("get", { id: untouched.id })).toEqual(untouched);
   expect(await readFile(path)).toEqual(bytes);
+  if (options.linked) {
+    const journal = (await portabilityStorage(page, scope)).journal;
+    const stopped = journal.find((item) => item.id === input.entry!.id)!;
+    expect(stopped.call).toEqual(input.entry!.call);
+    expect(stopped.settlement).toBe("cancelled");
+    expect(stopped.supersededBy).toBeTruthy();
+    expect(
+      journal.find((item) => item.id === stopped.supersededBy),
+    ).toMatchObject({ state: "accepted", call: { input: { id: result.id } } });
+    const lateEdit = await options.api.post(
+      `/api/v1/module/contacts/workspaces/${workspaceId}/records`,
+      {
+        headers: {
+          ...headers,
+          "idempotency-key": input.entry!.id,
+          "x-module-version": input.entry!.call.moduleVersion!,
+        },
+        data: {
+          action: "update",
+          resource: "contacts",
+          input: input.entry!.call.input,
+        },
+      },
+    );
+    expect(lateEdit.status()).toBe(409);
+    expect((await lateEdit.json()).code).toBe("ATTEMPT_CANCELLED");
+  }
   const late = await options.api.post(
     `/api/v1/module/contacts/workspaces/${workspaceId}/records`,
     {
