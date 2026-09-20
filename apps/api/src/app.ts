@@ -56,6 +56,7 @@ import {
   createInvitation,
   acceptInvitation,
   revokeInvitation,
+  requireInvitationRoleAuthority,
   configureModule,
   requestAccess,
   resolveAccess,
@@ -612,7 +613,9 @@ export async function createApp(
       businessRead?: boolean;
       // Replayed access changes must wait behind the same workspace writers and
       // recheck the route's current authority before returning a saved result.
-      reauthorizeReplay?: boolean;
+      reauthorizeReplay?:
+        | boolean
+        | ((tx: Tx, ctx: Context, req: Request<S.Static<B>>) => Promise<void>);
       handler: (
         tx: Tx,
         ctx: Context,
@@ -736,6 +739,8 @@ export async function createApp(
                           permission,
                           options.module,
                         );
+                        if (typeof options.reauthorizeReplay === "function")
+                          await options.reauthorizeReplay(tx, ctx, req);
                       },
                     }
                   : undefined,
@@ -1032,7 +1037,8 @@ export async function createApp(
     ),
     response: S.InvitationSchema,
     permission: "members.manage",
-    reauthorizeReplay: true,
+    reauthorizeReplay: (tx, ctx, req) =>
+      requireInvitationRoleAuthority(tx, ctx, req.body.roleId),
     handler: (tx, ctx, req) => createInvitation(tx, ctx, req.body),
   });
   route("inviteRevoke", {

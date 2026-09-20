@@ -10,6 +10,28 @@ import { found, requireCondition } from "../errors";
 import { modulePolicyIntents } from "./module-policy";
 import { reconcileModulePolicies } from "./module-assignments";
 
+/** Requires a freshly authorized context while the caller holds the workspace lock. */
+export async function requireInvitationRoleAuthority(
+  tx: Tx,
+  ctx: Context,
+  roleId: string,
+) {
+  const role = found(
+    await tx
+      .selectFrom("suite.roles")
+      .select("name")
+      .where("workspace_id", "=", ctx.workspaceId)
+      .where("id", "=", roleId)
+      .executeTakeFirst(),
+  );
+  requireCondition(
+    role.name !== "Owner" || ctx.roleNames.includes("Owner"),
+    403,
+    "OWNER_REQUIRED",
+    "Only an owner can invite another owner.",
+  );
+}
+
 export async function createInvitation(
   tx: Tx,
   ctx: Context,
@@ -24,20 +46,7 @@ export async function createInvitation(
     ctx.runtime,
     "members.manage",
   );
-  const role = found(
-    await tx
-      .selectFrom("suite.roles")
-      .selectAll()
-      .where("workspace_id", "=", ctx.workspaceId)
-      .where("id", "=", input.roleId)
-      .executeTakeFirst(),
-  );
-  requireCondition(
-    role.name !== "Owner" || ctx.roleNames.includes("Owner"),
-    403,
-    "OWNER_REQUIRED",
-    "Only an owner can invite another owner.",
-  );
+  await requireInvitationRoleAuthority(tx, ctx, input.roleId);
   const workspace = await tx
     .selectFrom("suite.workspaces")
     .select("kind")

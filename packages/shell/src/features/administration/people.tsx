@@ -113,7 +113,11 @@ export function People(props: FeatureProps) {
       predicate: (q) =>
         q.queryKey[0] === scope.userId && q.queryKey[1] === scope.workspaceId,
     });
-  async function act(fn: () => Promise<unknown>, close?: () => void) {
+  async function act(
+    fn: () => Promise<unknown>,
+    close?: () => void,
+    uncertainMessage?: string,
+  ) {
     setBusy(true);
     setError(undefined);
     try {
@@ -122,7 +126,11 @@ export function People(props: FeatureProps) {
       // Completion is the accepted mutation; background reads must not keep
       // unrelated dialogs locked while their queries are refreshed.
       void refresh();
-    } catch (e) {
+    } catch (cause) {
+      const e =
+        uncertainMessage && !(cause instanceof ApiError)
+          ? new Error(uncertainMessage)
+          : cause;
       setError(e);
       if (!(e instanceof ApiError && e.code === "MEMBER_CHANGED")) onError(e);
     } finally {
@@ -426,11 +434,14 @@ export function People(props: FeatureProps) {
                           disabled={busy}
                           aria-label={`Revoke invitation for ${i.email}`}
                           onClick={() =>
-                            void act(() =>
-                              client.request({
-                                operation: "inviteRevoke",
-                                params: { ...params, id: i.id },
-                              }),
+                            void act(
+                              () =>
+                                client.request({
+                                  operation: "inviteRevoke",
+                                  params: { ...params, id: i.id },
+                                }),
+                              undefined,
+                              "Revocation could not be confirmed. Retry to check its saved result.",
                             )
                           }
                         >
@@ -558,6 +569,7 @@ export function People(props: FeatureProps) {
                   idempotencyKey: attempt,
                 }),
               () => setInvite(false),
+              "Invitation creation could not be confirmed. Retry without changing the details to check its saved result.",
             );
           }}
           className="form-stack"
@@ -565,6 +577,7 @@ export function People(props: FeatureProps) {
           <Field label="Email address">
             <Input
               type="email"
+              disabled={busy}
               required
               autoFocus
               value={email}
@@ -576,6 +589,7 @@ export function People(props: FeatureProps) {
           </Field>
           <Field label="Initial role">
             <Select
+              disabled={busy}
               required
               value={roleId}
               onValueChange={(e) => {

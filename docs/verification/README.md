@@ -1280,3 +1280,8 @@ Parent verification passes 20 focused checks, all 1,023 regression tests, strict
 [Combined organization acceptance](organization-scale/README.md) extends GOV-01, ORG-002/ORG-003 and PERM-001/PERM-002 with 500 roles, 100 groups and 100 tags. The chart reveals distant roles, supports keyboard/background panning, correct pointer coordinates and complete-layout minimap navigation. Matrix columns and group/tag/parent choices are searchable and paginated; off-page selections remain intact. The shared evaluator still owns permission decisions.
 
 Final verification passes 27 focused tests, strict checks/four fresh builds, five headless browser cases and four hidden/minimized native cases. All six final captures were inspected, including corrections for the native focus ring and narrow single-role matrix. Exact unrelated-policy preservation, saved reload and module-local agreement pass. This is scoped local topology acceptance, not a hosted benchmark or all dense graph shapes. GOV-01 remains active for employee administration, next role/invitation authority and stale edits. Full parity and later UI refinement remain open.
+
+
+## Invitation governance and retry recovery, 21 September 2026
+
+[Invitation transition acceptance](invitation-transitions/README.md) records the requested checkpoint, Sol xhigh delegation and parent review. It covers competing responses/revocation, fresh administrator and ownership authority after transaction waits, verified-account boundaries, actual lost creation/revocation replies, exact retries and preserved replacement invitations. Final verification and inspected captures are linked in the evidence; broader GOV-01 and full parity remain open.

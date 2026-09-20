@@ -30,14 +30,14 @@ afterAll(async () => {
   await admin.end();
   await db.destroy();
 });
-async function fixture() {
-  const person = async (name: string) => {
+async function fixture(inviteeVerified = true) {
+  const person = async (name: string, emailVerified = true) => {
     const user = await identify(db, {
       issuer: "test",
       subject: randomUUID(),
       email: `${randomUUID()}@test.local`,
       name,
-      emailVerified: true,
+      emailVerified,
     });
     const session = await server.auth.issue(user.id, true);
     return {
@@ -50,7 +50,7 @@ async function fixture() {
     };
   };
   const owner = await person("Owner"),
-    invitee = await person("Invitee");
+    invitee = await person("Invitee", inviteeVerified);
   const workspace = randomUUID();
   await inWorkspace(db, workspace, (tx) =>
     provisionWorkspace(tx, {
@@ -69,12 +69,12 @@ async function fixture() {
     })
   ).json<{ id: string; name: string }[]>();
   const sales = roles.find((role) => role.name === "Sales")!.id;
-  const create = (key = randomUUID()) =>
+  const create = (key = randomUUID(), roleId = sales) =>
     server.app.inject({
       method: "POST",
       url: `${url}/invitations`,
       headers: { ...owner.headers, "idempotency-key": key },
-      payload: { email: invitee.user.email, roleId: sales },
+      payload: { email: invitee.user.email, roleId },
     });
   const originalKey = randomUUID();
   const made = await create(originalKey);
@@ -275,6 +275,86 @@ it("rechecks administrator authority after create, revoke and creation replay wa
       await pending;
     }
   }
+});
+
+it("rechecks owner authority after an accepted creation replay waits", async () => {
+  for (const lock of ["workspace", "receipt"] as const) {
+    const f = await fixture();
+    expect((await f.revoke()).statusCode).toBe(200);
+    const ownerRole = f.roles.find((role) => role.name === "Owner")!.id;
+    const administratorRole = f.roles.find(
+      (role) => role.name === "Administrator",
+    )!.id;
+    const key = randomUUID();
+    const created = await f.create(key, ownerRole);
+    expect(created.statusCode, created.body).toBe(200);
+    const invitationId = created.json<{ id: string }>().id;
+    const blocker = await admin.connect();
+    let pending: Promise<Awaited<ReturnType<typeof f.create>>> | undefined;
+    try {
+      await blocker.query("begin");
+      const pid = (
+        await blocker.query<{ pid: number }>("select pg_backend_pid() pid")
+      ).rows[0].pid;
+      if (lock === "workspace")
+        await blocker.query(
+          "select id from suite.workspaces where id=$1 for update",
+          [f.workspace],
+        );
+      else
+        await blocker.query(
+          "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          [`${f.workspace}:${f.owner.user.id}:${key}`],
+        );
+      pending = f.create(key, ownerRole);
+      await waitForBlocker(pid, 1);
+      await blocker.query(
+        "update suite.role_assignments set role_id=$1 where workspace_id=$2 and membership_id=(select id from suite.memberships where workspace_id=$2 and user_id=$3)",
+        [administratorRole, f.workspace, f.owner.user.id],
+      );
+      await blocker.query("commit");
+      const replay = await pending;
+      expect(replay.statusCode, replay.body).toBe(403);
+      expect(replay.json().code).toBe("OWNER_REQUIRED");
+      expect(
+        Number(
+          (
+            await admin.query<{ count: string }>(
+              "select count(*) from suite.invitations where id=$1",
+              [invitationId],
+            )
+          ).rows[0].count,
+        ),
+      ).toBe(1);
+      expect(
+        Number(
+          (
+            await admin.query<{ count: string }>(
+              "select count(*) from suite.audit where workspace_id=$1 and target_id=$2 and action='invitations.created'",
+              [f.workspace, invitationId],
+            )
+          ).rows[0].count,
+        ),
+      ).toBe(1);
+    } finally {
+      await blocker.query("rollback");
+      blocker.release();
+      await pending;
+    }
+  }
+});
+
+it("keeps an invitation pending when an unverified account responds", async () => {
+  const f = await fixture(false);
+  for (const accept of [true, false]) {
+    const response = await f.respond(accept);
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().code).toBe("EMAIL_UNVERIFIED");
+  }
+  expect(await f.read()).toBe("pending");
+  expect(await f.membership()).toBeUndefined();
+  expect(await f.auditCount("invitations.accepted")).toBe(0);
+  expect(await f.auditCount("invitations.declined")).toBe(0);
 });
 
 it("preserves ownership, workspace and verified-account boundaries during retries", async () => {
