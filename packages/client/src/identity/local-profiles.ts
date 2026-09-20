@@ -1,7 +1,10 @@
-import {
-  unlockLocalVault,
-  type LocalUnlockProtection,
-} from "./local-vault/unlock";
+import type { LocalUnlockProtection } from "./local-vault/contracts";
+import type {
+  LocalVaultAccess,
+  LocalVaultProvider,
+} from "./local-vault/access";
+import { createBrowserVaultProvider } from "./local-vault/browser";
+export type { LocalVaultProvider } from "./local-vault/access";
 import type {
   ModuleCall,
   ModuleDefinition,
@@ -44,19 +47,11 @@ import {
   type LocalDeviceRequest,
   type LocalDeviceExecutor,
 } from "./local-devices";
-import {
-  assertVaultRevision,
-  commitVault,
-  createVault,
-  unlockVault,
-  restoreVault,
-  subscribeLocalProfiles,
-  type LocalVault,
-} from "./local-vault";
 export interface LocalProfileRuntime {
   catalog: ModuleCatalog;
   workerFactory: LocalWorkerFactory;
   unlockProtection?: LocalUnlockProtection;
+  vaults?: LocalVaultProvider;
 }
 export { localReferenceAccess, localServiceAccess } from "./local-access";
 export { localCapabilityAccess } from "./local-capabilities";
@@ -65,12 +60,20 @@ export type {
   LocalCapabilityGrant,
   LocalCapabilityGuard,
 } from "./local-capabilities";
-export {
-  listLocalProfiles,
-  listRemovedLocalProfiles,
-  removeLocalProfile,
-  subscribeLocalProfiles,
-} from "./local-vault";
+export const localVaultProvider = (
+  runtime?: LocalProfileRuntime,
+): LocalVaultProvider =>
+  runtime?.vaults ?? createBrowserVaultProvider(runtime?.unlockProtection);
+export const listLocalProfiles = (runtime?: LocalProfileRuntime) =>
+  localVaultProvider(runtime).list();
+export const listRemovedLocalProfiles = (runtime?: LocalProfileRuntime) =>
+  localVaultProvider(runtime).removed();
+export const removeLocalProfile = (id: string, runtime?: LocalProfileRuntime) =>
+  localVaultProvider(runtime).remove(id);
+export const subscribeLocalProfiles = (
+  listener: (id: string, invalidate?: boolean) => void,
+  runtime?: LocalProfileRuntime,
+) => localVaultProvider(runtime).subscribe(listener);
 export interface LocalRelease {
   package: SignedArtifact;
   publicKey: string;
@@ -244,13 +247,12 @@ export interface LocalSession {
   lock(): void;
 }
 function session(
-  vault: LocalVault,
-  key: CryptoKey,
-  data: LocalData,
+  access: LocalVaultAccess,
   runtime: LocalProfileRuntime,
 ): LocalSession {
-  let unlocked: CryptoKey | undefined = key;
-  let revision = vault.revision ?? 0;
+  const vault = access.profile;
+  let data = access.data as LocalData;
+  let unlocked: LocalVaultAccess | undefined = access;
   let tail: Promise<unknown> = Promise.resolve();
   // A prior process may have performed the effect before losing its receipt.
   for (const request of Object.values(data.deviceRequests ?? {}))
@@ -273,7 +275,7 @@ function session(
   };
   async function assertCurrentProfile() {
     unlockedOrThrow();
-    await assertVaultRevision(vault, revision);
+    await access.assert();
     unlockedOrThrow();
   }
   async function commit(next: LocalData, signal?: AbortSignal) {
@@ -282,15 +284,7 @@ function session(
         "PROFILE_LOCKED",
         "Unlock the local profile.",
       );
-    const key = unlocked;
-    revision = await commitVault(
-      vault,
-      key,
-      next,
-      revision,
-      signal,
-      () => unlocked === key,
-    );
+    await access.commit(next, signal, () => unlocked === access);
     if (unlocked) data = next;
     unlockedOrThrow();
   }
@@ -645,7 +639,7 @@ function session(
     catalog: runtime.catalog,
     profileId: vault.id,
     data: () => data,
-    revision: () => revision,
+    revision: () => access.revision,
     settled: async () => {
       await tail;
     },
@@ -1340,14 +1334,15 @@ function session(
     lock() {
       stopProfileChanges();
       unlocked = undefined;
+      access.close();
       devices.close();
       worker.close();
       data = { records: {} };
     },
   };
-  const stopProfileChanges = subscribeLocalProfiles((id) => {
-    if (id === vault.id) current.lock();
-  });
+  const stopProfileChanges = subscribeLocalProfiles((id, invalidate = true) => {
+    if (invalidate && id === vault.id) current.lock();
+  }, runtime);
   return current;
 }
 export async function restoreLocalProfile(
@@ -1356,31 +1351,33 @@ export async function restoreLocalProfile(
   runtime: LocalProfileRuntime,
   signal?: AbortSignal,
 ) {
-  const { vault, key, data } = await restoreVault<LocalData>(
-    id,
-    password,
-    signal,
+  return session(
+    await localVaultProvider(runtime).restore(id, password, signal),
+    runtime,
   );
-  return session(vault, key, data, runtime);
 }
 export async function createLocalProfile(
   name: string,
   password: string,
   runtime: LocalProfileRuntime,
 ) {
-  const data: LocalData = { records: {} };
-  const { vault, key } = await createVault(name, password, data);
-  return session(vault, key, data, runtime);
+  return session(
+    await localVaultProvider(runtime).create(name, password, {
+      records: {},
+    } satisfies LocalData),
+    runtime,
+  );
 }
 export async function unlockLocalProfile(
   id: string,
   password: string,
   runtime: LocalProfileRuntime,
 ) {
-  const { vault, key, data } = await unlockVault<LocalData>(id, password);
-  return session(vault, key, data, runtime);
+  return session(
+    await localVaultProvider(runtime).unlock(id, password),
+    runtime,
+  );
 }
-
 export async function unlockLocalProfileWith(
   id: string,
   method: "pin" | "biometric",
@@ -1388,15 +1385,17 @@ export async function unlockLocalProfileWith(
   runtime: LocalProfileRuntime,
   signal?: AbortSignal,
 ) {
-  const { vault, key, data } = await unlockLocalVault<LocalData>(
+  const access = await localVaultProvider(runtime).quickUnlock(
     id,
     method,
     pin,
-    runtime.unlockProtection,
     signal,
   );
-  signal?.throwIfAborted();
-  return session(vault, key, data, runtime);
+  if (signal?.aborted) {
+    access.close();
+    signal.throwIfAborted();
+  }
+  return session(access, runtime);
 }
 
 export { availableLocalModules, installedLocalModules } from "./local-modules";

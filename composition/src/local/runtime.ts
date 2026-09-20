@@ -1,3 +1,4 @@
+import { createNativeVaultProvider } from "@suite/client/native-vault";
 import { moduleCatalog } from "../catalog/index";
 import type { LocalProfileRuntime } from "@suite/client/local-profiles";
 import {
@@ -11,10 +12,10 @@ export const localWorkerFactory: LocalWorkerFactory = () =>
 export const localProfileRuntime: LocalProfileRuntime = Object.freeze({
   catalog: moduleCatalog,
   workerFactory: localWorkerFactory,
-  unlockProtection:
-    typeof window === "undefined"
-      ? undefined
-      : window.suiteDesktop?.localUnlock,
+  vaults:
+    typeof window !== "undefined" && window.suiteDesktop
+      ? createNativeVaultProvider(window.suiteDesktop.localVaults)
+      : undefined,
 });
 
 export const createLocalWorkerHost = () =>

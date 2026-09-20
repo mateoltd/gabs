@@ -17,12 +17,31 @@ async function recover<Result>(
   return response.result;
 }
 const bridge: DesktopBridge = {
-  localUnlock: {
-    status: () => ipcRenderer.invoke("suite:local-unlock-status"),
-    seal: (binding, bytes) =>
-      recover("suite:local-unlock-seal", binding, bytes),
-    open: (binding, sealed) =>
-      recover("suite:local-unlock-open", binding, sealed),
+  localVaults: {
+    request: async (id, action, input) => {
+      const response = await ipcRenderer.invoke(
+        "suite:local-vault",
+        id,
+        action,
+        input,
+      );
+      if (!response?.ok)
+        throw Object.assign(
+          Error(response?.message ?? "Local vault operation failed."),
+          { code: response?.code },
+        );
+      return response.result;
+    },
+    cancel: (id) => ipcRenderer.invoke("suite:local-vault-cancel", id),
+    subscribe: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        change: import("@suite/client/vault-protocol").NativeVaultChange,
+      ) => callback(change);
+      ipcRenderer.on("suite:local-vault-changed", listener);
+      return () =>
+        ipcRenderer.removeListener("suite:local-vault-changed", listener);
+    },
   },
   profileLockStatus: () => ipcRenderer.invoke("suite:profile-lock-status"),
   onProfileLock: (callback) => {

@@ -1,9 +1,6 @@
+import { localVaultProvider } from "@suite/client/local-profiles";
 import { useEffect, useRef, useState } from "react";
-import {
-  configureLocalUnlock,
-  localUnlockStatus,
-  type LocalUnlockStatus,
-} from "@suite/client/local-unlock";
+import { type LocalUnlockStatus } from "@suite/client/local-unlock";
 import {
   Button,
   Checkbox,
@@ -35,7 +32,8 @@ export function LocalProfileUnlock({
     if (!open) return;
     let active = true;
     setStatus(undefined);
-    void localUnlockStatus(id, localProfiles.unlockProtection)
+    void localVaultProvider(localProfiles)
+      .status(id)
       .then((value) => {
         if (active) {
           setStatus(value);
@@ -61,12 +59,11 @@ export function LocalProfileUnlock({
     pending.current = controller;
     setBusy(true);
     try {
-      await configureLocalUnlock(
+      await localVaultProvider(localProfiles).configure(
         id,
         password,
         remove ? undefined : pin,
         !remove && biometric,
-        localProfiles.unlockProtection,
         controller.signal,
       );
       onSaved();
@@ -113,7 +110,7 @@ export function LocalProfileUnlock({
         >
           <ErrorMessage error={error} />
           <p>
-            {localProfiles.unlockProtection
+            {localVaultProvider(localProfiles).kind === "desktop"
               ? "Your PIN key is protected by this device’s operating system. Touch ID is available on supported devices."
               : "A PIN is easier to guess than a strong passphrase if someone copies your browser data. It only unlocks this local profile in this browser."}
           </p>

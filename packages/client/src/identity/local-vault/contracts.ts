@@ -29,3 +29,28 @@ export interface LocalUnlockStatus {
   biometricAvailable: boolean;
   retryAt: number;
 }
+
+export interface LocalVault {
+  id: string;
+  name: string;
+  salt: Uint8Array;
+  iv: Uint8Array;
+  ciphertext: ArrayBuffer;
+  updatedAt: number;
+  revision?: number;
+  removedAt?: number;
+  unlock?: LocalUnlockCredential;
+}
+
+/** Atomic updates run synchronously against the latest stored revision. */
+export interface LocalVaultStore {
+  get(id: string): Promise<LocalVault | undefined>;
+  list(): Promise<LocalVault[]>;
+  add(vault: LocalVault): Promise<void>;
+  update(
+    id: string,
+    change: (stored: LocalVault | undefined) => LocalVault,
+  ): Promise<LocalVault>;
+  exclusive<T>(id: string, run: () => Promise<T>): Promise<T>;
+  changed(id: string): void;
+}

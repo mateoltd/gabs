@@ -1,3 +1,11 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { NativeVaultSessions } from "./storage/vault-sessions";
+import { localVaultStore, importLocalVaults } from "./storage/local-vaults";
+import {
+  assertLocalVaultRequest,
+  type LocalVaultRequest,
+} from "@suite/client/vault-protocol";
+import type { LocalUnlockProtection } from "@suite/client/vault-engine";
 import { openProtectedDatabase } from "./storage/database";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { verifyLanPackage } from "./lan-package";
@@ -48,10 +56,72 @@ function decrypt(cacheKey: string, payload: Uint8Array): unknown {
     ),
   );
 }
+let vaults: NativeVaultSessions | undefined;
+const vaultRequests = new Map<string, AbortController>();
+const vaultContext = new AsyncLocalStorage<AbortSignal>();
+let protectionSequence = 0;
+const protectionPending = new Map<
+  number,
+  { resolve: (value: unknown) => void; reject: (error: Error) => void }
+>();
+function protect(method: keyof LocalUnlockProtection, args: unknown[]) {
+  return new Promise<unknown>((resolve, reject) => {
+    const protectionId = ++protectionSequence;
+    const signal = vaultContext.getStore();
+    const finish = () => {
+      protectionPending.delete(protectionId);
+      signal?.removeEventListener("abort", abort);
+    };
+    const abort = () => {
+      finish();
+      reject(Error("Local unlock was cancelled."));
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    protectionPending.set(protectionId, {
+      resolve: (value) => {
+        finish();
+        resolve(value);
+      },
+      reject: (error) => {
+        finish();
+        reject(error);
+      },
+    });
+    process.parentPort.postMessage({ protectionId, method, args });
+  });
+}
+const protection: LocalUnlockProtection = {
+  status: () =>
+    protect("status", []) as ReturnType<LocalUnlockProtection["status"]>,
+  seal: (...args) => protect("seal", args) as Promise<string>,
+  open: (...args) => protect("open", args) as Promise<number[]>,
+};
 process.parentPort.on("message", async (event) => {
+  if (event.data?.protectionResult !== undefined) {
+    const pending = protectionPending.get(event.data.protectionResult);
+    protectionPending.delete(event.data.protectionResult);
+    if (event.data.error) pending?.reject(Error(event.data.error));
+    else pending?.resolve(event.data.value);
+    return;
+  }
+  if (event.data?.action === "vault-cancel") {
+    vaultRequests.get(event.data.requestId)?.abort();
+    vaults?.cancel(event.data.requestId);
+    return;
+  }
+  if (event.data?.action === "vault-close-all") {
+    for (const request of vaultRequests.values()) request.abort();
+    vaults?.close();
+    return;
+  }
   const message = event.data as {
     id: number;
     action:
+      | "vault"
       | "open"
       | "read"
       | "write"
@@ -59,6 +129,8 @@ process.parentPort.on("message", async (event) => {
       | "purge-workspace"
       | "prune-artifacts"
       | "verify-lan-package";
+    requestId?: string;
+    request?: LocalVaultRequest;
     path?: string;
     secret?: string;
     key?: string;
@@ -76,10 +148,35 @@ process.parentPort.on("message", async (event) => {
       db = openProtectedDatabase(message.path!, key, (row) => {
         decrypt(row.key, row.payload);
       });
+      vaults = new NativeVaultSessions(
+        localVaultStore(db, (id) =>
+          process.parentPort.postMessage({
+            vaultChanged: { id, generation: vaults!.generation },
+          }),
+        ),
+        protection,
+        async (vaults) => importLocalVaults(db!, vaults),
+      );
       process.parentPort.postMessage({ id: message.id, value: true });
       return;
     }
     if (!db || !key) throw Error("Storage is unavailable.");
+    if (message.action === "vault") {
+      if (!message.requestId || vaultRequests.has(message.requestId))
+        throw Error("Invalid local vault request identifier.");
+      assertLocalVaultRequest(message.request);
+      const controller = new AbortController();
+      vaultRequests.set(message.requestId, controller);
+      try {
+        const value = await vaultContext.run(controller.signal, () =>
+          vaults!.run(message.request!, controller.signal, message.requestId),
+        );
+        process.parentPort.postMessage({ id: message.id, value });
+      } finally {
+        vaultRequests.delete(message.requestId);
+      }
+      return;
+    }
     if (!message.key || message.key.includes(".."))
       throw Error("Invalid cache key.");
     let value: unknown;
@@ -147,10 +244,13 @@ process.parentPort.on("message", async (event) => {
   } catch (error) {
     process.parentPort.postMessage({
       id: message.id,
+      code: error instanceof Error && "code" in error ? error.code : undefined,
       error:
-        error instanceof StorageRetentionError
+        message.action === "vault" && error instanceof Error
           ? error.message
-          : "Protected storage operation failed.",
+          : error instanceof StorageRetentionError
+            ? error.message
+            : "Protected storage operation failed.",
     });
   }
 });

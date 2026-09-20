@@ -53,24 +53,20 @@ test("minimized desktop saves through a local worker and recovers the encrypted 
       page.getByRole("cell", { name: "Native private contact", exact: true }),
     ).toBeVisible();
     const id = await page.evaluate(async () => {
-      const open = indexedDB.open("suite-local-profiles");
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        open.onsuccess = () => resolve(open.result);
-        open.onerror = () => reject(open.error);
+      const bridge = window.suiteDesktop!.localVaults;
+      const profiles = await bridge.request(crypto.randomUUID(), "list", {
+        removed: false,
       });
-      const read = db.transaction("vaults").objectStore("vaults").getAll();
-      const rows = await new Promise<
-        { id: string; ciphertext: ArrayBuffer; revision: number }[]
-      >((resolve) => {
-        read.onsuccess = () => resolve(read.result);
+      const opened = await bridge.request(crypto.randomUUID(), "unlock", {
+        id: profiles[0].id,
+        password: "correct horse battery staple",
       });
-      db.close();
-      if (
-        rows[0].revision !== 1 ||
-        JSON.stringify(rows).includes("Native private contact")
-      )
-        throw Error("Local encrypted commit failed");
-      return rows[0].id;
+      if (opened.revision !== 1 || "key" in opened)
+        throw Error("Local utility vault commit failed");
+      await bridge.request(crypto.randomUUID(), "close", {
+        handle: opened.handle,
+      });
+      return profiles[0].id;
     });
     expect(
       await app.evaluate(({ BrowserWindow }) =>

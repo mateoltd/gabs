@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 const require = createRequire(resolve("apps/desktop/package.json"));
 
-test("standalone unlock exposes bounded native protection and preserves passphrase access without interactive prompts", async () => {
+test("standalone vault refuses unavailable protection and exposes no raw key methods", async () => {
   const profile = await mkdtemp(resolve(tmpdir(), "suite-local-unlock-"));
   const app = await electron.launch({
     executablePath: require("electron"),
@@ -19,16 +19,15 @@ test("standalone unlock exposes bounded native protection and preserves passphra
   });
   try {
     const page = await app.firstWindow();
-    const support = await page.evaluate(() =>
-      window.suiteDesktop!.localUnlock.status(),
-    );
-    expect(typeof support.available).toBe("boolean");
-    expect(typeof support.biometric).toBe("boolean");
+    expect(
+      await page.evaluate(() => "localUnlock" in window.suiteDesktop!),
+    ).toBe(false);
     const rejected = await page.evaluate(async () => {
       try {
-        await window.suiteDesktop!.localUnlock.seal(
-          { profileId: "invalid", epoch: "invalid", kind: "biometric" },
-          [],
+        await window.suiteDesktop!.localVaults.request(
+          crypto.randomUUID(),
+          "unlock",
+          { id: "invalid", password: "test" },
         );
         return false;
       } catch {
@@ -36,26 +35,9 @@ test("standalone unlock exposes bounded native protection and preserves passphra
       }
     });
     expect(rejected).toBe(true);
-    // Exercise the actual IPC failure path without accessing Keychain or prompting.
     await app.evaluate(({ safeStorage }) => {
-      safeStorage.isAsyncEncryptionAvailable = async () => false;
+      safeStorage.isEncryptionAvailable = () => false;
     });
-    const unavailable = await page.evaluate(async () => {
-      try {
-        await window.suiteDesktop!.localUnlock.seal(
-          {
-            profileId: crypto.randomUUID(),
-            epoch: crypto.randomUUID(),
-            kind: "pin",
-          },
-          Array(48).fill(1),
-        );
-        return "unexpected success";
-      } catch (error) {
-        return (error as Error).message;
-      }
-    });
-    expect(unavailable).toContain("Protected storage is unavailable");
     await page
       .getByRole("button", { name: "Use a local profile", exact: true })
       .click();
@@ -68,47 +50,11 @@ test("standalone unlock exposes bounded native protection and preserves passphra
     await page
       .getByRole("button", { name: "Create profile", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Profile unlock", exact: true })
-      .click();
-    const dialog = page.getByRole("dialog", {
-      name: "Profile unlock",
-      exact: true,
-    });
+    await expect(page.getByRole("alert")).toContainText(
+      "Protected storage is unavailable",
+    );
     await expect(
-      dialog.getByLabel("Current passphrase", { exact: true }),
-    ).toBeVisible();
-    if (!support.available) {
-      await expect(dialog.getByRole("status")).toContainText(
-        "Protected storage is unavailable",
-      );
-      await expect(
-        dialog.getByRole("button", { name: "Save and lock", exact: true }),
-      ).toBeDisabled();
-    }
-    await mkdir("docs/verification/local-profile-unlock", { recursive: true });
-    await page.screenshot({
-      path: "docs/verification/local-profile-unlock/native-settings.png",
-      animations: "disabled",
-    });
-    await dialog
-      .getByRole("button", { name: "Close dialog", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Lock profile", exact: true })
-      .click();
-    await page.getByRole("combobox", { name: "Profile", exact: true }).click();
-    await page
-      .getByRole("option", { name: "Native PIN settings", exact: true })
-      .click();
-    await page
-      .getByLabel("Passphrase", { exact: true })
-      .fill("correct horse battery staple");
-    await page
-      .getByRole("button", { name: "Unlock profile", exact: true })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "Native PIN settings", exact: true }),
+      page.getByRole("heading", { name: "Local profiles", exact: true }),
     ).toBeVisible();
     expect(
       await app.evaluate(({ BrowserWindow }) =>
@@ -151,8 +97,8 @@ test("protected standalone PIN unlock survives a native restart and retains the 
   try {
     let page = await app.firstWindow();
     test.skip(
-      !(await page.evaluate(() => window.suiteDesktop!.localUnlock.status()))
-        .available,
+      !(await page.evaluate(() => window.suiteDesktop!.securityStatus()))
+        .persistentStorage,
       "OS-protected storage is unavailable.",
     );
     await page

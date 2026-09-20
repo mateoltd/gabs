@@ -1,3 +1,4 @@
+import { assertLocalVaultRequest } from "@suite/client/vault-protocol";
 import { NativeLocalUnlock } from "./identity/local-unlock";
 import { NativeProfileLock } from "./identity/profile-lock";
 import { NativeInputRecovery } from "./input-recovery";
@@ -21,6 +22,10 @@ import { registerLanRecovery } from "./lan/ipc";
 import { LanRecovery } from "./lan/recovery";
 import {
   openCache,
+  setVaultHost,
+  cacheVaultRequest,
+  cacheVaultCancel,
+  cacheVaultCloseAll,
   cacheRead,
   cacheWrite,
   cachePurge,
@@ -872,21 +877,55 @@ async function localUnlockAction<T>(run: () => Promise<T>) {
     return {
       ok: false,
       message: error instanceof Error ? error.message : "Local unlock failed.",
+      code: error instanceof Error && "code" in error ? error.code : undefined,
     };
   }
 }
+const vaultRequests = new Map<string, AbortController>();
+function closeVaultSessions() {
+  for (const request of vaultRequests.values()) request.abort();
+  cacheVaultCloseAll();
+}
+setVaultHost(localUnlock, (id) => {
+  if (win && !win.isDestroyed())
+    win.webContents.send("suite:local-vault-changed", id);
+});
 function handlers() {
-  ipcMain.handle("suite:local-unlock-status", (event) => {
+  ipcMain.handle("suite:local-vault", (event, id, action, input) => {
     sender(event, true);
-    return localUnlock.status();
+    return localUnlockAction(async () => {
+      if (
+        typeof id !== "string" ||
+        !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(
+          id,
+        ) ||
+        vaultRequests.has(id)
+      )
+        throw Error("Invalid local vault request identifier.");
+      const request = { action, input };
+      assertLocalVaultRequest(request);
+      const controller = new AbortController();
+      vaultRequests.set(id, controller);
+      try {
+        await ensureCache();
+        controller.signal.throwIfAborted();
+        const result = await cacheVaultRequest(id, request);
+        controller.signal.throwIfAborted();
+        return result;
+      } catch (error) {
+        cacheVaultCancel(id);
+        throw error;
+      } finally {
+        vaultRequests.delete(id);
+      }
+    });
   });
-  ipcMain.handle("suite:local-unlock-seal", (event, binding, value) => {
+  ipcMain.handle("suite:local-vault-cancel", (event, id) => {
     sender(event, true);
-    return localUnlockAction(() => localUnlock.seal(binding, value));
-  });
-  ipcMain.handle("suite:local-unlock-open", (event, binding, value) => {
-    sender(event, true);
-    return localUnlockAction(() => localUnlock.open(binding, value));
+    if (typeof id !== "string" || id.length !== 36)
+      throw Error("Invalid local vault request identifier.");
+    vaultRequests.get(id)?.abort();
+    cacheVaultCancel(id);
   });
   ipcMain.handle("suite:profile-lock-status", (event) => {
     sender(event, true);
@@ -1432,8 +1471,14 @@ async function start() {
     /* A locked keychain leaves sign-in available without leaking plaintext. */
   }
   await profileLock.activate(userId);
-  powerMonitor.on("lock-screen", () => profileLock.lock());
-  powerMonitor.on("suspend", () => profileLock.lock());
+  powerMonitor.on("lock-screen", () => {
+    profileLock.lock();
+    closeVaultSessions();
+  });
+  powerMonitor.on("suspend", () => {
+    profileLock.lock();
+    closeVaultSessions();
+  });
   const assetRoot = resolve(__dirname, "renderer");
   protocol.handle("suite", (request) => {
     const url = new URL(request.url);
@@ -1489,12 +1534,14 @@ async function start() {
       "did-start-navigation",
       (_event, _url, isInPlace, isMainFrame) => {
         if (isMainFrame && !isInPlace) {
+          closeVaultSessions();
           moduleHosts.clear();
           localDeviceHosts.clear();
         }
       },
     );
     const closeViewSessions = () => {
+      closeVaultSessions();
       moduleHosts.clear();
       localDeviceHosts.clear();
     };

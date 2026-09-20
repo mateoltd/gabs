@@ -1,10 +1,13 @@
-import type { LocalVault } from "./store";
+import type { LocalVault } from "./contracts";
 
 export async function derive(
   password: string,
   salt: Uint8Array,
   extractable = false,
-  usages: KeyUsage[] = ["encrypt", "decrypt"],
+  usages: ("encrypt" | "decrypt" | "wrapKey" | "unwrapKey")[] = [
+    "encrypt",
+    "decrypt",
+  ],
 ) {
   const material = await crypto.subtle.importKey(
     "raw",

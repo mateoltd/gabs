@@ -40,7 +40,7 @@ export function ProfileRecovery({
       sequence = 0;
     const refresh = () => {
       const request = ++sequence;
-      void listRemovedLocalProfiles()
+      void listRemovedLocalProfiles(localProfiles)
         .then((profiles) => {
           if (!active || request !== sequence) return;
           setProfiles(profiles);
@@ -55,7 +55,7 @@ export function ProfileRecovery({
         });
     };
     refresh();
-    const stop = subscribeLocalProfiles(refresh);
+    const stop = subscribeLocalProfiles(refresh, localProfiles);
     const hide = () => {
       if (document.visibilityState === "hidden") {
         pending.current?.abort();

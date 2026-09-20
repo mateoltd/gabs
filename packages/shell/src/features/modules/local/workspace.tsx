@@ -1,8 +1,5 @@
 import { LocalProfileUnlock } from "./profile-unlock";
-import {
-  localUnlockStatus,
-  type LocalUnlockStatus,
-} from "@suite/client/local-unlock";
+import { type LocalUnlockStatus } from "@suite/client/local-unlock";
 import { createSchemaDraft } from "@suite/module-sdk/forms";
 import { ProfileRecovery } from "./profile-recovery";
 import { LocalActions } from "./actions";
@@ -25,6 +22,7 @@ import {
 import {
   availableLocalModules,
   listLocalProfiles,
+  localVaultProvider,
   createLocalProfile,
   unlockLocalProfile,
   unlockLocalProfileWith,
@@ -75,7 +73,8 @@ export function LocalWorkspace({
     setUnlockStatus(undefined);
     setUnlockMethod("passphrase");
     if (id && !session)
-      void localUnlockStatus(id, localProfiles.unlockProtection)
+      void localVaultProvider(localProfiles)
+        .status(id)
         .then((value) => {
           if (current) setUnlockStatus(value);
         })
@@ -194,7 +193,7 @@ export function LocalWorkspace({
       refreshSequence = 0;
     const refreshProfiles = () => {
       const sequence = ++refreshSequence;
-      void listLocalProfiles()
+      void listLocalProfiles(localProfiles)
         .then((profiles) => {
           if (active && sequence === refreshSequence) setProfiles(profiles);
         })
@@ -203,11 +202,14 @@ export function LocalWorkspace({
         });
     };
     refreshProfiles();
-    const stop = subscribeLocalProfiles((changedId) => {
+    const stop = subscribeLocalProfiles((changedId, invalidate = true) => {
       const current = activeSession.current;
-      if (changedId === selectedProfileId.current || changedId === current?.id)
+      if (
+        invalidate &&
+        (changedId === selectedProfileId.current || changedId === current?.id)
+      )
         unlockEpoch.current++;
-      if (current?.id === changedId) {
+      if (invalidate && current?.id === changedId) {
         activeSession.current = undefined;
         current.lock();
         setSession(undefined);
@@ -215,9 +217,10 @@ export function LocalWorkspace({
         setForm({});
         setEditing(undefined);
       }
-      if (selectedProfileId.current === changedId) selectProfile("");
+      if (invalidate && selectedProfileId.current === changedId)
+        selectProfile("");
       refreshProfiles();
-    });
+    }, localProfiles);
     return () => {
       active = false;
       stop();
@@ -673,8 +676,8 @@ export function LocalWorkspace({
             setBusy(true);
             setError(undefined);
             try {
-              await removeLocalProfile(id);
-              setProfiles(await listLocalProfiles());
+              await removeLocalProfile(id, localProfiles);
+              setProfiles(await listLocalProfiles(localProfiles));
               selectProfile("");
               setPassword("");
               setRemoving(false);

@@ -32,7 +32,11 @@
     "./browser-profile-lock": "./src/adapters/browser-profile-lock.ts",
     "./online-profiles": "./src/identity/online-profiles.ts",
     "./online-profile-store": "./src/adapters/online-profiles.ts",
-    "./local-unlock": "./src/identity/local-vault/unlock.ts"
+    "./local-unlock": "./src/identity/local-vault/unlock.ts",
+    "./vault-engine": "./src/identity/local-vault/engine.ts",
+    "./vault-access": "./src/identity/local-vault/access.ts",
+    "./vault-protocol": "./src/identity/local-vault/protocol.ts",
+    "./native-vault": "./src/identity/local-vault/native.ts"
   },
   "dependencies": {
     "@suite/contracts": "workspace:*",

@@ -5,12 +5,17 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type * as Vault from "../../packages/client/src/identity/local-vault";
 import type * as Unlock from "../../packages/client/src/identity/local-vault/unlock";
-type Harness = typeof Vault & typeof Unlock;
+import type * as Native from "../../packages/client/src/identity/local-vault/native";
+import type {
+  NativeVaultBridge,
+  NativeVaultChange,
+} from "../../packages/client/src/identity/local-vault/protocol";
+type Harness = typeof Vault & typeof Unlock & typeof Native;
 let browser: Browser, server: Server, origin: string;
 beforeAll(async () => {
   const bundle = await build({
     stdin: {
-      contents: `import * as vault from './packages/client/src/identity/local-vault';import * as unlock from './packages/client/src/identity/local-vault/unlock'; window.vault={...vault,...unlock};`,
+      contents: `import * as vault from './packages/client/src/identity/local-vault';import * as unlock from './packages/client/src/identity/local-vault/unlock'; import * as native from './packages/client/src/identity/local-vault/native'; window.vault={...vault,...unlock,...native};`,
       resolveDir: process.cwd(),
     },
     bundle: true,
@@ -393,6 +398,72 @@ it("cancels enrollment before storage and prevents replay after a concurrent pro
       raced: true,
       enabled: false,
       data: { text: "newer" },
+    });
+  } finally {
+    await context.close();
+  }
+});
+
+it("ignores delayed native creation events while applying later revocations to opaque grants", async () => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(origin);
+    const result = await page.evaluate(async () => {
+      const v = (window as unknown as { vault: Harness }).vault;
+      let change!: (event: NativeVaultChange) => void;
+      const closed: string[] = [];
+      const id = crypto.randomUUID(),
+        handle = crypto.randomUUID();
+      const bridge: NativeVaultBridge = {
+        request: (async (_request, action, input) => {
+          if (action === "create")
+            return {
+              generation: 7,
+              handle,
+              profile: { id, name: "New" },
+              revision: 0,
+              data: { records: {} },
+            };
+          if (action === "close")
+            closed.push((input as { handle: string }).handle);
+        }) as NativeVaultBridge["request"],
+        cancel: async () => {},
+        subscribe: (callback) => {
+          change = callback;
+          return () => {};
+        },
+      };
+      const provider = v.createNativeVaultProvider(bridge);
+      const notifications: boolean[] = [];
+      provider.subscribe((_id, invalidate) => notifications.push(!!invalidate));
+      const opened = await provider.create("New", "long passphrase", {
+        records: {},
+      });
+      change({ id, generation: 7 });
+      await opened.assert();
+      const preserved = opened.data;
+      change({ id, generation: 8 });
+      let locked = false;
+      try {
+        await opened.assert();
+      } catch {
+        locked = true;
+      }
+      return {
+        preserved,
+        locked,
+        cleared: opened.data === undefined,
+        notifications,
+        closed: closed.length,
+      };
+    });
+    expect(result).toEqual({
+      preserved: { records: {} },
+      locked: true,
+      cleared: true,
+      notifications: [false, true],
+      closed: 1,
     });
   } finally {
     await context.close();

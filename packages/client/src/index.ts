@@ -117,7 +117,7 @@ export interface LanReceipt {
   message: string;
 }
 export interface DesktopBridge extends ProfileLockBridge {
-  localUnlock: import("./identity/local-vault/contracts").LocalUnlockProtection;
+  localVaults: import("./identity/local-vault/protocol").NativeVaultBridge;
   onlineProfiles(): Promise<
     import("./identity/online-profiles").OnlineProfile[]
   >;

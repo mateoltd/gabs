@@ -1,18 +1,6 @@
-import { LocalExecutionError } from "@suite/module-sdk/local";
 import { openDB, type DBSchema } from "idb";
-import type { LocalUnlockCredential } from "./contracts";
-
-export interface LocalVault {
-  id: string;
-  name: string;
-  salt: Uint8Array;
-  iv: Uint8Array;
-  ciphertext: ArrayBuffer;
-  updatedAt: number;
-  revision?: number;
-  removedAt?: number;
-  unlock?: LocalUnlockCredential;
-}
+import type { LocalVault, LocalVaultStore } from "./contracts";
+export type { LocalVault } from "./contracts";
 
 interface LocalVaultDatabase extends DBSchema {
   vaults: { key: string; value: LocalVault };
@@ -55,16 +43,39 @@ export function notifyLocalProfileChanged(id: string) {
   sender.close();
 }
 
-export async function assertVaultRevision(vault: LocalVault, revision: number) {
-  const connection = await openLocalVaultDatabase();
-  const stored = await connection.get("vaults", vault.id);
-  if (
-    !stored ||
-    stored.removedAt !== undefined ||
-    (stored.revision ?? 0) !== revision
-  )
-    throw new LocalExecutionError(
-      "PROFILE_CHANGED",
-      "This profile changed in another window or was removed. Unlock it again before using module access.",
+export const browserVaultStore: LocalVaultStore = {
+  async get(id) {
+    return (await openLocalVaultDatabase()).get("vaults", id);
+  },
+  async list() {
+    return (await openLocalVaultDatabase()).getAll("vaults");
+  },
+  async add(vault) {
+    await (await openLocalVaultDatabase()).add("vaults", vault);
+  },
+  async update(id, change) {
+    const tx = (await openLocalVaultDatabase()).transaction(
+      "vaults",
+      "readwrite",
     );
-}
+    try {
+      const next = change(await tx.store.get(id));
+      if (next.id !== id)
+        throw Error("A vault update cannot change its profile.");
+      await tx.store.put(next);
+      await tx.done;
+      return next;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        /* Already completed. */
+      }
+      await tx.done.catch(() => {});
+      throw error;
+    }
+  },
+  exclusive: async (id, run) =>
+    await navigator.locks.request(`suite-local-unlock:${id}`, run),
+  changed: notifyLocalProfileChanged,
+};
