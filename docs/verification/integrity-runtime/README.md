@@ -1,6 +1,6 @@
 # Runtime integrity lockdown and saved-work recovery
 
-Scope: runtime monitoring, IPC admission and persisted-work preservation within **ID-04**. These paths have scoped local acceptance. ID-04 remains **active** for integrity evidence/support recovery tools and real provider, signed-platform and operational acceptance.
+Scope: runtime monitoring, IPC admission and persisted-work preservation within **ID-04**. These paths have scoped local acceptance. ID-04 remains **active** for operational delivery and real provider/signed-platform acceptance; [integrity support recovery](../integrity-support/README.md) now has scoped local evidence.
 
 ## Runtime behavior
 
@@ -38,7 +38,7 @@ Earlier fixture corrections selected the real connection endpoint instead of hea
 
 ## Remaining work
 
-- Inspect/export integrity evidence and explicitly repair unreadable audit state while retaining the original evidence and business data. Operational false-positive recovery and support journeys are still required.
+- [Inspection/export and retained audit repair](../integrity-support/README.md) now have local command and interrupted-process acceptance. Real foreground dialog and broader operational support journeys remain required.
 - Real signed/installed platform, identity/OS-provider and physical durability acceptance. Simulated providers, controlled disk edits, emitted resume events and process exits do not establish these gates.
 - Operational audit delivery and monitoring. Local integrity receipts are not tamper-proof server records.
 

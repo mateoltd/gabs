@@ -3,6 +3,7 @@ import {
   inspectApplication,
 } from "./integrity/startup";
 import { IntegrityJournal } from "./integrity/journal";
+import { IntegritySupport, integrityCommands } from "./integrity/support";
 import { IntegrityMonitor, guardedHandle } from "./integrity/runtime";
 import type { AssetManifest } from "./integrity/assets";
 import { cleanImportStaging } from "./storage/import-staging";
@@ -475,6 +476,14 @@ const integrityOptions = () => ({
   platform: process.platform,
   appPath: app.getAppPath(),
 });
+async function clearIntegritySession() {
+  await credentials.clear();
+  await protectedFiles.remove("identity");
+}
+const integritySupport = new IntegritySupport(
+  integrityOptions,
+  clearIntegritySession,
+);
 let integrityCleanup: Promise<unknown> = Promise.resolve();
 let integrityDeadline: ReturnType<typeof setTimeout> | undefined;
 async function boundedShutdown(tasks: Promise<unknown>[]) {
@@ -1553,6 +1562,10 @@ async function start() {
     mkdirSync(profile, { recursive: true });
     app.setPath("userData", profile);
   }
+  const selectedIntegrity = integrityCommands.filter((command) =>
+    app.commandLine.hasSwitch(command),
+  );
+  const integrityCommand = selectedIntegrity[0];
   const backup = app.commandLine.hasSwitch("backup-local-profiles");
   const restore = app.commandLine.hasSwitch("restore-local-profiles");
   const recover = app.commandLine.hasSwitch("recover-local-profiles");
@@ -1566,7 +1579,8 @@ async function start() {
       recover ||
       forceNewRecovery ||
       recoverDevice ||
-      forceNewDevice
+      forceNewDevice ||
+      integrityCommand
     ) {
       process.stderr.write(
         "Quit the running application before storage maintenance.\n",
@@ -1583,12 +1597,16 @@ async function start() {
     recover ||
     forceNewRecovery ||
     recoverDevice ||
-    forceNewDevice
+    forceNewDevice ||
+    integrityCommand
   )
     app.dock?.hide();
-  const maintenance = backup || restore || recover || recoverDevice;
+  const maintenance =
+    backup || restore || recover || recoverDevice || !!integrityCommand;
   if (
-    [backup, restore, recover, recoverDevice].filter(Boolean).length > 1 ||
+    [backup, restore, recover, recoverDevice, ...selectedIntegrity].filter(
+      Boolean,
+    ).length > 1 ||
     (forceNewRecovery && !recover) ||
     (forceNewDevice && !recoverDevice) ||
     (maintenance && app.commandLine.hasSwitch("rotate-storage-key"))
@@ -1599,30 +1617,41 @@ async function start() {
     app.exit(1);
     return;
   }
+  if (integrityCommand) {
+    try {
+      const output = await integritySupport.execute(
+        integrityCommand,
+        app.commandLine.getSwitchValue(integrityCommand),
+      );
+      await new Promise<void>((resolveWrite, reject) => {
+        process.stdout.write(output + "\n", (error) =>
+          error ? reject(error) : resolveWrite(),
+        );
+      });
+      app.exit(0);
+    } catch {
+      process.stderr.write(
+        "Integrity support failed. Inspect the installation and profile access; export to a new file outside application data. Retain all original and pending recovery files.\n",
+      );
+      app.exit(1);
+    }
+    return;
+  }
   // Check before credentials, maintenance, native code or the renderer can open.
   const integrity = await checkApplicationIntegrity({
     ...integrityOptions(),
-    beforeRecovery: async () => {
-      await credentials.clear();
-      await protectedFiles.remove("identity");
-    },
+    beforeRecovery: clearIntegritySession,
   });
   if (!integrity.allowed) {
-    const message = "Common could not verify this installation.";
-    const detail =
-      integrity.reason === "audit-unavailable"
-        ? "The local integrity record could not be saved or read. Check access to the application profile and retain its integrity records. Your saved work has not been opened or changed."
-        : "Repair or reinstall Common from your organization's approved release, then restart. Your saved profiles and pending work have not been opened or changed. Do not delete the application data folder.";
-    process.stderr.write(`${message} ${integrity.reason}\n`);
-    if (!minimizedTest && !maintenance)
-      await dialog.showMessageBox({
-        type: "error",
-        message,
-        detail,
-        buttons: ["Quit"],
-        noLink: true,
-      });
-    app.exit(1);
+    process.stderr.write(
+      `Common could not verify this installation. ${integrity.reason}\n`,
+    );
+    try {
+      if (!minimizedTest && !maintenance)
+        await integritySupport.showFailure(dialog, integrity.reason);
+    } finally {
+      app.exit(1);
+    }
     return;
   }
   const recoveryHost = {
@@ -1868,6 +1897,10 @@ async function start() {
     if (
       args.some(
         (arg) =>
+          integrityCommands.some(
+            (command) =>
+              arg === `--${command}` || arg.startsWith(`--${command}=`),
+          ) ||
           arg === "--backup-local-profiles" ||
           arg.startsWith("--backup-local-profiles=") ||
           arg === "--restore-local-profiles" ||

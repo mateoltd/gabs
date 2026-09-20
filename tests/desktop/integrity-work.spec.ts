@@ -1,3 +1,4 @@
+import { launchIntegrityProbe } from "../support/integrity-process";
 import {
   holdServerReply,
   type ReplyGate,
@@ -23,9 +24,10 @@ import {
 } from "../support/corporate-portability/devices";
 import { selectValue } from "../e2e/controls.helpers";
 
-for (const boundary of ["offline", "accepted"] as const)
-  test(`runtime lockdown preserves ${boundary} work and a draft through repair and fresh sign-in`, async () => {
+for (const scenario of ["offline", "accepted", "audit-repair"] as const)
+  test(`runtime lockdown preserves ${scenario} work and a draft through repair and fresh sign-in`, async () => {
     test.setTimeout(150000);
+    const boundary = scenario === "offline" ? "offline" : "accepted";
     const directory = await mkdtemp(resolve(tmpdir(), "suite-integrity-work-"));
     const dist = resolve(directory, "dist"),
       profile = resolve(directory, "profile");
@@ -158,6 +160,23 @@ for (const boundary of ["offline", "accepted"] as const)
         ).rows,
       ).toHaveLength(boundary === "accepted" ? 1 : 0);
       await writeFile(asset, bytes);
+      if (scenario === "audit-repair") {
+        const corrupt = "original unreadable audit";
+        await writeFile(resolve(profile, "integrity/lockdown.json"), corrupt);
+        const repair = await launchIntegrityProbe(
+          resolve(dist, "main.cjs"),
+          profile,
+          ["--repair-integrity"],
+        );
+        expect(repair.code, repair.output).toBe(0);
+        const retained = (await readdir(profile)).find((name) =>
+          name.startsWith("integrity-retained-"),
+        );
+        expect(retained).toBeTruthy();
+        expect(
+          await readFile(resolve(profile, retained!, "lockdown.json"), "utf8"),
+        ).toBe(corrupt);
+      }
       device = await nativePortabilityDevice(profile, {
         reuse: true,
         beforeSignIn: async (app) => {
@@ -225,9 +244,11 @@ for (const boundary of ["offline", "accepted"] as const)
             .analyze()
         ).violations,
       ).toEqual([]);
-      await mkdir("docs/verification/integrity-runtime", { recursive: true });
+      const evidence =
+        scenario === "audit-repair" ? "integrity-support" : "integrity-runtime";
+      await mkdir(`docs/verification/${evidence}`, { recursive: true });
       await page.screenshot({
-        path: `docs/verification/integrity-runtime/recovered-${boundary}.png`,
+        path: `docs/verification/${evidence}/recovered-${boundary}.png`,
         animations: "disabled",
       });
       const viewport = await page.evaluate(() => ({
@@ -241,7 +262,7 @@ for (const boundary of ["offline", "accepted"] as const)
         ),
       ).toBe(true);
       await page.screenshot({
-        path: `docs/verification/integrity-runtime/recovered-${boundary}-narrow.png`,
+        path: `docs/verification/${evidence}/recovered-${boundary}-narrow.png`,
         animations: "disabled",
       });
       await page.setViewportSize(viewport);

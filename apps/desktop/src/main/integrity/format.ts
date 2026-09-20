@@ -7,6 +7,7 @@ export const integrityFailureCodes = [
   "changed-asset",
   "unreadable-assets",
   "invalid-signature",
+  "unreadable-audit",
 ] as const;
 export type IntegrityFailure = {
   code: (typeof integrityFailureCodes)[number];
@@ -85,3 +86,17 @@ export function parseIntegrityEvent(value: unknown) {
   };
 }
 export type IntegrityEvent = ReturnType<typeof parseIntegrityEvent>;
+
+export function parseIntegrityRepair(value: unknown) {
+  const item = object(value, ["version", "kind", "id", "at", "release"]);
+  if (item.version !== 1 || item.kind !== "audit-repair")
+    throw Error("Invalid integrity repair.");
+  return {
+    version: 1 as const,
+    kind: "audit-repair" as const,
+    id: integrityId(item.id),
+    at: timestamp(item.at),
+    release: parseIntegrityRelease(item.release),
+  };
+}
+export type IntegrityRepair = ReturnType<typeof parseIntegrityRepair>;

@@ -31,7 +31,15 @@ export async function ensureIntegrityDirectory(path: string) {
 export async function readIntegrityFile(path: string): Promise<unknown> {
   let file;
   try {
-    file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const entry = await lstat(path);
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.size > 8192)
+      throw Error("Invalid integrity record.");
+    file = await open(
+      path,
+      constants.O_RDONLY |
+        (constants.O_NOFOLLOW ?? 0) |
+        (constants.O_NONBLOCK ?? 0),
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
@@ -40,7 +48,20 @@ export async function readIntegrityFile(path: string): Promise<unknown> {
     const stat = await file.stat();
     if (!stat.isFile() || stat.size > 8192)
       throw Error("Invalid integrity record.");
-    return JSON.parse(await file.readFile("utf8"));
+    const bytes = Buffer.alloc(8193);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = await file.read(
+        bytes,
+        length,
+        bytes.length - length,
+        length,
+      );
+      if (!read.bytesRead) break;
+      length += read.bytesRead;
+    }
+    if (length > 8192) throw Error("Invalid integrity record.");
+    return JSON.parse(bytes.subarray(0, length).toString("utf8"));
   } finally {
     await file.close();
   }

@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { inspectAssets, type AssetManifest } from "./assets";
 import type { IntegrityFailure } from "./format";
 import { IntegrityJournal } from "./journal";
+import { integrityRepairPending } from "./report";
 
 const execute = promisify(execFile);
 export interface ApplicationIntegrityOptions {
@@ -51,10 +52,16 @@ export async function checkApplicationIntegrity(
   },
 ): Promise<
   | { allowed: true }
-  | { allowed: false; reason: IntegrityFailure["code"] | "audit-unavailable" }
+  | {
+      allowed: false;
+      reason:
+        IntegrityFailure["code"] | "audit-unavailable" | "audit-repair-pending";
+    }
 > {
   const failure = await inspectApplication(options);
   try {
+    if (await integrityRepairPending(options.profile))
+      return { allowed: false, reason: "audit-repair-pending" };
     await new IntegrityJournal(
       resolve(options.profile, "integrity"),
       options.release,

@@ -1,6 +1,4 @@
 import { test, expect } from "@playwright/test";
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import {
   cp,
   mkdtemp,
@@ -13,44 +11,7 @@ import {
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 
-const require = createRequire(resolve("apps/desktop/package.json"));
-
-function launchIntegrityProbe(entry: string, profile: string) {
-  return new Promise<{ code: number | null; output: string }>(
-    (resolveRun, reject) => {
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        SUITE_DESKTOP_TEST_MINIMIZED: "1",
-      };
-      delete env.ELECTRON_RUN_AS_NODE;
-      const child = spawn(
-        require("electron"),
-        [entry, `--user-data-dir=${profile}`],
-        { env, stdio: ["ignore", "pipe", "pipe"] },
-      );
-      let output = "";
-      child.stdout.on("data", (bytes) => {
-        output += bytes;
-      });
-      child.stderr.on("data", (bytes) => {
-        output += bytes;
-      });
-      const timer = setTimeout(() => child.kill("SIGKILL"), 30000);
-      child.once("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      child.once("exit", (code, signal) => {
-        clearTimeout(timer);
-        if (signal)
-          reject(
-            Error(`Desktop exited with ${signal}: ${output.slice(-1500)}`),
-          );
-        else resolveRun({ code, output });
-      });
-    },
-  );
-}
+import { launchIntegrityProbe } from "../support/integrity-process";
 
 test("the real compiled desktop refuses modified assets before storage or a window and reopens after repair", async () => {
   test.setTimeout(90000);
