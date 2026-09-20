@@ -32,10 +32,12 @@ async function workspace(page: Page, assignedModules?: string[]) {
       `/api/v1/workspaces/${id}/members/${member.id}`,
       {
         headers: {
+          "idempotency-key": crypto.randomUUID(),
           origin: new URL(page.url()).origin,
           "x-csrf-token": me.csrfToken,
         },
         data: {
+          revision: member.revision,
           active: true,
           roleIds: member.roles.map((r: { id: string }) => r.id),
           modules: assignedModules,

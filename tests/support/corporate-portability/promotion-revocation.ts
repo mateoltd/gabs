@@ -129,6 +129,7 @@ export async function promotionRevocation(
     const changed = await admin.patch(`${base}/members/${original.id}`, {
       headers: { ...adminHeaders, "idempotency-key": randomUUID() },
       data: {
+        revision: original.revision,
         active: true,
         roleIds: [role.id],
         modules: ["contacts", "projects", "orders", "inventory"],
@@ -266,7 +267,12 @@ export async function promotionRevocation(
       if (assigned) {
         const restored = await admin.patch(`${base}/members/${original.id}`, {
           headers: { ...adminHeaders, "idempotency-key": randomUUID() },
-          data: originalMember,
+          data: {
+            ...originalMember,
+            revision: (
+              (await (await admin.get(`${base}/members`)).json()) as Members
+            ).find((member) => member.id === original.id)!.revision,
+          },
         });
         expect(restored.ok(), await restored.text()).toBe(true);
       }

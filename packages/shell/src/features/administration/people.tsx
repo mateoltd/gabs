@@ -1,3 +1,4 @@
+import { ApiError } from "@suite/client/api";
 import { PermissionOrigin } from "./permission-origin";
 import { type FeatureProps } from "@suite/client";
 import {
@@ -31,7 +32,7 @@ import {
 } from "@suite/ui-web";
 import { ArrowRight, Plus, Shield, UserPlus } from "@suite/ui-web/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./platform-admin";
 type Member = Static<typeof MemberSchema>;
@@ -81,6 +82,14 @@ export function People(props: FeatureProps) {
     [role, setRole] = useState<Role | "new" | null>(null),
     [error, setError] = useState<unknown>(),
     [busy, setBusy] = useState(false);
+  const memberAttempt = useRef<string | undefined>(undefined);
+  const firstMemberRole = useRef<HTMLSpanElement>(null);
+  const memberConflict =
+    error instanceof ApiError && error.code === "MEMBER_CHANGED";
+  const changeMember = (value: Member) => {
+    setMember(value);
+    memberAttempt.current = undefined;
+  };
   const [search, setSearch] = useState("");
   const [email, setEmail] = useState(""),
     [roleId, setRoleId] = useState(""),
@@ -115,7 +124,7 @@ export function People(props: FeatureProps) {
       void refresh();
     } catch (e) {
       setError(e);
-      onError(e);
+      if (!(e instanceof ApiError && e.code === "MEMBER_CHANGED")) onError(e);
     } finally {
       setBusy(false);
     }
@@ -352,7 +361,7 @@ export function People(props: FeatureProps) {
                           !bootstrap.roleNames.includes("Owner")
                         }
                         onClick={() => {
-                          setMember(m);
+                          changeMember(m);
                           setError(undefined);
                         }}
                       >
@@ -606,12 +615,16 @@ export function People(props: FeatureProps) {
             className="form-stack"
             onSubmit={(e) => {
               e.preventDefault();
+              const key = memberAttempt.current ?? crypto.randomUUID();
+              memberAttempt.current = key;
               void act(
                 () =>
                   client.request({
                     operation: "memberEdit",
                     params: { ...params, id: member.id },
+                    idempotencyKey: key,
                     body: {
+                      revision: member.revision,
                       active: member.active,
                       roleIds: member.roles.map((r) => r.id),
                       modules: member.modules,
@@ -624,12 +637,14 @@ export function People(props: FeatureProps) {
           >
             <fieldset>
               <legend>Roles</legend>
-              {availableRoles.map((r) => (
+              {availableRoles.map((r, index) => (
                 <label key={r.id} className="check-row">
                   <Checkbox
+                    ref={index === 0 ? firstMemberRole : undefined}
+                    disabled={busy}
                     checked={member.roles.some((m) => m.id === r.id)}
                     onCheckedChange={(e) =>
-                      setMember({
+                      changeMember({
                         ...member,
                         roles: e
                           ? [...member.roles, r]
@@ -683,13 +698,14 @@ export function People(props: FeatureProps) {
                         member.directModules ?? member.modules
                       ).includes(module.id)}
                       disabled={
-                        !ready &&
-                        !(member.directModules ?? member.modules).includes(
-                          module.id,
-                        )
+                        busy ||
+                        (!ready &&
+                          !(member.directModules ?? member.modules).includes(
+                            module.id,
+                          ))
                       }
                       onCheckedChange={(checked) =>
-                        setMember({
+                        changeMember({
                           ...member,
                           directModules: checked
                             ? [
@@ -720,14 +736,49 @@ export function People(props: FeatureProps) {
             </fieldset>
             <label className="check-row">
               <Checkbox
+                disabled={busy}
                 checked={member.active}
-                onCheckedChange={(e) => setMember({ ...member, active: e })}
+                onCheckedChange={(e) => changeMember({ ...member, active: e })}
               />
               Active membership
             </label>
-            <ErrorMessage error={error} />
+            <ErrorMessage error={memberConflict ? undefined : error} />
+            {memberConflict && (
+              <section aria-label="Changed member access" className="notice">
+                <p role="alert">
+                  This member’s access changed. Your unsaved choices are still
+                  shown. Reload replaces them with current access for review.
+                </p>
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      const current = await client.request({
+                        operation: "members",
+                        params,
+                      });
+                      const latest = current.find(
+                        (item) => item.id === member.id,
+                      );
+                      if (!latest)
+                        throw new Error("This member is no longer available.");
+                      changeMember(latest);
+                      requestAnimationFrame(() =>
+                        firstMemberRole.current?.focus(),
+                      );
+                    })
+                  }
+                >
+                  Reload current access
+                </Button>
+              </section>
+            )}
             <div className="form-footer">
-              <Button variant="primary" type="submit" disabled={busy}>
+              <Button
+                variant="primary"
+                type="submit"
+                disabled={busy || memberConflict}
+              >
                 Save access
               </Button>
             </div>

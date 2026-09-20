@@ -113,7 +113,7 @@ async function fixture() {
         [workspace, member],
       )
     ).rows;
-  const edit = (
+  const edit = async (
     member: string,
     roleIds: string[],
     modules: string[] = [],
@@ -125,6 +125,15 @@ async function fixture() {
       url: `/api/v1/workspaces/${workspace}/members/${member}`,
       headers: { ...headers, "idempotency-key": randomUUID() },
       payload: {
+        revision: (
+          await server.app.inject({
+            method: "GET",
+            url: `/api/v1/workspaces/${workspace}/members`,
+            headers,
+          })
+        )
+          .json<{ id: string; revision: string }[]>()
+          .find((item) => item.id === member)!.revision,
         active,
         roleIds,
         modules,

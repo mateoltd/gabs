@@ -3195,6 +3195,7 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
+                        revision: string;
                         /** Format: uuid */
                         userId: string;
                         name: string;
@@ -3324,6 +3325,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    revision: string;
                     active: boolean;
                     roleIds: string[];
                     modules: string[];

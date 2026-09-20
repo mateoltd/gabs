@@ -130,8 +130,23 @@ export const RoleSchema = Type.Object({
   permissions: Type.Array(Type.String()),
   protected: Type.Boolean(),
 });
+export const MemberRevisionSchema = Type.String({ pattern: "^[a-f0-9]{64}$" });
+export const MemberEditSchema = Type.Object(
+  {
+    revision: MemberRevisionSchema,
+    active: Type.Boolean(),
+    roleIds: Type.Array(Id, { maxItems: 20, uniqueItems: true }),
+    modules: Type.Array(ModuleId, { maxItems: 100, uniqueItems: true }),
+    directModules: Type.Optional(
+      Type.Array(ModuleId, { maxItems: 100, uniqueItems: true }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export type MemberEdit = Static<typeof MemberEditSchema>;
 export const MemberSchema = Type.Object({
   id: Id,
+  revision: MemberRevisionSchema,
   userId: Id,
   name: Type.String(),
   email: Type.String(),

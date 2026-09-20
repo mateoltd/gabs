@@ -5916,6 +5916,7 @@
                     "type": "object",
                     "required": [
                       "id",
+                      "revision",
                       "userId",
                       "name",
                       "email",
@@ -5926,6 +5927,10 @@
                     "properties": {
                       "id": {
                         "format": "uuid",
+                        "type": "string"
+                      },
+                      "revision": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "userId": {
@@ -6211,11 +6216,16 @@
                 "additionalProperties": false,
                 "type": "object",
                 "required": [
+                  "revision",
                   "active",
                   "roleIds",
                   "modules"
                 ],
                 "properties": {
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
                   "active": {
                     "type": "boolean"
                   },

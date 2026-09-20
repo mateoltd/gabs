@@ -26,6 +26,7 @@ export async function modulePoliciesJourney(
     operation: "memberEdit",
     params: { ...params, id: self.id },
     body: {
+      revision: self.revision,
       active: true,
       roleIds: [...self.roles.map((r) => r.id), sales.id],
       modules: [],

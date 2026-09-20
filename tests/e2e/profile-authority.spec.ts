@@ -76,8 +76,9 @@ test("a cookie change cannot apply another profile's authority or pending work",
   const assigned = await page.request.patch(
     `/api/v1/workspaces/${f.scope.workspaceId}/members/${member.id}`,
     {
-      headers,
+      headers: { ...headers, "idempotency-key": crypto.randomUUID() },
       data: {
+        revision: member.revision,
         active: true,
         roleIds: [ownerRole.id],
         modules: ["contacts", "projects", "orders", "inventory"],

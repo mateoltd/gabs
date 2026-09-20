@@ -281,6 +281,8 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
       url: `/api/v1/workspaces/${workspace}/members/${directApplicant}`,
       headers: { ...headers, "idempotency-key": randomUUID() },
       payload: {
+        revision: (await members()).find((item) => item.id === directApplicant)!
+          .revision,
         active: true,
         roleIds: [warehouse],
         modules: ["contacts"],
@@ -318,12 +320,19 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
         .find((m) => m.id === people[1].id)!
         .modulePolicies?.find((p) => p.moduleId === id)?.assigned,
     ).toBe(false);
-    const edit = (index: number, roleIds: string[], directModules: string[]) =>
+    const edit = async (
+      index: number,
+      roleIds: string[],
+      directModules: string[],
+    ) =>
       server.app.inject({
         method: "PATCH",
         url: `/api/v1/workspaces/${workspace}/members/${people[index].id}`,
         headers: { ...headers, "idempotency-key": randomUUID() },
         payload: {
+          revision: (await members()).find(
+            (item) => item.id === people[index].id,
+          )!.revision,
           active: true,
           roleIds,
           modules: directModules,

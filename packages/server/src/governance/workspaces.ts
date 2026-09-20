@@ -1,3 +1,4 @@
+import { memberRevision } from "./member-revision";
 import {
   organizationPolicy,
   policyModuleSourceResolver,
@@ -9,7 +10,7 @@ export { assignModules } from "./module-assignments";
 import { assertModuleStorage } from "../persistence/module-storage";
 import { assertSchema } from "@suite/module-sdk";
 import { randomUUID } from "node:crypto";
-import { type Bootstrap } from "@suite/contracts";
+import { type Bootstrap, type MemberEdit } from "@suite/contracts";
 import {
   workspaceModule,
   workspaceDependencyIds,
@@ -171,6 +172,16 @@ export async function bootstrap(tx: Tx, ctx: Context): Promise<Bootstrap> {
   };
 }
 export async function listMembers(tx: Tx, ctx: Context) {
+  // The revision and editable fields must describe one state across all access writers.
+  await lockWorkspace(tx, ctx.workspaceId);
+  ctx = await authorize(
+    tx,
+    ctx.actor,
+    ctx.workspaceId,
+    ctx.requestId,
+    ctx.runtime,
+    "members.manage",
+  );
   const members = await tx
     .selectFrom("suite.memberships as m")
     .innerJoin("suite.users as u", "m.user_id", "u.id")
@@ -217,6 +228,15 @@ export async function listMembers(tx: Tx, ctx: Context) {
       );
       return {
         id: member.id,
+        revision: memberRevision(ctx.workspaceId, {
+          id: member.id,
+          userId: member.user_id,
+          active: member.active,
+          roleIds: roles.map((role) => role.id),
+          directModules: assigned
+            .filter((a) => a.direct)
+            .map((a) => a.module_id),
+        }),
         userId: member.user_id,
         name: member.name,
         email: member.email,
@@ -248,12 +268,7 @@ export async function editMember(
   tx: Tx,
   ctx: Context,
   id: string,
-  input: {
-    active: boolean;
-    roleIds: string[];
-    modules: string[];
-    directModules?: string[];
-  },
+  input: MemberEdit,
 ) {
   await lockWorkspace(tx, ctx.workspaceId);
   ctx = await authorize(
@@ -280,10 +295,30 @@ export async function editMember(
         .onRef("a.role_id", "=", "r.id")
         .onRef("a.workspace_id", "=", "r.workspace_id"),
     )
-    .select("r.name")
+    .select(["r.id", "r.name"])
     .where("a.membership_id", "=", id)
     .where("a.workspace_id", "=", ctx.workspaceId)
     .execute();
+  const directBefore = await tx
+    .selectFrom("suite.module_assignments")
+    .select("module_id")
+    .where("workspace_id", "=", ctx.workspaceId)
+    .where("membership_id", "=", id)
+    .where("direct", "=", true)
+    .execute();
+  requireCondition(
+    input.revision ===
+      memberRevision(ctx.workspaceId, {
+        id: member.id,
+        userId: member.user_id,
+        active: member.active,
+        roleIds: current.map((role) => role.id),
+        directModules: directBefore.map((a) => a.module_id),
+      }),
+    409,
+    "MEMBER_CHANGED",
+    "This member's access changed. Reload current access before saving new changes.",
+  );
   const roles = input.roleIds.length
     ? await tx
         .selectFrom("suite.roles")

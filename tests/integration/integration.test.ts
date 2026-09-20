@@ -37,7 +37,9 @@ async function request(
     url: "/api/v1" + path,
     headers: {
       ...headers,
-      ...(method === "POST" ? { "idempotency-key": randomUUID() } : {}),
+      ...(["POST", "PATCH"].includes(method)
+        ? { "idempotency-key": randomUUID() }
+        : {}),
       ...extra,
     },
     ...(body !== undefined ? { payload: body as object } : {}),
@@ -800,6 +802,7 @@ describe("real PostgreSQL transactions and tenant security", () => {
     expect(
       (
         await request("PATCH", path(`/members/${own.id}`), {
+          revision: own.revision,
           active: false,
           roleIds: [],
           modules: [],

@@ -236,11 +236,17 @@ test("received membership revocation reaches a disconnected tab and preserves wo
       (member: { userId: string }) => member.userId === f.scope.userId,
     );
     const changeMembership = async (active: boolean) => {
+      const current = (
+        await (
+          await admin.get(`/api/v1/workspaces/${f.scope.workspaceId}/members`)
+        ).json()
+      ).find((member: { id: string }) => member.id === owner.id);
       const response = await admin.patch(
         `/api/v1/workspaces/${f.scope.workspaceId}/members/${owner.id}`,
         {
           headers: { ...headers, "idempotency-key": randomUUID() },
           data: {
+            revision: current.revision,
             active,
             roleIds: owner.roles.map((role: { id: string }) => role.id),
             modules: owner.modules,

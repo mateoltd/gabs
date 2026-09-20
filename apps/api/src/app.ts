@@ -702,6 +702,7 @@ export async function createApp(
             };
             if (
               op.method === "POST" ||
+              operation === "memberEdit" ||
               (op.method === "PUT" && req.headers["idempotency-key"])
             )
               return idempotent(
@@ -945,17 +946,7 @@ export async function createApp(
     handler: listMembers,
   });
   route("memberEdit", {
-    body: T.Object(
-      {
-        active: T.Boolean(),
-        roleIds: T.Array(S.Id, { maxItems: 20, uniqueItems: true }),
-        modules: T.Array(S.ModuleId, { maxItems: 100, uniqueItems: true }),
-        directModules: T.Optional(
-          T.Array(S.ModuleId, { maxItems: 100, uniqueItems: true }),
-        ),
-      },
-      { additionalProperties: false },
-    ),
+    body: S.MemberEditSchema,
     response: S.OkSchema,
     permission: "members.manage",
     handler: (tx, ctx, req) => editMember(tx, ctx, req.params.id, req.body),
