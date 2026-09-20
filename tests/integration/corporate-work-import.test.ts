@@ -16,8 +16,13 @@ import type { Platform } from "../../packages/client/src";
 import { SuiteClient } from "../../packages/client/src/api";
 import {
   stageSavedWorkImport,
+  stageSavedWorkImports,
   promoteSavedWorkImport,
 } from "../../packages/client/src/recovery/import";
+import {
+  sealSavedWorkArchive,
+  openSavedWorkArchive,
+} from "../../packages/client/src/recovery/archive";
 import {
   readModuleStorage,
   type ModuleStorage,
@@ -188,6 +193,11 @@ async function fixture() {
       }),
     stage: (value: SavedWorkRecovery = input) =>
       stageSavedWorkImport(options, JSON.stringify(value)),
+    stageBatch: (values: SavedWorkRecovery[]) =>
+      stageSavedWorkImports(
+        options,
+        values.map((value) => JSON.stringify(value)),
+      ),
     setCookie: (token: string) => {
       cookie = token;
     },
@@ -393,4 +403,92 @@ it("restores saved edits of an already accepted create as a current-record revie
   expect(records).toHaveLength(1);
   expect(records[0].data).toEqual(latest.data);
   expect((await f.promote(digest)).alreadyRestored).toBe(true);
+});
+
+it("admits an authenticated archive batch through current server policy without granting copied receipt authority", async () => {
+  const f = await fixture();
+  const second = structuredClone(f.input);
+  second.entry.id = second.entry.call.key = randomUUID();
+  const original = await f.send();
+  f.input.entry.state = "accepted";
+  f.input.entry.result = original;
+  const passphrase = "corporate recovery integration passphrase";
+  const text = await sealSavedWorkArchive(
+    {
+      kind: "corporate-saved-work",
+      formatVersion: 1,
+      ...f.scope,
+      createdAt: Date.now(),
+      copies: [f.input, second],
+    },
+    passphrase,
+    () => {},
+  );
+  const archive = await openSavedWorkArchive(
+    text,
+    passphrase,
+    f.scope,
+    () => {},
+  );
+  const admitted = await f.stageBatch(archive.copies);
+  expect(admitted).toHaveLength(2);
+  const state = await f.read();
+  expect(state.journal).toEqual([]);
+  expect(state.installed).toEqual({});
+  expect(
+    Object.values(state.recoveryImports!).map((copy) => copy.promotion),
+  ).toEqual([undefined, undefined]);
+  expect(
+    (await f.stageBatch(archive.copies)).every((copy) => copy.alreadyImported),
+  ).toBe(true);
+  // Only explicit promotion may ask the server whether the copied outcome is true.
+  expect(await f.promote(admitted[0].digest)).toMatchObject({
+    outcome: "accepted",
+  });
+  expect(
+    (await f.read()).journal.find((entry) => entry.id === f.input.entry.id)
+      ?.result,
+  ).toEqual(original);
+  expect(await f.promote(admitted[1].digest)).toMatchObject({
+    outcome: "cancelled",
+  });
+  const receipts = await inWorkspace(db, f.scope.workspaceId, (tx) =>
+    tx
+      .selectFrom("suite.idempotency")
+      .selectAll()
+      .where("key", "=", f.input.entry.id)
+      .execute(),
+  );
+  expect(receipts).toHaveLength(1);
+  expect(text).not.toContain(f.session.token);
+});
+
+it("does not treat successful archive decryption as a fresh corporate session", async () => {
+  const f = await fixture();
+  const text = await sealSavedWorkArchive(
+    {
+      kind: "corporate-saved-work",
+      formatVersion: 1,
+      ...f.scope,
+      createdAt: Date.now(),
+      copies: [f.input],
+    },
+    "archive passphrase retained offline",
+    () => {},
+  );
+  await db
+    .updateTable("suite.sessions")
+    .set({ created_at: new Date(Date.now() - 360_000) })
+    .where("token_hash", "=", hashToken(f.session.token))
+    .execute();
+  const archive = await openSavedWorkArchive(
+    text,
+    "archive passphrase retained offline",
+    f.scope,
+    () => {},
+  );
+  await expect(f.stageBatch(archive.copies)).rejects.toMatchObject({
+    code: "REAUTHENTICATION_REQUIRED",
+  });
+  expect(f.values.size).toBe(0);
 });

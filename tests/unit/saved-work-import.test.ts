@@ -9,6 +9,7 @@ import { authorizeWorkImport } from "../../packages/client/src/recovery/import/a
 import {
   parseSavedWorkImport,
   stageSavedWorkImport,
+  stageSavedWorkImports,
   promoteSavedWorkImport,
   inspectSavedWorkImport,
   discardSavedWorkImport,
@@ -2091,4 +2092,122 @@ it("keeps conflicting identities inspectable and removable without offering a re
   const state = await f.read();
   expect(state.journal[0]).toEqual(before);
   expect(state.recoveryImports![digest]).toBeUndefined();
+});
+
+it("admits selected archive copies atomically and deduplicates repeated selections without copying execution", async () => {
+  const f = fixture();
+  const other = structuredClone(f.input);
+  other.entry.id = other.entry.call.key = randomUUID();
+  if (other.review) other.review.source.key = other.entry.id;
+  const files = [f.input, other].map((input) => JSON.stringify(input));
+  const results = await stageSavedWorkImports(f.options, [...files, files[0]]);
+  expect(results).toHaveLength(2);
+  expect(results.every((result) => !result.alreadyImported)).toBe(true);
+  expect(Object.keys(f.state()!.recoveryImports!)).toHaveLength(2);
+  expect(f.state()!.journal).toEqual([]);
+  expect(f.state()!.commandReviews).toBeUndefined();
+  const stored = structuredClone(f.state());
+  expect(
+    (await stageSavedWorkImports(f.options, files)).every(
+      (result) => result.alreadyImported,
+    ),
+  ).toBe(true);
+  expect(f.state()).toEqual(stored);
+});
+
+it("preserves all selected work when a later archive item is unauthorized or belongs to another workspace", async () => {
+  const f = fixture();
+  const other = structuredClone(f.input);
+  other.entry.id = other.entry.call.key = randomUUID();
+  if (other.review) other.review.source.key = other.entry.id;
+  other.workspaceId = randomUUID();
+  await expect(
+    stageSavedWorkImports(f.options, [
+      JSON.stringify(f.input),
+      JSON.stringify(other),
+    ]),
+  ).rejects.toThrow(/another account/);
+  expect(f.calls).toEqual([]);
+  expect(f.state()).toBeUndefined();
+  other.workspaceId = f.input.workspaceId;
+  if (other.entry.call.action !== "operation") throw Error("fixture");
+  other.entry.call.operation = "names"; // Query commands cannot be imported as queued mutations.
+  other.review = undefined;
+  await expect(
+    stageSavedWorkImports(f.options, [
+      JSON.stringify(f.input),
+      JSON.stringify(other),
+    ]),
+  ).rejects.toThrow();
+  expect(f.state()).toBeUndefined();
+});
+
+it("rechecks earlier authority after authorizing later archive items and rejects a changed policy", async () => {
+  const f = fixture();
+  const other = structuredClone(f.input);
+  other.entry.id = other.entry.call.key = randomUUID();
+  if (other.review) other.review.source.key = other.entry.id;
+  let policyReads = 0;
+  f.onRequest((operation) => {
+    if (operation === "bootstrap" && ++policyReads === 5)
+      f.policy.policyRevision = "changed";
+  });
+  await expect(
+    stageSavedWorkImports(f.options, [
+      JSON.stringify(f.input),
+      JSON.stringify(other),
+    ]),
+  ).rejects.toThrow(/access changed/);
+  expect(f.state()).toBeUndefined();
+});
+
+it("keeps a failed archive admission additive and retryable after storage interruption", async () => {
+  const f = fixture();
+  const other = structuredClone(f.input);
+  other.entry.id = other.entry.call.key = randomUUID();
+  if (other.review) other.review.source.key = other.entry.id;
+  const first = await f.stage();
+  const before = structuredClone(f.state());
+  f.fail(true);
+  await expect(
+    stageSavedWorkImports(f.options, [
+      JSON.stringify(f.input),
+      JSON.stringify(other),
+    ]),
+  ).rejects.toThrow(/Storage interrupted/);
+  expect(f.state()).toEqual(before);
+  f.fail(false);
+  expect(
+    await stageSavedWorkImports(f.options, [
+      JSON.stringify(f.input),
+      JSON.stringify(other),
+    ]),
+  ).toEqual([
+    { digest: first.digest, alreadyImported: true },
+    { digest: expect.any(String), alreadyImported: false },
+  ]);
+});
+
+it("rejects over-capacity archive batches without dropping the earlier selection", async () => {
+  const f = fixture();
+  await f.stage();
+  const state = f.state()!;
+  const first = Object.values(state.recoveryImports!)[0];
+  for (let i = 0; i < 30; i++)
+    state.recoveryImports![`existing-${i}`] = structuredClone(first);
+  const files = [1, 2].map(() => {
+    const other = structuredClone(f.input);
+    other.entry.id = other.entry.call.key = randomUUID();
+    if (other.review) other.review.source.key = other.entry.id;
+    return JSON.stringify(other);
+  });
+  const before = structuredClone(state);
+  await expect(stageSavedWorkImports(f.options, files)).rejects.toThrow(
+    /storage is full/,
+  );
+  expect(f.state()).toEqual(before);
+  await expect(
+    stageSavedWorkImports(f.options, Array(33).fill(files[0])),
+  ).rejects.toThrow(/1 and 32/);
+  expect(f.state()).toEqual(before);
 });

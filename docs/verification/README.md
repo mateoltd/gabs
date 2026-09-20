@@ -1094,3 +1094,13 @@ Strict environment/boundary checks, two headless browser command journeys, two h
 
 
 Checkpoint `179beb8` and the [requested Sol xhigh architecture review](architecture/README.md#command-snapshot-checkpoint-review-20-september-2026) preserve the implemented ownership layout. The delegate made only the shared helper's draft/command mode explicit in its type, updating both callers. Parent review accepted the change; final strict checks, three headless browser and three hidden/minimized desktop journeys passed afterward. Scoped helper formatting and documentation coverage/dependencies also pass. No production implementation, package identifier, UI or style changed.
+
+
+## 20 September 2026: encrypted corporate archive foundation
+
+[ID-03-BACKUP-ARCHIVE foundation](corporate-work-archives/README.md) implements the bounded portable encrypted format and selected-source collection. Shared single/batch admission now preserves exact replay and stages all selected copies atomically under fresh account/workspace authority. Wrong secrets, ciphertext/header changes, injected authority fields, scope mismatch, capacity limits, storage interruption and policy changes are covered. An independent Node cipher verifies portability of the cryptographic format; a 40-copy archive exceeds admission storage without dropping input.
+
+Full regression passed 956 tests across 122 files, strict environment/boundary checks and four fresh builds. Ten real-server import tests include encrypted batch admission, current original-outcome verification and stale-session refusal despite successful decryption. Product file portability and archive UI/native IPC remain unimplemented, so the tracker remains active. Broader recovery, actual providers/platforms, overall parity and later UI refinement remain open.
+
+
+Following the shared admission refactor, three existing headless browser recovery journeys and three hidden/minimized native journeys passed. Final strict/format checks also passed after a type-only schema inference cleanup. Disposable databases/profiles were removed and historical captures retained; no UI/CSS or native IPC changed. These are regression checks for the existing recovery product, not acceptance of an archive interface.
