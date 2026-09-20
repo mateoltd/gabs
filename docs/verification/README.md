@@ -1195,3 +1195,11 @@ SEC-002/CORE-003 gain [request/draft promotion crash evidence](corporate-promoti
 ## Native profile replacement during restoration, 20 September 2026
 
 [Pre-commit lock and account replacement](corporate-promotion-interruption/README.md#native-pre-commit-lock-and-account-replacement) exercise the actual server-settlement and SQLite acknowledgement boundaries through normal native PIN/profile UI. Another account receives neither source-workspace access nor restored work; the original account returns through fresh authentication and explicit recovery. Input, receipts, unrelated drafts and the single cancellation audit remain intact. Browser cross-tab/profile checks and full parity remain open.
+
+## Browser cross-tab restoration, 20 September 2026
+
+[Two real-document journeys](corporate-promotion-interruption/README.md#browser-cross-tab-profile-transitions) verify lock and account replacement during held settlement. Exact imports, original identities and unrelated drafts survive; stale success is suppressed and explicit retry uses current authority. Six existing browser profile/archive regressions also passed. Four wide/narrow captures were inspected with scoped accessibility/overflow checks. Production source and UI styles are unchanged. The interruption matrix still needs adapter acknowledgement reconciliation before closure; full parity remains open.
+
+## Browser recovery architecture checkpoint, 20 September 2026
+
+[The requested Sol xhigh audit and parent review](architecture/README.md#browser-recovery-checkpoint-review-20-september-2026) preserve checkpoint `65cb7df` and confirm that the existing directory hierarchy and subsystem ownership need no further structural change. Fourteen boundary fixtures, strict checks and all four cached build targets passed. The checkpointed browser fixtures now have scoped acceptance, including their corrected capture labeling. No production source or UI changed; parity remains active.

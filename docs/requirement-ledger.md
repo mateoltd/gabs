@@ -537,3 +537,7 @@ SEC-002/CORE-003 gain [post-commit profile-lock evidence](verification/corporate
 ### 20 September 2026: native profile replacement during restoration
 
 SEC-002/CORE-003 gain [native pre-commit lock and account replacement evidence](verification/corporate-promotion-interruption/README.md#native-pre-commit-lock-and-account-replacement). A real settlement reply or committed SQLite acknowledgement remains held across lock and sign-in to another account. The new account cannot access original workspace storage or bootstrap; returning requires a fresh owner session and preserves exact input, receipts and unrelated drafts without duplicate cancellation. This is test-only work against `1a70294`. Browser cross-tab/profile restoration and parent provider/platform gates keep ID-03-BACKUP-INTERRUPTION and overall parity open; no original requirement status changes.
+
+### 20 September 2026: browser cross-tab restoration
+
+SEC-002/CORE-003 gain [browser cross-tab profile evidence](verification/corporate-promotion-interruption/README.md#browser-cross-tab-profile-transitions). A second document locks or replaces the account while actual settlement waits. Saved input survives, stale success is suppressed, and explicit restoration requires current authority. Two new journeys and six browser regressions passed. This covers pre-commit settlement interruption; the child's adapter acknowledgement coverage still needs reconciliation. Actual providers/platforms and full parity remain open; no original requirement status changes.
