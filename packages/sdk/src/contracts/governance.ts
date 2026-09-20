@@ -1,25 +1,58 @@
-export interface Rank {
-  id: string;
-  name: string;
-  parents: string[];
-  inherit: boolean;
-  denies: string[];
-  x: number;
-  y: number;
-}
-export interface PolicyGroup {
-  id: string;
-  name: string;
-  rankIds: string[];
-  tags: string[];
-  grants: string[];
-  denies: string[];
-}
-export interface OrganizationPolicy {
-  rootId: string;
-  ranks: Rank[];
-  groups: PolicyGroup[];
-}
+import { Type, type Static } from "@sinclair/typebox";
+
+const policyId = Type.String({
+  pattern:
+    "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
+});
+const strings = Type.Array(Type.String({ maxLength: 200 }), {
+  maxItems: 500,
+  uniqueItems: true,
+});
+export const RankSchema = Type.Object(
+  {
+    id: policyId,
+    name: Type.String({ minLength: 1, maxLength: 100 }),
+    parents: Type.Array(policyId, { maxItems: 100, uniqueItems: true }),
+    inherit: Type.Boolean(),
+    denies: strings,
+    x: Type.Number(),
+    y: Type.Number(),
+  },
+  { additionalProperties: false },
+);
+const assignment = {
+  id: policyId,
+  name: Type.String({ minLength: 1, maxLength: 100 }),
+  rankIds: Type.Array(policyId, { maxItems: 500, uniqueItems: true }),
+  grants: strings,
+  denies: strings,
+};
+export const PolicyGroupSchema = Type.Object(
+  {
+    ...assignment,
+    /** Existing group labels remain metadata; they do not create role policies. */
+    tags: strings,
+  },
+  { additionalProperties: false },
+);
+export const PolicyTagSchema = Type.Object(assignment, {
+  additionalProperties: false,
+});
+export const OrganizationPolicySchema = Type.Object(
+  {
+    rootId: policyId,
+    ranks: Type.Array(RankSchema, { maxItems: 500 }),
+    groups: Type.Array(PolicyGroupSchema, { maxItems: 100 }),
+    /** Optional for saved policies and supported clients predating role tags. */
+    tags: Type.Optional(Type.Array(PolicyTagSchema, { maxItems: 100 })),
+  },
+  { additionalProperties: false },
+);
+export type Rank = Static<typeof RankSchema>;
+export type PolicyGroup = Static<typeof PolicyGroupSchema>;
+export type PolicyTag = Static<typeof PolicyTagSchema>;
+export type OrganizationPolicy = Static<typeof OrganizationPolicySchema>;
+
 export function validateOrganization(policy: OrganizationPolicy) {
   const ranks = new Map(policy.ranks.map((r) => [r.id, r]));
   if (ranks.size !== policy.ranks.length)
@@ -50,13 +83,28 @@ export function validateOrganization(policy: OrganizationPolicy) {
     complete.add(id);
   };
   for (const rank of policy.ranks) visit(rank.id, []);
-  if (new Set(policy.groups.map((g) => g.id)).size !== policy.groups.length)
-    throw Error("Group identifiers must be unique.");
-  for (const group of policy.groups) {
-    if (group.rankIds.includes(root.id) && group.denies.length)
-      throw Error("The root cannot receive group denials.");
-    for (const id of group.rankIds)
-      if (!ranks.has(id)) throw Error("A group contains an unknown rank.");
+  for (const [kind, assignments] of [
+    ["Group", policy.groups],
+    ["Tag", policy.tags ?? []],
+  ] as const) {
+    if (new Set(assignments.map((item) => item.id)).size !== assignments.length)
+      throw Error(`${kind} identifiers must be unique.`);
+    const names = new Set<string>();
+    for (const item of assignments) {
+      if (kind === "Tag") {
+        const name = item.name.normalize("NFKC").trim().toLowerCase();
+        if (!name || names.has(name))
+          throw Error("Tag names must be nonempty and unique.");
+        names.add(name);
+      }
+      if (item.rankIds.includes(root.id) && item.denies.length)
+        throw Error(`The root cannot receive ${kind.toLowerCase()} denials.`);
+      if (new Set(item.rankIds).size !== item.rankIds.length)
+        throw Error(`A ${kind.toLowerCase()} contains duplicate ranks.`);
+      for (const id of item.rankIds)
+        if (!ranks.has(id))
+          throw Error(`A ${kind.toLowerCase()} contains an unknown rank.`);
+    }
   }
 }
 export function effectivePermissions(
@@ -85,6 +133,13 @@ export function effectivePermissions(
       []) {
       for (const p of group.grants) add(p, "grants", group.name);
       for (const p of group.denies) add(p, "denies", group.name);
+    }
+    for (const tag of policy?.tags?.filter((tag) => tag.rankIds.includes(id)) ??
+      []) {
+      for (const permission of tag.grants)
+        add(permission, "grants", `Tag: ${tag.name}`);
+      for (const permission of tag.denies)
+        add(permission, "denies", `Tag: ${tag.name}`);
     }
     if (rank?.inherit) for (const parent of rank.parents) visit(parent);
   };

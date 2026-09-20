@@ -284,7 +284,7 @@ The personal module interface downloads the required authorized candidates, disp
 
 ## Governance and commerce
 
-Organization policy is a DAG over roles with a protected `Administrador` root, multiple parents, opt-in inheritance, group grants and explicit denials. Validation rejects cycles, orphans and root denials. The editor supports dragging, zoom, a minimap and layered layout. The central permission matrix and module-filtered inspector use the same policy calculation and show permission sources. Group tags are stored; independent tag-targeted bulk policy editing remains open.
+Organization policy is a DAG over roles with a protected `Administrador` root, multiple parents, opt-in inheritance, group grants and explicit denials. Validation rejects cycles, orphans and root denials. The editor supports dragging, zoom, a minimap and layered layout. The central permission matrix and module-filtered inspector use the same policy calculation and show permission sources. Independent role tags apply grants and denials to selected roles through the same evaluator; existing group labels remain metadata. The SDK owns the canonical organization schema and derived types. The editor supports draft tag creation, search, role selection, permission decisions, rename and removal; Save organization applies the complete versioned policy. Older clients omitting tags preserve existing assignments. Group/tag module assignment, chart classification filters and broader employee/group management remain open.
 
 The corporate store supports free access, required approval and blocked access. Per-module policy can impose stricter restrictions. Existing invitations, assignments, approval requests, seat checks, persistent notifications and audit history remain integrated.
 

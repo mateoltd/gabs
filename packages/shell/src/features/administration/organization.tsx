@@ -1,3 +1,4 @@
+import { OrganizationTags } from "./organization/tags";
 import { PermissionOrigin } from "./permission-origin";
 import { PermissionDecision } from "./permission-decision";
 import { type FeatureProps } from "@suite/client";
@@ -119,6 +120,7 @@ export function Organization(props: FeatureProps) {
             rootId: normalized.rootId,
             ranks: normalized.ranks,
             groups: normalized.groups,
+            ...(normalized.tags ? { tags: normalized.tags } : {}),
           },
           version,
         },
@@ -297,7 +299,7 @@ export function Organization(props: FeatureProps) {
       </div>
       <section className="panel organization-section">
         <div className="row-between">
-          <h2>Groups and tags</h2>
+          <h2>Groups</h2>
           <Button
             onClick={() =>
               update((p) => ({
@@ -321,7 +323,7 @@ export function Organization(props: FeatureProps) {
         </div>
         {!policy.groups.length && (
           <p className="organization-empty">
-            No groups yet. Group roles to apply shared permissions and tags.
+            No groups yet. Group roles to apply shared permissions and labels.
           </p>
         )}
         {policy.groups.map((g) => (
@@ -340,7 +342,7 @@ export function Organization(props: FeatureProps) {
                 }
               />
             </Field>
-            <Field label="Tags (comma separated)">
+            <Field label="Group labels (comma separated)">
               <Input
                 value={g.tags.join(", ")}
                 onChange={(e) =>
@@ -438,6 +440,19 @@ export function Organization(props: FeatureProps) {
           </fieldset>
         ))}
       </section>
+      <OrganizationTags
+        policy={policy}
+        permissions={[
+          ...new Set([
+            ...productPermissions,
+            ...(state.data.permissionCatalog?.map(
+              (entry) => entry.permission,
+            ) ?? state.data.modules.flatMap((module) => module.permissions)),
+          ]),
+        ]}
+        disabled={busy}
+        onChange={(value) => update(() => value)}
+      />
       <section className="panel organization-section permission-section">
         <h2>Permission matrix</h2>
         <p>Review each role’s access and where its permissions come from.</p>

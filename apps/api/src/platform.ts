@@ -92,6 +92,7 @@ import type { MutableModuleCatalog } from "@suite/module-sdk/catalog";
 import {
   effectivePermissions,
   validateOrganization,
+  OrganizationPolicySchema,
   type OrganizationPolicy,
 } from "@suite/module-sdk/governance";
 import {
@@ -147,51 +148,6 @@ const moduleHeaders = T.Object(
     ),
   },
   { additionalProperties: true },
-);
-const strings = T.Array(T.String({ maxLength: 200 }), {
-  maxItems: 500,
-  uniqueItems: true,
-});
-// This schema is validated by both AJV and the portable SDK validator.
-// Use an explicit UUID pattern because the latter has no implicit format registry.
-const policyId = T.String({
-  pattern:
-    "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$",
-});
-const OrganizationSchema = T.Object(
-  {
-    rootId: policyId,
-    ranks: T.Array(
-      T.Object(
-        {
-          id: policyId,
-          name: T.String({ minLength: 1, maxLength: 100 }),
-          parents: T.Array(policyId, { maxItems: 100, uniqueItems: true }),
-          inherit: T.Boolean(),
-          denies: strings,
-          x: T.Number(),
-          y: T.Number(),
-        },
-        { additionalProperties: false },
-      ),
-      { maxItems: 500 },
-    ),
-    groups: T.Array(
-      T.Object(
-        {
-          id: policyId,
-          name: T.String({ minLength: 1, maxLength: 100 }),
-          rankIds: T.Array(policyId, { maxItems: 500, uniqueItems: true }),
-          tags: strings,
-          grants: strings,
-          denies: strings,
-        },
-        { additionalProperties: false },
-      ),
-      { maxItems: 100 },
-    ),
-  },
-  { additionalProperties: false },
 );
 export async function registerPlatform(
   app: FastifyInstance,
@@ -1153,7 +1109,7 @@ export async function registerPlatform(
           req.body,
           async () => {
             await lockWorkspace(tx, ctx.workspaceId);
-            const value = req.body.value;
+            let value = req.body.value;
             if (req.body.action === "business-cutover") {
               assertSchema(BusinessCutoverCommandSchema, value);
               return applyBusinessCutover(tx, ctx, value, moduleServers);
@@ -1179,8 +1135,23 @@ export async function registerPlatform(
             }
             let key = "";
             if (req.body.action === "organization") {
-              assertSchema(OrganizationSchema, value);
-              const policy = value as unknown as OrganizationPolicy;
+              assertSchema(OrganizationPolicySchema, value);
+              // Supported older clients omit tags. Preserve saved policies rather
+              // than interpreting omission as an explicit removal of authority.
+              if (value.tags === undefined) {
+                const stored = await tx
+                  .selectFrom("suite.platform_settings")
+                  .select("value")
+                  .where("workspace_id", "=", ctx.workspaceId)
+                  .where("key", "=", "organization")
+                  .executeTakeFirst();
+                const tags = (
+                  stored?.value as unknown as OrganizationPolicy | undefined
+                )?.tags;
+                if (tags) value = { ...value, tags };
+              }
+              assertSchema(OrganizationPolicySchema, value);
+              const policy = value;
               try {
                 validateOrganization(policy);
               } catch (e) {
@@ -1210,6 +1181,10 @@ export async function registerPlatform(
               const requested = [
                 ...policy.ranks.flatMap((r) => r.denies),
                 ...policy.groups.flatMap((g) => [...g.grants, ...g.denies]),
+                ...(policy.tags ?? []).flatMap((tag) => [
+                  ...tag.grants,
+                  ...tag.denies,
+                ]),
               ];
               const businessPermissions = await workspaceBusinessPermissions(
                 tx,
