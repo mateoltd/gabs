@@ -264,9 +264,11 @@ export function Organization(props: FeatureProps) {
                 <li key={`${issue.code}:${index}`}>
                   <p>
                     {issue.message}{" "}
-                    {affected.length
-                      ? `${affected.length} ${affected.length === 1 ? "role needs" : "roles need"} review.`
-                      : ""}
+                    {issue.code === "assignment"
+                      ? "Review the group or tag assignments below."
+                      : affected.length
+                        ? `${affected.length} ${affected.length === 1 ? "role needs" : "roles need"} review.`
+                        : ""}
                   </p>
                   {affected[0] && (
                     <Button

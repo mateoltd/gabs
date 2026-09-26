@@ -24,6 +24,10 @@
   stroke: var(--danger);
   stroke-width: 1.5;
 }
+.organization-canvas g[data-invalid]:focus-visible rect {
+  stroke-dasharray: 4 2;
+  stroke-width: 2;
+}
 .organization-minimap rect[data-invalid] {
   fill: var(--danger);
 }

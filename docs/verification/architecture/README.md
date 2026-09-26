@@ -441,3 +441,11 @@ Checkpoint `9d2832e` and pushed tag `checkpoint/invitation-pages-architecture-20
 The delegate extracted the invitation item, query and page protocol into `contracts/src/workspaces/invitations.ts`, retaining root exports. Server governance owns pagination, stable database ordering, workspace isolation and current authority. API code remains transport orchestration; the shell owns scoped query state and recovery interaction. Parent review accepted the extraction, checked schema equivalence and reviewed read-error copy, total-based pluralization, cancellation and workspace remount behavior. No styling changes were made.
 
 [Invitation-page evidence](../invitation-pages/README.md) records final verification, eight inspected captures and limits. The checkpoint is distinct from accepted feature behavior. GOV-01, full parity and the separately authorized later UI-refinement goal remain open.
+
+## Organization diagnostics checkpoint review, 26 September 2026
+
+Checkpoint `06ae92c` and the pushed tag `checkpoint/organization-architecture-2026-09-26` preserve unfinished organization diagnostics before the explicitly requested `gpt-6-sol` delegation at `xhigh`. The existing physical hierarchy already provides `sdk`, `client`, `server`, `shell`, `ui/web`, `ui/tokens` and outer `composition`. Parent inspection found no justified repeat migration or public package rename.
+
+Governance now separates schemas, graph diagnosis/layout and permission evaluation behind the existing public SDK entry. The schema is byte-identical to the checkpoint. The shell owns draft interaction, while the API continues to enforce the shared validator against direct requests. Parent review required assignment errors to direct users to the correct editor and invalid nodes to retain a subtle keyboard-focus cue. Permission-source maps also handle prototype-property names safely.
+
+[Organization diagnostics evidence](../organization-issues/README.md) records 1,047 passing regression tests, strict checks, four fresh builds, three headless and three hidden native journeys, and eight inspected captures. The final browser diagnostics journey also passes the expanded focus assertion. The broader parity goal, role deletion and later UI refinement remain open.

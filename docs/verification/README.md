@@ -1300,3 +1300,8 @@ Final verification passes 27 focused tests, strict checks/four fresh builds, fiv
 ## Member browsing and off-page recovery, 26 September 2026
 
 [Member-page acceptance](member-pages/README.md) extends GOV-01 and ORG-003/PERM-001/PERM-002 with bounded server reads, workspace-wide name/email/role search, global role/seat counts and current detail recovery independent of the visible page. Existing public contract exports are preserved in cohesive workspace files. Final results and inspected captures are recorded in the evidence; hosted/provider acceptance, broader administration, full parity and later UI refinement remain open.
+
+
+## Organization diagnostics and checkpoint review, 26 September 2026
+
+[Organization diagnostic acceptance](organization-issues/README.md) covers GOV-02 / ORG-002 with cycle/orphan repair, direct-server rejection, saved-data preservation, unavailable permission previews, keyboard focus and scoped accessibility. The requested Sol xhigh [architecture review](architecture/README.md#organization-diagnostics-checkpoint-review-26-september-2026) separates cohesive governance responsibilities while preserving public exports and schemas. Final checks, captures and limits are recorded in the evidence. Role deletion, wider governance, full parity and later UI refinement remain open.
