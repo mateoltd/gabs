@@ -5874,6 +5874,34 @@
               "format": "uuid",
               "type": "string"
             },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "maxLength": 254,
+              "type": "string"
+            },
+            "in": "query",
+            "name": "search",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
             "in": "path",
             "name": "workspaceId",
             "required": true
@@ -5911,108 +5939,151 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "id",
-                      "revision",
-                      "userId",
-                      "name",
-                      "email",
-                      "active",
-                      "roles",
-                      "modules"
-                    ],
-                    "properties": {
-                      "id": {
-                        "format": "uuid",
-                        "type": "string"
-                      },
-                      "revision": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
-                      "userId": {
-                        "format": "uuid",
-                        "type": "string"
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "email": {
-                        "type": "string"
-                      },
-                      "active": {
-                        "type": "boolean"
-                      },
-                      "roles": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "required": [
-                            "id",
-                            "name",
-                            "permissions",
-                            "protected"
-                          ],
-                          "properties": {
-                            "id": {
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "permissions": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "nextCursor",
+                    "total",
+                    "workspaceTotal",
+                    "activeTotal",
+                    "roleCounts"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "revision",
+                          "userId",
+                          "name",
+                          "email",
+                          "active",
+                          "roles",
+                          "modules"
+                        ],
+                        "properties": {
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "revision": {
+                            "pattern": "^[a-f0-9]{64}$",
+                            "type": "string"
+                          },
+                          "userId": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "name",
+                                "permissions",
+                                "protected"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "permissions": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "protected": {
+                                  "type": "boolean"
+                                }
                               }
-                            },
-                            "protected": {
-                              "type": "boolean"
+                            }
+                          },
+                          "modules": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "directModules": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "modulePolicies": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "moduleId",
+                                "sources",
+                                "assigned"
+                              ],
+                              "properties": {
+                                "moduleId": {
+                                  "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                                  "type": "string"
+                                },
+                                "sources": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "assigned": {
+                                  "type": "boolean"
+                                }
+                              }
                             }
                           }
                         }
-                      },
-                      "modules": {
-                        "type": "array",
-                        "items": {
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
                           "type": "string"
+                        },
+                        {
+                          "type": "null"
                         }
-                      },
-                      "directModules": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "modulePolicies": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "required": [
-                            "moduleId",
-                            "sources",
-                            "assigned"
-                          ],
-                          "properties": {
-                            "moduleId": {
-                              "pattern": "^[a-z][a-z0-9-]{0,63}$",
-                              "type": "string"
-                            },
-                            "sources": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
-                            "assigned": {
-                              "type": "boolean"
-                            }
-                          }
-                        }
+                      ]
+                    },
+                    "total": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "workspaceTotal": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "activeTotal": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "roleCounts": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "minimum": 0,
+                        "type": "integer"
                       }
                     }
                   }
@@ -6206,6 +6277,341 @@
       }
     },
     "/api/v1/workspaces/{workspaceId}/members/{id}": {
+      "get": {
+        "operationId": "member",
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "workspaceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "moduleId",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "revision",
+                    "userId",
+                    "name",
+                    "email",
+                    "active",
+                    "roles",
+                    "modules"
+                  ],
+                  "properties": {
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "revision": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "userId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "permissions",
+                          "protected"
+                        ],
+                        "properties": {
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "permissions": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "protected": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "directModules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "modulePolicies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "moduleId",
+                          "sources",
+                          "assigned"
+                        ],
+                        "properties": {
+                          "moduleId": {
+                            "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                            "type": "string"
+                          },
+                          "sources": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "assigned": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "patch": {
         "operationId": "memberEdit",
         "requestBody": {

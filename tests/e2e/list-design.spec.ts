@@ -54,8 +54,9 @@ test("people search, protected roles, member editing, and invitation form retain
   ).toBeChecked();
   let saved: unknown;
   await page.route("**/api/v1/workspaces/*/members/*", async (route) => {
-    saved = route.request().postDataJSON();
-    await route.fulfill({ json: {} });
+    if (route.request().method() === "PATCH")
+      saved = route.request().postDataJSON();
+    await route.continue();
   });
   await dialog
     .getByRole("button", { name: "Save access", exact: true })
@@ -206,10 +207,13 @@ test("audit pagination, outcomes, full identifiers, and empty states are truthfu
   page,
 }) => {
   const target = "aaaabbbb-1111-2222-3333-444455556666";
+  await login(page);
+  const { user } = await (await page.request.get("/api/v1/me")).json();
   let reads = 0;
   await page.route("**/api/v1/workspaces/*/audit**", async (route) => {
     reads++;
     await route.fulfill({
+      headers: { "x-suite-actor": user.id },
       json: new URL(route.request().url()).searchParams.has("cursor")
         ? { items: [], nextCursor: null }
         : {
@@ -235,7 +239,6 @@ test("audit pagination, outcomes, full identifiers, and empty states are truthfu
           },
     });
   });
-  await login(page);
   await page.getByRole("link", { name: "Audit history", exact: true }).click();
   await expect(page.getByText(target, { exact: true })).toBeVisible();
   await expect(page.getByText("Succeeded", { exact: true })).toBeVisible();

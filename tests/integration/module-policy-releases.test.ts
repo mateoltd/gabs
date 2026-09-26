@@ -5,7 +5,7 @@ import { Pool } from "pg";
 import { expect, it } from "vitest";
 import { defineModule, Type } from "@suite/module-sdk";
 import type { PlatformState } from "@suite/module-sdk/platform";
-import type { MemberSchema, Static } from "@suite/contracts";
+import type { MemberPage } from "@suite/contracts";
 import { signPackage } from "@suite/module-sdk/node/signing";
 import {
   submitRelease,
@@ -117,7 +117,7 @@ it("adopts signed dependency changes once, preserves pins/direct grants and reco
           url: `/api/v1/workspaces/${workspace}/members`,
           headers,
         })
-      ).json<Static<typeof MemberSchema>[]>();
+      ).json<MemberPage>().items;
     const initial = await state(),
       sales = initial.roles.find((r) => r.name === "Sales")!.id,
       warehouse = initial.roles.find((r) => r.name === "Warehouse")!.id;

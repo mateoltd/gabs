@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import type { MemberEdit } from "@suite/contracts";
+import { sql } from "kysely";
+import type {
+  Member,
+  MemberEdit,
+  MemberPage,
+  MemberQuery,
+} from "@suite/contracts";
 import { found, requireCondition } from "../errors";
 import {
   authorize,
@@ -40,10 +46,9 @@ function memberRevision(workspaceId: string, member: EditableMemberAccess) {
     .digest("hex");
 }
 
-export async function listMembers(tx: Tx, ctx: Context) {
-  // The revision and editable fields must describe one state across all access writers.
+async function authorizeMemberRead(tx: Tx, ctx: Context) {
   await lockWorkspace(tx, ctx.workspaceId);
-  ctx = await authorize(
+  return authorize(
     tx,
     ctx.actor,
     ctx.workspaceId,
@@ -51,13 +56,137 @@ export async function listMembers(tx: Tx, ctx: Context) {
     ctx.runtime,
     "members.manage",
   );
-  const members = await tx
+}
+function memberScope(tx: Tx, workspaceId: string) {
+  return tx
     .selectFrom("suite.memberships as m")
     .innerJoin("suite.users as u", "m.user_id", "u.id")
-    .select(["m.id", "m.user_id", "m.active", "u.name", "u.email"])
-    .where("m.workspace_id", "=", ctx.workspaceId)
-    .orderBy("u.name")
+    .where("m.workspace_id", "=", workspaceId);
+}
+const memberColumns = [
+  "m.id",
+  "m.user_id",
+  "m.active",
+  "u.name",
+  "u.email",
+] as const;
+
+export async function listMembers(
+  tx: Tx,
+  ctx: Context,
+  query: MemberQuery,
+): Promise<MemberPage> {
+  ctx = await authorizeMemberRead(tx, ctx);
+  const scope = memberScope(tx, ctx.workspaceId);
+  const summary = await scope
+    .select((eb) => [
+      eb.fn.countAll<string>().as("total"),
+      sql<string>`count(*) filter (where m.active)`.as("active"),
+    ])
+    .executeTakeFirstOrThrow();
+  const counts = await tx
+    .selectFrom("suite.role_assignments as a")
+    .innerJoin("suite.memberships as m", (join) =>
+      join
+        .onRef("m.id", "=", "a.membership_id")
+        .onRef("m.workspace_id", "=", "a.workspace_id"),
+    )
+    .select((eb) => ["a.role_id", eb.fn.countAll<string>().as("count")])
+    .where("a.workspace_id", "=", ctx.workspaceId)
+    .where("m.active", "=", true)
+    .groupBy("a.role_id")
     .execute();
+  let matching = scope;
+  const search = query.search?.trim();
+  if (search) {
+    const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+    matching = matching.where((eb) =>
+      eb.or([
+        eb("u.name", "ilike", pattern),
+        eb("u.email", "ilike", pattern),
+        eb.exists(
+          eb
+            .selectFrom("suite.role_assignments as a")
+            .innerJoin("suite.roles as r", (join) =>
+              join
+                .onRef("r.id", "=", "a.role_id")
+                .onRef("r.workspace_id", "=", "a.workspace_id"),
+            )
+            .select("a.membership_id")
+            .whereRef("a.membership_id", "=", "m.id")
+            .whereRef("a.workspace_id", "=", "m.workspace_id")
+            .where("r.name", "ilike", pattern),
+        ),
+      ]),
+    );
+  }
+  const total = search
+    ? (
+        await matching
+          .select((eb) => eb.fn.countAll<string>().as("total"))
+          .executeTakeFirstOrThrow()
+      ).total
+    : summary.total;
+  if (query.cursor) {
+    const anchor = await scope
+      .select("m.id")
+      .where("m.id", "=", query.cursor)
+      .executeTakeFirst();
+    requireCondition(
+      anchor,
+      400,
+      "INVALID_CURSOR",
+      "This member page is no longer available. Return to the first page.",
+    );
+    matching = matching.where(
+      sql<boolean>`(u.name, m.id) > (select u.name, m.id from suite.memberships m join suite.users u on u.id=m.user_id where m.workspace_id=${ctx.workspaceId} and m.id=${query.cursor})`,
+    );
+  }
+  const limit = query.limit ?? 20;
+  const rows = await matching
+    .select(memberColumns)
+    .orderBy("u.name")
+    .orderBy("m.id")
+    .limit(limit + 1)
+    .execute();
+  return {
+    items: await memberDetails(tx, ctx, rows.slice(0, limit)),
+    nextCursor: rows.length > limit ? rows[limit - 1].id : null,
+    total: Number(total),
+    workspaceTotal: Number(summary.total),
+    activeTotal: Number(summary.active),
+    roleCounts: Object.fromEntries(
+      counts.map((row) => [row.role_id, Number(row.count)]),
+    ),
+  };
+}
+export async function getMember(
+  tx: Tx,
+  ctx: Context,
+  id: string,
+): Promise<Member> {
+  ctx = await authorizeMemberRead(tx, ctx);
+  const member = found(
+    await memberScope(tx, ctx.workspaceId)
+      .select(memberColumns)
+      .where("m.id", "=", id)
+      .executeTakeFirst(),
+  );
+  return (await memberDetails(tx, ctx, [member]))[0];
+}
+async function memberDetails(
+  tx: Tx,
+  ctx: Context,
+  members: {
+    id: string;
+    user_id: string;
+    active: boolean;
+    name: string;
+    email: string;
+  }[],
+): Promise<Member[]> {
+  if (!members.length) return [];
+  const ids = members.map((member) => member.id);
   const assignments = await tx
     .selectFrom("suite.role_assignments as a")
     .innerJoin("suite.roles as r", (join) =>
@@ -73,11 +202,13 @@ export async function listMembers(tx: Tx, ctx: Context) {
       "r.protected",
     ])
     .where("a.workspace_id", "=", ctx.workspaceId)
+    .where("a.membership_id", "in", ids)
     .execute();
   const modules = await tx
     .selectFrom("suite.module_assignments")
     .selectAll()
     .where("workspace_id", "=", ctx.workspaceId)
+    .where("membership_id", "in", ids)
     .execute();
   const policy = await organizationPolicy(tx, ctx.workspaceId);
   const resolvePolicySources = policyModuleSourceResolver(

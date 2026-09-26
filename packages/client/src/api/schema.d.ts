@@ -331,7 +331,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["member"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3175,6 +3175,157 @@ export interface operations {
     };
     members: {
         parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                search?: string;
+            };
+            header?: never;
+            path: {
+                workspaceId: string;
+                id: string;
+                moduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            revision: string;
+                            /** Format: uuid */
+                            userId: string;
+                            name: string;
+                            email: string;
+                            active: boolean;
+                            roles: {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                permissions: string[];
+                                protected: boolean;
+                            }[];
+                            modules: string[];
+                            directModules?: string[];
+                            modulePolicies?: {
+                                moduleId: string;
+                                sources: string[];
+                                assigned: boolean;
+                            }[];
+                        }[];
+                        nextCursor: string | null;
+                        total: number;
+                        workspaceTotal: number;
+                        activeTotal: number;
+                        roleCounts: {
+                            [key: string]: number;
+                        };
+                    };
+                };
+            };
+            /** @description Default Response */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+            /** @description Default Response */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+            /** @description Default Response */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+            /** @description Default Response */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+            /** @description Default Response */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+            /** @description Default Response */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+            /** @description Default Response */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        message: string;
+                        requestId: string;
+                    };
+                };
+            };
+        };
+    };
+    member: {
+        parameters: {
             query?: never;
             header?: never;
             path: {
@@ -3215,7 +3366,7 @@ export interface operations {
                             sources: string[];
                             assigned: boolean;
                         }[];
-                    }[];
+                    };
                 };
             };
             /** @description Default Response */

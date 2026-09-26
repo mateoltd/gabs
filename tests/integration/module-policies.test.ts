@@ -132,8 +132,8 @@ async function fixture() {
             headers,
           })
         )
-          .json<{ id: string; revision: string }[]>()
-          .find((item) => item.id === member)!.revision,
+          .json<{ items: { id: string; revision: string }[] }>()
+          .items.find((item) => item.id === member)!.revision,
         active,
         roleIds,
         modules,
@@ -377,7 +377,9 @@ it("requires module administration for policy changes and reports saved sources 
       headers: f.headers,
     })
   ).json();
-  expect(members.find((m: { id: string }) => m.id === member)).toMatchObject({
+  expect(
+    members.items.find((m: { id: string }) => m.id === member),
+  ).toMatchObject({
     modules: ["contacts"],
     directModules: [],
     modulePolicies: [

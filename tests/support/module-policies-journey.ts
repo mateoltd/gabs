@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
 import type { PlatformState } from "@suite/module-sdk/platform";
-import type { MemberSchema, Static } from "@suite/contracts";
+import type { MemberPage } from "@suite/contracts";
 import type { ReviewTransport } from "./capability-review-journey";
 import { selectValue } from "../e2e/controls.helpers";
 
@@ -16,9 +16,7 @@ export async function modulePoliciesJourney(
   const state = async () =>
     (await send({ operation: "platformState", params })).body as PlatformState;
   const members = async () =>
-    (await send({ operation: "members", params })).body as Static<
-      typeof MemberSchema
-    >[];
+    ((await send({ operation: "members", params })).body as MemberPage).items;
   const initial = await state(),
     self = (await members())[0];
   const sales = initial.roles.find((r) => r.name === "Sales")!;

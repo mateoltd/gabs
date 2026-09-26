@@ -1,7 +1,7 @@
 import { expect, type Page, type ElectronApplication } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
-import type { MemberSchema, Static } from "@suite/contracts";
+import type { MemberPage } from "@suite/contracts";
 import type { PlatformState } from "@suite/module-sdk/platform";
 import type { ReviewTransport } from "./capability-review-journey";
 import { selectValue } from "../e2e/controls.helpers";
@@ -15,9 +15,7 @@ export async function memberEditsJourney(
 ) {
   const params = { workspaceId };
   const members = async () =>
-    (await send({ operation: "members", params })).body as Static<
-      typeof MemberSchema
-    >[];
+    ((await send({ operation: "members", params })).body as MemberPage).items;
   const before = (await members())[0];
   const read = async () =>
     (await members()).find((member) => member.id === before.id)!;

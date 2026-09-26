@@ -70,7 +70,7 @@ test("a cookie change cannot apply another profile's authority or pending work",
   const members = await (
     await page.request.get(`/api/v1/workspaces/${f.scope.workspaceId}/members`)
   ).json();
-  const member = members.find(
+  const member = members.items.find(
     (member: { userId: string }) => member.userId === next.user.id,
   );
   const assigned = await page.request.patch(

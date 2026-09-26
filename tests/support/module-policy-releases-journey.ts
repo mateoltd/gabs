@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
-import type { Static, MemberSchema } from "@suite/contracts";
+import type { MemberPage } from "@suite/contracts";
 import type { PlatformState } from "@suite/module-sdk/platform";
 import type { ReviewTransport } from "./capability-review-journey";
 import type { PolicyReleaseFixture } from "./module-policy-release-fixture";
@@ -27,9 +27,7 @@ export async function modulePolicyReleasesJourney(
   const state = async () =>
     (await send({ operation: "platformState", params })).body as PlatformState;
   const members = async () =>
-    (await send({ operation: "members", params })).body as Static<
-      typeof MemberSchema
-    >[];
+    ((await send({ operation: "members", params })).body as MemberPage).items;
   const initial = await state(),
     self = (await members())[0],
     sales = initial.roles.find((r) => r.name === "Sales")!;

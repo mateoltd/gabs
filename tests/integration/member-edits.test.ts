@@ -9,7 +9,7 @@ import {
   inWorkspace,
   provisionWorkspace,
 } from "../../composition/src/server/product";
-import type { MemberSchema, Static } from "@suite/contracts";
+import type { MemberPage } from "@suite/contracts";
 const db = connectDatabase();
 const admin = new Pool({
   connectionString: process.env.MIGRATION_DATABASE_URL,
@@ -58,7 +58,7 @@ async function fixture() {
   const members = async () =>
     (
       await server.app.inject({ method: "GET", url: `${url}/members`, headers })
-    ).json<Static<typeof MemberSchema>[]>();
+    ).json<MemberPage>().items;
   const roles = (
     await server.app.inject({ method: "GET", url: `${url}/roles`, headers })
   ).json<{ id: string; name: string }[]>();

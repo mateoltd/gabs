@@ -796,7 +796,7 @@ describe("real PostgreSQL transactions and tenant security", () => {
   });
   it("protects the last owner and restricts custom roles to business permissions", async () => {
     const members = await request("GET", path("/members"));
-    const own = members.body.find(
+    const own = members.body.items.find(
       (m: { userId: string }) => m.userId === owner.id,
     );
     expect(

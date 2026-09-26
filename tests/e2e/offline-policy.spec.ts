@@ -232,7 +232,7 @@ test("received membership revocation reaches a disconnected tab and preserves wo
     const members = await (
       await admin.get(`/api/v1/workspaces/${f.scope.workspaceId}/members`)
     ).json();
-    const owner = members.find(
+    const owner = members.items.find(
       (member: { userId: string }) => member.userId === f.scope.userId,
     );
     const changeMembership = async (active: boolean) => {
@@ -240,7 +240,7 @@ test("received membership revocation reaches a disconnected tab and preserves wo
         await (
           await admin.get(`/api/v1/workspaces/${f.scope.workspaceId}/members`)
         ).json()
-      ).find((member: { id: string }) => member.id === owner.id);
+      ).items.find((member: { id: string }) => member.id === owner.id);
       const response = await admin.patch(
         `/api/v1/workspaces/${f.scope.workspaceId}/members/${owner.id}`,
         {

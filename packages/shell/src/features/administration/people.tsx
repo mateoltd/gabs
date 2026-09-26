@@ -102,13 +102,13 @@ export function People(props: FeatureProps) {
     memberAttempt.current = undefined;
   };
   const [search, setSearch] = useState("");
-  const [invitationCursors, setInvitationCursors] = useState<
-    (string | undefined)[]
-  >([undefined]);
-  const invitationCursor = invitationCursors[invitationCursors.length - 1];
+  const [pageCursors, setPageCursors] = useState<(string | undefined)[]>([
+    undefined,
+  ]);
+  const pageCursor = pageCursors[pageCursors.length - 1];
   const changeSearch = (value: string) => {
     setSearch(value);
-    setInvitationCursors([undefined]);
+    setPageCursors([undefined]);
   };
   const [email, setEmail] = useState(""),
     [roleId, setRoleId] = useState(""),
@@ -116,8 +116,26 @@ export function People(props: FeatureProps) {
     [permissions, setPermissions] = useState<string[]>([]),
     [attempt, setAttempt] = useState<string>();
   const members = useQuery({
-    queryKey: [scope.userId, scope.workspaceId, "members"],
-    queryFn: () => client.request({ operation: "members", params }),
+    queryKey: [
+      scope.userId,
+      scope.workspaceId,
+      "members",
+      tab === "members" ? pageCursor : undefined,
+      tab === "members" ? search.trim() : "",
+    ],
+    queryFn: ({ signal }) =>
+      client.request(
+        {
+          operation: "members",
+          params,
+          query: {
+            cursor: tab === "members" ? pageCursor : undefined,
+            limit: 20,
+            search: tab === "members" ? search.trim() : "",
+          },
+        },
+        { signal },
+      ),
   });
   const roles = useQuery({
     queryKey: [scope.userId, scope.workspaceId, "roles"],
@@ -128,7 +146,7 @@ export function People(props: FeatureProps) {
       scope.userId,
       scope.workspaceId,
       "invitations",
-      invitationCursor,
+      tab === "invitations" ? pageCursor : undefined,
       tab === "invitations" ? search.trim() : "",
     ],
     queryFn: ({ signal }) =>
@@ -137,7 +155,7 @@ export function People(props: FeatureProps) {
           operation: "invitations",
           params,
           query: {
-            cursor: invitationCursor,
+            cursor: tab === "invitations" ? pageCursor : undefined,
             limit: 20,
             search: tab === "invitations" ? search.trim() : "",
           },
@@ -182,17 +200,13 @@ export function People(props: FeatureProps) {
     (r) => r.name !== "Owner" || bootstrap.roleNames.includes("Owner"),
   );
   const needle = search.trim().toLowerCase();
-  const filteredMembers = (members.data ?? []).filter((m) =>
-    `${m.name} ${m.email} ${m.roles.map((r) => r.name).join(" ")}`
-      .toLowerCase()
-      .includes(needle),
-  );
+  const filteredMembers = members.data?.items ?? [];
   const filteredInvitations = invitations.data?.items ?? [];
   const filteredRoles = (roles.data ?? []).filter((r) =>
     r.name.toLowerCase().includes(needle),
   );
   const viewCounts: Record<string, number | undefined> = {
-    members: members.data?.length,
+    members: members.data?.workspaceTotal,
     invitations: invitations.data?.workspaceTotal,
     roles: roles.data?.length,
   };
@@ -208,6 +222,17 @@ export function People(props: FeatureProps) {
       : tab === "roles"
         ? filteredRoles.length
         : filteredInvitations.length;
+  const paginated = tab !== "roles";
+  const pageQuery = tab === "members" ? members : invitations;
+  const memberCount = members.isError ? undefined : members.data?.activeTotal;
+  const readError =
+    pageQuery.error instanceof ApiError
+      ? pageQuery.error
+      : pageQuery.error
+        ? new Error(
+            `The ${tab === "members" ? "member" : "invitation"} page could not be loaded. Check your connection and try again.`,
+          )
+        : undefined;
   return (
     <ListPage className="people-page">
       <PageHeading
@@ -264,23 +289,28 @@ export function People(props: FeatureProps) {
         <div className="people-seat-meter">
           <h2>Workspace seats</h2>
           <strong className="summary-value">
-            {bootstrap.memberCount}
+            {memberCount ?? "—"}
             <small> / {bootstrap.seatLimit} used</small>
           </strong>
           <div
             className="summary-track"
             role="img"
-            aria-label={`${bootstrap.memberCount} of ${bootstrap.seatLimit} seats used`}
+            aria-label={
+              memberCount === undefined
+                ? "Workspace seat usage unavailable"
+                : `${memberCount} of ${bootstrap.seatLimit} seats used`
+            }
           >
             <span
               style={{
-                width: `${Math.min(100, bootstrap.seatLimit > 0 ? (bootstrap.memberCount / bootstrap.seatLimit) * 100 : 0)}%`,
+                width: `${Math.min(100, memberCount !== undefined && bootstrap.seatLimit > 0 ? (memberCount / bootstrap.seatLimit) * 100 : 0)}%`,
               }}
             />
           </div>
           <span className="summary-caption">
-            {Math.max(0, bootstrap.seatLimit - bootstrap.memberCount)} seats
-            available
+            {memberCount === undefined
+              ? "Seat usage unavailable"
+              : `${Math.max(0, bootstrap.seatLimit - memberCount)} seats available`}
           </span>
         </div>
         <div>
@@ -340,16 +370,7 @@ export function People(props: FeatureProps) {
       <ErrorMessage
         error={
           !invite && !member && !role
-            ? (error ??
-              members.error ??
-              roles.error ??
-              (invitations.error instanceof ApiError
-                ? invitations.error
-                : invitations.error
-                  ? new Error(
-                      "The invitation page could not be loaded. Check your connection and try again.",
-                    )
-                  : undefined))
+            ? (error ?? roles.error ?? (paginated ? readError : undefined))
             : undefined
         }
       />
@@ -364,7 +385,7 @@ export function People(props: FeatureProps) {
         {isPending ? (
           <ContentSkeleton label={`Loading ${tab}`} />
         ) : tab === "members" ? (
-          filteredMembers.length ? (
+          members.isError ? null : filteredMembers.length ? (
             <ListTable className="people-table" aria-label="Members">
               <thead>
                 <tr>
@@ -536,13 +557,7 @@ export function People(props: FeatureProps) {
                   </td>
                   <td>{r.permissions.length} actions</td>
                   <td>
-                    {members.data
-                      ? members.data.filter(
-                          (m) =>
-                            m.active &&
-                            m.roles.some((role) => role.id === r.id),
-                        ).length
-                      : "—"}
+                    {members.data ? (members.data.roleCounts[r.id] ?? 0) : "—"}
                   </td>
                   <td className="role-kind">
                     {r.protected ? "Protected" : "Editable"}
@@ -577,21 +592,24 @@ export function People(props: FeatureProps) {
           />
         )}
       </ResultsMotion>
-      {(!isPending || tab === "invitations") && (
+      {(!isPending || paginated) && (
         <div className="list-footer" aria-live="polite">
-          {tab === "invitations" && isPending ? (
-            <span>Loading invitations…</span>
-          ) : tab === "invitations" && invitations.isError ? (
+          {paginated && isPending ? (
+            <span>Loading {tab}…</span>
+          ) : paginated && pageQuery.isError ? (
             <>
-              <span>Invitations could not be loaded.</span>
+              <span>
+                {tab === "members" ? "Members" : "Invitations"} could not be
+                loaded.
+              </span>
               <Button
-                disabled={invitations.isFetching}
-                onClick={() => void invitations.refetch()}
+                disabled={pageQuery.isFetching}
+                onClick={() => void pageQuery.refetch()}
               >
                 Try again
               </Button>
-              {invitationCursors.length > 1 && (
-                <Button onClick={() => setInvitationCursors([undefined])}>
+              {pageCursors.length > 1 && (
+                <Button onClick={() => setPageCursors([undefined])}>
                   Return to first page
                 </Button>
               )}
@@ -599,14 +617,12 @@ export function People(props: FeatureProps) {
           ) : (
             <span>
               {visibleCount}
-              {tab === "invitations" &&
-              invitations.data &&
-              invitations.data.total !== visibleCount
-                ? ` of ${invitations.data.total}`
+              {paginated &&
+              pageQuery.data &&
+              pageQuery.data.total !== visibleCount
+                ? ` of ${pageQuery.data.total}`
                 : ""}{" "}
-              {(tab === "invitations"
-                ? invitations.data?.total
-                : visibleCount) === 1
+              {(paginated ? pageQuery.data?.total : visibleCount) === 1
                 ? tab === "members"
                   ? "member"
                   : tab === "roles"
@@ -616,22 +632,17 @@ export function People(props: FeatureProps) {
               {search ? "matching your search" : "in this workspace"}
             </span>
           )}
-          {tab === "invitations" &&
-            (invitationCursors.length > 1 || invitations.data?.nextCursor) && (
+          {paginated &&
+            (pageCursors.length > 1 || pageQuery.data?.nextCursor) && (
               <Pagination
-                pending={invitations.isFetching || busy}
-                next={invitations.data?.nextCursor}
-                hasPrevious={invitationCursors.length > 1}
+                pending={pageQuery.isFetching || busy}
+                next={pageQuery.data?.nextCursor}
+                hasPrevious={pageCursors.length > 1}
                 onNext={() => {
-                  if (invitations.data?.nextCursor)
-                    setInvitationCursors([
-                      ...invitationCursors,
-                      invitations.data.nextCursor,
-                    ]);
+                  if (pageQuery.data?.nextCursor)
+                    setPageCursors([...pageCursors, pageQuery.data.nextCursor]);
                 }}
-                onPrevious={() =>
-                  setInvitationCursors(invitationCursors.slice(0, -1))
-                }
+                onPrevious={() => setPageCursors(pageCursors.slice(0, -1))}
               />
             )}
           {search && (
@@ -862,15 +873,10 @@ export function People(props: FeatureProps) {
                   disabled={busy}
                   onClick={() =>
                     void act(async () => {
-                      const current = await client.request({
-                        operation: "members",
-                        params,
+                      const latest = await client.request({
+                        operation: "member",
+                        params: { ...params, id: member.id },
                       });
-                      const latest = current.find(
-                        (item) => item.id === member.id,
-                      );
-                      if (!latest)
-                        throw new Error("This member is no longer available.");
                       changeMember(latest);
                       requestAnimationFrame(() =>
                         firstMemberRole.current?.focus(),

@@ -25,7 +25,7 @@ async function workspace(page: Page, assignedModules?: string[]) {
     const members = await (
       await page.request.get(`/api/v1/workspaces/${id}/members`)
     ).json();
-    const member = members.find(
+    const member = members.items.find(
       (m: { userId: string }) => m.userId === me.user.id,
     );
     const assigned = await page.request.patch(

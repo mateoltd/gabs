@@ -1,3 +1,5 @@
+export * from "./workspaces/roles";
+export * from "./workspaces/members";
 export * from "./identity/integrity";
 export * from "./commerce/business-cutover";
 export * from "./workspaces/receipts";
@@ -125,70 +127,6 @@ export const BootstrapSchema = Type.Object({
   policyRevision: Type.Optional(Type.String({ pattern: "^[0-9]{1,20}$" })),
 });
 export type Bootstrap = Static<typeof BootstrapSchema>;
-export const RoleSchema = Type.Object({
-  id: Id,
-  name: Type.String(),
-  permissions: Type.Array(Type.String()),
-  protected: Type.Boolean(),
-});
-export const RoleDetailsSchema = Type.Object({
-  ...RoleSchema.properties,
-  revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
-});
-export const RoleCreateSchema = Type.Object(
-  {
-    name: Text(60),
-    permissions: Type.Array(Type.String(), {
-      maxItems: 100,
-      uniqueItems: true,
-    }),
-  },
-  { additionalProperties: false },
-);
-export const RoleEditSchema = Type.Object(
-  {
-    ...RoleCreateSchema.properties,
-    revision: RoleDetailsSchema.properties.revision,
-  },
-  { additionalProperties: false },
-);
-export type RoleDetails = Static<typeof RoleDetailsSchema>;
-export type RoleCreate = Static<typeof RoleCreateSchema>;
-export type RoleEdit = Static<typeof RoleEditSchema>;
-export const MemberRevisionSchema = Type.String({ pattern: "^[a-f0-9]{64}$" });
-export const MemberEditSchema = Type.Object(
-  {
-    revision: MemberRevisionSchema,
-    active: Type.Boolean(),
-    roleIds: Type.Array(Id, { maxItems: 20, uniqueItems: true }),
-    modules: Type.Array(ModuleId, { maxItems: 100, uniqueItems: true }),
-    directModules: Type.Optional(
-      Type.Array(ModuleId, { maxItems: 100, uniqueItems: true }),
-    ),
-  },
-  { additionalProperties: false },
-);
-export type MemberEdit = Static<typeof MemberEditSchema>;
-export const MemberSchema = Type.Object({
-  id: Id,
-  revision: MemberRevisionSchema,
-  userId: Id,
-  name: Type.String(),
-  email: Type.String(),
-  active: Type.Boolean(),
-  roles: Type.Array(RoleSchema),
-  modules: Type.Array(Type.String()),
-  directModules: Type.Optional(Type.Array(Type.String())),
-  modulePolicies: Type.Optional(
-    Type.Array(
-      Type.Object({
-        moduleId: ModuleId,
-        sources: Type.Array(Type.String()),
-        assigned: Type.Boolean(),
-      }),
-    ),
-  ),
-});
 export const AccessRequestSchema = Type.Object({
   id: Id,
   memberName: Type.String(),
@@ -387,6 +325,10 @@ export const OPERATIONS = {
     path: "/api/v1/workspaces/:workspaceId/orders/:id/cancel",
   },
   members: { method: "GET", path: "/api/v1/workspaces/:workspaceId/members" },
+  member: {
+    method: "GET",
+    path: "/api/v1/workspaces/:workspaceId/members/:id",
+  },
   memberEdit: {
     method: "PATCH",
     path: "/api/v1/workspaces/:workspaceId/members/:id",

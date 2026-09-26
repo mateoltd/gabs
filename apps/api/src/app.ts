@@ -51,6 +51,7 @@ import {
   lockWorkspace,
   bootstrap,
   listMembers,
+  getMember,
   editMember,
   saveRole,
   listRoles,
@@ -975,9 +976,15 @@ export async function createApp(
       },
     );
   route("members", {
-    response: T.Array(S.MemberSchema),
+    query: S.MemberQuerySchema,
+    response: S.MemberPageSchema,
     permission: "members.manage",
-    handler: listMembers,
+    handler: (tx, ctx, req) => listMembers(tx, ctx, req.query),
+  });
+  route("member", {
+    response: S.MemberSchema,
+    permission: "members.manage",
+    handler: (tx, ctx, req) => getMember(tx, ctx, req.params.id),
   });
   route("memberEdit", {
     body: S.MemberEditSchema,

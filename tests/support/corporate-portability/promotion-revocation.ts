@@ -46,7 +46,9 @@ export async function promotionRevocation(
   const members: Members = await (
     await options.api.get(`${base}/members`)
   ).json();
-  const original = members.find((member) => member.userId === scope.userId)!;
+  const original = members.items.find(
+    (member) => member.userId === scope.userId,
+  )!;
   expect(original).toBeDefined();
   const owner = original.roles.find((role) => role.name === "Owner")!;
   expect(owner).toBeDefined();
@@ -273,7 +275,7 @@ export async function promotionRevocation(
             ...originalMember,
             revision: (
               (await (await admin.get(`${base}/members`)).json()) as Members
-            ).find((member) => member.id === original.id)!.revision,
+            ).items.find((member) => member.id === original.id)!.revision,
           },
         });
         expect(restored.ok(), await restored.text()).toBe(true);
