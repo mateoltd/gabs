@@ -68,6 +68,7 @@ export async function reviewBusinessCutover(
     storage = await moduleStorageVersions(tx, ws);
   const roles = await tx
     .selectFrom("suite.roles")
+    .where("retired_at", "is", null)
     .select(["id", "name", "permissions"])
     .where("workspace_id", "=", ws)
     .orderBy("id")

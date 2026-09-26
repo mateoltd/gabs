@@ -339,6 +339,10 @@ export const OPERATIONS = {
     method: "PUT",
     path: "/api/v1/workspaces/:workspaceId/roles/:id",
   },
+  roleRemove: {
+    method: "POST",
+    path: "/api/v1/workspaces/:workspaceId/roles/:id/remove",
+  },
   invitations: {
     method: "GET",
     path: "/api/v1/workspaces/:workspaceId/invitations",

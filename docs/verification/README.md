@@ -1305,3 +1305,8 @@ Final verification passes 27 focused tests, strict checks/four fresh builds, fiv
 ## Organization diagnostics and checkpoint review, 26 September 2026
 
 [Organization diagnostic acceptance](organization-issues/README.md) covers GOV-02 / ORG-002 with cycle/orphan repair, direct-server rejection, saved-data preservation, unavailable permission previews, keyboard focus and scoped accessibility. The requested Sol xhigh [architecture review](architecture/README.md#organization-diagnostics-checkpoint-review-26-september-2026) separates cohesive governance responsibilities while preserving public exports and schemas. Final checks, captures and limits are recorded in the evidence. Role deletion, wider governance, full parity and later UI refinement remain open.
+
+
+## Role removal, 26 September 2026
+
+[Role-removal evidence](role-removal/README.md) records authoritative removal, current authorization under lock waits, protected-root and stale-review guards, retained historical identities, and web/native confirmation/retry acceptance. It includes the corrected initial-chart ordering regression, inspected captures and a populated local upgrade preserving the compared records. GOV-02 remains at verify for broader assistive-technology acceptance. The review identified GOV-01 role/chart naming consistency as the next concrete gap, before GOV-03 readiness work. Full parity and the later UI refinement goal remain open.

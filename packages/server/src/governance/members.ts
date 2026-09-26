@@ -329,6 +329,7 @@ export async function editMember(
   const roles = input.roleIds.length
     ? await tx
         .selectFrom("suite.roles")
+        .where("retired_at", "is", null)
         .selectAll()
         .where("workspace_id", "=", ctx.workspaceId)
         .where("id", "in", [...new Set(input.roleIds)])

@@ -64,6 +64,7 @@ export async function reviewModuleCapabilities(
   if (!canReviewRoles) return result;
   const roles = await tx
     .selectFrom("suite.roles")
+    .where("retired_at", "is", null)
     .select(["id", "name", "permissions", "protected"])
     .where("workspace_id", "=", ctx.workspaceId)
     .orderBy("name")

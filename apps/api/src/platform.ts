@@ -698,9 +698,24 @@ export async function registerPlatform(
           .execute();
         const roles = await tx
           .selectFrom("suite.roles")
+          .where("retired_at", "is", null)
           .select(["id", "name", "permissions", "protected"])
           .where("workspace_id", "=", ctx.workspaceId)
+          .orderBy("name")
+          .orderBy("id")
           .execute();
+        // Preserve product preset order for an unsaved chart, independent of query plans.
+        const presetOrder = new Map(
+          Object.keys(runtime.preset.rolePresets).map((name, index) => [
+            name,
+            index,
+          ]),
+        );
+        roles.sort(
+          (a, b) =>
+            (presetOrder.get(a.name) ?? presetOrder.size) -
+            (presetOrder.get(b.name) ?? presetOrder.size),
+        );
         const owner = found(roles.find((r) => r.name === "Owner"));
         const org = settings.find((s) => s.key === "organization");
         const policy: OrganizationPolicy = org
@@ -1234,6 +1249,7 @@ export async function registerPlatform(
               }
               const roles = await tx
                 .selectFrom("suite.roles")
+                .where("retired_at", "is", null)
                 .select(["id", "name"])
                 .where("workspace_id", "=", ctx.workspaceId)
                 .execute();

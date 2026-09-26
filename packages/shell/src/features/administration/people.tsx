@@ -481,7 +481,8 @@ export function People(props: FeatureProps) {
                       />
                     </td>
                     <td>
-                      {roles.data?.find((r) => r.id === i.roleId)?.name ??
+                      {i.roleName ??
+                        roles.data?.find((r) => r.id === i.roleId)?.name ??
                         "Role unavailable"}
                     </td>
                     <td>

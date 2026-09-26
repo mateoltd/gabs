@@ -21,6 +21,7 @@ export async function requireInvitationRoleAuthority(
   const role = found(
     await tx
       .selectFrom("suite.roles")
+      .where("retired_at", "is", null)
       .select("name")
       .where("workspace_id", "=", ctx.workspaceId)
       .where("id", "=", roleId)
@@ -174,6 +175,7 @@ export async function acceptInvitation(
   const role = found(
     await tx
       .selectFrom("suite.roles")
+      .where("retired_at", "is", null)
       .selectAll()
       .where("workspace_id", "=", ctx.workspaceId)
       .where("id", "=", invitation.role_id)
@@ -374,11 +376,23 @@ export async function listInvitations(
     .orderBy("id", "desc")
     .limit(limit + 1)
     .execute();
+  // Historical role identities remain readable after retirement, never assignable.
+  const roleIds = [...new Set(rows.slice(0, limit).map((row) => row.role_id))];
+  const roles = roleIds.length
+    ? await tx
+        .selectFrom("suite.roles")
+        .select(["id", "name"])
+        .where("workspace_id", "=", ctx.workspaceId)
+        .where("id", "in", roleIds)
+        .execute()
+    : [];
+  const roleNames = new Map(roles.map((role) => [role.id, role.name]));
   return {
     items: rows.slice(0, limit).map((row) => ({
       id: row.id,
       email: row.email,
       roleId: row.role_id,
+      roleName: roleNames.get(row.role_id),
       state:
         row.state === "pending" && new Date(row.expires_at) <= now
           ? "expired"

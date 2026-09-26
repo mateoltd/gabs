@@ -8,6 +8,7 @@ export const InvitationSchema = Type.Object({
   state: Type.String(),
   expiresAt: Type.String(),
   roleId: id,
+  roleName: Type.Optional(Type.String()),
 });
 
 export const InvitationQuerySchema = Type.Object(

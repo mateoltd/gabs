@@ -66,6 +66,7 @@ export async function authorize(
       jsonArrayFrom(
         eb
           .selectFrom("suite.roles as r")
+          .where("r.retired_at", "is", null)
           .leftJoin("suite.role_assignments as a", (j) =>
             j
               .onRef("a.role_id", "=", "r.id")
@@ -209,6 +210,7 @@ export async function permissionRecipients(
   const [roles, assignments, policy] = await Promise.all([
     tx
       .selectFrom("suite.roles")
+      .where("retired_at", "is", null)
       .select(["id", "permissions"])
       .where("workspace_id", "=", workspaceId)
       .execute(),

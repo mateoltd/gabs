@@ -155,6 +155,11 @@ export interface Database {
       name: string;
       permissions: string[];
       protected: Generated<boolean>;
+      retired_at: ColumnType<
+        Date | null,
+        Date | string | null | undefined,
+        Date | string | null
+      >;
     };
   "suite.role_assignments": Tenant & { membership_id: string; role_id: string };
   "suite.entitlements": Tenant & {

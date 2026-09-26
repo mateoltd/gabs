@@ -87,6 +87,7 @@ export async function seed() {
         const id = randomUUID();
         const role = await tx
           .selectFrom("suite.roles")
+          .where("retired_at", "is", null)
           .select("id")
           .where("workspace_id", "=", DEMO_WORKSPACE)
           .where("name", "=", roleName)

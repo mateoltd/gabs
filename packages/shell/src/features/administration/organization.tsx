@@ -1,3 +1,5 @@
+import { RoleRemoval } from "./organization/removal";
+import type { RoleDetails } from "@suite/contracts";
 import { OrganizationRoles } from "./organization/roles";
 import { OrganizationChart } from "./organization/chart";
 import { OrganizationMatrix } from "./organization/matrix";
@@ -24,7 +26,7 @@ import {
   SearchSelect,
 } from "@suite/ui-web";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./module-lifecycle";
@@ -55,6 +57,8 @@ export function Organization(props: FeatureProps) {
     [newRole, setNewRole] = useState(""),
     [classificationFilter, setClassificationFilter] = useState(""),
     [filter, setFilter] = useState(searchParams.get("module") ?? "");
+  const [removing, setRemoving] = useState<RoleDetails>();
+  const reloadButton = useRef<HTMLButtonElement>(null);
   const matchDescription = useId();
   const issues = useMemo(
     () => (policy ? organizationIssues(policy) : []),
@@ -179,6 +183,7 @@ export function Organization(props: FeatureProps) {
       <div className="organization-toolbar">
         <div className="actions">
           <Button
+            ref={reloadButton}
             onClick={() => {
               setDirty(false);
               void state.refetch();
@@ -397,10 +402,51 @@ export function Organization(props: FeatureProps) {
                 </Field>
               </>
             )}
+            {state.data.roles.some(
+              (role) => role.id === rank.id && !role.protected,
+            ) && (
+              <>
+                {dirty && (
+                  <p>
+                    Save or reload your organization changes before removing a
+                    role.
+                  </p>
+                )}
+                <Button
+                  variant="danger"
+                  disabled={busy || dirty || !props.online}
+                  onClick={() => {
+                    setRemoving(
+                      state.data!.roles.find((role) => role.id === rank.id),
+                    );
+                    setSelected("");
+                  }}
+                >
+                  Remove role
+                </Button>
+              </>
+            )}
             <Button onClick={() => setSelected("")}>Done</Button>
           </div>
         )}
       </Modal>
+      {removing && (
+        <RoleRemoval
+          key={removing.id}
+          props={props}
+          role={removing}
+          organizationVersion={version}
+          returnFocusRef={reloadButton}
+          onClose={() => setRemoving(undefined)}
+          onRemoved={async () => {
+            const current = await state.refetch();
+            if (current.error) throw current.error;
+            await qc.invalidateQueries({
+              queryKey: [props.scope.userId, props.scope.workspaceId, "roles"],
+            });
+          }}
+        />
+      )}
     </>
   );
 }

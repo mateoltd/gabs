@@ -31,3 +31,13 @@ export const RoleEditSchema = Type.Object(
 export type RoleDetails = Static<typeof RoleDetailsSchema>;
 export type RoleCreate = Static<typeof RoleCreateSchema>;
 export type RoleEdit = Static<typeof RoleEditSchema>;
+
+/** Removes availability, preserving role identity in historical invitations and audit. */
+export const RoleRemoveSchema = Type.Object(
+  {
+    revision: RoleDetailsSchema.properties.revision,
+    organizationVersion: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+export type RoleRemove = Static<typeof RoleRemoveSchema>;

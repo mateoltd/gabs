@@ -54,6 +54,7 @@ import {
   getMember,
   editMember,
   saveRole,
+  removeRole,
   listRoles,
   createInvitation,
   listInvitations,
@@ -1011,6 +1012,13 @@ export async function createApp(
     permission: "roles.manage",
     reauthorizeReplay: true,
     handler: (tx, ctx, req) => saveRole(tx, ctx, req.body, req.params.id),
+  });
+  route("roleRemove", {
+    body: S.RoleRemoveSchema,
+    response: S.OkSchema,
+    permission: "roles.manage",
+    reauthorizeReplay: true,
+    handler: (tx, ctx, req) => removeRole(tx, ctx, req.params.id, req.body),
   });
   route("invitations", {
     query: S.InvitationQuerySchema,
