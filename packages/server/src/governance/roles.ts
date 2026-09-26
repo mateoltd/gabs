@@ -19,6 +19,25 @@ import type { Tx } from "../persistence/database";
 import { audit, publish } from "../persistence/transactions";
 import { workspaceBusinessPermissions } from "../registry/module-releases";
 
+/** Role metadata owns labels; the protected root keeps its required display name. */
+export function withRoleNames(
+  policy: OrganizationPolicy,
+  roles: readonly Pick<RoleDetails, "id" | "name">[],
+): OrganizationPolicy {
+  const names = new Map(roles.map((role) => [role.id, role.name]));
+  return {
+    ...policy,
+    ranks: policy.ranks.map((rank) =>
+      rank.id === policy.rootId
+        ? rank
+        : {
+            ...rank,
+            name: names.get(rank.id) ?? rank.name,
+          },
+    ),
+  };
+}
+
 /** Revision describes the returned role fields, never an authorization grant. */
 export function roleSnapshot(
   workspaceId: string,
@@ -89,6 +108,13 @@ export async function saveRole(
     ctx.runtime,
     "roles.manage",
   );
+  const name = input.name.trim();
+  requireCondition(
+    name.length > 0,
+    400,
+    "INVALID_ROLE_NAME",
+    "Enter a role name.",
+  );
   const permitted = await workspaceBusinessPermissions(
     tx,
     ctx.workspaceId,
@@ -101,7 +127,7 @@ export async function saveRole(
     "Custom roles can grant registered business permissions only.",
   );
   requireCondition(
-    !["owner", "administrator"].includes(input.name.trim().toLowerCase()),
+    !["owner", "administrator", "administrador"].includes(name.toLowerCase()),
     400,
     "PROTECTED_ROLE",
     "This role name is reserved.",
@@ -133,12 +159,32 @@ export async function saveRole(
     await tx
       .updateTable("suite.roles")
       .set({
-        name: input.name.trim(),
+        name,
         permissions: [...new Set(input.permissions)],
       })
       .where("workspace_id", "=", ctx.workspaceId)
       .where("id", "=", id)
       .execute();
+    if (role.name !== name) {
+      const stored = await tx
+        .selectFrom("suite.platform_settings")
+        .select(["value", "version"])
+        .where("workspace_id", "=", ctx.workspaceId)
+        .where("key", "=", "organization")
+        .executeTakeFirst();
+      if (stored) {
+        const policy = stored.value as unknown as OrganizationPolicy;
+        await tx
+          .updateTable("suite.platform_settings")
+          .set({
+            value: withRoleNames(policy, [{ id: role.id, name }]),
+            version: stored.version + 1,
+          })
+          .where("workspace_id", "=", ctx.workspaceId)
+          .where("key", "=", "organization")
+          .execute();
+      }
+    }
   } else {
     id = randomUUID();
     await tx
@@ -146,7 +192,7 @@ export async function saveRole(
       .values({
         id,
         workspace_id: ctx.workspaceId,
-        name: input.name.trim(),
+        name,
         permissions: [...new Set(input.permissions)],
       })
       .execute();

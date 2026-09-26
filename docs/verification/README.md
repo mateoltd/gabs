@@ -1310,3 +1310,7 @@ Final verification passes 27 focused tests, strict checks/four fresh builds, fiv
 ## Role removal, 26 September 2026
 
 [Role-removal evidence](role-removal/README.md) records authoritative removal, current authorization under lock waits, protected-root and stale-review guards, retained historical identities, and web/native confirmation/retry acceptance. It includes the corrected initial-chart ordering regression, inspected captures and a populated local upgrade preserving the compared records. GOV-02 remains at verify for broader assistive-technology acceptance. The review identified GOV-01 role/chart naming consistency as the next concrete gap, before GOV-03 readiness work. Full parity and the later UI refinement goal remain open.
+
+## Role names and organization recovery, 26 September 2026
+
+[Role-name acceptance](role-names/README.md) covers GOV-01 / ORG-003 with supporting ORG-002 and PERM-001/PERM-002. It verifies authoritative labels, atomic chart revisions, preserved graph content, stale-write protection and failed-reload recovery. Final regression passes 1,061 tests across 140 files; strict checks and four fresh builds pass. Web/native journeys and inspected captures are recorded with their limits. Broader governance/release acceptance and later UI refinement remain open.

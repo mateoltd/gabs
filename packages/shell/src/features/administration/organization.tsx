@@ -1,3 +1,4 @@
+import { ApiError } from "@suite/client/api";
 import { RoleRemoval } from "./organization/removal";
 import type { RoleDetails } from "@suite/contracts";
 import { OrganizationRoles } from "./organization/roles";
@@ -57,8 +58,16 @@ export function Organization(props: FeatureProps) {
     [newRole, setNewRole] = useState(""),
     [classificationFilter, setClassificationFilter] = useState(""),
     [filter, setFilter] = useState(searchParams.get("module") ?? "");
+  const [conflict, setConflict] = useState(false);
   const [removing, setRemoving] = useState<RoleDetails>();
   const reloadButton = useRef<HTMLButtonElement>(null);
+  const restoreReloadFocus = useRef(false);
+  useEffect(() => {
+    if (!busy && restoreReloadFocus.current) {
+      restoreReloadFocus.current = false;
+      reloadButton.current?.focus();
+    }
+  }, [busy]);
   const matchDescription = useId();
   const issues = useMemo(
     () => (policy ? organizationIssues(policy) : []),
@@ -120,6 +129,32 @@ export function Organization(props: FeatureProps) {
           )
         : permission.startsWith(filter + ".")),
   );
+  async function reload() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const current = await state.refetch();
+      if (current.error) throw current.error;
+      if (!current.data?.organization)
+        throw new Error("The organization is no longer available.");
+      setPolicy(current.data.organization);
+      setVersion(current.data.organization.version);
+      setDirty(false);
+      setConflict(false);
+      restoreReloadFocus.current = true;
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError
+          ? cause
+          : new Error(
+              "The organization could not be reloaded. Check your connection and try again.",
+              { cause },
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   async function save() {
     setBusy(true);
     setError(undefined);
@@ -159,6 +194,8 @@ export function Organization(props: FeatureProps) {
         queryKey: [props.scope.userId, props.scope.workspaceId, "bootstrap"],
       });
     } catch (e) {
+      if (e instanceof ApiError && e.code === "VERSION_CONFLICT")
+        setConflict(true);
       setError(e);
     } finally {
       setBusy(false);
@@ -171,7 +208,7 @@ export function Organization(props: FeatureProps) {
         description="Structure your organization, delegate access, and inspect effective permissions."
         actions={
           <Button
-            disabled={!dirty || busy || issues.length > 0}
+            disabled={!dirty || busy || conflict || issues.length > 0}
             variant="primary"
             onClick={() => void save()}
           >
@@ -179,15 +216,30 @@ export function Organization(props: FeatureProps) {
           </Button>
         }
       />
-      <ErrorMessage error={error ?? state.error} />
+      <ErrorMessage
+        error={
+          error instanceof ApiError && error.code === "VERSION_CONFLICT"
+            ? undefined
+            : (error ?? state.error)
+        }
+      />
+      {conflict && (
+        <section className="notice" aria-label="Changed organization">
+          <p role="alert">
+            The organization changed. Your unsaved changes are still shown.
+            Reload replaces them with the current organization for review.
+          </p>
+          <Button disabled={busy} onClick={() => void reload()}>
+            Reload current organization
+          </Button>
+        </section>
+      )}
       <div className="organization-toolbar">
         <div className="actions">
           <Button
             ref={reloadButton}
-            onClick={() => {
-              setDirty(false);
-              void state.refetch();
-            }}
+            disabled={busy}
+            onClick={() => void reload()}
           >
             Reload
           </Button>
@@ -319,7 +371,13 @@ export function Organization(props: FeatureProps) {
         onChange={(value) => update(() => value)}
       />
       <OrganizationMatrix
-        invalid={issues.length > 0}
+        unavailableReason={
+          conflict
+            ? "Reload the current organization to preview effective permissions."
+            : issues.length > 0
+              ? "Resolve organization issues to preview effective permissions."
+              : undefined
+        }
         props={props}
         policy={policy}
         state={state.data}

@@ -9,6 +9,7 @@ import {
   inWorkspace,
   provisionWorkspace,
 } from "../../composition/src/server/product";
+import type { PlatformState } from "@suite/module-sdk/platform";
 import type { RoleDetails } from "@suite/contracts";
 const db = connectDatabase();
 const admin = new Pool({
@@ -271,4 +272,185 @@ it("rechecks authority after role reads, creation, edits and receipts wait", asy
       }
     }
   }
+});
+
+async function chartFixture() {
+  const f = await fixture();
+  const url = `/api/v1/workspaces/${f.workspace}/platform`;
+  const state = async () =>
+    (
+      await server.app.inject({ method: "GET", url, headers: f.headers })
+    ).json<PlatformState>();
+  const save = (organization: NonNullable<PlatformState["organization"]>) => {
+    const { version, ...value } = organization;
+    return server.app.inject({
+      method: "POST",
+      url,
+      headers: { ...f.headers, "idempotency-key": randomUUID() },
+      payload: { action: "organization", value, version },
+    });
+  };
+  const stored = async () =>
+    (
+      await admin.query<{
+        value: NonNullable<PlatformState["organization"]>;
+        version: number;
+      }>(
+        "select value,version from suite.platform_settings where workspace_id=$1 and key='organization'",
+        [f.workspace],
+      )
+    ).rows[0];
+  return { ...f, state, saveChart: save, stored };
+}
+it("renames saved chart labels atomically, preserves structure, and replays only once", async () => {
+  const f = await chartFixture();
+  const chart = (await f.state()).organization!;
+  const rank = chart.ranks.find((r) => r.id === f.target.id)!;
+  rank.x = 640;
+  rank.y = 320;
+  rank.inherit = true;
+  chart.ranks.find((r) => r.name === "Warehouse")!.parents = [
+    chart.rootId,
+    f.target.id,
+  ];
+  chart.groups = [
+    {
+      id: randomUUID(),
+      name: "Regional",
+      rankIds: [f.target.id],
+      grants: ["inventory.read"],
+      denies: [],
+      tags: [],
+      modules: ["contacts"],
+    },
+  ];
+  expect((await f.saveChart(chart)).statusCode).toBe(200);
+  const before = await f.stored(),
+    key = randomUUID();
+  const input = { ...change(f.target), name: "  Field sales  " };
+  expect((await f.edit(input, key, f.target.id.toUpperCase())).statusCode).toBe(
+    200,
+  );
+  const expected = {
+    ...before.value,
+    ranks: before.value.ranks.map((r) =>
+      r.id === f.target.id ? { ...r, name: "Field sales" } : r,
+    ),
+  };
+  expect(await f.stored()).toEqual({
+    value: expected,
+    version: before.version + 1,
+  });
+  expect((await f.edit(input, key, f.target.id.toUpperCase())).statusCode).toBe(
+    200,
+  );
+  expect(await f.stored()).toEqual({
+    value: expected,
+    version: before.version + 1,
+  });
+  expect(await f.auditCount()).toBe(1);
+  const permissionEdit = await f.edit({
+    ...change(await f.read()),
+    permissions: ["orders.read"],
+  });
+  expect(permissionEdit.statusCode).toBe(200);
+  expect(await f.stored()).toEqual({
+    value: expected,
+    version: before.version + 1,
+  });
+});
+it("rejects stale chart versions and canonicalizes forged labels without changing the protected root", async () => {
+  const f = await chartFixture();
+  expect((await f.saveChart((await f.state()).organization!)).statusCode).toBe(
+    200,
+  );
+  const old = (await f.state()).organization!;
+  expect(
+    (await f.edit({ ...change(f.target), name: "Regional sales" })).statusCode,
+  ).toBe(200);
+  expect((await f.saveChart(old)).json().code).toBe("VERSION_CONFLICT");
+  const current = (await f.state()).organization!;
+  current.ranks.find((r) => r.id === f.target.id)!.name = "Undo the rename";
+  expect((await f.saveChart(current)).statusCode).toBe(200);
+  expect(
+    (await f.stored()).value.ranks.find((r) => r.id === f.target.id)!.name,
+  ).toBe("Regional sales");
+  const badRoot = (await f.state()).organization!;
+  badRoot.ranks.find((r) => r.id === badRoot.rootId)!.name = "Owner";
+  expect((await f.saveChart(badRoot)).json().code).toBe("INVALID_ORGANIZATION");
+});
+it("projects legacy stale labels from role metadata and persists them on the next chart save", async () => {
+  const f = await chartFixture();
+  expect((await f.saveChart((await f.state()).organization!)).statusCode).toBe(
+    200,
+  );
+  const before = await f.stored();
+  await admin.query(
+    "update suite.roles set name=$1 where workspace_id=$2 and id=$3",
+    ["Historic rename", f.workspace, f.target.id],
+  );
+  const current = (await f.state()).organization!;
+  expect(current.ranks.find((r) => r.id === f.target.id)!.name).toBe(
+    "Historic rename",
+  );
+  expect(current.version).toBe(before.version);
+  expect(await f.stored()).toEqual(before); // Reads do not perform hidden writes.
+  expect((await f.saveChart(current)).statusCode).toBe(200);
+  expect(
+    (await f.stored()).value.ranks.find((r) => r.id === f.target.id)!.name,
+  ).toBe("Historic rename");
+  expect(await f.auditCount()).toBe(0);
+});
+it("keeps first-save drafts and competing chart changes from undoing role metadata", async () => {
+  const f = await chartFixture();
+  const first = (await f.state()).organization!;
+  expect(
+    (await f.edit({ ...change(f.target), name: "First rename" })).statusCode,
+  ).toBe(200);
+  expect(await f.stored()).toBeUndefined();
+  expect((await f.saveChart(first)).statusCode).toBe(200);
+  const chart = (await f.state()).organization!;
+  chart.ranks.find((r) => r.id === f.target.id)!.x += 100;
+  const latest = await f.read();
+  const [rename, saved] = await Promise.all([
+    f.edit({ ...change(latest), name: "Concurrent rename" }),
+    f.saveChart(chart),
+  ]);
+  expect(rename.statusCode).toBe(200);
+  expect([200, 412]).toContain(saved.statusCode);
+  const after = (await f.state()).organization!;
+  expect(after.ranks.find((r) => r.id === f.target.id)!.name).toBe(
+    "Concurrent rename",
+  );
+  expect(after.version).toBe(
+    chart.version + (saved.statusCode === 200 ? 2 : 1),
+  );
+  expect(after.ranks.find((r) => r.id === f.target.id)!.x).toBe(
+    chart.ranks.find((r) => r.id === f.target.id)!.x -
+      (saved.statusCode === 200 ? 0 : 100),
+  );
+});
+it("refuses empty trimmed names and the root display name without changing metadata or chart", async () => {
+  const f = await chartFixture();
+  expect((await f.saveChart((await f.state()).organization!)).statusCode).toBe(
+    200,
+  );
+  const before = await f.stored();
+  expect((await f.edit({ ...change(f.target), name: "   " })).json().code).toBe(
+    "INVALID_ROLE_NAME",
+  );
+  expect(
+    (await f.edit({ ...change(f.target), name: " administrador " })).json()
+      .code,
+  ).toBe("PROTECTED_ROLE");
+  const create = await server.app.inject({
+    method: "POST",
+    url: f.url,
+    headers: { ...f.headers, "idempotency-key": randomUUID() },
+    payload: { name: "   ", permissions: [] },
+  });
+  expect(create.json().code).toBe("INVALID_ROLE_NAME");
+  expect(await f.read()).toEqual(f.target);
+  expect(await f.stored()).toEqual(before);
+  expect(await f.auditCount()).toBe(0);
 });

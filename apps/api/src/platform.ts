@@ -1,4 +1,4 @@
-import { roleSnapshot } from "@suite/server-core";
+import { roleSnapshot, withRoleNames } from "@suite/server-core";
 import {
   organizationPolicy,
   modulePolicyIntents,
@@ -719,7 +719,7 @@ export async function registerPlatform(
         const owner = found(roles.find((r) => r.name === "Owner"));
         const org = settings.find((s) => s.key === "organization");
         const policy: OrganizationPolicy = org
-          ? (org.value as unknown as OrganizationPolicy)
+          ? withRoleNames(org.value as unknown as OrganizationPolicy, roles)
           : {
               rootId: owner.id,
               ranks: roles.map((r, i) => ({
@@ -1264,6 +1264,8 @@ export async function registerPlatform(
                 "INVALID_RANKS",
                 "The chart must include every workspace role and preserve the administrator root.",
               );
+              // Names are role metadata, not independently editable graph state.
+              value = withRoleNames(policy, roles);
               const requested = [
                 ...policy.ranks.flatMap((r) => r.denies),
                 ...policy.groups.flatMap((g) => [...g.grants, ...g.denies]),

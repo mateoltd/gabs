@@ -85,7 +85,7 @@ export async function reviewModuleCapabilities(
       role.name === "Owner" ? "Administrador" : role.name,
     ]),
   );
-  for (const rank of policy?.ranks ?? []) labels.set(rank.id, rank.name);
+  // Current role metadata owns labels, including when an older saved chart is stale.
   const label = (source: string) => labels.get(source) ?? source;
   const permissions = [
     ...new Set(capabilities.map((capability) => capability.permission)),

@@ -168,6 +168,17 @@ it("reviews verified releases using current policy and keeps review separate fro
     expect(
       result.roles.find((r) => r.id === child)?.decisions["orders.export"],
     ).toEqual({ allowed: true, grants: ["Export supervisors"], denies: [] });
+    // Older clients could rename metadata without updating saved chart labels.
+    await pool.query("update suite.roles set name='Export leads' where id=$1", [
+      parent,
+    ]);
+    const renamed = (await review()).json<CapabilityReview>();
+    expect(renamed.roles.find((r) => r.id === parent)?.name).toBe(
+      "Export leads",
+    );
+    expect(
+      renamed.roles.find((r) => r.id === child)?.decisions["orders.export"],
+    ).toEqual({ allowed: true, grants: ["Export leads"], denies: [] });
     expect((await execute()).statusCode).toBe(200);
     expect(
       (await review("2.0.0")).json<CapabilityReview>().capabilities,
@@ -192,7 +203,7 @@ it("reviews verified releases using current policy and keeps review separate fro
       result.roles.find((r) => r.id === child)?.decisions["orders.export"],
     ).toEqual({
       allowed: false,
-      grants: ["Restricted exports", "Export supervisors"],
+      grants: ["Restricted exports", "Export leads"],
       denies: ["Restricted exports"],
     });
     expect((await execute()).statusCode).toBe(403);
