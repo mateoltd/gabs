@@ -1,9 +1,14 @@
 import { useId, useRef, useState } from "react";
-import type { OrganizationPolicy, Rank } from "@suite/module-sdk/governance";
+import type {
+  OrganizationPolicy,
+  OrganizationIssue,
+  Rank,
+} from "@suite/module-sdk/governance";
 import { Button, Field, SearchSelect } from "@suite/ui-web";
 
 export function OrganizationChart({
   policy,
+  issues,
   zoom,
   matchingRanks,
   matchDescription,
@@ -11,6 +16,7 @@ export function OrganizationChart({
   onChange,
 }: {
   policy: OrganizationPolicy;
+  issues: OrganizationIssue[];
   zoom: number;
   matchingRanks: Set<string>;
   matchDescription: string;
@@ -27,6 +33,13 @@ export function OrganizationChart({
   const suppressClick = useRef(false);
   const [found, setFound] = useState("");
   const instructions = useId();
+  const issuePrefix = useId();
+  const rankIssues = new Map(
+    policy.ranks.map((rank) => [
+      rank.id,
+      issues.filter((issue) => issue.rankIds.includes(rank.id)),
+    ]),
+  );
   const bounds = {
     width: Math.max(1000, ...policy.ranks.map((rank) => rank.x + 200)),
     height: Math.max(500, ...policy.ranks.map((rank) => rank.y + 90)),
@@ -189,11 +202,19 @@ export function OrganizationChart({
             <g
               key={rank.id}
               data-rank-id={rank.id}
+              data-invalid={!!rankIssues.get(rank.id)?.length || undefined}
               role="button"
               tabIndex={0}
               aria-label={`Configure ${rank.name}`}
               aria-describedby={
-                matchingRanks.has(rank.id) ? matchDescription : undefined
+                [
+                  matchingRanks.has(rank.id) ? matchDescription : "",
+                  rankIssues.get(rank.id)?.length
+                    ? `${issuePrefix}-${rank.id}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
               }
               data-classification-match={
                 matchingRanks.has(rank.id) || undefined
@@ -226,6 +247,14 @@ export function OrganizationChart({
                 event.currentTarget.setPointerCapture(event.pointerId);
               }}
             >
+              {!!rankIssues.get(rank.id)?.length && (
+                <desc id={`${issuePrefix}-${rank.id}`}>
+                  {rankIssues
+                    .get(rank.id)!
+                    .map((issue) => issue.message)
+                    .join(" ")}
+                </desc>
+              )}
               <rect
                 width="160"
                 height="50"
@@ -233,9 +262,18 @@ export function OrganizationChart({
                 fill="var(--surface)"
                 stroke="currentColor"
               />
-              <text x="10" y="30" fill="currentColor">
+              <text
+                x="10"
+                y={rankIssues.get(rank.id)?.length ? "22" : "30"}
+                fill="currentColor"
+              >
                 {rank.name.slice(0, 20)}
               </text>
+              {!!rankIssues.get(rank.id)?.length && (
+                <text x="10" y="41" fontSize="11" fill="currentColor">
+                  Needs review
+                </text>
+              )}
               {matchingRanks.has(rank.id) && (
                 <circle
                   cx="146"
@@ -270,6 +308,7 @@ export function OrganizationChart({
               width="160"
               height="50"
               fill="currentColor"
+              data-invalid={!!rankIssues.get(rank.id)?.length || undefined}
               data-classification-match={
                 matchingRanks.has(rank.id) || undefined
               }

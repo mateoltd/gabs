@@ -19,3 +19,11 @@
 .organization-minimap rect[data-classification-match] {
   fill: var(--accent);
 }
+
+.organization-canvas g[data-invalid] rect {
+  stroke: var(--danger);
+  stroke-width: 1.5;
+}
+.organization-minimap rect[data-invalid] {
+  fill: var(--danger);
+}

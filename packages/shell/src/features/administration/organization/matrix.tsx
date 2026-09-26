@@ -25,6 +25,7 @@ const pageSize = 8;
 
 export function OrganizationMatrix({
   props,
+  invalid = false,
   policy,
   state,
   permissions,
@@ -36,6 +37,7 @@ export function OrganizationMatrix({
   refresh,
 }: {
   props: FeatureProps;
+  invalid?: boolean;
   policy: OrganizationPolicy;
   state: PlatformState;
   permissions: string[];
@@ -126,6 +128,7 @@ export function OrganizationMatrix({
       state.roles.map((role) => [role.id, role.permissions]),
     );
     const result = new Map<string, ReturnType<typeof effectivePermissions>>();
+    if (invalid) return result;
     for (const role of visibleRoles) {
       try {
         result.set(role.id, effectivePermissions([role.id], grants, policy));
@@ -134,11 +137,16 @@ export function OrganizationMatrix({
       }
     }
     return result;
-  }, [state.roles, policy, visibleRoles]);
+  }, [state.roles, policy, visibleRoles, invalid]);
   return (
     <section className="panel organization-section permission-section">
       <h2>Permission matrix</h2>
       <p>Review each role’s access and where its permissions come from.</p>
+      {invalid && (
+        <p role="status">
+          Resolve organization issues to preview effective permissions.
+        </p>
+      )}
       {pending?.error !== undefined && (
         <section aria-label="Permission change review" className="notice">
           {conflict ? (
@@ -250,6 +258,7 @@ export function OrganizationMatrix({
                         aria-label={`${role.name}: ${permission}`}
                         checked={role.permissions.includes(permission)}
                         disabled={
+                          invalid ||
                           role.protected ||
                           (PLATFORM_PERMISSIONS as readonly string[]).includes(
                             permission,

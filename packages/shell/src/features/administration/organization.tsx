@@ -8,6 +8,7 @@ import { type FeatureProps } from "@suite/client";
 import {
   layoutOrganization,
   validateOrganization,
+  organizationIssues,
   type OrganizationPolicy,
 } from "@suite/module-sdk/governance";
 import {
@@ -23,7 +24,7 @@ import {
   SearchSelect,
 } from "@suite/ui-web";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useShellComposition } from "../../app/composition";
 import { usePlatformState } from "./module-lifecycle";
@@ -55,6 +56,10 @@ export function Organization(props: FeatureProps) {
     [classificationFilter, setClassificationFilter] = useState(""),
     [filter, setFilter] = useState(searchParams.get("module") ?? "");
   const matchDescription = useId();
+  const issues = useMemo(
+    () => (policy ? organizationIssues(policy) : []),
+    [policy],
+  );
   useEffect(() => {
     if (state.data?.organization && !dirty) {
       setPolicy(state.data.organization);
@@ -162,7 +167,7 @@ export function Organization(props: FeatureProps) {
         description="Structure your organization, delegate access, and inspect effective permissions."
         actions={
           <Button
-            disabled={!dirty || busy}
+            disabled={!dirty || busy || issues.length > 0}
             variant="primary"
             onClick={() => void save()}
           >
@@ -187,7 +192,10 @@ export function Organization(props: FeatureProps) {
           <Button onClick={() => setZoom(Math.max(0.4, zoom - 0.2))}>
             Zoom out
           </Button>
-          <Button onClick={() => update((p) => layoutOrganization(p))}>
+          <Button
+            disabled={busy || issues.length > 0}
+            onClick={() => update((p) => layoutOrganization(p))}
+          >
             Arrange
           </Button>
         </div>
@@ -240,8 +248,43 @@ export function Organization(props: FeatureProps) {
           Matches the chart classification filter.
         </span>
       </section>
+      {!!issues.length && (
+        <section className="notice" aria-label="Organization issues">
+          <h2>Review organization changes</h2>
+          <p role="alert">
+            Resolve these issues before saving or arranging the chart. Your
+            draft is preserved.
+          </p>
+          <ul>
+            {issues.map((issue, index) => {
+              const affected = policy.ranks.filter((item) =>
+                issue.rankIds.includes(item.id),
+              );
+              return (
+                <li key={`${issue.code}:${index}`}>
+                  <p>
+                    {issue.message}{" "}
+                    {affected.length
+                      ? `${affected.length} ${affected.length === 1 ? "role needs" : "roles need"} review.`
+                      : ""}
+                  </p>
+                  {affected[0] && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setSelected(affected[0].id)}
+                    >
+                      Review {affected[0].name}
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
       <OrganizationChart
         policy={policy}
+        issues={issues}
         zoom={zoom}
         matchingRanks={matchingRanks}
         matchDescription={matchDescription}
@@ -269,6 +312,7 @@ export function Organization(props: FeatureProps) {
         onChange={(value) => update(() => value)}
       />
       <OrganizationMatrix
+        invalid={issues.length > 0}
         props={props}
         policy={policy}
         state={state.data}
@@ -290,6 +334,14 @@ export function Organization(props: FeatureProps) {
       >
         {rank && (
           <div className="form-stack">
+            {issues.some((issue) => issue.rankIds.includes(rank.id)) && (
+              <p role="alert">
+                {issues
+                  .filter((issue) => issue.rankIds.includes(rank.id))
+                  .map((issue) => issue.message)
+                  .join(" ")}
+              </p>
+            )}
             {rank.id !== policy.rootId && (
               <>
                 <Field label="Inherit parent permissions">
